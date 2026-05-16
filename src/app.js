@@ -1,8 +1,8 @@
 const appConfig = window.appConfig;
 const roadmapItems = window.roadmapItems;
-const platformChecks = window.platformChecks;
 const monitoringCards = window.monitoringCards;
 const remoteServices = window.remoteServices;
+const dataStore = window.tobaccoData;
 
 function readJson(key, fallback) {
   try {
@@ -18,21 +18,31 @@ function writeJson(key, value) {
   } catch {}
 }
 
+function escapeHtml(value) {
+  return String(value ?? "").replace(/[&<>"']/g, (char) => {
+    const entities = {
+      "&": "&amp;",
+      "<": "&lt;",
+      ">": "&gt;",
+      '"': "&quot;",
+      "'": "&#039;"
+    };
+    return entities[char];
+  });
+}
+
+function formValue(form, name) {
+  return String(new FormData(form).get(name) || "").trim();
+}
+
 const state = {
   route: "overview",
   installPrompt: null,
   completed: new Set(readJson("completed-items", [])),
-  session: readJson("tobacco-session", null),
-  requests: readJson("tobacco-requests", [
-    {
-      id: "REQ-1001",
-      customer: "عميل تجريبي",
-      channel: "واتساب",
-      type: "استفسار",
-      status: "مفتوح",
-      note: "طلب متابعة من فريق خدمة العملاء."
-    }
-  ])
+  session: null,
+  requests: [],
+  loading: true,
+  notice: null
 };
 
 const app = document.querySelector("#app");
@@ -49,8 +59,38 @@ if ("serviceWorker" in navigator && location.protocol !== "file:") {
   });
 }
 
-function setRoute(route) {
+function setNotice(type, text) {
+  state.notice = { type, text };
+}
+
+async function boot() {
+  await refreshSession();
+  await loadRequests();
+  state.loading = false;
+  render();
+}
+
+async function refreshSession() {
+  try {
+    state.session = await dataStore.getSession();
+  } catch (error) {
+    state.session = null;
+    setNotice("error", `تعذر فحص تسجيل الدخول: ${error.message}`);
+  }
+}
+
+async function loadRequests() {
+  try {
+    state.requests = await dataStore.listRequests();
+  } catch (error) {
+    state.requests = dataStore.defaultRequests;
+    setNotice("error", `تعذر تحميل الطلبات: ${error.message}`);
+  }
+}
+
+function setRoute(route, clearNotice = true) {
   state.route = route;
+  if (clearNotice) state.notice = null;
   render();
 }
 
@@ -64,42 +104,69 @@ function toggleItem(id) {
   render();
 }
 
-function saveSession(form) {
-  const data = new FormData(form);
-  state.session = {
-    name: data.get("name") || "موظف TOBACCO",
-    role: data.get("role") || "خدمة العملاء"
-  };
-  writeJson("tobacco-session", state.session);
-  setRoute("overview");
+async function saveSession(form, action) {
+  try {
+    const input = {
+      name: formValue(form, "name"),
+      role: formValue(form, "role"),
+      email: formValue(form, "email"),
+      password: formValue(form, "password")
+    };
+
+    const result = action === "signup" ? await dataStore.signUp(input) : await dataStore.signIn(input);
+    state.session = result.session || (await dataStore.getSession());
+
+    if (result.needsEmailConfirmation) {
+      setNotice("success", "تم إنشاء الحساب. إذا كان تأكيد البريد مفعلا في Supabase، افتح البريد ثم سجل الدخول.");
+    } else {
+      setNotice("success", dataStore.isConfigured() ? "تم تسجيل الدخول عبر Supabase." : "تم تسجيل الدخول التجريبي محليا.");
+    }
+
+    await loadRequests();
+    setRoute("overview", false);
+  } catch (error) {
+    setNotice("error", error.message);
+    render();
+  }
 }
 
-function logout() {
-  state.session = null;
-  writeJson("tobacco-session", null);
+async function logout() {
+  try {
+    await dataStore.signOut();
+    state.session = null;
+    setNotice("success", "تم تسجيل الخروج.");
+  } catch (error) {
+    setNotice("error", error.message);
+  }
   render();
 }
 
-function addRequest(form) {
-  const data = new FormData(form);
-  const request = {
-    id: `REQ-${Date.now().toString().slice(-5)}`,
-    customer: data.get("customer") || "عميل جديد",
-    channel: data.get("channel") || "ويب",
-    type: data.get("type") || "طلب خدمة",
-    status: "مفتوح",
-    note: data.get("note") || "لا توجد ملاحظات"
-  };
-  state.requests = [request, ...state.requests];
-  writeJson("tobacco-requests", state.requests);
-  setRoute("requests");
+async function addRequest(form) {
+  try {
+    await dataStore.createRequest({
+      customer: formValue(form, "customer"),
+      channel: formValue(form, "channel"),
+      type: formValue(form, "type"),
+      note: formValue(form, "note")
+    });
+    await loadRequests();
+    setNotice("success", dataStore.isConfigured() ? "تم حفظ الطلب في Supabase." : "تم حفظ الطلب محليا للتجربة.");
+    setRoute("requests", false);
+  } catch (error) {
+    setNotice("error", error.message);
+    if (/سجل الدخول/i.test(error.message)) state.route = "login";
+    render();
+  }
 }
 
-function updateRequest(id, status) {
-  state.requests = state.requests.map((request) =>
-    request.id === id ? { ...request, status } : request
-  );
-  writeJson("tobacco-requests", state.requests);
+async function updateRequest(id, status) {
+  try {
+    await dataStore.updateRequestStatus(id, status);
+    await loadRequests();
+    setNotice("success", "تم تحديث حالة الطلب.");
+  } catch (error) {
+    setNotice("error", error.message);
+  }
   render();
 }
 
@@ -121,7 +188,7 @@ function shell(content) {
       <aside class="sidebar" aria-label="التنقل">
         <a class="brand" href="#" data-route="overview" aria-label="الرئيسية">
           <img src="public/icons/app-icon.svg" alt="">
-          <span>${appConfig.name}</span>
+          <span>${escapeHtml(appConfig.name)}</span>
         </a>
         <nav>
           ${navButton("overview", "الرئيسية")}
@@ -135,31 +202,57 @@ function shell(content) {
       <main class="main">
         <header class="topbar">
           <div>
-            <p class="eyebrow">${appConfig.tagline}</p>
+            <p class="eyebrow">${escapeHtml(appConfig.tagline)}</p>
             <h1>${pageTitle()}</h1>
           </div>
           <div class="topbar-actions">
             ${state.installPrompt ? '<button class="button secondary" data-action="install">تثبيت</button>' : ""}
-            ${state.session ? `<button class="button secondary" data-action="logout">${state.session.name}</button>` : ""}
-            <a class="button primary" href="mailto:${appConfig.supportEmail}">الدعم</a>
+            ${state.session ? `<button class="button secondary" data-action="logout">${escapeHtml(state.session.name)}</button>` : ""}
+            <a class="button primary" href="mailto:${escapeHtml(appConfig.supportEmail)}">الدعم</a>
           </div>
         </header>
         ${connectionNotice()}
-        ${content}
+        ${messagePanel()}
+        ${state.loading ? loadingPanel() : content}
       </main>
     </div>
   `;
 }
 
 function connectionNotice() {
-  if (location.protocol !== "file:") return "";
+  if (location.protocol === "file:") {
+    return `
+      <section class="notice-panel warning">
+        <strong>هذه نسخة محلية على اللابتوب.</strong>
+        <span>للاستخدام من الايفون افتح رابط GitHub Pages، ولا تستخدم رابط <code>file:///C:/...</code>.</span>
+      </section>
+    `;
+  }
+
+  if (dataStore.isConfigured()) {
+    return `
+      <section class="notice-panel success">
+        <strong>${escapeHtml(dataStore.statusLabel())}</strong>
+        <span>الطلبات وتسجيل الدخول سيعملان من قاعدة البيانات. لا تضع مفتاح service_role داخل الواجهة أبدا.</span>
+      </section>
+    `;
+  }
 
   return `
     <section class="notice-panel">
-      <strong>هذه نسخة محلية على اللابتوب.</strong>
-      <span>للاستخدام من الآيفون افتح رابط Cloudflare أو رابط الشبكة الذي يبدأ بـ <code>http://172...</code>. لا تستخدم رابط <code>file:///C:/...</code> على الآيفون.</span>
+      <strong>${escapeHtml(dataStore.statusLabel())}</strong>
+      <span>الموقع جاهز للربط. أضف رابط Supabase والمفتاح العام في <code>src/config.js</code> بعد إنشاء الجداول.</span>
     </section>
   `;
+}
+
+function messagePanel() {
+  if (!state.notice) return "";
+  return `<section class="message-panel ${state.notice.type}">${escapeHtml(state.notice.text)}</section>`;
+}
+
+function loadingPanel() {
+  return `<section class="panel wide"><h2>جاري التحميل...</h2><p class="muted">نجهز بيانات التطبيق.</p></section>`;
 }
 
 function navButton(route, label) {
@@ -187,7 +280,7 @@ function overview() {
       <div class="hero-copy">
         <p class="eyebrow">TOBACCO</p>
         <h2>منصة عربية لخدمة العملاء ومتابعة العمل عن بعد.</h2>
-        <p>${appConfig.description}</p>
+        <p>${escapeHtml(appConfig.description)}</p>
         <div class="metric-row">
           <div class="metric">
             <strong>${openRequests}</strong>
@@ -198,8 +291,8 @@ function overview() {
             <span>جاهزية الميزات</span>
           </div>
           <div class="metric">
-            <strong>24/7</strong>
-            <span>متابعة ممكنة</span>
+            <strong>${dataStore.isConfigured() ? "Live" : "Demo"}</strong>
+            <span>${dataStore.isConfigured() ? "قاعدة Supabase" : "حفظ محلي"}</span>
           </div>
         </div>
       </div>
@@ -218,10 +311,10 @@ function overview() {
       <article class="panel">
         <h3>تشغيل اليوم</h3>
         <ol class="steps">
-          <li>افتح صفحة تسجيل الدخول وسجل دخولاً تجريبياً.</li>
+          <li>افتح صفحة تسجيل الدخول واستخدم الدخول التجريبي أو حساب Supabase بعد التفعيل.</li>
           <li>أضف طلب عميل من صفحة طلبات العملاء.</li>
           <li>راجع صفحة المراقبة لمعرفة حالة العمل.</li>
-          <li>اترك الدفع كواجهة فقط إلى أن نختار مزوداً مناسباً.</li>
+          <li>اترك الدفع كواجهة فقط إلى أن نختار مزودا مناسبا.</li>
         </ol>
       </article>
     </section>
@@ -229,12 +322,17 @@ function overview() {
 }
 
 function login() {
+  const live = dataStore.isConfigured();
   return shell(`
     <section class="panel wide form-layout">
       <div>
         <p class="eyebrow">Access</p>
         <h2>دخول الموظفين والإدارة</h2>
-        <p class="muted">هذا تسجيل دخول تجريبي محلي. الربط الحقيقي سيكون لاحقاً مع قاعدة بيانات ومزود مصادقة.</p>
+        <p class="muted">
+          ${live
+            ? "هذا الدخول متصل بقاعدة Supabase. استخدم بريد وكلمة مرور لحساب موظف."
+            : "هذا دخول تجريبي محلي الآن. بعد إضافة مفاتيح Supabase سيصبح الدخول حقيقيا."}
+        </p>
       </div>
       <form class="form-card" data-form="login">
         <label>
@@ -250,8 +348,19 @@ function login() {
             <option>الدعم الفني</option>
           </select>
         </label>
-        <button class="button primary" type="submit">دخول تجريبي</button>
-        ${state.session ? `<p class="success-note">أنت داخل الآن باسم ${state.session.name} - ${state.session.role}</p>` : ""}
+        <label class="${live ? "" : "optional-field"}">
+          البريد
+          <input name="email" type="email" placeholder="staff@example.com" autocomplete="email">
+        </label>
+        <label class="${live ? "" : "optional-field"}">
+          كلمة المرور
+          <input name="password" type="password" minlength="8" autocomplete="current-password">
+        </label>
+        <div class="button-row">
+          <button class="button primary" type="submit" data-auth-action="signin">${live ? "دخول" : "دخول تجريبي"}</button>
+          ${live ? '<button class="button secondary" type="submit" data-auth-action="signup">إنشاء حساب موظف</button>' : ""}
+        </div>
+        ${state.session ? `<p class="success-note">أنت داخل الآن باسم ${escapeHtml(state.session.name)} - ${escapeHtml(state.session.role)}</p>` : ""}
       </form>
     </section>
   `);
@@ -265,7 +374,7 @@ function requests() {
         <form class="form-card compact" data-form="request">
           <label>
             اسم العميل
-            <input name="customer" placeholder="اسم العميل أو رقم الطلب">
+            <input name="customer" maxlength="120" placeholder="اسم العميل أو رقم الطلب">
           </label>
           <label>
             القناة
@@ -287,7 +396,7 @@ function requests() {
           </label>
           <label>
             ملاحظة
-            <textarea name="note" rows="4" placeholder="اكتب ملخص الطلب"></textarea>
+            <textarea name="note" rows="4" maxlength="1000" placeholder="اكتب ملخص الطلب"></textarea>
           </label>
           <button class="button primary" type="submit">حفظ الطلب</button>
         </form>
@@ -295,7 +404,7 @@ function requests() {
       <article class="panel">
         <h3>سجل الطلبات</h3>
         <div class="request-list">
-          ${state.requests.map(requestCard).join("")}
+          ${state.requests.length ? state.requests.map(requestCard).join("") : '<p class="muted">لا توجد طلبات بعد.</p>'}
         </div>
       </article>
     </section>
@@ -312,13 +421,21 @@ function remote() {
         </div>
       </div>
       <div class="service-grid">
-        ${remoteServices.map((service) => `<article><strong>${service}</strong><p>جاهزة كواجهة تشغيل، وتحتاج ربط قاعدة بيانات عند النشر.</p></article>`).join("")}
+        ${remoteServices.map((service) => `<article><strong>${escapeHtml(service)}</strong><p>جاهزة كواجهة تشغيل، وتقرأ من قاعدة البيانات بعد ربط Supabase.</p></article>`).join("")}
       </div>
     </section>
   `);
 }
 
 function monitoring() {
+  const openRequests = state.requests.filter((request) => request.status !== "مغلق").length;
+  const closedRequests = state.requests.length - openRequests;
+  const cards = [
+    { label: "طلبات مفتوحة", value: String(openRequests), trend: "من سجل الطلبات" },
+    { label: "طلبات مغلقة", value: String(closedRequests), trend: "تمت متابعتها" },
+    ...monitoringCards.slice(1)
+  ];
+
   return shell(`
     <section class="panel wide">
       <div class="section-head">
@@ -328,11 +445,11 @@ function monitoring() {
         </div>
       </div>
       <div class="status-board full">
-        ${monitoringCards.map(statusCard).join("")}
+        ${cards.map(statusCard).join("")}
       </div>
       <div class="audit-note">
         <strong>ملاحظة تشغيلية:</strong>
-        <span>هذه المؤشرات تجريبية الآن. عند ربط قاعدة البيانات سنجعلها تقرأ الطلبات الحقيقية وحالة الموظفين.</span>
+        <span>${dataStore.isConfigured() ? "هذه المؤشرات تقرأ من جدول الطلبات في Supabase." : "هذه المؤشرات تجريبية وتعتمد على الحفظ المحلي في هذا المتصفح."}</span>
       </div>
     </section>
   `);
@@ -347,8 +464,8 @@ function payments() {
         <p class="muted">واجهة الدفع جاهزة كتصميم، لكن التفعيل الحقيقي يحتاج حساب مزود دفع ومراجعة شروطه لنشاط الشركة وبلد التشغيل.</p>
       </div>
       <div class="payment-box">
-        <strong>${appConfig.paymentStatus}</strong>
-        <p>المرحلة التالية: اختيار مزود دفع مناسب، ثم وضع مفاتيح الاختبار في ملف بيئة آمن، وليس داخل الواجهة.</p>
+        <strong>${escapeHtml(appConfig.paymentStatus)}</strong>
+        <p>المرحلة التالية: اختيار مزود دفع مناسب، ثم وضع مفاتيح الاختبار في بيئة آمنة، وليس داخل الواجهة.</p>
         <button class="button primary" type="button" disabled>الدفع غير مفعل بعد</button>
       </div>
     </section>
@@ -358,9 +475,9 @@ function payments() {
 function statusCard(item) {
   return `
     <article class="status-card">
-      <span>${item.label}</span>
-      <strong>${item.value}</strong>
-      <small>${item.trend}</small>
+      <span>${escapeHtml(item.label)}</span>
+      <strong>${escapeHtml(item.value)}</strong>
+      <small>${escapeHtml(item.trend)}</small>
     </article>
   `;
 }
@@ -368,11 +485,11 @@ function statusCard(item) {
 function taskItem(item) {
   const checked = state.completed.has(item.id);
   return `
-    <button class="task-item ${checked ? "done" : ""}" data-task="${item.id}">
+    <button class="task-item ${checked ? "done" : ""}" data-task="${escapeHtml(item.id)}">
       <span class="task-check">${checked ? "✓" : ""}</span>
       <span>
-        <strong>${item.title}</strong>
-        <small>${item.detail}</small>
+        <strong>${escapeHtml(item.title)}</strong>
+        <small>${escapeHtml(item.detail)}</small>
         <em class="task-action">${checked ? "مفعلة" : "اضغط لتفعيل هذه الميزة"}</em>
       </span>
     </button>
@@ -380,16 +497,17 @@ function taskItem(item) {
 }
 
 function requestCard(request) {
+  const nextStatus = request.status === "مغلق" ? "مفتوح" : "مغلق";
   return `
     <article class="request-card">
       <div>
-        <strong>${request.id} - ${request.customer}</strong>
-        <span>${request.channel} / ${request.type}</span>
+        <strong>${escapeHtml(request.publicId || request.id)} - ${escapeHtml(request.customer)}</strong>
+        <span>${escapeHtml(request.channel)} / ${escapeHtml(request.type)}</span>
       </div>
-      <p>${request.note}</p>
+      <p>${escapeHtml(request.note)}</p>
       <div class="request-actions">
-        <span class="status-chip">${request.status}</span>
-        <button type="button" data-request="${request.id}" data-status="${request.status === "مغلق" ? "مفتوح" : "مغلق"}">
+        <span class="status-chip">${escapeHtml(request.status)}</span>
+        <button type="button" data-request="${escapeHtml(request.id)}" data-status="${nextStatus}">
           ${request.status === "مغلق" ? "إعادة فتح" : "إغلاق"}
         </button>
       </div>
@@ -425,7 +543,7 @@ function render() {
 
   app.querySelector("[data-form='login']")?.addEventListener("submit", (event) => {
     event.preventDefault();
-    saveSession(event.currentTarget);
+    saveSession(event.currentTarget, event.submitter?.dataset.authAction || "signin");
   });
 
   app.querySelector("[data-form='request']")?.addEventListener("submit", (event) => {
@@ -438,4 +556,4 @@ function render() {
   });
 }
 
-render();
+boot();

@@ -1,14 +1,12 @@
-# منصة تطوير مواقع تعمل على Windows وApple
+# TOBACCO Web
 
-هذا مشروع Web/PWA جاهز كبداية لتطوير مواقع وتطبيقات ويب تعمل على:
+منصة خدمة عملاء عربية تعمل من المتصفح على Windows وiPhone وMac. المشروع منشور على GitHub Pages ويمكن تثبيته من Safari كأنه تطبيق ويب.
 
-- Windows
-- iPhone
-- iPad
-- Mac
-- Android
+الرابط العام:
 
-لا يحتاج Xcode أو Mac للتطوير اليومي.
+```text
+https://fhwvtqdc2q-svg.github.io/tobacco-web/
+```
 
 ## التشغيل على Windows
 
@@ -25,40 +23,42 @@ http://localhost:5173
 
 ## الفتح على iPhone
 
-1. اجعل الآيفون واللابتوب على نفس شبكة Wi-Fi.
-2. في PowerShell شغل:
-
-```powershell
-ipconfig
-```
-
-3. خذ IPv4 الخاص بـ Wi-Fi.
-4. افتح من Safari:
+افتح الرابط العام من Safari:
 
 ```text
-http://YOUR_WINDOWS_IP:5173
+https://fhwvtqdc2q-svg.github.io/tobacco-web/
 ```
 
-5. من Safari اختر `Add to Home Screen` لتثبيته كتطبيق ويب.
+ثم اختر Share ثم Add to Home Screen.
 
-## تطوير الميزات
+## ربط Supabase
 
-- عدل عناصر الخطة والمنصات في `src/config.js`.
-- عدل الواجهة والمنطق في `src/app.js`.
-- عدل التصميم في `src/styles.css`.
+المشروع جاهز للربط مع Supabase بدون وضع أسرار داخل GitHub.
 
-## النشر
+اقرأ:
 
-يمكن نشره لاحقاً على:
+```text
+SUPABASE_SETUP.md
+```
 
-- Vercel
-- Netlify
-- DigitalOcean
-- GitHub Pages بعد تعديل بسيط للمسارات
+ثم أضف Project URL والمفتاح العام فقط داخل:
+
+```text
+src/config.js
+```
+
+لا تضع مفتاح `service_role` في الواجهة.
+
+## الملفات المهمة
+
+- `src/app.js`: الواجهة والمنطق.
+- `src/supabase-client.js`: طبقة البيانات بين الحفظ المحلي وSupabase.
+- `src/config.js`: إعدادات الموقع ومفاتيح Supabase العامة عند التفعيل.
+- `supabase/schema.sql`: جدول الطلبات وسياسات RLS.
+- `.github/workflows/pages.yml`: نشر GitHub Pages.
 
 ## الفحص
 
 ```powershell
 npm run check
 ```
-

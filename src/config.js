@@ -5,19 +5,24 @@ window.appConfig = {
   description:
     "لوحة ويب عربية لإدارة طلبات العملاء، متابعة العمل عن بعد، مراقبة الحالة، وتجهيز الدفع الإلكتروني عند اختيار مزود مناسب.",
   language: "ar",
-  paymentStatus: "واجهة جاهزة للربط"
+  paymentStatus: "واجهة جاهزة للربط",
+  supabase: {
+    url: "",
+    publishableKey: "",
+    requestsTable: "customer_requests"
+  }
 };
 
 window.roadmapItems = [
   {
     id: "login",
     title: "تسجيل الدخول",
-    detail: "واجهة دخول عربية للموظفين والإدارة، جاهزة للربط مع Supabase أو Firebase."
+    detail: "واجهة دخول عربية للموظفين والإدارة، تعمل محليا الآن وتتحول إلى Supabase عند إضافة المفاتيح."
   },
   {
     id: "requests",
     title: "طلبات العملاء",
-    detail: "تسجيل طلبات العملاء وحفظها محلياً أثناء التطوير قبل ربط قاعدة البيانات."
+    detail: "تسجيل طلبات العملاء وحفظها محليا أثناء التطوير أو داخل قاعدة Supabase بعد التفعيل."
   },
   {
     id: "remote",
@@ -37,7 +42,7 @@ window.roadmapItems = [
   {
     id: "hosting",
     title: "النشر",
-    detail: "جاهز للنشر لاحقاً على خادم سحابي أو منصة استضافة ويب."
+    detail: "منشور الآن على GitHub Pages، ويمكن نقله لاحقا إلى خادم سحابي أو منصة استضافة."
   }
 ];
 
@@ -50,7 +55,7 @@ window.platformChecks = [
   {
     name: "iPhone",
     status: "جاهز عبر الرابط العام",
-    detail: "افتح رابط Cloudflare أو رابط الشبكة من Safari."
+    detail: "افتح رابط GitHub Pages من Safari ويمكن إضافته إلى الشاشة الرئيسية."
   },
   {
     name: "Mac",

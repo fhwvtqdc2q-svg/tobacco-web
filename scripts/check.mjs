@@ -4,6 +4,7 @@ const required = [
   "index.html",
   "src/app.js",
   "src/config.js",
+  "src/supabase-client.js",
   "src/styles.css",
   "public/manifest.webmanifest",
   "public/service-worker.js"
@@ -21,6 +22,11 @@ for (const file of required) {
 const html = readFileSync("index.html", "utf8");
 if (!html.includes('id="app"')) {
   console.error("index.html is missing #app root.");
+  failed = true;
+}
+
+if (!html.includes("supabase-client.js")) {
+  console.error("index.html is missing Supabase client wiring.");
   failed = true;
 }
 
