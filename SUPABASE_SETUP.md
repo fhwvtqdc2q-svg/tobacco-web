@@ -39,13 +39,17 @@ supabase: {
 
 ## 4. اختبر
 
-1. شغل الموقع.
-2. افتح صفحة تسجيل الدخول.
-3. أنشئ حساب موظف أو سجل دخول بحساب موجود.
-4. أضف طلب عميل من صفحة الطلبات.
-5. تأكد أن الطلب ظهر داخل جدول `customer_requests` في Supabase.
+1. افتح Supabase Dashboard.
+2. من Authentication ثم Users اختر Add user.
+3. أنشئ مستخدم موظف ببريد وكلمة مرور، وفعّل Auto Confirm User إن ظهر الخيار.
+4. افتح الموقع ثم صفحة تسجيل الدخول.
+5. سجل دخول بنفس البريد وكلمة المرور.
+6. أضف طلب عميل من صفحة الطلبات.
+7. تأكد أن الطلب ظهر داخل جدول `customer_requests` في Supabase.
 
-إذا ظهر `auth session missing` بعد إنشاء الحساب، فهذا يعني أن Supabase لم ينشئ جلسة دخول بعد. افتح بريد التأكيد ثم سجل الدخول، أو من Supabase عطّل Email confirmation مؤقتا أثناء التطوير من Authentication settings.
+إذا ظهر `auth session missing` فهذا يعني أن Supabase لا يرى جلسة دخول فعالة. أنشئ المستخدم من Supabase Authentication ثم سجل دخول من الموقع.
+
+إذا ظهر `email rate exceeded` فهذا حد إرسال بريد من Supabase. انتظر قليلا أو أنشئ المستخدم يدويا من Authentication > Users بدلا من إنشاء الحساب من الواجهة.
 
 ## إذا ظهر permission denied
 
