@@ -81,6 +81,10 @@ async function refreshSession() {
 
 async function loadRequests() {
   try {
+    if (dataStore.isConfigured() && !state.session) {
+      state.requests = [];
+      return;
+    }
     state.requests = await dataStore.listRequests();
   } catch (error) {
     state.requests = dataStore.defaultRequests;
@@ -369,7 +373,7 @@ function login() {
 function requests() {
   const loginPrompt =
     dataStore.isConfigured() && !state.session
-      ? '<p class="muted">سجل الدخول أولا حتى تظهر طلبات Supabase وتستطيع إضافة طلب جديد.</p>'
+      ? '<p class="muted">سجل الدخول أولا حتى تظهر طلبات Supabase وتستطيع إضافة طلب جديد. إذا أنشأت الحساب للتو، قد تحتاج تأكيد البريد أولا.</p>'
       : "";
 
   return shell(`

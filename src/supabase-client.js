@@ -81,6 +81,17 @@
     return status === "مغلق" || status === "closed" ? "closed" : "open";
   }
 
+  function missingSessionMessage() {
+    return "لا توجد جلسة دخول فعالة. إذا أنشأت الحساب للتو، افتح رسالة التأكيد في البريد أو عطّل تأكيد البريد مؤقتا من Supabase ثم سجل الدخول.";
+  }
+
+  function translateAuthError(message) {
+    if (/auth session missing|session.*missing/i.test(message || "")) {
+      return missingSessionMessage();
+    }
+    return message;
+  }
+
   async function getSupabaseSession() {
     const { data, error } = await client.auth.getSession();
     if (error) throw new Error(error.message);
@@ -88,9 +99,12 @@
   }
 
   async function requireUser() {
+    const session = await getSupabaseSession();
+    if (!session) throw new Error(missingSessionMessage());
+
     const { data, error } = await client.auth.getUser();
-    if (error) throw new Error(error.message);
-    if (!data.user) throw new Error("سجل الدخول أولا قبل حفظ الطلبات.");
+    if (error) throw new Error(translateAuthError(error.message));
+    if (!data.user) throw new Error(missingSessionMessage());
     return data.user;
   }
 
@@ -131,8 +145,11 @@
       if (!email || !password) throw new Error("اكتب البريد وكلمة المرور.");
 
       const { data, error } = await client.auth.signInWithPassword({ email, password });
-      if (error) throw new Error(error.message);
-      return { session: normalizeSession(data.session) };
+      if (error) throw new Error(translateAuthError(error.message));
+
+      const session = normalizeSession(data.session);
+      if (!session) throw new Error(missingSessionMessage());
+      return { session };
     },
 
     async signUp(input) {

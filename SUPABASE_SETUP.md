@@ -45,6 +45,8 @@ supabase: {
 4. أضف طلب عميل من صفحة الطلبات.
 5. تأكد أن الطلب ظهر داخل جدول `customer_requests` في Supabase.
 
+إذا ظهر `auth session missing` بعد إنشاء الحساب، فهذا يعني أن Supabase لم ينشئ جلسة دخول بعد. افتح بريد التأكيد ثم سجل الدخول، أو من Supabase عطّل Email confirmation مؤقتا أثناء التطوير من Authentication settings.
+
 ## إذا ظهر permission denied
 
 إذا ظهرت رسالة:
