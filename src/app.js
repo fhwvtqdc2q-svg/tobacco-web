@@ -110,6 +110,24 @@ function syncFreshnessLabel(value) {
   return `قبل ${Math.round(minutes / 60)} ساعة`;
 }
 
+const SESSION_TIMEOUT_MS = 8 * 60 * 60 * 1000;
+let sessionTimer = null;
+
+function resetSessionTimer() {
+  clearTimeout(sessionTimer);
+  if (state?.session) {
+    sessionTimer = setTimeout(() => {
+      logout();
+      setNotice("error", "انتهت جلستك تلقائياً بعد 8 ساعات من عدم النشاط. سجّل الدخول مجدداً.");
+      render();
+    }, SESSION_TIMEOUT_MS);
+  }
+}
+
+["click", "keydown", "touchstart"].forEach((event) => {
+  document.addEventListener(event, resetSessionTimer, { passive: true });
+});
+
 const state = {
   route: "overview",
   installPrompt: null,
@@ -170,6 +188,7 @@ async function boot() {
 async function refreshSession() {
   try {
     state.session = await dataStore.getSession();
+    resetSessionTimer();
   } catch (error) {
     state.session = null;
     setNotice("error", `تعذر فحص تسجيل الدخول: ${error.message}`);
@@ -274,6 +293,7 @@ async function saveSession(form, action) {
 
     const result = action === "signup" ? await dataStore.signUp(input) : await dataStore.signIn(input);
     state.session = result.session || (await dataStore.getSession());
+    resetSessionTimer();
 
     if (result.needsEmailConfirmation) {
       setNotice("success", "تم إنشاء الحساب. إذا كان تأكيد البريد مفعلا في Supabase، افتح البريد ثم سجل الدخول.");
@@ -294,6 +314,7 @@ async function saveSession(form, action) {
 }
 
 async function logout() {
+  clearTimeout(sessionTimer);
   try {
     await dataStore.signOut();
     state.session = null;
@@ -1024,6 +1045,7 @@ function shell(content) {
           ${navButton("remote", "إدارة عن بعد")}
           ${navButton("monitoring", "المراقبة")}
           ${navButton("payments", "الدفع")}
+          ${navButton("security", "الأمان والخصوصية")}
         </nav>
       </aside>
       <main class="main">
@@ -1096,7 +1118,8 @@ function pageTitle() {
     pricing: "التسعير",
     remote: "الإدارة عن بعد",
     monitoring: "المراقبة",
-    payments: "الدفع"
+    payments: "الدفع",
+    security: "الأمان والخصوصية"
   }[state.route];
 }
 
@@ -2076,6 +2099,146 @@ function monitoring() {
   `);
 }
 
+function security() {
+  const lastLogin = state.session
+    ? `${escapeHtml(state.session.name)} — ${escapeHtml(state.session.role)}`
+    : "لا يوجد مستخدم نشط حالياً";
+
+  return shell(`
+    <section class="panel wide security-page">
+      <div class="section-head">
+        <div>
+          <p class="eyebrow">Security & Privacy</p>
+          <h2>سياسة الأمان والخصوصية</h2>
+        </div>
+        <span class="status-chip">آخر تحديث: 2026</span>
+      </div>
+
+      <div class="security-grid">
+
+        <article class="security-card">
+          <h3>🔐 البيانات التي نجمعها</h3>
+          <ul class="security-list">
+            <li>اسم المستخدم والدور الوظيفي عند تسجيل الدخول</li>
+            <li>طلبات العملاء التي تُدخلها يدوياً</li>
+            <li>أرصدة الزبائن وحدود الائتمان المستوردة من الأمين</li>
+            <li>بيانات الجرد والأسعار المرفوعة من ملفات Excel</li>
+          </ul>
+          <p class="security-note">لا نجمع بيانات تلقائياً خارج ما تُدخله أنت مباشرة.</p>
+        </article>
+
+        <article class="security-card">
+          <h3>🛡️ كيف نحمي بياناتك</h3>
+          <ul class="security-list">
+            <li>جميع البيانات مشفّرة عبر HTTPS أثناء النقل</li>
+            <li>التخزين في Supabase مع تشفير على مستوى قاعدة البيانات</li>
+            <li>مفاتيح API مخزّنة في الخادم وليس في الواجهة</li>
+            <li>تسجيل خروج تلقائي بعد 8 ساعات من عدم النشاط</li>
+            <li>جميع المدخلات مُعالَجة لمنع هجمات XSS</li>
+          </ul>
+        </article>
+
+        <article class="security-card">
+          <h3>👥 من يمكنه الوصول</h3>
+          <ul class="security-list">
+            <li>الموظفون المسجّلون بحساب Supabase فقط</li>
+            <li>كل موظف يرى البيانات المسموح له بها حسب دوره</li>
+            <li>لا يوجد وصول خارجي بدون بريد وكلمة مرور</li>
+            <li>مدير النظام يستطيع إلغاء أي حساب فوراً</li>
+          </ul>
+          <p class="security-note security-active">الجلسة الحالية: ${lastLogin}</p>
+        </article>
+
+        <article class="security-card">
+          <h3>🔑 قواعد كلمات المرور</h3>
+          <ul class="security-list">
+            <li>8 أحرف كحد أدنى</li>
+            <li>لا تشارك كلمة المرور مع أحد</li>
+            <li>غيّر كلمة المرور كل 3 أشهر</li>
+            <li>لا تستخدم نفس كلمة المرور في مواقع أخرى</li>
+            <li>فعّل التحقق بخطوتين في Supabase إن أمكن</li>
+          </ul>
+        </article>
+
+        <article class="security-card">
+          <h3>🚨 ماذا تفعل عند الاشتباه باختراق</h3>
+          <ol class="security-list security-steps">
+            <li>سجّل الخروج فوراً من جميع الأجهزة</li>
+            <li>غيّر كلمة المرور من Supabase Dashboard</li>
+            <li>راجع سجل الدخول في Supabase وابحث عن دخول غير معروف</li>
+            <li>أبلغ مدير النظام فوراً عبر البريد: <strong>${escapeHtml(appConfig.supportEmail)}</strong></li>
+            <li>إذا تأكّد الاختراق، أوقف جميع الحسابات المشبوهة</li>
+          </ol>
+        </article>
+
+        <article class="security-card">
+          <h3>📋 حقوقك كمستخدم</h3>
+          <ul class="security-list">
+            <li>طلب عرض البيانات المخزّنة عنك</li>
+            <li>طلب تصحيح أي معلومات غير دقيقة</li>
+            <li>طلب حذف حسابك وبياناتك</li>
+            <li>الاطلاع على سجل الوصول لحسابك</li>
+          </ul>
+          <p class="security-note">للطلبات: <strong>${escapeHtml(appConfig.supportEmail)}</strong></p>
+        </article>
+
+        <article class="security-card security-card-wide">
+          <h3>⚙️ الإجراءات التقنية المطبّقة</h3>
+          <div class="security-measures">
+            <div class="measure-row">
+              <span class="measure-ok">✓</span>
+              <span>تشفير HTTPS لجميع الاتصالات</span>
+            </div>
+            <div class="measure-row">
+              <span class="measure-ok">✓</span>
+              <span>حماية XSS — جميع المدخلات مُعقَّمة</span>
+            </div>
+            <div class="measure-row">
+              <span class="measure-ok">✓</span>
+              <span>تسجيل خروج تلقائي بعد 8 ساعات</span>
+            </div>
+            <div class="measure-row">
+              <span class="measure-ok">✓</span>
+              <span>مفاتيح Supabase العامة فقط في الواجهة — لا service_role أبداً</span>
+            </div>
+            <div class="measure-row">
+              <span class="measure-ok">✓</span>
+              <span>Row Level Security (RLS) في Supabase لعزل البيانات</span>
+            </div>
+            <div class="measure-row">
+              <span class="measure-warn">!</span>
+              <span>يُنصح بتفعيل التحقق بخطوتين في حسابات Supabase</span>
+            </div>
+            <div class="measure-row">
+              <span class="measure-warn">!</span>
+              <span>يُنصح بمراجعة سجلات الدخول شهرياً</span>
+            </div>
+          </div>
+        </article>
+
+        <article class="security-card security-card-wide">
+          <h3>📅 سجل التحديثات الأمنية</h3>
+          <div class="detail-list">
+            <div class="detail-row">
+              <strong>مايو 2026</strong>
+              <span>إضافة تسجيل خروج تلقائي بعد 8 ساعات + صفحة سياسة الأمان</span>
+            </div>
+            <div class="detail-row">
+              <strong>مايو 2026</strong>
+              <span>حماية XSS لجميع مدخلات المستخدمين</span>
+            </div>
+            <div class="detail-row">
+              <strong>مايو 2026</strong>
+              <span>ربط Supabase مع Row Level Security</span>
+            </div>
+          </div>
+        </article>
+
+      </div>
+    </section>
+  `);
+}
+
 function payments() {
   return shell(`
     <section class="panel wide form-layout">
@@ -2293,7 +2456,8 @@ function render() {
     pricing,
     remote,
     monitoring,
-    payments
+    payments,
+    security
   };
 
   app.innerHTML = pages[state.route]();
