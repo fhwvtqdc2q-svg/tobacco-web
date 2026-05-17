@@ -56,6 +56,9 @@ function normalizeItemName(value) {
 
 function toNumber(value) {
   const text = String(value ?? "")
+    .replace(/[٠-٩]/g, (digit) => String("٠١٢٣٤٥٦٧٨٩".indexOf(digit)))
+    .replace(/[۰-۹]/g, (digit) => String("۰۱۲۳۴۵۶۷۸۹".indexOf(digit)))
+    .replace(/[٫،]/g, ".")
     .replace(/,/g, "")
     .replace(/[^\d.-]/g, "")
     .trim();
@@ -1663,7 +1666,7 @@ function pricingRow(item) {
       <form class="customer-limit-editor" data-form="pricing-item" data-item-key="${escapeHtml(item.key)}" data-item-name="${escapeHtml(item.name || "")}" data-stock-qty="${escapeHtml(qty)}" data-stock-status="${escapeHtml(item.status || "")}">
         <label>
           سعر البيع
-          <input name="salePrice" type="number" min="0" step="0.001" inputmode="decimal" value="${escapeHtml(price > 0 ? price : "")}" placeholder="0">
+          <input name="salePrice" type="text" inputmode="decimal" dir="ltr" value="${escapeHtml(price > 0 ? price : "")}" placeholder="0">
         </label>
         <button class="button secondary mini-button" type="submit">حفظ السعر</button>
       </form>
@@ -1746,7 +1749,7 @@ function customerBalanceRow(item) {
       <form class="customer-limit-editor" data-form="customer-limit" data-customer-key="${escapeHtml(key)}" data-customer-name="${escapeHtml(item.name || "")}">
         <label>
           الحد الداخلي
-          <input name="creditLimit" type="number" min="0" step="0.001" inputmode="decimal" value="${escapeHtml(item.internalCreditLimit > 0 ? item.internalCreditLimit : "")}" placeholder="${escapeHtml(limit > 0 ? formatMoney(limit) : "0")}">
+          <input name="creditLimit" type="text" inputmode="decimal" dir="ltr" value="${escapeHtml(item.internalCreditLimit > 0 ? item.internalCreditLimit : "")}" placeholder="${escapeHtml(limit > 0 ? formatMoney(limit) : "0")}">
         </label>
         <label>
           ملاحظة
@@ -1936,7 +1939,7 @@ function ameen() {
           </label>
           <label>
             حد تنبيه قرب النفاد
-            <input name="lowThreshold" type="number" min="0" step="1" value="${escapeHtml(summary.threshold || 50)}">
+            <input name="lowThreshold" type="text" inputmode="numeric" dir="ltr" value="${escapeHtml(summary.threshold || 50)}">
           </label>
           <div class="button-row">
             <button class="button primary" type="submit">تحليل وحفظ التقرير</button>
