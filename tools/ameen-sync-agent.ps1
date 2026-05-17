@@ -177,6 +177,11 @@ function Build-CustomerBalanceReport($Rows) {
     $balance = To-Number $row.balance
     $creditLimit = To-Number $row.credit_limit
     $remainingLimit = To-Number $row.remaining_limit
+    $lastPaymentAmount = To-Number $row.last_payment_amount
+    $lastPaymentDate = ""
+    if ($null -ne $row.last_payment_date -and $row.last_payment_date -ne "") {
+      $lastPaymentDate = ([datetime]$row.last_payment_date).ToString("o")
+    }
     $status = "clear"
 
     if ($creditLimit -gt 0 -and $balance -gt $creditLimit) {
@@ -195,6 +200,9 @@ function Build-CustomerBalanceReport($Rows) {
       balance = [math]::Round($balance, 3)
       creditLimit = [math]::Round($creditLimit, 3)
       remainingLimit = [math]::Round($remainingLimit, 3)
+      lastPaymentAmount = [math]::Round($lastPaymentAmount, 3)
+      lastPaymentDate = $lastPaymentDate
+      lastPaymentNotes = [string]$row.last_payment_notes
       status = $status
       customerGuid = [string]$row.customer_guid
     }

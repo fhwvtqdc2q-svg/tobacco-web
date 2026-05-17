@@ -72,9 +72,18 @@ function formatDateTime(value) {
   if (!value) return "غير معروف";
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return String(value);
-  return new Intl.DateTimeFormat("ar-SA", {
+  return new Intl.DateTimeFormat("ar-SA-u-nu-latn", {
     dateStyle: "medium",
     timeStyle: "short"
+  }).format(date);
+}
+
+function formatDate(value) {
+  if (!value) return "غير متوفر";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return String(value);
+  return new Intl.DateTimeFormat("ar-SA-u-nu-latn", {
+    dateStyle: "medium"
   }).format(date);
 }
 
@@ -695,10 +704,12 @@ function downloadFilteredCustomerBalances() {
     customerBalance(item),
     customerLimit(item) > 0 ? customerLimit(item) : "",
     customerLimit(item) > 0 ? customerRemainingLimit(item) : "",
+    customerLastPaymentAmount(item) > 0 ? customerLastPaymentAmount(item) : "",
+    customerLastPaymentDate(item) || "",
     customerStatusLabel(item.status)
   ]);
   const worksheet = window.XLSX.utils.aoa_to_sheet([
-    ["الزبون", "الرصيد", "الحد المسموح", "المتبقي من الحد", "الحالة"],
+    ["الزبون", "الرصيد", "الحد المسموح", "المتبقي من الحد", "آخر دفعة", "تاريخ آخر دفعة", "الحالة"],
     ...rows
   ]);
   const workbook = window.XLSX.utils.book_new();
@@ -1095,6 +1106,14 @@ function customerRemainingLimit(item) {
   return Number(item?.remainingLimit || 0);
 }
 
+function customerLastPaymentAmount(item) {
+  return Number(item?.lastPaymentAmount || 0);
+}
+
+function customerLastPaymentDate(item) {
+  return item?.lastPaymentDate || "";
+}
+
 function customerLimitSourceLabel(source) {
   return {
     internal: "حد داخلي",
@@ -1138,6 +1157,9 @@ function applyCustomerLimits(items) {
       creditLimitNotes: savedLimit?.notes || "",
       limitSource: internalLimit > 0 ? "internal" : ameenLimit > 0 ? "ameen" : "none",
       remainingLimit: effectiveLimit > 0 ? effectiveLimit - Math.max(0, balance) : 0,
+      lastPaymentAmount: Number(item?.lastPaymentAmount || 0),
+      lastPaymentDate: item?.lastPaymentDate || "",
+      lastPaymentNotes: item?.lastPaymentNotes || "",
       status: deriveCustomerStatus(balance, effectiveLimit)
     };
   });
@@ -1156,7 +1178,8 @@ function customerBalanceTotals(items) {
     creditCustomers: creditItems.length,
     totalDebitBalance: debitItems.reduce((sum, item) => sum + customerBalance(item), 0),
     totalCreditBalance: creditItems.reduce((sum, item) => sum + customerBalance(item), 0),
-    customersWithLimit: items.filter((item) => customerLimit(item) > 0).length
+    customersWithLimit: items.filter((item) => customerLimit(item) > 0).length,
+    customersWithPayment: items.filter((item) => customerLastPaymentAmount(item) > 0).length
   };
 }
 
@@ -1171,7 +1194,7 @@ function customerStatusLabel(status) {
 }
 
 function formatMoney(value) {
-  return new Intl.NumberFormat("ar-SY", {
+  return new Intl.NumberFormat("en-US", {
     maximumFractionDigits: 3
   }).format(Number(value || 0));
 }
@@ -1335,6 +1358,7 @@ function customerBalanceRow(item) {
       <strong>${escapeHtml(item.name)}</strong>
       <span>الرصيد: ${escapeHtml(formatMoney(customerBalance(item)))} / الحد: ${escapeHtml(limit > 0 ? formatMoney(limit) : "غير محدد")}</span>
       <span>المتبقي من الحد: ${escapeHtml(limit > 0 ? formatMoney(remaining) : "غير محدد")} / الحالة: ${escapeHtml(customerStatusLabel(item.status))} / المصدر: ${escapeHtml(customerLimitSourceLabel(item.limitSource))}</span>
+      <span>آخر دفعة: ${escapeHtml(customerLastPaymentAmount(item) > 0 ? formatMoney(customerLastPaymentAmount(item)) : "غير متوفر")} / التاريخ: ${escapeHtml(customerLastPaymentDate(item) ? formatDate(customerLastPaymentDate(item)) : "غير متوفر")}</span>
       <form class="customer-limit-editor" data-form="customer-limit" data-customer-key="${escapeHtml(key)}" data-customer-name="${escapeHtml(item.name || "")}">
         <label>
           الحد الداخلي
@@ -1388,6 +1412,7 @@ function customerBalanceSection(report) {
         ${inventoryMetric("إجمالي لصالحهم", formatMoney(totals.totalCreditBalance), "مجموع الأرصدة السالبة")}
         ${inventoryMetric("تجاوزوا الحد", counts.over_limit, "حسب الحد الفعال")}
         ${inventoryMetric("حدود مسجلة", totals.customersWithLimit, "داخلي أو من الأمين")}
+        ${inventoryMetric("لهم آخر دفعة", totals.customersWithPayment, "من حركات حساب الزبون")}
         ${inventoryMetric("بلا حد", counts.no_limit, "لا يوجد حد مسجل")}
       </div>
       <div class="inventory-controls">
