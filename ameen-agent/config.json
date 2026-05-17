@@ -1,0 +1,19 @@
+{
+  "sql_server": {
+    "server": "localhost\\SQLEXPRESS",
+    "database": "AMEEN",
+    "windows_auth": true,
+    "username": "",
+    "password": ""
+  },
+  "inventory_query": "",
+  "column_item_name": "اسم المادة",
+  "column_quantity": "الكمية",
+  "column_unit": "الوحدة",
+  "low_stock_threshold": 50,
+  "supabase": {
+    "url": "https://dyxbirfpxeocqffnfdeb.supabase.co",
+    "key": "sb_publishable_RkM_QDWxk8Yekqz9KBKXBw_Yl14zhSH",
+    "table": "inventory_reports"
+  }
+}
