@@ -484,13 +484,13 @@ async function parseStockWorkbook(file, threshold) {
 
 async function parsePriceWorkbook(file) {
   const workbook = await readWorkbookFile(file);
-  const { sheetName, rows } = sheetRows(workbook, ["لائحة", "اسعار", "أسعار"]);
+  const { sheetName, rows } = sheetRows(workbook, ["لائحة", "اسعار", "أسعار", "تسعير", "price"]);
   const headerIndex = findHeaderRow(rows);
   const headers = rows[headerIndex].map((cell) => String(cell ?? "").trim());
-  const itemIndex = findColumn(headers, ["اسم المادة", "المادة", "الصنف"]);
-  if (itemIndex < 0) throw new Error("ملف الأسعار لا يحتوي على عمود اسم المادة.");
+  const itemIndex = findColumn(headers, ["اسم المادة", "المادة", "الصنف", "البضاعة", "المنتج", "اسم", "الاسم", "Item", "Name"]);
+  if (itemIndex < 0) throw new Error("ملف الأسعار لا يحتوي على عمود اسم المادة. تأكد أن هناك عمود باسم: اسم المادة أو المادة أو الصنف أو البضاعة.");
   const priceIndexes = headers
-    .map((header, index) => (header.includes("سعر") ? index : -1))
+    .map((header, index) => (header.includes("سعر") || header.includes("ثمن") || header.includes("تسعير") || header.toLowerCase().includes("price") ? index : -1))
     .filter((index) => index >= 0);
 
   const priceRows = rows
@@ -1990,10 +1990,11 @@ function ameen() {
             ملف الأسعار بعد التسعير
             <input name="livePrice" type="file" accept=".xlsx,.xls">
           </label>
+          <p class="muted">يقبل أي ملف Excel يحتوي عمود اسم المادة وعمود سعر — سواء من قالب الموقع أو قائمتك الخاصة.</p>
           ${state.approvedPriceError ? `<p class="muted">تنبيه الأسعار: ${escapeHtml(state.approvedPriceError)}</p>` : ""}
           <div class="button-row">
-            <button class="button secondary" type="button" data-action="download-price-template" ${liveReport && summary.availableItems ? "" : "disabled"}>تنزيل قالب تسعير من الموقع</button>
-            <button class="button primary" type="submit" ${liveReport && summary.availableItems ? "" : "disabled"}>استيراد الأسعار وحذف غير الموجود</button>
+            <button class="button secondary" type="button" data-action="download-price-template" ${summary.availableItems ? "" : "disabled"}>تنزيل قالب تسعير من الموقع</button>
+            <button class="button primary" type="submit" ${summary.availableItems ? "" : "disabled"}>استيراد الأسعار وحذف غير الموجود</button>
             <button class="button secondary" type="button" data-action="download-approved-prices" ${approvedPrices.length ? "" : "disabled"}>تصدير أسعار المحاسبة</button>
           </div>
         </form>
