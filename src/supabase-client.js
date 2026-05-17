@@ -3,6 +3,7 @@
   const REQUESTS_KEY = "tobacco-requests";
   const INVENTORY_REPORTS_KEY = "tobacco-inventory-reports";
   const CUSTOMER_LIMITS_KEY = "tobacco-customer-credit-limits";
+  const APPROVED_PRICES_KEY = "tobacco-approved-price-items";
 
   const defaultRequests = [
     {
@@ -43,6 +44,7 @@
   const tableName = config.requestsTable || "customer_requests";
   const inventoryReportsTable = config.inventoryReportsTable || "inventory_reports";
   const creditLimitsTable = config.creditLimitsTable || "customer_credit_limits";
+  const approvedPricesTable = config.approvedPricesTable || "approved_price_items";
   const client =
     hasConfig && hasLibrary
       ? window.supabase.createClient(config.url, config.publishableKey, {
@@ -105,6 +107,42 @@
       notes: cleanText(input.notes, 500),
       updated_at: new Date().toISOString(),
       ...(userId ? { updated_by: userId } : {})
+    };
+  }
+
+  function normalizeDbApprovedPrice(row) {
+    return {
+      id: row.id,
+      itemKey: row.item_key,
+      itemName: row.item_name || "",
+      salePrice: Number(row.sale_price || 0),
+      stockQty: Number(row.stock_qty || 0),
+      stockStatus: row.stock_status || "",
+      sourceReportId: row.source_report_id || "",
+      sourceSyncedAt: row.source_synced_at || "",
+      pricePayload: row.price_payload || {},
+      notes: row.notes || "",
+      approvedAt: row.approved_at || row.updated_at || row.created_at || "",
+      updatedAt: row.updated_at || row.approved_at || row.created_at || ""
+    };
+  }
+
+  function normalizeApprovedPriceInput(input, userId = null) {
+    const salePrice = Number(input.salePrice || 0);
+    const stockQty = Number(input.stockQty || 0);
+    return {
+      item_key: cleanText(input.itemKey, 240),
+      item_name: cleanText(input.itemName, 240),
+      sale_price: Number.isFinite(salePrice) ? Math.max(0, salePrice) : 0,
+      stock_qty: Number.isFinite(stockQty) ? stockQty : 0,
+      stock_status: cleanText(input.stockStatus, 40),
+      source_report_id: input.sourceReportId || null,
+      source_synced_at: input.sourceSyncedAt || null,
+      price_payload: input.pricePayload || {},
+      notes: cleanText(input.notes, 500),
+      approved_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+      ...(userId ? { approved_by: userId } : {})
     };
   }
 
@@ -364,6 +402,94 @@
 
       if (error) throw new Error(error.message);
       return normalizeDbCustomerLimit(data);
+    },
+
+    async listApprovedPriceItems() {
+      if (!client) return readJson(APPROVED_PRICES_KEY, []);
+
+      const session = await getSupabaseSession();
+      if (!session) return [];
+
+      const { data, error } = await client
+        .from(approvedPricesTable)
+        .select("id, item_key, item_name, sale_price, stock_qty, stock_status, source_report_id, source_synced_at, price_payload, notes, approved_at, updated_at")
+        .order("item_name", { ascending: true })
+        .limit(5000);
+
+      if (error) throw new Error(error.message);
+      return (data || []).map(normalizeDbApprovedPrice);
+    },
+
+    async upsertApprovedPriceItems(items) {
+      const payload = (items || [])
+        .map((item) => normalizeApprovedPriceInput(item))
+        .filter((item) => item.item_key && item.item_name && item.sale_price > 0);
+
+      if (!payload.length) {
+        throw new Error("لا توجد أسعار صالحة للحفظ.");
+      }
+
+      if (!client) {
+        const normalized = payload.map((item) =>
+          normalizeDbApprovedPrice({
+            ...item,
+            id: item.item_key,
+            created_at: item.approved_at
+          })
+        );
+        writeJson(APPROVED_PRICES_KEY, normalized);
+        return normalized;
+      }
+
+      const user = await requireUser();
+      const withUser = (items || [])
+        .map((item) => normalizeApprovedPriceInput(item, user.id))
+        .filter((item) => item.item_key && item.item_name && item.sale_price > 0);
+      const { data, error } = await client
+        .from(approvedPricesTable)
+        .upsert(withUser, { onConflict: "item_key" })
+        .select("id, item_key, item_name, sale_price, stock_qty, stock_status, source_report_id, source_synced_at, price_payload, notes, approved_at, updated_at");
+
+      if (error) throw new Error(error.message);
+      return (data || []).map(normalizeDbApprovedPrice);
+    },
+
+    async replaceApprovedPriceItems(items) {
+      const payload = (items || [])
+        .map((item) => normalizeApprovedPriceInput(item))
+        .filter((item) => item.item_key && item.item_name && item.sale_price > 0);
+
+      if (!payload.length) {
+        throw new Error("لا توجد أسعار صالحة للحفظ.");
+      }
+
+      if (!client) {
+        const normalized = payload.map((item) =>
+          normalizeDbApprovedPrice({
+            ...item,
+            id: item.item_key,
+            created_at: item.approved_at
+          })
+        );
+        writeJson(APPROVED_PRICES_KEY, normalized);
+        return normalized;
+      }
+
+      const user = await requireUser();
+      const withUser = (items || [])
+        .map((item) => normalizeApprovedPriceInput(item, user.id))
+        .filter((item) => item.item_key && item.item_name && item.sale_price > 0);
+
+      const { error: deleteError } = await client.from(approvedPricesTable).delete().neq("item_key", "__never__");
+      if (deleteError) throw new Error(deleteError.message);
+
+      const { data, error } = await client
+        .from(approvedPricesTable)
+        .insert(withUser)
+        .select("id, item_key, item_name, sale_price, stock_qty, stock_status, source_report_id, source_synced_at, price_payload, notes, approved_at, updated_at");
+
+      if (error) throw new Error(error.message);
+      return (data || []).map(normalizeDbApprovedPrice);
     },
 
     async createInventoryReport(report) {

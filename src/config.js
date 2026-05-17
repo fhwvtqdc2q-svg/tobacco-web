@@ -11,7 +11,8 @@ window.appConfig = {
     publishableKey: "sb_publishable_RkM_QDWxk8Yekqz9KBKXBw_Yl14zhSH",
     requestsTable: "customer_requests",
     inventoryReportsTable: "inventory_reports",
-    creditLimitsTable: "customer_credit_limits"
+    creditLimitsTable: "customer_credit_limits",
+    approvedPricesTable: "approved_price_items"
   }
 };
 
