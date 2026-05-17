@@ -353,6 +353,9 @@ async function parsePriceWorkbook(file) {
   const headers = rows[headerIndex].map((cell) => String(cell ?? "").trim());
   const itemIndex = findColumn(headers, ["اسم المادة", "المادة", "الصنف"]);
   if (itemIndex < 0) throw new Error("ملف الأسعار لا يحتوي على عمود اسم المادة.");
+  const priceIndexes = headers
+    .map((header, index) => (header.includes("سعر") ? index : -1))
+    .filter((index) => index >= 0);
 
   const priceRows = rows
     .slice(headerIndex + 1)
@@ -360,11 +363,12 @@ async function parsePriceWorkbook(file) {
     .map((row) => ({
       key: normalizeItemName(row[itemIndex]),
       name: String(row[itemIndex] ?? "").trim(),
+      hasPrice: priceIndexes.some((index) => toNumber(row[index]) > 0),
       raw: headers.map((_, index) => row[index] ?? "")
     }));
 
   if (!priceRows.length) throw new Error("ملف الأسعار لا يحتوي على مواد قابلة للقراءة.");
-  return { sheetName, headers, rows: priceRows };
+  return { sheetName, headers, rows: priceRows, priceIndexes };
 }
 
 function movementSummary(currentItems, previousReport) {
@@ -417,8 +421,9 @@ async function buildInventoryReport(stockFile, priceFile, threshold, previousRep
   const stock = await parseStockWorkbook(stockFile, threshold);
   const price = priceFile ? await parsePriceWorkbook(priceFile) : null;
   const availableKeys = new Set(stock.items.filter((item) => item.stockQty > 0).map((item) => item.key));
-  const filteredPriceRows = price ? price.rows.filter((row) => availableKeys.has(row.key)) : [];
+  const filteredPriceRows = price ? price.rows.filter((row) => availableKeys.has(row.key) && row.hasPrice) : [];
   const excludedPriceRows = price ? price.rows.filter((row) => !availableKeys.has(row.key)) : [];
+  const zeroPriceRows = price ? price.rows.filter((row) => availableKeys.has(row.key) && !row.hasPrice) : [];
   const items = classifyInventoryItems(stock.items, price?.rows, threshold);
   const movement = movementSummary(items, previousReport);
   const summary = {
@@ -432,6 +437,8 @@ async function buildInventoryReport(stockFile, priceFile, threshold, previousRep
     staleItems: items.filter((item) => item.status === "stale").length,
     activeItems: items.filter((item) => item.status === "active").length,
     priceRows: price?.rows.length || 0,
+    pricedRows: price?.rows.filter((row) => row.hasPrice).length || 0,
+    zeroPriceRows: zeroPriceRows.length,
     exportedPriceRows: filteredPriceRows.length,
     excludedPriceRows: excludedPriceRows.length,
     threshold,
@@ -466,8 +473,8 @@ async function importAmeenReport(form) {
     await loadInventoryReports();
 
     setNotice(
-      "success",
-      `تم حفظ تقرير الأمين. المواد القريبة من النفاد: ${report.summary.lowStockItems}، والمواد المستبعدة من لائحة الأسعار: ${report.summary.excludedPriceRows}.`
+      report.summary.zeroPriceRows ? "error" : "success",
+      `تم حفظ تقرير الأمين. المواد القريبة من النفاد: ${report.summary.lowStockItems}، المستبعدة من لائحة الأسعار: ${report.summary.excludedPriceRows}، ومواد موجودة لكن بلا سعر: ${report.summary.zeroPriceRows}.`
     );
     setRoute("ameen", false);
   } catch (error) {
@@ -484,6 +491,11 @@ function downloadFilteredPriceList() {
   }
 
   assertExcelSupport();
+  if (!state.priceExport.rows.length) {
+    setNotice("error", "لا توجد مواد بسعر صالح للتنزيل. ملف الأسعار الحالي يحتوي أسعارا صفرية أو فارغة للمواد المتوفرة.");
+    render();
+    return;
+  }
   const worksheet = window.XLSX.utils.aoa_to_sheet([state.priceExport.headers, ...state.priceExport.rows]);
   const workbook = window.XLSX.utils.book_new();
   window.XLSX.utils.book_append_sheet(workbook, worksheet, "available-prices");
@@ -845,6 +857,7 @@ function ameen() {
                 ${inventoryMetric("راكدة", summary.staleItems || 0, "موجودة ولا تظهر في الأسعار")}
                 ${inventoryMetric("فعالة", summary.activeItems || 0, "موجودة وتظهر في الأسعار")}
                 ${inventoryMetric("استبعاد أسعار", summary.excludedPriceRows || 0, "غير موجودة في المستودع")}
+                ${inventoryMetric("بلا سعر", summary.zeroPriceRows || 0, "موجودة لكن سعرها صفر")}
               </div>`
             : '<p class="muted">لم تحفظ تقرير جرد بعد. ارفع ملف الجرد اليومي حتى يظهر الملخص هنا وعلى الآيفون.</p>'
         }
