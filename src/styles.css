@@ -53,6 +53,9 @@ code {
   border-left: 1px solid #2f2415;
   background: #050403;
   color: var(--ink);
+  display: flex;
+  flex-direction: column;
+  overflow-y: auto;
 }
 
 .brand {

@@ -1,0 +1,550 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#080705" />
+    <title>سياسة الخصوصية | OZK TOBACCO</title>
+    <style>
+      :root {
+        --bg: #080705;
+        --surface: #14100b;
+        --surface-soft: #20180e;
+        --ink: #fff6dd;
+        --muted: #bba779;
+        --line: #46361f;
+        --primary: #d7a83f;
+        --accent: #f2cf78;
+        --danger: #ff7468;
+        font-family: "Segoe UI", Tahoma, Arial, sans-serif;
+      }
+
+      * { box-sizing: border-box; margin: 0; padding: 0; }
+
+      body {
+        background: linear-gradient(180deg, #0f0c08 0%, var(--bg) 52%, #050403 100%);
+        color: var(--ink);
+        min-height: 100vh;
+      }
+
+      header {
+        background: #050403;
+        border-bottom: 1px solid var(--line);
+        padding: 18px 24px;
+        display: flex;
+        align-items: center;
+        gap: 14px;
+      }
+
+      header a {
+        color: var(--muted);
+        text-decoration: none;
+        font-size: 0.9rem;
+        border: 1px solid var(--line);
+        border-radius: 6px;
+        padding: 6px 14px;
+        transition: background 0.15s;
+      }
+
+      header a:hover { background: var(--surface-soft); color: var(--accent); }
+
+      header h1 {
+        font-size: 1.15rem;
+        color: var(--accent);
+        flex: 1;
+        text-align: center;
+      }
+
+      .container {
+        max-width: 800px;
+        margin: 0 auto;
+        padding: 40px 24px 80px;
+      }
+
+      .hero {
+        text-align: center;
+        margin-bottom: 48px;
+        padding: 36px 24px;
+        background: var(--surface);
+        border: 1px solid var(--line);
+        border-radius: 12px;
+      }
+
+      .hero h2 {
+        font-size: 1.7rem;
+        color: var(--accent);
+        margin-bottom: 10px;
+      }
+
+      .hero p {
+        color: var(--muted);
+        font-size: 0.92rem;
+        line-height: 1.7;
+      }
+
+      .badge {
+        display: inline-block;
+        margin-top: 16px;
+        padding: 4px 14px;
+        border-radius: 20px;
+        background: #1e1506;
+        border: 1px solid var(--primary);
+        color: var(--primary);
+        font-size: 0.8rem;
+      }
+
+      .toc {
+        background: var(--surface);
+        border: 1px solid var(--line);
+        border-radius: 10px;
+        padding: 22px 26px;
+        margin-bottom: 40px;
+      }
+
+      .toc h3 {
+        color: var(--accent);
+        font-size: 1rem;
+        margin-bottom: 14px;
+      }
+
+      .toc ol {
+        padding-right: 20px;
+        color: var(--muted);
+        font-size: 0.9rem;
+        line-height: 2;
+      }
+
+      .toc a {
+        color: var(--primary);
+        text-decoration: none;
+      }
+
+      .toc a:hover { text-decoration: underline; }
+
+      section {
+        margin-bottom: 44px;
+        padding: 28px 28px;
+        background: var(--surface);
+        border: 1px solid var(--line);
+        border-radius: 12px;
+      }
+
+      section h2 {
+        font-size: 1.15rem;
+        color: var(--accent);
+        border-bottom: 1px solid var(--line);
+        padding-bottom: 12px;
+        margin-bottom: 20px;
+        display: flex;
+        align-items: center;
+        gap: 10px;
+      }
+
+      section h2 .num {
+        background: #291d08;
+        border: 1px solid var(--primary);
+        color: var(--primary);
+        border-radius: 50%;
+        width: 28px;
+        height: 28px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 0.82rem;
+        flex-shrink: 0;
+      }
+
+      section h3 {
+        color: var(--primary);
+        font-size: 0.97rem;
+        margin: 22px 0 10px;
+      }
+
+      p {
+        color: var(--ink);
+        font-size: 0.93rem;
+        line-height: 1.85;
+        margin-bottom: 14px;
+      }
+
+      ul, ol {
+        padding-right: 22px;
+        margin-bottom: 14px;
+      }
+
+      li {
+        font-size: 0.93rem;
+        line-height: 1.85;
+        color: var(--ink);
+        margin-bottom: 6px;
+      }
+
+      .info-table {
+        width: 100%;
+        border-collapse: collapse;
+        margin: 16px 0;
+        font-size: 0.88rem;
+      }
+
+      .info-table th {
+        background: #1e1506;
+        color: var(--accent);
+        padding: 10px 14px;
+        text-align: right;
+        border: 1px solid var(--line);
+        font-weight: 600;
+      }
+
+      .info-table td {
+        padding: 9px 14px;
+        border: 1px solid var(--line);
+        color: var(--ink);
+        vertical-align: top;
+        line-height: 1.7;
+      }
+
+      .info-table tr:nth-child(even) td { background: #100d08; }
+
+      .highlight-box {
+        background: #1a1205;
+        border-right: 3px solid var(--primary);
+        border-radius: 0 8px 8px 0;
+        padding: 14px 18px;
+        margin: 18px 0;
+        font-size: 0.9rem;
+        line-height: 1.8;
+        color: var(--muted);
+      }
+
+      .highlight-box strong { color: var(--accent); }
+
+      .rights-grid {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 14px;
+        margin: 16px 0;
+      }
+
+      .right-card {
+        background: #100d08;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        padding: 14px 16px;
+      }
+
+      .right-card .icon { font-size: 1.3rem; margin-bottom: 6px; }
+      .right-card h4 { color: var(--accent); font-size: 0.9rem; margin-bottom: 6px; }
+      .right-card p { font-size: 0.85rem; color: var(--muted); margin: 0; }
+
+      .contact-card {
+        background: #100d08;
+        border: 1px solid var(--line);
+        border-radius: 10px;
+        padding: 20px;
+        text-align: center;
+        margin-top: 16px;
+      }
+
+      .contact-card h4 { color: var(--accent); margin-bottom: 10px; }
+      .contact-card p { color: var(--muted); font-size: 0.9rem; margin: 4px 0; }
+
+      .warning-box {
+        background: #1f0e0c;
+        border: 1px solid #5c2920;
+        border-radius: 8px;
+        padding: 14px 18px;
+        margin: 16px 0;
+        font-size: 0.9rem;
+        color: #ffb5ae;
+        line-height: 1.8;
+      }
+
+      footer {
+        text-align: center;
+        padding: 28px;
+        color: var(--muted);
+        font-size: 0.82rem;
+        border-top: 1px solid var(--line);
+        margin-top: 20px;
+      }
+
+      @media (max-width: 600px) {
+        .rights-grid { grid-template-columns: 1fr; }
+        .container { padding: 24px 16px 60px; }
+        section { padding: 20px 18px; }
+      }
+    </style>
+  </head>
+  <body>
+    <header>
+      <a href="index.html">→ العودة</a>
+      <h1>سياسة الخصوصية</h1>
+    </header>
+
+    <div class="container">
+
+      <!-- Hero -->
+      <div class="hero">
+        <h2>سياسة الخصوصية وحماية البيانات</h2>
+        <p>
+          نلتزم بالشفافية الكاملة تجاه البيانات التي نجمعها وكيفية استخدامها.<br />
+          يُرجى قراءة هذه السياسة بعناية قبل استخدام المنصة.
+        </p>
+        <span class="badge">آخر تحديث: مايو ٢٠٢٦</span>
+      </div>
+
+      <!-- Table of Contents -->
+      <div class="toc">
+        <h3>فهرس المحتويات</h3>
+        <ol>
+          <li><a href="#who-we-are">من نحن؟</a></li>
+          <li><a href="#what-we-collect">ما البيانات التي نجمعها؟</a></li>
+          <li><a href="#why-we-collect">لماذا نجمع هذه البيانات؟</a></li>
+          <li><a href="#how-we-store">كيف نحفظ بياناتك؟</a></li>
+          <li><a href="#sharing">مع من نشارك بياناتك؟</a></li>
+          <li><a href="#retention">كم مدة الاحتفاظ بالبيانات؟</a></li>
+          <li><a href="#your-rights">حقوقك كمستخدم</a></li>
+          <li><a href="#children">خصوصية القاصرين</a></li>
+          <li><a href="#changes">تعديلات السياسة</a></li>
+          <li><a href="#contact">التواصل معنا</a></li>
+        </ol>
+      </div>
+
+      <!-- 1. من نحن -->
+      <section id="who-we-are">
+        <h2><span class="num">١</span> من نحن؟</h2>
+        <p>
+          <strong>OZK TOBACCO</strong> منصة إدارة عمليات توزيع التبغ بالجملة. تُستخدم
+          المنصة داخلياً من قِبَل فريق خدمة العملاء لتتبع الأسعار، وأرصدة العملاء،
+          وحركة المخزون والفواتير.
+        </p>
+        <p>
+          هذه المنصة <strong>مخصصة للاستخدام التجاري (B2B) فقط</strong> وليست
+          موجهة للمستهلك النهائي أو للأفراد العامة.
+        </p>
+      </section>
+
+      <!-- 2. ما الذي نجمعه -->
+      <section id="what-we-collect">
+        <h2><span class="num">٢</span> ما البيانات التي نجمعها؟</h2>
+        <p>نجمع البيانات التالية حصراً لتشغيل خدمات المنصة:</p>
+
+        <table class="info-table">
+          <thead>
+            <tr>
+              <th>نوع البيانات</th>
+              <th>الأمثلة</th>
+              <th>المصدر</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>بيانات العملاء</td>
+              <td>الاسم التجاري، رقم الهاتف، الرصيد المستحق</td>
+              <td>إدخال يدوي / نظام أمين</td>
+            </tr>
+            <tr>
+              <td>بيانات المعاملات</td>
+              <td>الفواتير، المدفوعات، سجل الأسعار</td>
+              <td>المنصة الداخلية / نظام أمين</td>
+            </tr>
+            <tr>
+              <td>بيانات المخزون</td>
+              <td>أسماء المنتجات، الكميات، الأسعار اليومية</td>
+              <td>مزامنة تلقائية مع نظام أمين</td>
+            </tr>
+            <tr>
+              <td>بيانات الجلسة</td>
+              <td>حساب المستخدم الذي أجرى العملية، الطابع الزمني</td>
+              <td>Supabase Auth</td>
+            </tr>
+          </tbody>
+        </table>
+
+        <div class="highlight-box">
+          <strong>لا نجمع:</strong> بيانات تتبع الموقع الجغرافي، ملفات تعريف
+          الارتباط التسويقية، بيانات وسائل التواصل الاجتماعي، أو أي بيانات شخصية
+          للمستهلك النهائي.
+        </div>
+      </section>
+
+      <!-- 3. لماذا نجمع -->
+      <section id="why-we-collect">
+        <h2><span class="num">٣</span> لماذا نجمع هذه البيانات؟</h2>
+        <p>نستخدم البيانات للأغراض التالية حصراً:</p>
+        <ul>
+          <li>عرض أرصدة وفواتير العملاء لفريق المبيعات والمحاسبة</li>
+          <li>متابعة حركة المخزون وتحديث قوائم الأسعار</li>
+          <li>توليد التقارير اليومية والإحصاءات التشغيلية</li>
+          <li>مزامنة البيانات مع نظام أمين المحاسبي</li>
+          <li>حساب حدود الائتمان للعملاء وإدارة الديون</li>
+        </ul>
+        <div class="highlight-box">
+          <strong>لا نستخدم بياناتك في:</strong> الإعلانات، التحليلات التسويقية،
+          البيع لجهات خارجية، أو أي غرض غير مذكور أعلاه.
+        </div>
+      </section>
+
+      <!-- 4. كيف نحفظ -->
+      <section id="how-we-store">
+        <h2><span class="num">٤</span> كيف نحفظ بياناتك؟</h2>
+        <h3>البنية التحتية</h3>
+        <p>
+          تُخزَّن جميع البيانات على منصة <strong>Supabase</strong> (قاعدة بيانات
+          PostgreSQL مستضافة على السحابة). يتم تطبيق سياسات أمان على مستوى الصف
+          (Row-Level Security) لضمان أن كل مستخدم لا يصل إلا إلى البيانات المخوّلة له.
+        </p>
+        <h3>الأمان</h3>
+        <ul>
+          <li>تشفير البيانات أثناء النقل (HTTPS/TLS)</li>
+          <li>تشفير البيانات أثناء التخزين على مستوى قاعدة البيانات</li>
+          <li>المصادقة عبر Supabase Auth مع صلاحيات محدودة لكل دور</li>
+          <li>لا توجد بيانات حساسة مخزنة في الكود المصدري أو الملفات العامة</li>
+        </ul>
+      </section>
+
+      <!-- 5. المشاركة -->
+      <section id="sharing">
+        <h2><span class="num">٥</span> مع من نشارك بياناتك؟</h2>
+        <p>
+          <strong>لا نبيع ولا نؤجر بياناتك لأي طرف ثالث.</strong>
+          نشارك البيانات فقط مع الجهات التالية وللأغراض التشغيلية فقط:
+        </p>
+        <ul>
+          <li>
+            <strong>Supabase Inc.</strong> — مزود البنية التحتية لقاعدة البيانات
+            وخدمات المصادقة. يخضع لسياسة خصوصية Supabase.
+          </li>
+          <li>
+            <strong>نظام أمين</strong> — يتم تلقّي بيانات المخزون والحسابات من
+            هذا النظام المحلي عبر واجهة برمجية داخلية.
+          </li>
+          <li>
+            <strong>موظفو الشركة المخوّلون</strong> — فريق خدمة العملاء والمحاسبة
+            الذين يحتاجون البيانات لأداء مهامهم فقط.
+          </li>
+        </ul>
+        <div class="warning-box">
+          إذا طُلب منّا الكشف عن بيانات بموجب قرار قضائي أو أمر قانوني، سنُبلّغك
+          بذلك فور تمكّننا من ذلك قانوناً قبل الامتثال.
+        </div>
+      </section>
+
+      <!-- 6. مدة الاحتفاظ -->
+      <section id="retention">
+        <h2><span class="num">٦</span> كم مدة الاحتفاظ بالبيانات؟</h2>
+        <ul>
+          <li>بيانات العملاء والمعاملات: تُحتفظ بها طوال مدة العلاقة التجارية</li>
+          <li>
+            سجلات الأسعار اليومية: تُحتفظ بها لمدة لا تقل عن سنة واحدة لأغراض
+            التدقيق والمقارنة
+          </li>
+          <li>
+            بيانات الجلسات وسجلات الوصول: تُحتفظ بها لمدة ٩٠ يوماً ثم تُحذف
+            تلقائياً
+          </li>
+          <li>
+            عند انتهاء العلاقة التجارية: يمكن طلب حذف البيانات وفق الإجراءات
+            الموضحة في القسم التالي
+          </li>
+        </ul>
+      </section>
+
+      <!-- 7. حقوقك -->
+      <section id="your-rights">
+        <h2><span class="num">٧</span> حقوقك كمستخدم</h2>
+        <p>
+          تتمتع بالحقوق التالية فيما يخص بياناتك. يمكن ممارستها بالتواصل معنا عبر
+          القنوات الموضحة في نهاية هذه الوثيقة:
+        </p>
+        <div class="rights-grid">
+          <div class="right-card">
+            <div class="icon">🔍</div>
+            <h4>حق الاطلاع</h4>
+            <p>الحصول على نسخة من بياناتك الشخصية المخزنة لدينا</p>
+          </div>
+          <div class="right-card">
+            <div class="icon">✏️</div>
+            <h4>حق التصحيح</h4>
+            <p>تصحيح أي بيانات غير دقيقة أو ناقصة</p>
+          </div>
+          <div class="right-card">
+            <div class="icon">🗑️</div>
+            <h4>حق الحذف</h4>
+            <p>طلب حذف بياناتك عند انتهاء العلاقة التجارية</p>
+          </div>
+          <div class="right-card">
+            <div class="icon">🚫</div>
+            <h4>حق الاعتراض</h4>
+            <p>الاعتراض على معالجة بياناتك لأغراض معينة</p>
+          </div>
+        </div>
+        <p>
+          سنرد على طلبك خلال <strong>١٤ يوم عمل</strong> من استلامه. في حال
+          تعذّر تلبية الطلب، سنوضح الأسباب كتابةً.
+        </p>
+      </section>
+
+      <!-- 8. القاصرون -->
+      <section id="children">
+        <h2><span class="num">٨</span> خصوصية القاصرين</h2>
+        <div class="warning-box">
+          هذه المنصة مخصصة <strong>حصراً للاستخدام التجاري من قِبَل البالغين</strong>
+          (موظفون، تجار جملة). نظراً لطبيعة منتجات التبغ، لا يُسمح
+          للقاصرين (من هم دون سن ١٨ عاماً) باستخدام هذه المنصة بأي شكل من
+          الأشكال.
+        </div>
+        <p>
+          لا نجمع عن قصد أي بيانات تخص القاصرين. إذا اكتشفنا أن مستخدماً دون سن
+          الرشد قد استخدم المنصة، سنوقف حسابه فوراً ونحذف بياناته.
+        </p>
+        <p>
+          إذا كنت وليّ أمر وتعتقد أن طفلك وصل إلى هذه المنصة، يُرجى
+          التواصل معنا فوراً.
+        </p>
+      </section>
+
+      <!-- 9. التعديلات -->
+      <section id="changes">
+        <h2><span class="num">٩</span> تعديلات السياسة</h2>
+        <p>
+          قد نُحدّث هذه السياسة دورياً. في حال حدوث تغييرات جوهرية، سنُبلّغ
+          المستخدمين المسجّلين عبر:
+        </p>
+        <ul>
+          <li>إشعار داخل المنصة عند تسجيل الدخول</li>
+          <li>تحديث تاريخ "آخر تحديث" في أعلى هذه الصفحة</li>
+        </ul>
+        <p>
+          استمرارك في استخدام المنصة بعد نشر التعديلات يُعدّ موافقة ضمنية على
+          النسخة المحدّثة. إذا لم توافق على أي تعديل، يحق لك التوقف عن
+          الاستخدام وطلب حذف بياناتك.
+        </p>
+      </section>
+
+      <!-- 10. التواصل -->
+      <section id="contact">
+        <h2><span class="num">١٠</span> التواصل معنا</h2>
+        <p>
+          لأي استفسار أو طلب يتعلق بخصوصيتك أو بياناتك، يُرجى التواصل مع
+          الفريق المسؤول:
+        </p>
+        <div class="contact-card">
+          <h4>فريق إدارة البيانات — OZK TOBACCO</h4>
+          <p>يُرجى مراسلتنا عبر قنوات التواصل الرسمية للشركة</p>
+          <p style="margin-top: 12px; color: var(--muted); font-size: 0.82rem;">
+            سيتم الرد على جميع الطلبات المتعلقة بالخصوصية خلال ١٤ يوم عمل
+          </p>
+        </div>
+      </section>
+
+    </div>
+
+    <footer>
+      <p>© ٢٠٢٦ OZK TOBACCO — جميع الحقوق محفوظة</p>
+      <p style="margin-top: 6px;">
+        <a href="index.html" style="color: var(--primary); text-decoration: none;">العودة إلى المنصة</a>
+      </p>
+    </footer>
+  </body>
+</html>
