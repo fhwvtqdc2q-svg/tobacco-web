@@ -68,6 +68,39 @@ function todayIsoDate() {
   return new Date().toISOString().slice(0, 10);
 }
 
+function formatDateTime(value) {
+  if (!value) return "غير معروف";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return String(value);
+  return new Intl.DateTimeFormat("ar-SA", {
+    dateStyle: "medium",
+    timeStyle: "short"
+  }).format(date);
+}
+
+function sourceLabel(source) {
+  return (
+    {
+      ameen_sql_agent: "مزامنة مباشرة من الأمين",
+      ameen_excel: "ملف Excel من الأمين"
+    }[source] || source || "غير معروف"
+  );
+}
+
+function minutesSince(value) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return null;
+  return Math.max(0, Math.round((Date.now() - date.getTime()) / 60000));
+}
+
+function syncFreshnessLabel(value) {
+  const minutes = minutesSince(value);
+  if (minutes === null) return "لم يتم تحديد وقت المزامنة";
+  if (minutes <= 2) return "محدث الآن";
+  if (minutes < 60) return `قبل ${minutes} دقيقة`;
+  return `قبل ${Math.round(minutes / 60)} ساعة`;
+}
+
 const state = {
   route: "overview",
   installPrompt: null,
@@ -75,6 +108,7 @@ const state = {
   session: null,
   requests: [],
   inventoryReports: [],
+  lastInventoryRefresh: null,
   priceExport: null,
   loading: true,
   notice: null
@@ -132,9 +166,11 @@ async function loadInventoryReports() {
   try {
     if (dataStore.isConfigured() && !state.session) {
       state.inventoryReports = [];
+      state.lastInventoryRefresh = null;
       return;
     }
     state.inventoryReports = await dataStore.listInventoryReports();
+    state.lastInventoryRefresh = new Date().toISOString();
   } catch {
     state.inventoryReports = [];
   }
@@ -483,6 +519,17 @@ async function importAmeenReport(form) {
   }
 }
 
+async function refreshAmeenReports() {
+  try {
+    await loadInventoryReports();
+    setNotice("success", "تم تحديث تقارير الأمين من Supabase.");
+    setRoute("ameen", false);
+  } catch (error) {
+    setNotice("error", error.message);
+    render();
+  }
+}
+
 function downloadFilteredPriceList() {
   if (!state.priceExport) {
     setNotice("error", "حلل ملف الأسعار أولا حتى أجهز نسخة المواد المتوفرة فقط.");
@@ -501,6 +548,34 @@ function downloadFilteredPriceList() {
   window.XLSX.utils.book_append_sheet(workbook, worksheet, "available-prices");
   window.XLSX.writeFile(workbook, `tobacco-available-prices-${todayIsoDate()}.xlsx`);
   setNotice("success", "تم تنزيل لائحة أسعار تحتوي فقط المواد الموجودة في المستودع.");
+  render();
+}
+
+function downloadLatestInventoryReport() {
+  const latest = state.inventoryReports[0];
+  const items = reportItems(latest);
+  if (!latest || !items.length) {
+    setNotice("error", "لا يوجد تقرير جرد حي جاهز للتصدير.");
+    render();
+    return;
+  }
+
+  assertExcelSupport();
+  const rows = items.map((item) => [
+    item.name || "",
+    Number(item.stockQty || 0),
+    statusLabel(item.status),
+    item.lowThreshold || latest.summary?.threshold || "",
+    item.priceListed ? "نعم" : "لا"
+  ]);
+  const worksheet = window.XLSX.utils.aoa_to_sheet([
+    ["المادة", "الكمية", "الحالة", "حد التنبيه", "ضمن لائحة الأسعار"],
+    ...rows
+  ]);
+  const workbook = window.XLSX.utils.book_new();
+  window.XLSX.utils.book_append_sheet(workbook, worksheet, "live-inventory");
+  window.XLSX.writeFile(workbook, `tobacco-live-inventory-${todayIsoDate()}.xlsx`);
+  setNotice("success", "تم تنزيل تقرير الجرد الحي من آخر مزامنة.");
   render();
 }
 
@@ -761,6 +836,10 @@ function reportItems(report) {
   return Array.isArray(report?.items) ? report.items : [];
 }
 
+function reportSyncedAt(report) {
+  return report?.summary?.syncedAt || report?.created_at || report?.summary?.reportDate || report?.report_date || "";
+}
+
 function statusLabel(status) {
   return {
     active: "فعالة",
@@ -809,11 +888,15 @@ function ameen() {
   const latest = state.inventoryReports[0];
   const summary = latest?.summary || {};
   const items = reportItems(latest);
-  const lowItems = items
-    .filter((item) => item.status === "low" || item.status === "out")
+  const syncedAt = reportSyncedAt(latest);
+  const negativeItems = items.filter((item) => Number(item.stockQty || 0) < 0);
+  const zeroItems = items.filter((item) => Number(item.stockQty || 0) === 0);
+  const lowOnlyItems = items.filter((item) => item.status === "low");
+  const lowItems = [...negativeItems, ...zeroItems, ...lowOnlyItems]
     .sort((a, b) => Number(a.stockQty || 0) - Number(b.stockQty || 0));
   const staleItems = items.filter((item) => item.status === "stale");
   const activeItems = items.filter((item) => item.status === "active");
+  const liveReport = latest?.source === "ameen_sql_agent" || summary.source === "ameen_sql_agent";
   const authHint =
     dataStore.isConfigured() && !state.session
       ? '<p class="muted">سجل الدخول حتى يتم حفظ التقرير في Supabase ويظهر على الآيفون عند فتح الموقع.</p>'
@@ -846,14 +929,23 @@ function ameen() {
       </article>
 
       <article class="panel">
-        <h3>ملخص الهاتف</h3>
+        <div class="panel-title-row">
+          <h3>ملخص الهاتف</h3>
+          <button class="button secondary compact-button" type="button" data-action="refresh-ameen">تحديث</button>
+        </div>
         ${
           latest
-            ? `<p class="muted">آخر تقرير محفوظ: ${escapeHtml(summary.reportDate || latest.report_date || latest.created_at || "")}</p>
+            ? `<p class="muted">آخر مزامنة: ${escapeHtml(formatDateTime(syncedAt))} / ${escapeHtml(syncFreshnessLabel(syncedAt))}</p>
+              <p class="muted">المصدر: ${escapeHtml(sourceLabel(latest.source || summary.source))}${liveReport ? " / مباشر من قاعدة الأمين" : ""}</p>
+              <div class="button-row report-actions">
+                <button class="button secondary" type="button" data-action="download-inventory">تصدير الجرد الحي</button>
+              </div>
               <div class="inventory-metrics">
                 ${inventoryMetric("مواد موجودة", summary.availableItems || 0, "من الجرد")}
                 ${inventoryMetric("قريبة من النفاد", summary.lowStockItems || 0, `حد التنبيه: ${summary.threshold || 0}`)}
                 ${inventoryMetric("غير موجودة", summary.outOfStockItems || 0, "لا تنزل في الأسعار")}
+                ${inventoryMetric("مخزون سالب", negativeItems.length, "يحتاج مراجعة محاسبية")}
+                ${inventoryMetric("مخزون صفر", zeroItems.length, "نفد من المستودع")}
                 ${inventoryMetric("راكدة", summary.staleItems || 0, "موجودة ولا تظهر في الأسعار")}
                 ${inventoryMetric("فعالة", summary.activeItems || 0, "موجودة وتظهر في الأسعار")}
                 ${inventoryMetric("استبعاد أسعار", summary.excludedPriceRows || 0, "غير موجودة في المستودع")}
@@ -1016,6 +1108,8 @@ function render() {
   app.querySelector("[data-action='logout']")?.addEventListener("click", logout);
   app.querySelector("[data-action='export-ameen']")?.addEventListener("click", exportRequestsForAmeen);
   app.querySelector("[data-action='download-prices']")?.addEventListener("click", downloadFilteredPriceList);
+  app.querySelector("[data-action='download-inventory']")?.addEventListener("click", downloadLatestInventoryReport);
+  app.querySelector("[data-action='refresh-ameen']")?.addEventListener("click", refreshAmeenReports);
 
   app.querySelector("[data-form='login']")?.addEventListener("submit", (event) => {
     event.preventDefault();
@@ -1038,3 +1132,11 @@ function render() {
 }
 
 boot();
+
+setInterval(() => {
+  if (state.route === "ameen" && (!dataStore.isConfigured() || state.session)) {
+    loadInventoryReports()
+      .then(() => render())
+      .catch(() => {});
+  }
+}, 60000);

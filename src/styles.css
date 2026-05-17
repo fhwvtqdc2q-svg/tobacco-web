@@ -156,6 +156,10 @@ code {
   gap: 10px;
 }
 
+.report-actions {
+  margin: 12px 0;
+}
+
 .notice-panel {
   display: grid;
   gap: 8px;
