@@ -1203,3 +1203,66 @@ code {
   direction: rtl;
   text-align: right;
 }
+
+/* AI panel */
+.ai-panel {
+  margin-top: 1.5rem;
+}
+
+.ai-quick-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-bottom: 1rem;
+}
+
+.ai-quick-btn {
+  background: var(--surface-soft);
+  border: 1px solid var(--line);
+  color: var(--ink);
+  border-radius: 20px;
+  padding: 0.35rem 0.9rem;
+  font-size: 0.82rem;
+  cursor: pointer;
+  transition: border-color 0.15s, background 0.15s;
+}
+
+.ai-quick-btn:hover {
+  border-color: var(--primary);
+  background: var(--surface);
+}
+
+.ai-input-row {
+  margin-bottom: 1rem;
+}
+
+.ai-question-input {
+  width: 100%;
+  background: var(--surface-soft);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  color: var(--ink);
+  padding: 0.75rem 1rem;
+  font: inherit;
+  font-size: 0.95rem;
+  resize: vertical;
+  direction: rtl;
+  transition: border-color 0.15s;
+}
+
+.ai-question-input:focus {
+  outline: none;
+  border-color: var(--primary);
+}
+
+.ai-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+
+.ai-copy-status {
+  font-size: 0.82rem;
+  color: var(--primary);
+}

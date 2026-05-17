@@ -2044,7 +2044,117 @@ function ameen() {
           </section>`
         : customerBalanceSection(customerReport)
     }
+    ${state.inventoryReports[0] ? ameenAiPanel() : ""}
   `);
+}
+
+function buildAmeenAiPrompt(question) {
+  const latest = state.inventoryReports[0];
+  const summary = latest?.summary || {};
+  const items = reportItems(latest);
+  const threshold = summary.threshold || 50;
+
+  const fmt = (item) =>
+    `• ${item.name}: ${item.stockQty} وحدة` + (item.unit ? ` (${item.unit})` : "");
+
+  const lowStock = items
+    .filter((i) => Number(i.stockQty) > 0 && Number(i.stockQty) <= threshold)
+    .sort((a, b) => Number(a.stockQty) - Number(b.stockQty));
+  const outOfStock = items.filter((i) => Number(i.stockQty) === 0);
+  const negative = items.filter((i) => Number(i.stockQty) < 0);
+  const stale = items.filter((i) => i.status === "stale");
+  const active = items.filter((i) => i.status === "active");
+
+  const section = (title, list, limit = 40) => {
+    if (!list.length) return "";
+    const rows = list.slice(0, limit).map(fmt);
+    if (list.length > limit) rows.push(`... و${list.length - limit} مادة أخرى`);
+    return `\n${title}\n${rows.join("\n")}`;
+  };
+
+  const lines = [
+    `أنت مساعد لإدارة مستودع شركة OZK TOBACCO. البيانات أدناه من تقرير الجرد بتاريخ ${summary.reportDate || todayIsoDate()}.`,
+    ``,
+    `📊 ملخص المستودع:`,
+    `- إجمالي المواد: ${items.length}`,
+    `- متوفرة فوق الحد (${threshold} وحدة): ${summary.availableItems || 0}`,
+    `- قريبة النفاد (دون ${threshold}): ${lowStock.length}`,
+    `- نفدت (صفر): ${outOfStock.length}`,
+    `- مخزون سالب: ${negative.length}`,
+    `- راكدة (لا تتحرك): ${stale.length}`,
+    `- فعالة ومتحركة: ${active.length}`,
+  ];
+
+  lines.push(section(`⚠️ قريبة النفاد (${lowStock.length} مادة):`, lowStock));
+  lines.push(section(`❌ نفدت من المستودع:`, outOfStock));
+  lines.push(section(`🔴 مخزون سالب:`, negative, 100));
+  lines.push(section(`🟡 راكدة:`, stale));
+
+  if (items.length <= 120) {
+    lines.push(section(`✅ المواد المتوفرة:`, active, 120));
+  }
+
+  lines.push(``, `❓ السؤال: ${question}`);
+  lines.push(``, `أجب بالعربية بشكل مختصر وعملي.`);
+
+  return lines.join("\n");
+}
+
+const ameenAiQuickQuestions = [
+  "أي المواد تحتاج تزويد عاجل؟",
+  "ما هي المواد الراكدة التي يجب مراجعتها؟",
+  "أعطني قائمة بكل ما نفد من المستودع",
+  "قارن المواد الفعالة مع الراكدة",
+  "أي المواد لديها مخزون سالب وكيف أتعامل معها؟"
+];
+
+function ameenAiPanel() {
+  const quickBtns = ameenAiQuickQuestions
+    .map((q) => `<button type="button" class="ai-quick-btn" data-ai-quick="${escapeHtml(q)}">${escapeHtml(q)}</button>`)
+    .join("");
+
+  return `
+    <section class="panel wide ai-panel">
+      <div class="section-head">
+        <div>
+          <p class="eyebrow">AI Assistant</p>
+          <h2>اسأل عن المستودع</h2>
+        </div>
+      </div>
+      <p class="muted">اكتب سؤالك أو اختر سؤالاً جاهزاً — سيُحضَّر السياق كاملاً ويُفتح Claude لك.</p>
+      <div class="ai-quick-row">${quickBtns}</div>
+      <div class="ai-input-row">
+        <textarea class="ai-question-input" data-ai-question rows="2" placeholder="مثال: أي المواد الأقل مخزوناً؟ أو: ما الراكد منذ أكثر من شهر؟"></textarea>
+      </div>
+      <div class="ai-actions">
+        <button type="button" class="btn-primary" data-action="open-claude-ai">نسخ وفتح Claude</button>
+        <button type="button" class="button secondary" data-action="open-chatgpt-ai">نسخ وفتح ChatGPT</button>
+        <span class="ai-copy-status" data-ai-copy-status></span>
+      </div>
+    </section>
+  `;
+}
+
+async function handleAiOpen(target) {
+  const questionEl = app.querySelector("[data-ai-question]");
+  const question = (questionEl?.value || "").trim();
+  if (!question) {
+    setNotice("error", "اكتب سؤالك أولاً قبل الفتح.");
+    return;
+  }
+  const prompt = buildAmeenAiPrompt(question);
+  try {
+    await navigator.clipboard.writeText(prompt);
+  } catch {
+    setNotice("error", "تعذّر النسخ — انسخ يدوياً.");
+    return;
+  }
+  const statusEl = app.querySelector("[data-ai-copy-status]");
+  if (statusEl) {
+    statusEl.textContent = "✓ تم نسخ البيانات — الصق في نافذة الدردشة";
+  }
+  const url = target === "chatgpt" ? "https://chatgpt.com/" : "https://claude.ai/new";
+  window.open(url, "_blank", "noopener");
 }
 
 function remote() {
@@ -2542,6 +2652,14 @@ function render() {
   app.querySelector("[data-action='download-customer-balances']")?.addEventListener("click", downloadFilteredCustomerBalances);
   app.querySelector("[data-action='refresh-ameen']")?.addEventListener("click", refreshAmeenReports);
   app.querySelector("[data-action='copy-daily-report']")?.addEventListener("click", copyDailyReport);
+  app.querySelector("[data-action='open-claude-ai']")?.addEventListener("click", () => handleAiOpen("claude"));
+  app.querySelector("[data-action='open-chatgpt-ai']")?.addEventListener("click", () => handleAiOpen("chatgpt"));
+  app.querySelectorAll("[data-ai-quick]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const questionEl = app.querySelector("[data-ai-question]");
+      if (questionEl) questionEl.value = btn.dataset.aiQuick;
+    });
+  });
   app.querySelector("[data-action='clear-customer-details']")?.addEventListener("click", () => {
     state.selectedCustomerKey = "";
     render();
