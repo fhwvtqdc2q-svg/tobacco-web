@@ -1124,7 +1124,7 @@ function overview() {
         </div>
       </div>
       <div class="status-board">
-        ${monitoringCards.map(statusCard).join("")}
+        ${liveMonitoringCards().map(statusCard).join("")}
       </div>
     </section>
 
@@ -2021,14 +2021,22 @@ function remote() {
   `);
 }
 
-function monitoring() {
+function liveMonitoringCards() {
   const openRequests = state.requests.filter((request) => request.status !== "مغلق").length;
   const closedRequests = state.requests.length - openRequests;
-  const cards = [
+  const activeChannels = new Set(
+    state.requests.filter((request) => request.status !== "مغلق").map((request) => request.channel).filter(Boolean)
+  ).size;
+  return [
     { label: "طلبات مفتوحة", value: String(openRequests), trend: "من سجل الطلبات" },
     { label: "طلبات مغلقة", value: String(closedRequests), trend: "تمت متابعتها" },
-    ...monitoringCards.slice(1)
+    { label: "قنوات نشطة", value: String(activeChannels), trend: monitoringCards[2]?.trend || "قنوات التواصل" },
+    { label: "حالة النظام", value: monitoringCards[3]?.value || "مستقر", trend: monitoringCards[3]?.trend || "لا توجد أعطال" }
   ];
+}
+
+function monitoring() {
+  const cards = liveMonitoringCards();
 
   return shell(`
     <section class="panel wide">
