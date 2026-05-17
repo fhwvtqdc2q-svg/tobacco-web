@@ -127,6 +127,7 @@ const state = {
   ameenSearch: "",
   ameenFilter: "alerts",
   ameenSort: "qtyAsc",
+  pricingSearch: "",
   customerSearch: "",
   customerFilter: "debit_balance",
   customerSort: "balanceDesc",
@@ -805,6 +806,107 @@ function downloadApprovedPricesForAccounting() {
   render();
 }
 
+function approvedPriceMap() {
+  return new Map((state.approvedPriceItems || []).filter((item) => item.itemKey).map((item) => [item.itemKey, item]));
+}
+
+function isSameIsoDay(value, isoDay = todayIsoDate()) {
+  if (!value) return false;
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return String(value).slice(0, 10) === isoDay;
+  return date.toISOString().slice(0, 10) === isoDay;
+}
+
+function pricingWorklistItems() {
+  const prices = approvedPriceMap();
+  const query = normalizeItemName(state.pricingSearch);
+  return liveAvailableItems()
+    .map((item) => {
+      const key = item.key || normalizeItemName(item.name);
+      const price = prices.get(key);
+      return {
+        ...item,
+        key,
+        approvedPrice: price,
+        salePrice: Number(price?.salePrice || 0),
+        pricedToday: isSameIsoDay(price?.approvedAt || price?.updatedAt)
+      };
+    })
+    .filter((item) => {
+      if (!query) return true;
+      return String(item.key || "").includes(query) || normalizeItemName(item.name).includes(query);
+    })
+    .sort((a, b) => Number(a.pricedToday) - Number(b.pricedToday) || String(a.name || "").localeCompare(String(b.name || ""), "ar"));
+}
+
+function downloadDailyPricingWorklist() {
+  const latest = state.inventoryReports[0];
+  const items = pricingWorklistItems();
+  if (!latest || !items.length) {
+    setNotice("error", "لا توجد مواد متوفرة لإنشاء قائمة تسعير اليوم.");
+    render();
+    return;
+  }
+
+  assertExcelSupport();
+  const rows = items.map((item) => [
+    item.name || "",
+    itemQty(item),
+    item.salePrice > 0 ? item.salePrice : "",
+    item.pricedToday ? "مسعر اليوم" : "بحاجة تسعير",
+    item.approvedPrice?.approvedAt || item.approvedPrice?.updatedAt || "",
+    reportSyncedAt(latest)
+  ]);
+  const worksheet = window.XLSX.utils.aoa_to_sheet([
+    ["اسم المادة", "الكمية المتوفرة", "سعر البيع", "حالة التسعير", "آخر اعتماد", "آخر مزامنة جرد"],
+    ...rows
+  ]);
+  const workbook = window.XLSX.utils.book_new();
+  window.XLSX.utils.book_append_sheet(workbook, worksheet, "daily-pricing");
+  window.XLSX.writeFile(workbook, `tobacco-daily-pricing-${todayIsoDate()}.xlsx`);
+  setNotice("success", `تم تنزيل قائمة تسعير اليوم: ${items.length} مادة.`);
+  render();
+}
+
+async function savePricingItem(form) {
+  try {
+    const latest = state.inventoryReports[0];
+    const itemKey = form.dataset.itemKey || "";
+    const itemName = form.dataset.itemName || "";
+    const salePrice = toNumber(formValue(form, "salePrice"));
+    const stockQty = toNumber(form.dataset.stockQty);
+    const stockStatus = form.dataset.stockStatus || "active";
+
+    if (!latest) throw new Error("لا يوجد جرد حي للمطابقة.");
+    if (!itemKey || !itemName) throw new Error("لا يمكن حفظ السعر بدون مادة واضحة.");
+    if (salePrice <= 0) throw new Error("اكتب سعر بيع أكبر من صفر.");
+    if (!dataStore.upsertApprovedPriceItems) throw new Error("حفظ الأسعار غير مفعل في قاعدة البيانات.");
+
+    const saved = await dataStore.upsertApprovedPriceItems([
+      {
+        itemKey,
+        itemName,
+        salePrice,
+        stockQty,
+        stockStatus,
+        sourceReportId: uuidOrNull(latest.id),
+        sourceSyncedAt: reportSyncedAt(latest),
+        pricePayload: {
+          source: "phone_pricing_page",
+          pricedDate: todayIsoDate()
+        }
+      }
+    ]);
+    const priceMap = approvedPriceMap();
+    saved.forEach((item) => priceMap.set(item.itemKey, item));
+    state.approvedPriceItems = [...priceMap.values()].sort((a, b) => String(a.itemName || "").localeCompare(String(b.itemName || ""), "ar"));
+    setNotice("success", `تم حفظ سعر ${itemName} وسيسحبه جهاز المحاسبة تلقائياً.`);
+  } catch (error) {
+    setNotice("error", error.message);
+  }
+  render();
+}
+
 function downloadLatestInventoryReport() {
   const latest = state.inventoryReports[0];
   const items = reportItems(latest);
@@ -916,6 +1018,7 @@ function shell(content) {
           ${navButton("login", "تسجيل الدخول")}
           ${navButton("requests", "طلبات العملاء")}
           ${navButton("ameen", "الأمين")}
+          ${navButton("pricing", "التسعير")}
           ${navButton("remote", "إدارة عن بعد")}
           ${navButton("monitoring", "المراقبة")}
           ${navButton("payments", "الدفع")}
@@ -988,6 +1091,7 @@ function pageTitle() {
     login: "تسجيل الدخول",
     requests: "طلبات العملاء",
     ameen: "تقارير الأمين",
+    pricing: "التسعير",
     remote: "الإدارة عن بعد",
     monitoring: "المراقبة",
     payments: "الدفع"
@@ -1545,6 +1649,86 @@ function ameenBrowser(items) {
   `;
 }
 
+function pricingRow(item) {
+  const qty = itemQty(item);
+  const price = Number(item.salePrice || 0);
+  const rowState = item.pricedToday ? "active" : item.status;
+  return `
+    <div class="inventory-row inventory-row-${escapeHtml(rowState)}">
+      <div class="customer-row-title">
+        <strong>${escapeHtml(item.name)}</strong>
+        <span class="status-chip">${escapeHtml(item.pricedToday ? "مسعر اليوم" : "بحاجة تسعير")}</span>
+      </div>
+      <span>الكمية: ${escapeHtml(qty)} / الحالة: ${escapeHtml(statusLabel(item.status))} / آخر سعر: ${escapeHtml(price > 0 ? formatMoney(price) : "غير مسعر")}</span>
+      <form class="customer-limit-editor" data-form="pricing-item" data-item-key="${escapeHtml(item.key)}" data-item-name="${escapeHtml(item.name || "")}" data-stock-qty="${escapeHtml(qty)}" data-stock-status="${escapeHtml(item.status || "")}">
+        <label>
+          سعر البيع
+          <input name="salePrice" type="number" min="0" step="0.001" inputmode="decimal" value="${escapeHtml(price > 0 ? price : "")}" placeholder="0">
+        </label>
+        <button class="button secondary mini-button" type="submit">حفظ السعر</button>
+      </form>
+    </div>
+  `;
+}
+
+function pricing() {
+  const latest = state.inventoryReports[0];
+  const items = pricingWorklistItems();
+  const allAvailable = liveAvailableItems();
+  const pricedToday = allAvailable.filter((item) => {
+    const price = approvedPriceMap().get(item.key || normalizeItemName(item.name));
+    return isSameIsoDay(price?.approvedAt || price?.updatedAt);
+  }).length;
+  const waiting = Math.max(0, allAvailable.length - pricedToday);
+  const syncedAt = reportSyncedAt(latest);
+  const authHint =
+    dataStore.isConfigured() && !state.session
+      ? '<p class="muted">سجل الدخول حتى تحفظ الأسعار في Supabase وتصل إلى جهاز المحاسبة.</p>'
+      : "";
+
+  return shell(`
+    <section class="panel wide inventory-browser">
+      <div class="panel-title-row inventory-browser-head">
+        <div>
+          <h3>تسعير اليوم</h3>
+          <p class="muted">كل يوم تظهر هنا المواد الموجودة في المستودع لتسعيرها من الهاتف. جهاز المحاسبة يسحب الأسعار المعتمدة تلقائياً.</p>
+        </div>
+        <span class="status-chip">آخر جرد: ${escapeHtml(formatDateTime(syncedAt))}</span>
+      </div>
+      ${authHint}
+      ${state.approvedPriceError ? `<p class="muted">تنبيه الأسعار: ${escapeHtml(state.approvedPriceError)}</p>` : ""}
+      <div class="inventory-metrics">
+        ${inventoryMetric("مواد للتسعير", allAvailable.length, "من آخر جرد حي")}
+        ${inventoryMetric("مسعرة اليوم", pricedToday, "تم حفظها من الهاتف")}
+        ${inventoryMetric("بانتظار التسعير", waiting, "ستظهر في قائمة اليوم")}
+        ${inventoryMetric("أسعار المحاسبة", state.approvedPriceItems.length, "جاهزة للسحب الآلي")}
+      </div>
+      <div class="inventory-controls">
+        <label>
+          بحث باسم المادة
+          <input data-pricing-search value="${escapeHtml(state.pricingSearch)}" placeholder="اكتب اسم المادة">
+        </label>
+      </div>
+      <div class="button-row report-actions">
+        <button class="button secondary" type="button" data-action="download-daily-pricing" ${items.length ? "" : "disabled"}>تنزيل قائمة تسعير اليوم</button>
+        <button class="button secondary" type="button" data-action="download-price-template" ${allAvailable.length ? "" : "disabled"}>تنزيل قالب Excel</button>
+        <button class="button secondary" type="button" data-action="download-approved-prices" ${state.approvedPriceItems.length ? "" : "disabled"}>تصدير أسعار المحاسبة</button>
+      </div>
+      <form class="form-card compact" data-form="live-price-import">
+        <label>
+          رفع ملف تسعير كامل
+          <input name="livePrice" type="file" accept=".xlsx,.xls">
+        </label>
+        <button class="button primary" type="submit" ${allAvailable.length ? "" : "disabled"}>اعتماد ملف الأسعار</button>
+      </form>
+      <div class="inventory-list inventory-list-dense" data-pricing-results>
+        ${items.length ? items.slice(0, 100).map(pricingRow).join("") : '<p class="muted">لا توجد مواد متوفرة أو مطابقة للبحث الحالي.</p>'}
+      </div>
+      ${items.length > 100 ? '<p class="muted">تم عرض أول 100 مادة فقط. استخدم البحث لتضييق القائمة.</p>' : ""}
+    </section>
+  `);
+}
+
 function customerBalanceRow(item) {
   const limit = customerLimit(item);
   const remaining = customerRemainingLimit(item);
@@ -2003,12 +2187,24 @@ function bindCustomerDetailButtons(root = app) {
   });
 }
 
+function bindPricingForms(root = app) {
+  root.querySelectorAll("[data-form='pricing-item']").forEach((form) => {
+    if (form.dataset.bound === "true") return;
+    form.dataset.bound = "true";
+    form.addEventListener("submit", (event) => {
+      event.preventDefault();
+      savePricingItem(event.currentTarget);
+    });
+  });
+}
+
 function render() {
   const pages = {
     overview,
     login,
     requests,
     ameen,
+    pricing,
     remote,
     monitoring,
     payments
@@ -2032,6 +2228,7 @@ function render() {
   app.querySelector("[data-action='export-ameen']")?.addEventListener("click", exportRequestsForAmeen);
   app.querySelector("[data-action='download-prices']")?.addEventListener("click", downloadFilteredPriceList);
   app.querySelector("[data-action='download-price-template']")?.addEventListener("click", downloadLivePriceTemplate);
+  app.querySelector("[data-action='download-daily-pricing']")?.addEventListener("click", downloadDailyPricingWorklist);
   app.querySelector("[data-action='download-approved-prices']")?.addEventListener("click", downloadApprovedPricesForAccounting);
   app.querySelector("[data-action='download-inventory']")?.addEventListener("click", downloadLatestInventoryReport);
   app.querySelector("[data-action='download-filtered-inventory']")?.addEventListener("click", downloadFilteredInventoryReport);
@@ -2050,6 +2247,11 @@ function render() {
   app.querySelector("[data-ameen-sort]")?.addEventListener("change", (event) => {
     state.ameenSort = event.currentTarget.value;
     updateAmeenBrowserResults();
+  });
+
+  app.querySelector("[data-pricing-search]")?.addEventListener("input", (event) => {
+    state.pricingSearch = event.currentTarget.value;
+    render();
   });
 
   app.querySelectorAll("[data-ameen-filter]").forEach((button) => {
@@ -2078,6 +2280,7 @@ function render() {
 
   bindCustomerLimitForms();
   bindCustomerDetailButtons();
+  bindPricingForms();
 
   app.querySelector("[data-form='login']")?.addEventListener("submit", (event) => {
     event.preventDefault();
