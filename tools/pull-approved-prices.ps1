@@ -5,6 +5,9 @@ param(
 
 $ErrorActionPreference = "Stop"
 
+[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+[Net.ServicePointManager]::Expect100Continue = $false
+
 function Write-PricePullLog($Message) {
   $line = "{0} {1}" -f (Get-Date -Format "yyyy-MM-dd HH:mm:ss"), $Message
   $logDir = Split-Path -Parent $LogPath
@@ -47,6 +50,44 @@ function Require-Value($Name, $Value) {
   return $Value
 }
 
+function Invoke-RestMethodWithRetry {
+  param(
+    [Parameter(Mandatory = $true)][string]$Method,
+    [Parameter(Mandatory = $true)][string]$Uri,
+    [Parameter(Mandatory = $true)][hashtable]$Headers,
+    [object]$Body = $null,
+    [int]$MaxAttempts = 3
+  )
+
+  $lastError = $null
+  for ($attempt = 1; $attempt -le $MaxAttempts; $attempt++) {
+    try {
+      $parameters = @{
+        Method = $Method
+        Uri = $Uri
+        Headers = $Headers
+        TimeoutSec = 45
+        DisableKeepAlive = $true
+      }
+      if ($null -ne $Body) {
+        $parameters.Body = $Body
+      }
+      return Invoke-RestMethod @parameters
+    } catch {
+      $lastError = $_
+      $message = $_.Exception.Message
+      $isTransient = $message -match "underlying connection|connection.*closed|receive|send|temporarily|timeout"
+      if (-not $isTransient -or $attempt -eq $MaxAttempts) {
+        throw
+      }
+      Write-PricePullLog ("Connection attempt {0}/{1} failed; retrying. Error: {2}" -f $attempt, $MaxAttempts, $message)
+      Start-Sleep -Seconds (2 * $attempt)
+    }
+  }
+
+  throw $lastError
+}
+
 function Get-SupabaseSession($Url, $ApiKey, $Email, $Password) {
   $endpoint = "$Url/auth/v1/token?grant_type=password"
   $headers = @{
@@ -58,7 +99,7 @@ function Get-SupabaseSession($Url, $ApiKey, $Email, $Password) {
     password = $Password
   } | ConvertTo-Json
 
-  return Invoke-RestMethod -Method Post -Uri $endpoint -Headers $headers -Body $body
+  return Invoke-RestMethodWithRetry -Method Post -Uri $endpoint -Headers $headers -Body $body
 }
 
 function Invoke-SupabaseGet($Url, $ApiKey, $Session, $PathAndQuery) {
@@ -68,7 +109,7 @@ function Invoke-SupabaseGet($Url, $ApiKey, $Session, $PathAndQuery) {
     Authorization = "Bearer $($Session.access_token)"
     Accept = "application/json"
   }
-  return Invoke-RestMethod -Method Get -Uri $endpoint -Headers $headers
+  return Invoke-RestMethodWithRetry -Method Get -Uri $endpoint -Headers $headers
 }
 
 function Test-ApprovedPriceRow($Row) {
