@@ -87,19 +87,35 @@ $configText = Get-Content -Raw -LiteralPath $ConfigPath
 $supabaseUrl = Get-ConfigValue -Text $configText -Pattern 'url:\s*"([^"]+)"' -Name "Supabase URL"
 $supabaseKey = Get-ConfigValue -Text $configText -Pattern 'publishableKey:\s*"([^"]+)"' -Name "Supabase publishable key"
 
-$sqlSecurePassword = Read-Host "SQL password for $SqlUserName on $Server" -AsSecureString
+$connectionString = $null
+for ($attempt = 1; $attempt -le 3; $attempt++) {
+  $sqlSecurePassword = Read-Host "SQL password for $SqlUserName on $Server" -AsSecureString
+  $sqlPassword = $null
+
+  try {
+    $sqlPassword = Convert-SecureStringToPlainText $sqlSecurePassword
+    $candidateConnectionString = New-SqlConnectionString -Server $Server -Database $Database -UserName $SqlUserName -Password $sqlPassword
+    Test-SqlLogin -ConnectionString $candidateConnectionString
+    $connectionString = $candidateConnectionString
+    break
+  } catch {
+    if ($attempt -ge 3) {
+      throw "SQL login failed for $SqlUserName. Rerun tools\create-ameen-readonly-user.ps1 to reset this user's password, then run this setup again. Original error: $($_.Exception.Message)"
+    }
+
+    Write-Host "SQL login failed. Re-enter the password for $SqlUserName. Attempt $attempt of 3."
+  } finally {
+    Remove-Variable sqlPassword -ErrorAction SilentlyContinue
+  }
+}
+
 $syncEmail = Read-Host "Supabase sync user email"
 $supabaseSecurePassword = Read-Host "Supabase sync user password" -AsSecureString
 
-$sqlPassword = $null
 $supabasePassword = $null
 
 try {
-  $sqlPassword = Convert-SecureStringToPlainText $sqlSecurePassword
   $supabasePassword = Convert-SecureStringToPlainText $supabaseSecurePassword
-  $connectionString = New-SqlConnectionString -Server $Server -Database $Database -UserName $SqlUserName -Password $sqlPassword
-
-  Test-SqlLogin -ConnectionString $connectionString
   Test-SupabaseLogin -Url $supabaseUrl -ApiKey $supabaseKey -Email $syncEmail -Password $supabasePassword
 
   Set-UserAndProcessEnv -Name "AMEEN_SQL_CONNECTION_STRING" -Value $connectionString
@@ -112,6 +128,5 @@ try {
   Write-Host "Run: .\tools\ameen-sync-agent.ps1 -Once -LowThreshold 50"
   Write-Host "Do not send or paste any password in chat."
 } finally {
-  Remove-Variable sqlPassword -ErrorAction SilentlyContinue
   Remove-Variable supabasePassword -ErrorAction SilentlyContinue
 }
