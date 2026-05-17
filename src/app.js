@@ -108,8 +108,15 @@ const state = {
   session: null,
   requests: [],
   inventoryReports: [],
+  customerBalanceReports: [],
   lastInventoryRefresh: null,
   priceExport: null,
+  ameenSearch: "",
+  ameenFilter: "alerts",
+  ameenSort: "qtyAsc",
+  customerSearch: "",
+  customerFilter: "balances",
+  customerSort: "balanceDesc",
   loading: true,
   notice: null
 };
@@ -136,6 +143,7 @@ async function boot() {
   await refreshSession();
   await loadRequests();
   await loadInventoryReports();
+  await loadCustomerBalanceReports();
   state.loading = false;
   render();
 }
@@ -176,6 +184,20 @@ async function loadInventoryReports() {
   }
 }
 
+async function loadCustomerBalanceReports() {
+  try {
+    if (dataStore.isConfigured() && !state.session) {
+      state.customerBalanceReports = [];
+      return;
+    }
+    state.customerBalanceReports = dataStore.listCustomerBalanceReports
+      ? await dataStore.listCustomerBalanceReports()
+      : [];
+  } catch {
+    state.customerBalanceReports = [];
+  }
+}
+
 function setRoute(route, clearNotice = true) {
   state.route = route;
   if (clearNotice) state.notice = null;
@@ -212,6 +234,7 @@ async function saveSession(form, action) {
 
     await loadRequests();
     await loadInventoryReports();
+    await loadCustomerBalanceReports();
     setRoute("overview", false);
   } catch (error) {
     setNotice("error", error.message);
@@ -224,6 +247,7 @@ async function logout() {
     await dataStore.signOut();
     state.session = null;
     state.inventoryReports = [];
+    state.customerBalanceReports = [];
     setNotice("success", "تم تسجيل الخروج.");
   } catch (error) {
     setNotice("error", error.message);
@@ -522,6 +546,7 @@ async function importAmeenReport(form) {
 async function refreshAmeenReports() {
   try {
     await loadInventoryReports();
+    await loadCustomerBalanceReports();
     setNotice("success", "تم تحديث تقارير الأمين من Supabase.");
     setRoute("ameen", false);
   } catch (error) {
@@ -576,6 +601,34 @@ function downloadLatestInventoryReport() {
   window.XLSX.utils.book_append_sheet(workbook, worksheet, "live-inventory");
   window.XLSX.writeFile(workbook, `tobacco-live-inventory-${todayIsoDate()}.xlsx`);
   setNotice("success", "تم تنزيل تقرير الجرد الحي من آخر مزامنة.");
+  render();
+}
+
+function downloadFilteredInventoryReport() {
+  const latest = state.inventoryReports[0];
+  const items = ameenFilteredItems(reportItems(latest));
+  if (!latest || !items.length) {
+    setNotice("error", "لا توجد مواد معروضة للتصدير حسب البحث والفلتر الحالي.");
+    render();
+    return;
+  }
+
+  assertExcelSupport();
+  const rows = items.map((item) => [
+    item.name || "",
+    itemQty(item),
+    statusLabel(item.status),
+    item.lowThreshold || latest.summary?.threshold || "",
+    item.priceListed ? "نعم" : "لا"
+  ]);
+  const worksheet = window.XLSX.utils.aoa_to_sheet([
+    ["المادة", "الكمية", "الحالة", "حد التنبيه", "ضمن لائحة الأسعار"],
+    ...rows
+  ]);
+  const workbook = window.XLSX.utils.book_new();
+  window.XLSX.utils.book_append_sheet(workbook, worksheet, "filtered-inventory");
+  window.XLSX.writeFile(workbook, `tobacco-filtered-inventory-${todayIsoDate()}.xlsx`);
+  setNotice("success", "تم تنزيل المواد المعروضة حسب البحث والفلتر الحالي.");
   render();
 }
 
@@ -849,6 +902,181 @@ function statusLabel(status) {
   }[status] || status;
 }
 
+const ameenFilters = [
+  { id: "alerts", label: "تنبيهات" },
+  { id: "all", label: "الكل" },
+  { id: "low", label: "قريب النفاد" },
+  { id: "zero", label: "صفر" },
+  { id: "negative", label: "سالب" },
+  { id: "available", label: "موجود" }
+];
+
+function itemQty(item) {
+  return Number(item?.stockQty || 0);
+}
+
+function isNegativeItem(item) {
+  return itemQty(item) < 0;
+}
+
+function isZeroItem(item) {
+  return itemQty(item) === 0;
+}
+
+function isLowPositiveItem(item) {
+  return item.status === "low" && itemQty(item) > 0;
+}
+
+function isAlertItem(item) {
+  return isNegativeItem(item) || isZeroItem(item) || isLowPositiveItem(item);
+}
+
+function ameenFilterCounts(items) {
+  return {
+    all: items.length,
+    alerts: items.filter(isAlertItem).length,
+    low: items.filter(isLowPositiveItem).length,
+    zero: items.filter(isZeroItem).length,
+    negative: items.filter(isNegativeItem).length,
+    available: items.filter((item) => itemQty(item) > 0).length
+  };
+}
+
+function matchesAmeenSearch(item, query) {
+  const text = query.trim();
+  if (!text) return true;
+  const normalizedQuery = normalizeItemName(text);
+  const normalizedName = normalizeItemName(item.name || "");
+  return (
+    String(item.name || "").includes(text) ||
+    String(item.key || "").includes(normalizedQuery) ||
+    normalizedName.includes(normalizedQuery)
+  );
+}
+
+function filterAmeenItems(items, filter, query) {
+  return items.filter((item) => {
+    if (!matchesAmeenSearch(item, query)) return false;
+    if (filter === "low") return isLowPositiveItem(item);
+    if (filter === "zero") return isZeroItem(item);
+    if (filter === "negative") return isNegativeItem(item);
+    if (filter === "available") return itemQty(item) > 0;
+    if (filter === "alerts") return isAlertItem(item);
+    return true;
+  });
+}
+
+function sortAmeenItems(items, sort) {
+  const sorted = [...items];
+  if (sort === "qtyDesc") {
+    sorted.sort((a, b) => itemQty(b) - itemQty(a));
+  } else if (sort === "nameAsc") {
+    sorted.sort((a, b) => String(a.name || "").localeCompare(String(b.name || ""), "ar"));
+  } else {
+    sorted.sort((a, b) => itemQty(a) - itemQty(b));
+  }
+  return sorted;
+}
+
+function ameenFilteredItems(items) {
+  return sortAmeenItems(filterAmeenItems(items, state.ameenFilter, state.ameenSearch), state.ameenSort);
+}
+
+function ameenSyncState(syncedAt) {
+  const minutes = minutesSince(syncedAt);
+  if (minutes === null) {
+    return { type: "warning", label: "وقت المزامنة غير معروف" };
+  }
+  if (minutes > 5) {
+    return { type: "warning", label: `المزامنة متأخرة: قبل ${minutes} دقيقة` };
+  }
+  return { type: "success", label: "المزامنة تعمل" };
+}
+
+const customerFilters = [
+  { id: "balances", label: "أصحاب رصيد" },
+  { id: "all", label: "الكل" },
+  { id: "over_limit", label: "تجاوز الحد" },
+  { id: "near_limit", label: "قريب من الحد" },
+  { id: "no_limit", label: "بلا حد" }
+];
+
+function customerBalance(item) {
+  return Number(item?.balance || 0);
+}
+
+function customerLimit(item) {
+  return Number(item?.creditLimit || 0);
+}
+
+function customerRemainingLimit(item) {
+  return Number(item?.remainingLimit || 0);
+}
+
+function customerStatusLabel(status) {
+  return {
+    over_limit: "تجاوز الحد",
+    near_limit: "قريب من الحد",
+    open_balance: "عليه رصيد",
+    credit_balance: "له رصيد",
+    clear: "صافي"
+  }[status] || status;
+}
+
+function formatMoney(value) {
+  return new Intl.NumberFormat("ar-SY", {
+    maximumFractionDigits: 3
+  }).format(Number(value || 0));
+}
+
+function customerFilterCounts(items) {
+  return {
+    all: items.length,
+    balances: items.filter((item) => customerBalance(item) !== 0).length,
+    over_limit: items.filter((item) => item.status === "over_limit").length,
+    near_limit: items.filter((item) => item.status === "near_limit").length,
+    no_limit: items.filter((item) => customerLimit(item) <= 0).length
+  };
+}
+
+function matchesCustomerSearch(item, query) {
+  const text = query.trim();
+  if (!text) return true;
+  const normalizedQuery = normalizeItemName(text);
+  return (
+    String(item.name || "").includes(text) ||
+    String(item.key || "").includes(normalizedQuery) ||
+    normalizeItemName(item.name || "").includes(normalizedQuery)
+  );
+}
+
+function filterCustomerItems(items, filter, query) {
+  return items.filter((item) => {
+    if (!matchesCustomerSearch(item, query)) return false;
+    if (filter === "over_limit") return item.status === "over_limit";
+    if (filter === "near_limit") return item.status === "near_limit";
+    if (filter === "no_limit") return customerLimit(item) <= 0;
+    if (filter === "balances") return customerBalance(item) !== 0;
+    return true;
+  });
+}
+
+function sortCustomerItems(items, sort) {
+  const sorted = [...items];
+  if (sort === "remainingAsc") {
+    sorted.sort((a, b) => customerRemainingLimit(a) - customerRemainingLimit(b));
+  } else if (sort === "nameAsc") {
+    sorted.sort((a, b) => String(a.name || "").localeCompare(String(b.name || ""), "ar"));
+  } else {
+    sorted.sort((a, b) => customerBalance(b) - customerBalance(a));
+  }
+  return sorted;
+}
+
+function filteredCustomerItems(items) {
+  return sortCustomerItems(filterCustomerItems(items, state.customerFilter, state.customerSearch), state.customerSort);
+}
+
 function inventoryMetric(label, value, detail = "") {
   return `
     <article class="inventory-metric">
@@ -884,18 +1112,154 @@ function inventoryList(title, items, emptyText) {
   `;
 }
 
+function inventoryRow(item) {
+  const qty = itemQty(item);
+  const rowState = qty < 0 ? "negative" : qty === 0 ? "zero" : item.status;
+  return `
+    <div class="inventory-row inventory-row-${escapeHtml(rowState)}">
+      <strong>${escapeHtml(item.name)}</strong>
+      <span>${escapeHtml(statusLabel(item.status))} / الكمية: ${escapeHtml(qty)}</span>
+    </div>
+  `;
+}
+
+function ameenBrowser(items) {
+  const counts = ameenFilterCounts(items);
+  const filtered = ameenFilteredItems(items);
+  const activeFilter = ameenFilters.some((filter) => filter.id === state.ameenFilter) ? state.ameenFilter : "alerts";
+
+  return `
+    <section class="panel wide inventory-browser">
+      <div class="panel-title-row inventory-browser-head">
+        <div>
+          <h3>مواد الأمين</h3>
+          <p class="muted">ابحث، صفّ، ورتّب المواد من آخر مزامنة مباشرة.</p>
+        </div>
+        <span class="status-chip" data-ameen-count>يعرض ${escapeHtml(filtered.length)} من ${escapeHtml(items.length)}</span>
+      </div>
+      <div class="inventory-controls">
+        <label>
+          بحث باسم المادة
+          <input data-ameen-search value="${escapeHtml(state.ameenSearch)}" placeholder="مثال: 1970 أو اسم المادة">
+        </label>
+        <label>
+          الترتيب
+          <select data-ameen-sort>
+            <option value="qtyAsc" ${state.ameenSort === "qtyAsc" ? "selected" : ""}>الكمية من الأقل للأعلى</option>
+            <option value="qtyDesc" ${state.ameenSort === "qtyDesc" ? "selected" : ""}>الكمية من الأعلى للأقل</option>
+            <option value="nameAsc" ${state.ameenSort === "nameAsc" ? "selected" : ""}>الاسم أبجدياً</option>
+          </select>
+        </label>
+      </div>
+      <div class="filter-pills">
+        ${ameenFilters
+          .map(
+            (filter) => `
+              <button class="filter-pill ${activeFilter === filter.id ? "active" : ""}" type="button" data-ameen-filter="${escapeHtml(filter.id)}">
+                <span>${escapeHtml(filter.label)}</span>
+                <strong>${escapeHtml(counts[filter.id] || 0)}</strong>
+              </button>
+            `
+          )
+          .join("")}
+      </div>
+      <div class="button-row report-actions">
+        <button class="button secondary" type="button" data-action="download-filtered-inventory" ${filtered.length ? "" : "disabled"}>تصدير المعروض</button>
+      </div>
+      <div class="inventory-list inventory-list-dense" data-ameen-results>
+        ${filtered.length ? filtered.slice(0, 80).map(inventoryRow).join("") : '<p class="muted">لا توجد مواد تطابق البحث والفلتر الحالي.</p>'}
+      </div>
+      ${filtered.length > 80 ? '<p class="muted">تم عرض أول 80 مادة فقط. استخدم البحث أو الفلاتر لتضييق القائمة.</p>' : ""}
+    </section>
+  `;
+}
+
+function customerBalanceRow(item) {
+  const limit = customerLimit(item);
+  const remaining = customerRemainingLimit(item);
+  const rowState = item.status === "over_limit" ? "negative" : item.status === "near_limit" ? "low" : "active";
+  return `
+    <div class="inventory-row inventory-row-${escapeHtml(rowState)}">
+      <strong>${escapeHtml(item.name)}</strong>
+      <span>الرصيد: ${escapeHtml(formatMoney(customerBalance(item)))} / الحد: ${escapeHtml(limit > 0 ? formatMoney(limit) : "غير محدد")}</span>
+      <span>المتبقي من الحد: ${escapeHtml(limit > 0 ? formatMoney(remaining) : "غير محدد")} / الحالة: ${escapeHtml(customerStatusLabel(item.status))}</span>
+    </div>
+  `;
+}
+
+function customerBalanceSection(report) {
+  if (!report) {
+    return `
+      <section class="panel wide customer-balances">
+        <h3>أرصدة الزبائن</h3>
+        <p class="muted">لم تصل مزامنة أرصدة الزبائن بعد. سيتم عرضها هنا بعد تشغيل مزامنة الأمين الجديدة.</p>
+      </section>
+    `;
+  }
+
+  const items = Array.isArray(report.items) ? report.items : [];
+  const summary = report.summary || {};
+  const counts = customerFilterCounts(items);
+  const filtered = filteredCustomerItems(items);
+
+  return `
+    <section class="panel wide customer-balances">
+      <div class="panel-title-row inventory-browser-head">
+        <div>
+          <h3>أرصدة الزبائن والحد المسموح</h3>
+          <p class="muted">الرصيد محسوب من الأمين: مدين ناقص دائن. الحد المسموح من MaxDebit، وإذا كان صفراً يظهر غير محدد.</p>
+        </div>
+        <span class="status-chip" data-customer-count>يعرض ${escapeHtml(filtered.length)} من ${escapeHtml(items.length)}</span>
+      </div>
+      <div class="inventory-metrics">
+        ${inventoryMetric("عدد الزبائن", summary.totalCustomers || items.length, "من cu000")}
+        ${inventoryMetric("لديهم رصيد", summary.customersWithBalance || counts.balances, "رصيد غير صفر")}
+        ${inventoryMetric("تجاوزوا الحد", summary.overLimitCustomers || 0, "حسب الحد المسجل")}
+        ${inventoryMetric("حدود مسجلة", summary.customersWithLimit || 0, "MaxDebit أكبر من صفر")}
+      </div>
+      <div class="inventory-controls">
+        <label>
+          بحث باسم الزبون
+          <input data-customer-search value="${escapeHtml(state.customerSearch)}" placeholder="اكتب اسم الزبون">
+        </label>
+        <label>
+          الترتيب
+          <select data-customer-sort>
+            <option value="balanceDesc" ${state.customerSort === "balanceDesc" ? "selected" : ""}>أعلى رصيد أولاً</option>
+            <option value="remainingAsc" ${state.customerSort === "remainingAsc" ? "selected" : ""}>الأقرب للحد أولاً</option>
+            <option value="nameAsc" ${state.customerSort === "nameAsc" ? "selected" : ""}>الاسم أبجدياً</option>
+          </select>
+        </label>
+      </div>
+      <div class="filter-pills">
+        ${customerFilters
+          .map(
+            (filter) => `
+              <button class="filter-pill ${state.customerFilter === filter.id ? "active" : ""}" type="button" data-customer-filter="${escapeHtml(filter.id)}">
+                <span>${escapeHtml(filter.label)}</span>
+                <strong>${escapeHtml(counts[filter.id] || 0)}</strong>
+              </button>
+            `
+          )
+          .join("")}
+      </div>
+      <div class="inventory-list inventory-list-dense customer-results" data-customer-results>
+        ${filtered.length ? filtered.slice(0, 80).map(customerBalanceRow).join("") : '<p class="muted">لا توجد زبائن تطابق البحث والفلتر الحالي.</p>'}
+      </div>
+      ${filtered.length > 80 ? '<p class="muted">تم عرض أول 80 زبون فقط. استخدم البحث لتضييق القائمة.</p>' : ""}
+    </section>
+  `;
+}
+
 function ameen() {
   const latest = state.inventoryReports[0];
+  const customerReport = state.customerBalanceReports[0];
   const summary = latest?.summary || {};
   const items = reportItems(latest);
   const syncedAt = reportSyncedAt(latest);
   const negativeItems = items.filter((item) => Number(item.stockQty || 0) < 0);
   const zeroItems = items.filter((item) => Number(item.stockQty || 0) === 0);
-  const lowOnlyItems = items.filter((item) => item.status === "low");
-  const lowItems = [...negativeItems, ...zeroItems, ...lowOnlyItems]
-    .sort((a, b) => Number(a.stockQty || 0) - Number(b.stockQty || 0));
-  const staleItems = items.filter((item) => item.status === "stale");
-  const activeItems = items.filter((item) => item.status === "active");
+  const syncState = ameenSyncState(syncedAt);
   const liveReport = latest?.source === "ameen_sql_agent" || summary.source === "ameen_sql_agent";
   const authHint =
     dataStore.isConfigured() && !state.session
@@ -935,7 +1299,8 @@ function ameen() {
         </div>
         ${
           latest
-            ? `<p class="muted">آخر مزامنة: ${escapeHtml(formatDateTime(syncedAt))} / ${escapeHtml(syncFreshnessLabel(syncedAt))}</p>
+            ? `<p class="sync-chip ${escapeHtml(syncState.type)}">${escapeHtml(syncState.label)}</p>
+              <p class="muted">آخر مزامنة: ${escapeHtml(formatDateTime(syncedAt))} / ${escapeHtml(syncFreshnessLabel(syncedAt))}</p>
               <p class="muted">المصدر: ${escapeHtml(sourceLabel(latest.source || summary.source))}${liveReport ? " / مباشر من قاعدة الأمين" : ""}</p>
               <div class="button-row report-actions">
                 <button class="button secondary" type="button" data-action="download-inventory">تصدير الجرد الحي</button>
@@ -958,10 +1323,8 @@ function ameen() {
 
     ${
       latest
-        ? `<section class="content-grid">
-            ${inventoryList("تنبيهات قرب النفاد", lowItems, "لا توجد مواد قريبة من النفاد حسب الحد الحالي.")}
-            ${inventoryList("مواد راكدة", staleItems, "لا توجد مواد راكدة من هذه المقارنة.")}
-          </section>
+        ? `${ameenBrowser(items)}
+          ${customerBalanceSection(customerReport)}
           <section class="panel wide ameen-movement">
             <h3>حركة المواد والمقارنة</h3>
             <div class="inventory-metrics">
@@ -971,7 +1334,7 @@ function ameen() {
               ${inventoryMetric("المقارنة السابقة", summary.previousReportDate || "لا يوجد", "تحتاج تقريرين أو أكثر")}
             </div>
           </section>`
-        : ""
+        : customerBalanceSection(customerReport)
     }
   `);
 }
@@ -1080,6 +1443,55 @@ function requestCard(request) {
   `;
 }
 
+function updateAmeenBrowserResults() {
+  const latest = state.inventoryReports[0];
+  const items = reportItems(latest);
+  const filtered = ameenFilteredItems(items);
+  const results = app.querySelector("[data-ameen-results]");
+  const count = app.querySelector("[data-ameen-count]");
+  const exportButton = app.querySelector("[data-action='download-filtered-inventory']");
+
+  if (results) {
+    results.innerHTML = filtered.length
+      ? filtered.slice(0, 80).map(inventoryRow).join("")
+      : '<p class="muted">لا توجد مواد تطابق البحث والفلتر الحالي.</p>';
+  }
+
+  if (count) {
+    count.textContent = `يعرض ${filtered.length} من ${items.length}`;
+  }
+
+  if (exportButton) {
+    exportButton.disabled = filtered.length === 0;
+  }
+
+  app.querySelectorAll("[data-ameen-filter]").forEach((button) => {
+    button.classList.toggle("active", button.dataset.ameenFilter === state.ameenFilter);
+  });
+}
+
+function updateCustomerBalanceResults() {
+  const latest = state.customerBalanceReports[0];
+  const items = Array.isArray(latest?.items) ? latest.items : [];
+  const filtered = filteredCustomerItems(items);
+  const results = app.querySelector("[data-customer-results]");
+  const count = app.querySelector("[data-customer-count]");
+
+  if (results) {
+    results.innerHTML = filtered.length
+      ? filtered.slice(0, 80).map(customerBalanceRow).join("")
+      : '<p class="muted">لا توجد زبائن تطابق البحث والفلتر الحالي.</p>';
+  }
+
+  if (count) {
+    count.textContent = `يعرض ${filtered.length} من ${items.length}`;
+  }
+
+  app.querySelectorAll("[data-customer-filter]").forEach((button) => {
+    button.classList.toggle("active", button.dataset.customerFilter === state.customerFilter);
+  });
+}
+
 function render() {
   const pages = {
     overview,
@@ -1109,7 +1521,42 @@ function render() {
   app.querySelector("[data-action='export-ameen']")?.addEventListener("click", exportRequestsForAmeen);
   app.querySelector("[data-action='download-prices']")?.addEventListener("click", downloadFilteredPriceList);
   app.querySelector("[data-action='download-inventory']")?.addEventListener("click", downloadLatestInventoryReport);
+  app.querySelector("[data-action='download-filtered-inventory']")?.addEventListener("click", downloadFilteredInventoryReport);
   app.querySelector("[data-action='refresh-ameen']")?.addEventListener("click", refreshAmeenReports);
+
+  app.querySelector("[data-ameen-search]")?.addEventListener("input", (event) => {
+    state.ameenSearch = event.currentTarget.value;
+    updateAmeenBrowserResults();
+  });
+
+  app.querySelector("[data-ameen-sort]")?.addEventListener("change", (event) => {
+    state.ameenSort = event.currentTarget.value;
+    updateAmeenBrowserResults();
+  });
+
+  app.querySelectorAll("[data-ameen-filter]").forEach((button) => {
+    button.addEventListener("click", () => {
+      state.ameenFilter = button.dataset.ameenFilter;
+      updateAmeenBrowserResults();
+    });
+  });
+
+  app.querySelector("[data-customer-search]")?.addEventListener("input", (event) => {
+    state.customerSearch = event.currentTarget.value;
+    updateCustomerBalanceResults();
+  });
+
+  app.querySelector("[data-customer-sort]")?.addEventListener("change", (event) => {
+    state.customerSort = event.currentTarget.value;
+    updateCustomerBalanceResults();
+  });
+
+  app.querySelectorAll("[data-customer-filter]").forEach((button) => {
+    button.addEventListener("click", () => {
+      state.customerFilter = button.dataset.customerFilter;
+      updateCustomerBalanceResults();
+    });
+  });
 
   app.querySelector("[data-form='login']")?.addEventListener("submit", (event) => {
     event.preventDefault();
@@ -1135,7 +1582,7 @@ boot();
 
 setInterval(() => {
   if (state.route === "ameen" && (!dataStore.isConfigured() || state.session)) {
-    loadInventoryReports()
+    Promise.all([loadInventoryReports(), loadCustomerBalanceReports()])
       .then(() => render())
       .catch(() => {});
   }

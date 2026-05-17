@@ -258,7 +258,9 @@
     },
 
     async listInventoryReports() {
-      if (!client) return readJson(INVENTORY_REPORTS_KEY, []);
+      if (!client) {
+        return readJson(INVENTORY_REPORTS_KEY, []).filter((report) => report.source !== "ameen_customer_balances");
+      }
 
       const session = await getSupabaseSession();
       if (!session) return [];
@@ -266,6 +268,26 @@
       const { data, error } = await client
         .from(inventoryReportsTable)
         .select("id, report_date, source, summary, items, created_at")
+        .neq("source", "ameen_customer_balances")
+        .order("created_at", { ascending: false })
+        .limit(12);
+
+      if (error) throw new Error(error.message);
+      return data || [];
+    },
+
+    async listCustomerBalanceReports() {
+      if (!client) {
+        return readJson(INVENTORY_REPORTS_KEY, []).filter((report) => report.source === "ameen_customer_balances");
+      }
+
+      const session = await getSupabaseSession();
+      if (!session) return [];
+
+      const { data, error } = await client
+        .from(inventoryReportsTable)
+        .select("id, report_date, source, summary, items, created_at")
+        .eq("source", "ameen_customer_balances")
         .order("created_at", { ascending: false })
         .limit(12);
 

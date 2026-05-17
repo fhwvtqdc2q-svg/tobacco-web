@@ -740,9 +740,97 @@ code {
   color: var(--accent);
 }
 
+.inventory-browser {
+  margin-top: 18px;
+}
+
+.customer-balances {
+  margin-top: 18px;
+}
+
+.inventory-browser-head {
+  align-items: flex-start;
+}
+
+.inventory-browser-head p {
+  margin: 6px 0 0;
+}
+
+.inventory-controls {
+  display: grid;
+  grid-template-columns: minmax(0, 1.4fr) minmax(180px, 0.6fr);
+  gap: 12px;
+  margin: 16px 0 12px;
+}
+
+.customer-results {
+  margin-top: 14px;
+}
+
+.inventory-controls label {
+  display: grid;
+  gap: 7px;
+  color: var(--ink);
+  font-weight: 800;
+}
+
+.inventory-controls input,
+.inventory-controls select {
+  width: 100%;
+  min-height: 44px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  padding: 10px 12px;
+  background: #0d0a06;
+  color: var(--ink);
+  font: inherit;
+}
+
+.inventory-controls input:focus,
+.inventory-controls select:focus {
+  border-color: var(--primary);
+  outline: 2px solid rgba(215, 168, 63, 0.18);
+}
+
+.filter-pills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.filter-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 38px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: #14100b;
+  color: var(--muted);
+  cursor: pointer;
+  padding: 0 12px;
+  font: inherit;
+  font-weight: 800;
+}
+
+.filter-pill strong {
+  color: var(--accent);
+}
+
+.filter-pill.active,
+.filter-pill:hover {
+  border-color: #8a652d;
+  background: #2a1f11;
+  color: var(--ink);
+}
+
 .inventory-list {
   display: grid;
   gap: 10px;
+}
+
+.inventory-list-dense {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
 .inventory-row {
@@ -754,12 +842,48 @@ code {
   background: #16110a;
 }
 
+.inventory-row-low {
+  border-color: #8a652d;
+}
+
+.inventory-row-zero,
+.inventory-row-out {
+  border-color: #765025;
+  background: #1d1309;
+}
+
+.inventory-row-negative {
+  border-color: #8c3b35;
+  background: #25100e;
+}
+
 .inventory-row span {
   color: var(--muted);
 }
 
 .ameen-movement {
   margin-top: 18px;
+}
+
+.sync-chip {
+  display: inline-flex;
+  width: fit-content;
+  margin: 0 0 10px;
+  padding: 7px 10px;
+  border-radius: 999px;
+  font-weight: 900;
+}
+
+.sync-chip.success {
+  border: 1px solid #7a612f;
+  background: #1d170d;
+  color: var(--accent);
+}
+
+.sync-chip.warning {
+  border: 1px solid #8c6427;
+  background: #23180c;
+  color: #f7df9c;
 }
 
 @media (max-width: 900px) {
@@ -787,7 +911,9 @@ code {
   .service-grid,
   .inventory-metrics,
   .status-board,
-  .status-board.full {
+  .status-board.full,
+  .inventory-controls,
+  .inventory-list-dense {
     grid-template-columns: 1fr;
   }
 

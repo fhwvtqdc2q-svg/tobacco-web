@@ -5,6 +5,8 @@ param(
   [Alias("owhreshold", "Threshold")]
   [int]$LowThreshold = 50,
   [string]$StockQueryPath = ".\tools\ameen-stock-query.sql",
+  [string]$CustomerBalancesQueryPath = ".\tools\ameen-customer-balances-query.sql",
+  [switch]$SkipCustomerBalances,
   [string]$LogPath = (Join-Path $PSScriptRoot "..\logs\ameen-sync.log")
 )
 
@@ -162,7 +164,73 @@ function Build-InventoryReport($Rows, $LowThreshold) {
   }
 }
 
-function Send-InventoryReport($SupabaseUrl, $ApiKey, $Session, $Report) {
+function Build-CustomerBalanceReport($Rows) {
+  $items = @()
+
+  foreach ($row in $Rows) {
+    $name = [string]$row.customer_name
+    $key = Normalize-ItemName $name
+    if (-not $key) {
+      continue
+    }
+
+    $balance = To-Number $row.balance
+    $creditLimit = To-Number $row.credit_limit
+    $remainingLimit = To-Number $row.remaining_limit
+    $status = "clear"
+
+    if ($creditLimit -gt 0 -and $balance -gt $creditLimit) {
+      $status = "over_limit"
+    } elseif ($creditLimit -gt 0 -and $balance -gt 0 -and (($balance / $creditLimit) -ge 0.9)) {
+      $status = "near_limit"
+    } elseif ($balance -gt 0) {
+      $status = "open_balance"
+    } elseif ($balance -lt 0) {
+      $status = "credit_balance"
+    }
+
+    $items += [ordered]@{
+      key = $key
+      name = $name
+      balance = [math]::Round($balance, 3)
+      creditLimit = [math]::Round($creditLimit, 3)
+      remainingLimit = [math]::Round($remainingLimit, 3)
+      status = $status
+      customerGuid = [string]$row.customer_guid
+    }
+  }
+
+  if (-not $items.Count) {
+    throw "Ameen customer balances query returned no customers. Edit tools\\ameen-customer-balances-query.sql after identifying the real Ameen customer table."
+  }
+
+  $totalBalance = 0.0
+  $totalCreditLimit = 0.0
+  foreach ($item in $items) {
+    $totalBalance += [double]$item.balance
+    $totalCreditLimit += [double]$item.creditLimit
+  }
+
+  $summary = [ordered]@{
+    reportDate = (Get-Date).ToString("yyyy-MM-dd")
+    source = "ameen_customer_balances"
+    totalCustomers = $items.Count
+    customersWithBalance = @($items | Where-Object { $_.balance -ne 0 }).Count
+    customersWithLimit = @($items | Where-Object { $_.creditLimit -gt 0 }).Count
+    overLimitCustomers = @($items | Where-Object { $_.status -eq "over_limit" }).Count
+    nearLimitCustomers = @($items | Where-Object { $_.status -eq "near_limit" }).Count
+    totalBalance = [math]::Round($totalBalance, 3)
+    totalCreditLimit = [math]::Round($totalCreditLimit, 3)
+    syncedAt = (Get-Date).ToUniversalTime().ToString("o")
+  }
+
+  return @{
+    Summary = $summary
+    Items = $items
+  }
+}
+
+function Send-Report($SupabaseUrl, $ApiKey, $Session, $Report, $Source) {
   $endpoint = "$SupabaseUrl/rest/v1/inventory_reports"
   $headers = @{
     apikey = $ApiKey
@@ -172,13 +240,21 @@ function Send-InventoryReport($SupabaseUrl, $ApiKey, $Session, $Report) {
   }
   $body = ConvertTo-JsonText -Value @{
     report_date = $Report.Summary.reportDate
-    source = "ameen_sql_agent"
+    source = $Source
     summary = $Report.Summary
     items = $Report.Items
     created_by = $Session.user.id
   } -Depth 20
 
   Invoke-RestMethod -Method Post -Uri $endpoint -Headers $headers -ContentType "application/json; charset=utf-8" -Body $body | Out-Null
+}
+
+function Send-InventoryReport($SupabaseUrl, $ApiKey, $Session, $Report) {
+  Send-Report -SupabaseUrl $SupabaseUrl -ApiKey $ApiKey -Session $Session -Report $Report -Source "ameen_sql_agent"
+}
+
+function Send-CustomerBalanceReport($SupabaseUrl, $ApiKey, $Session, $Report) {
+  Send-Report -SupabaseUrl $SupabaseUrl -ApiKey $ApiKey -Session $Session -Report $Report -Source "ameen_customer_balances"
 }
 
 function Sync-Once {
@@ -198,7 +274,20 @@ function Sync-Once {
   $session = Get-SupabaseSession -Url $supabaseUrl -ApiKey $supabaseKey -Email $syncEmail -Password $syncPassword
   Send-InventoryReport -SupabaseUrl $supabaseUrl -ApiKey $supabaseKey -Session $session -Report $report
 
-  Write-AgentLog ("Synced {0} items. Low={1}, Out={2}" -f $report.Items.Count, $report.Summary.lowStockItems, $report.Summary.outOfStockItems)
+  $customerCount = 0
+  if (-not $SkipCustomerBalances) {
+    if (-not (Test-Path -LiteralPath $CustomerBalancesQueryPath)) {
+      throw "Customer balances query file not found: $CustomerBalancesQueryPath"
+    }
+
+    $customerQuery = Get-Content -Raw -LiteralPath $CustomerBalancesQueryPath
+    $customerRows = Invoke-SqlRows -ConnectionString $connectionString -Query $customerQuery
+    $customerReport = Build-CustomerBalanceReport -Rows $customerRows
+    Send-CustomerBalanceReport -SupabaseUrl $supabaseUrl -ApiKey $supabaseKey -Session $session -Report $customerReport
+    $customerCount = $customerReport.Items.Count
+  }
+
+  Write-AgentLog ("Synced {0} items. Low={1}, Out={2}, Customers={3}" -f $report.Items.Count, $report.Summary.lowStockItems, $report.Summary.outOfStockItems, $customerCount)
 }
 
 do {
