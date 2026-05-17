@@ -101,6 +101,10 @@ code {
   border-color: #6f5124;
 }
 
+.nav-link.active {
+  border-right: 3px solid var(--primary);
+}
+
 .main {
   padding: 28px;
 }
@@ -630,6 +634,11 @@ code {
   border-radius: 8px;
   padding: 14px;
   background: #16110a;
+  transition: border-color 0.15s;
+}
+
+.request-card:hover {
+  border-color: #8a652d;
 }
 
 .request-card strong,
@@ -664,6 +673,19 @@ code {
   cursor: pointer;
   padding: 0 12px;
   font-weight: 800;
+}
+
+.request-date {
+  font-size: 0.8rem;
+  color: var(--muted);
+  margin-top: 4px;
+  opacity: 0.8;
+}
+
+.request-search-bar {
+  grid-template-columns: 1fr auto;
+  align-items: end;
+  margin-bottom: 10px;
 }
 
 .status-chip {
@@ -1014,6 +1036,7 @@ code {
   .status-board,
   .status-board.full,
   .inventory-controls,
+  .request-search-bar,
   .customer-limit-editor,
   .customer-detail-metrics,
   .customer-detail-grid,

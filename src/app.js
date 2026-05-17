@@ -124,6 +124,8 @@ const state = {
   approvedPriceError: null,
   lastInventoryRefresh: null,
   priceExport: null,
+  requestSearch: "",
+  requestFilter: "all",
   ameenSearch: "",
   ameenFilter: "alerts",
   ameenSort: "qtyAsc",
@@ -1237,11 +1239,28 @@ function requests() {
       <article class="panel">
         <div class="panel-title-row">
           <h3>سجل الطلبات</h3>
+          <span class="status-chip" data-request-count>يعرض ${filteredRequests().length} من ${state.requests.length}</span>
+        </div>
+        <div class="inventory-controls request-search-bar">
+          <label>
+            بحث سريع
+            <input data-request-search value="${escapeHtml(state.requestSearch)}" placeholder="اسم العميل، القناة، نوع الطلب...">
+          </label>
           <button class="button secondary compact-button" type="button" data-action="export-ameen">تصدير للأمين</button>
         </div>
-        <p class="muted">يصدر الملف بصيغة CSV تفتح في Excel. عند معرفة قالب استيراد الأمين لديك نطابق الأعمدة معه بدقة.</p>
-        <div class="request-list">
-          ${state.requests.length ? state.requests.map(requestCard).join("") : loginPrompt || '<p class="muted">لا توجد طلبات بعد.</p>'}
+        <div class="filter-pills">
+          ${requestStatusFilters.map((f) => {
+            const counts = requestFilterCounts();
+            return `
+              <button class="filter-pill ${state.requestFilter === f.id ? "active" : ""}" type="button" data-request-filter="${escapeHtml(f.id)}">
+                <span>${escapeHtml(f.label)}</span>
+                <strong>${escapeHtml(counts[f.id] || 0)}</strong>
+              </button>
+            `;
+          }).join("")}
+        </div>
+        <div class="request-list" data-request-results>
+          ${filteredRequests().length ? filteredRequests().map(requestCard).join("") : loginPrompt || '<p class="muted">لا توجد طلبات بعد.</p>'}
         </div>
       </article>
     </section>
@@ -2098,6 +2117,64 @@ function taskItem(item) {
   `;
 }
 
+const requestStatusFilters = [
+  { id: "all", label: "الكل" },
+  { id: "open", label: "مفتوح" },
+  { id: "closed", label: "مغلق" }
+];
+
+function requestFilterCounts() {
+  return {
+    all: state.requests.length,
+    open: state.requests.filter((r) => r.status !== "مغلق").length,
+    closed: state.requests.filter((r) => r.status === "مغلق").length
+  };
+}
+
+function filteredRequests() {
+  const query = state.requestSearch.trim().toLowerCase();
+  return state.requests.filter((request) => {
+    const matchesFilter =
+      state.requestFilter === "all" ||
+      (state.requestFilter === "open" && request.status !== "مغلق") ||
+      (state.requestFilter === "closed" && request.status === "مغلق");
+    if (!matchesFilter) return false;
+    if (!query) return true;
+    return (
+      String(request.customer || "").toLowerCase().includes(query) ||
+      String(request.channel || "").includes(query) ||
+      String(request.type || "").includes(query) ||
+      String(request.note || "").toLowerCase().includes(query) ||
+      String(request.publicId || request.id || "").includes(query)
+    );
+  });
+}
+
+function updateRequestResults() {
+  const filtered = filteredRequests();
+  const results = app.querySelector("[data-request-results]");
+  const count = app.querySelector("[data-request-count]");
+
+  if (results) {
+    const loginPrompt =
+      dataStore.isConfigured() && !state.session
+        ? '<p class="muted">سجل الدخول أولا حتى تظهر طلبات Supabase.</p>'
+        : "";
+    results.innerHTML = filtered.length
+      ? filtered.map(requestCard).join("")
+      : loginPrompt || '<p class="muted">لا توجد طلبات تطابق البحث.</p>';
+    results.querySelectorAll("[data-request]").forEach((button) => {
+      button.addEventListener("click", () => updateRequest(button.dataset.request, button.dataset.status));
+    });
+  }
+
+  if (count) count.textContent = `يعرض ${filtered.length} من ${state.requests.length}`;
+
+  app.querySelectorAll("[data-request-filter]").forEach((button) => {
+    button.classList.toggle("active", button.dataset.requestFilter === state.requestFilter);
+  });
+}
+
 function requestCard(request) {
   const nextStatus = request.status === "مغلق" ? "مفتوح" : "مغلق";
   return `
@@ -2105,6 +2182,7 @@ function requestCard(request) {
       <div>
         <strong>${escapeHtml(request.publicId || request.id)} - ${escapeHtml(request.customer)}</strong>
         <span>${escapeHtml(request.channel)} / ${escapeHtml(request.type)}</span>
+        ${request.createdAt ? `<span class="request-date">${escapeHtml(formatDateTime(request.createdAt))}</span>` : ""}
       </div>
       <p>${escapeHtml(request.note)}</p>
       <div class="request-actions">
@@ -2308,6 +2386,18 @@ function render() {
   app.querySelector("[data-form='live-price-import']")?.addEventListener("submit", (event) => {
     event.preventDefault();
     importLivePriceList(event.currentTarget);
+  });
+
+  app.querySelector("[data-request-search]")?.addEventListener("input", (event) => {
+    state.requestSearch = event.currentTarget.value;
+    updateRequestResults();
+  });
+
+  app.querySelectorAll("[data-request-filter]").forEach((button) => {
+    button.addEventListener("click", () => {
+      state.requestFilter = button.dataset.requestFilter;
+      updateRequestResults();
+    });
   });
 
   app.querySelectorAll("[data-request]").forEach((button) => {
