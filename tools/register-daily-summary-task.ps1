@@ -21,6 +21,7 @@ foreach ($path in @($outputDirectory, (Split-Path -Parent $logPath), "C:\tmp")) 
 }
 
 $launcherPath = "C:\tmp\tobacco-daily-summary.cmd"
+$hiddenLauncherPath = "C:\tmp\tobacco-daily-summary-hidden.vbs"
 $launcherContent = @"
 @echo off
 setlocal
@@ -37,7 +38,14 @@ exit /b %SUMMARY_EXIT_CODE%
 
 Set-Content -LiteralPath $launcherPath -Value $launcherContent -Encoding ASCII
 
-$result = & schtasks.exe /Create /TN $TaskName /SC DAILY /ST $RunAt /TR $launcherPath /F 2>&1
+$hiddenLauncherContent = @"
+Set shell = CreateObject("WScript.Shell")
+shell.Run """$launcherPath""", 0, True
+"@
+Set-Content -LiteralPath $hiddenLauncherPath -Value $hiddenLauncherContent -Encoding ASCII
+
+$taskCommand = "wscript.exe `"$hiddenLauncherPath`""
+$result = & schtasks.exe /Create /TN $TaskName /SC DAILY /ST $RunAt /TR $taskCommand /F 2>&1
 if ($LASTEXITCODE -ne 0) {
   throw "Failed to register scheduled task. schtasks.exe output: $result"
 }
@@ -45,7 +53,7 @@ if ($LASTEXITCODE -ne 0) {
 Write-Host "Scheduled task registered: $TaskName"
 Write-Host "It will run daily at $RunAt."
 Write-Host "Launcher file: $launcherPath"
+Write-Host "Hidden launcher file: $hiddenLauncherPath"
 Write-Host "Reports folder: $outputDirectory"
 Write-Host "Log file: $logPath"
 Write-Host "Email is sent only when TOBACCO_SMTP_* environment variables are configured."
-

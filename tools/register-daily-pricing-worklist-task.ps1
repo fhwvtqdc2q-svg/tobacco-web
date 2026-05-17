@@ -21,6 +21,7 @@ foreach ($path in @((Split-Path -Parent $outputPath), (Split-Path -Parent $logPa
 }
 
 $launcherPath = "C:\tmp\tobacco-daily-pricing-worklist.cmd"
+$hiddenLauncherPath = "C:\tmp\tobacco-daily-pricing-worklist-hidden.vbs"
 $launcherContent = @"
 @echo off
 setlocal
@@ -37,7 +38,14 @@ exit /b %WORKLIST_EXIT_CODE%
 
 Set-Content -LiteralPath $launcherPath -Value $launcherContent -Encoding ASCII
 
-$result = & schtasks.exe /Create /TN $TaskName /SC DAILY /ST $RunAt /TR $launcherPath /F 2>&1
+$hiddenLauncherContent = @"
+Set shell = CreateObject("WScript.Shell")
+shell.Run """$launcherPath""", 0, True
+"@
+Set-Content -LiteralPath $hiddenLauncherPath -Value $hiddenLauncherContent -Encoding ASCII
+
+$taskCommand = "wscript.exe `"$hiddenLauncherPath`""
+$result = & schtasks.exe /Create /TN $TaskName /SC DAILY /ST $RunAt /TR $taskCommand /F 2>&1
 if ($LASTEXITCODE -ne 0) {
   throw "Failed to register scheduled task. schtasks.exe output: $result"
 }
@@ -45,7 +53,7 @@ if ($LASTEXITCODE -ne 0) {
 Write-Host "Scheduled task registered: $TaskName"
 Write-Host "It will generate the pricing worklist daily at $RunAt."
 Write-Host "Launcher file: $launcherPath"
+Write-Host "Hidden launcher file: $hiddenLauncherPath"
 Write-Host "Output file: $outputPath"
 Write-Host "Log file: $logPath"
 Write-Host "No passwords are stored in the launcher file."
-

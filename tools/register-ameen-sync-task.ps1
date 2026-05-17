@@ -19,6 +19,7 @@ if (-not (Test-Path -LiteralPath $logDirectory)) {
 }
 
 $launcherPath = "C:\tmp\tobacco-ameen-sync.cmd"
+$hiddenLauncherPath = "C:\tmp\tobacco-ameen-sync-hidden.vbs"
 $launcherDirectory = Split-Path -Parent $launcherPath
 if (-not (Test-Path -LiteralPath $launcherDirectory)) {
   New-Item -ItemType Directory -Force -Path $launcherDirectory | Out-Null
@@ -39,7 +40,14 @@ exit /b %SYNC_EXIT_CODE%
 "@
 Set-Content -LiteralPath $launcherPath -Value $launcherContent -Encoding ASCII
 
-$result = & schtasks.exe /Create /TN $TaskName /SC MINUTE /MO $IntervalMinutes /TR $launcherPath /F 2>&1
+$hiddenLauncherContent = @"
+Set shell = CreateObject("WScript.Shell")
+shell.Run """$launcherPath""", 0, True
+"@
+Set-Content -LiteralPath $hiddenLauncherPath -Value $hiddenLauncherContent -Encoding ASCII
+
+$taskCommand = "wscript.exe `"$hiddenLauncherPath`""
+$result = & schtasks.exe /Create /TN $TaskName /SC MINUTE /MO $IntervalMinutes /TR $taskCommand /F 2>&1
 if ($LASTEXITCODE -ne 0) {
   throw "Failed to register scheduled task. schtasks.exe output: $result"
 }
@@ -47,4 +55,5 @@ if ($LASTEXITCODE -ne 0) {
 Write-Host "Scheduled task registered: $TaskName"
 Write-Host "It will run every $IntervalMinutes minute(s)."
 Write-Host "Launcher file: $launcherPath"
+Write-Host "Hidden launcher file: $hiddenLauncherPath"
 Write-Host "Log file: $logPath"
