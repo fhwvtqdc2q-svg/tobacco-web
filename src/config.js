@@ -10,7 +10,8 @@ window.appConfig = {
     url: "https://dyxbirfpxeocqffnfdeb.supabase.co",
     publishableKey: "sb_publishable_RkM_QDWxk8Yekqz9KBKXBw_Yl14zhSH",
     requestsTable: "customer_requests",
-    inventoryReportsTable: "inventory_reports"
+    inventoryReportsTable: "inventory_reports",
+    creditLimitsTable: "customer_credit_limits"
   }
 };
 

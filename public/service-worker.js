@@ -1,4 +1,4 @@
-const CACHE_NAME = "web-platform-tobacco-v11";
+const CACHE_NAME = "web-platform-tobacco-v12";
 const ASSETS = [
   "../index.html",
   "../404.html",

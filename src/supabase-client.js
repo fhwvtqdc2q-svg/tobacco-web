@@ -2,6 +2,7 @@
   const SESSION_KEY = "tobacco-session";
   const REQUESTS_KEY = "tobacco-requests";
   const INVENTORY_REPORTS_KEY = "tobacco-inventory-reports";
+  const CUSTOMER_LIMITS_KEY = "tobacco-customer-credit-limits";
 
   const defaultRequests = [
     {
@@ -41,6 +42,7 @@
   const hasLibrary = Boolean(window.supabase?.createClient);
   const tableName = config.requestsTable || "customer_requests";
   const inventoryReportsTable = config.inventoryReportsTable || "inventory_reports";
+  const creditLimitsTable = config.creditLimitsTable || "customer_credit_limits";
   const client =
     hasConfig && hasLibrary
       ? window.supabase.createClient(config.url, config.publishableKey, {
@@ -81,6 +83,29 @@
 
   function toDbStatus(status) {
     return status === "مغلق" || status === "closed" ? "closed" : "open";
+  }
+
+  function normalizeDbCustomerLimit(row) {
+    return {
+      id: row.id,
+      customerKey: row.customer_key,
+      customerName: row.customer_name || "",
+      creditLimit: Number(row.credit_limit || 0),
+      notes: row.notes || "",
+      updatedAt: row.updated_at || row.created_at || ""
+    };
+  }
+
+  function normalizeCustomerLimitInput(input, userId = null) {
+    const creditLimit = Number(input.creditLimit || 0);
+    return {
+      customer_key: cleanText(input.customerKey, 240),
+      customer_name: cleanText(input.customerName, 240),
+      credit_limit: Number.isFinite(creditLimit) ? Math.max(0, creditLimit) : 0,
+      notes: cleanText(input.notes, 500),
+      updated_at: new Date().toISOString(),
+      ...(userId ? { updated_by: userId } : {})
+    };
   }
 
   function missingSessionMessage() {
@@ -293,6 +318,52 @@
 
       if (error) throw new Error(error.message);
       return data || [];
+    },
+
+    async listCustomerCreditLimits() {
+      if (!client) return readJson(CUSTOMER_LIMITS_KEY, []);
+
+      const session = await getSupabaseSession();
+      if (!session) return [];
+
+      const { data, error } = await client
+        .from(creditLimitsTable)
+        .select("id, customer_key, customer_name, credit_limit, notes, created_at, updated_at")
+        .order("updated_at", { ascending: false })
+        .limit(1000);
+
+      if (error) throw new Error(error.message);
+      return (data || []).map(normalizeDbCustomerLimit);
+    },
+
+    async upsertCustomerCreditLimit(input) {
+      const payload = normalizeCustomerLimitInput(input);
+      if (!payload.customer_key) throw new Error("لا يمكن حفظ حد زبون بدون مفتاح مطابق.");
+
+      if (!client) {
+        const current = readJson(CUSTOMER_LIMITS_KEY, []);
+        const limit = {
+          id: payload.customer_key,
+          customerKey: payload.customer_key,
+          customerName: payload.customer_name,
+          creditLimit: payload.credit_limit,
+          notes: payload.notes,
+          updatedAt: payload.updated_at
+        };
+        const next = [limit, ...current.filter((item) => item.customerKey !== payload.customer_key)];
+        writeJson(CUSTOMER_LIMITS_KEY, next);
+        return limit;
+      }
+
+      const user = await requireUser();
+      const { data, error } = await client
+        .from(creditLimitsTable)
+        .upsert(normalizeCustomerLimitInput(input, user.id), { onConflict: "customer_key" })
+        .select("id, customer_key, customer_name, credit_limit, notes, created_at, updated_at")
+        .single();
+
+      if (error) throw new Error(error.message);
+      return normalizeDbCustomerLimit(data);
     },
 
     async createInventoryReport(report) {

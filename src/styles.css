@@ -767,6 +767,16 @@ code {
   margin-top: 14px;
 }
 
+.inline-warning {
+  margin: 14px 0;
+  padding: 12px 14px;
+  border: 1px solid #8c6427;
+  border-radius: 8px;
+  background: #23180c;
+  color: #f7df9c;
+  line-height: 1.7;
+}
+
 .inventory-controls label {
   display: grid;
   gap: 7px;
@@ -861,6 +871,38 @@ code {
   color: var(--muted);
 }
 
+.customer-limit-editor {
+  display: grid;
+  grid-template-columns: minmax(110px, 0.7fr) minmax(120px, 1fr) auto;
+  gap: 8px;
+  align-items: end;
+  margin-top: 6px;
+}
+
+.customer-limit-editor label {
+  display: grid;
+  gap: 5px;
+  color: var(--muted);
+  font-size: 0.88rem;
+  font-weight: 800;
+}
+
+.customer-limit-editor input {
+  width: 100%;
+  min-height: 38px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  padding: 8px 10px;
+  background: #0d0a06;
+  color: var(--ink);
+  font: inherit;
+}
+
+.mini-button {
+  min-height: 38px;
+  padding: 0 12px;
+}
+
 .ameen-movement {
   margin-top: 18px;
 }
@@ -913,6 +955,7 @@ code {
   .status-board,
   .status-board.full,
   .inventory-controls,
+  .customer-limit-editor,
   .inventory-list-dense {
     grid-template-columns: 1fr;
   }

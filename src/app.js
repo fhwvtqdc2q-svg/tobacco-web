@@ -109,6 +109,8 @@ const state = {
   requests: [],
   inventoryReports: [],
   customerBalanceReports: [],
+  customerCreditLimits: [],
+  customerLimitError: null,
   lastInventoryRefresh: null,
   priceExport: null,
   ameenSearch: "",
@@ -144,6 +146,7 @@ async function boot() {
   await loadRequests();
   await loadInventoryReports();
   await loadCustomerBalanceReports();
+  await loadCustomerCreditLimits();
   state.loading = false;
   render();
 }
@@ -198,6 +201,22 @@ async function loadCustomerBalanceReports() {
   }
 }
 
+async function loadCustomerCreditLimits() {
+  try {
+    state.customerLimitError = null;
+    if (dataStore.isConfigured() && !state.session) {
+      state.customerCreditLimits = [];
+      return;
+    }
+    state.customerCreditLimits = dataStore.listCustomerCreditLimits
+      ? await dataStore.listCustomerCreditLimits()
+      : [];
+  } catch (error) {
+    state.customerCreditLimits = [];
+    state.customerLimitError = error.message || "تعذر تحميل حدود الزبائن.";
+  }
+}
+
 function setRoute(route, clearNotice = true) {
   state.route = route;
   if (clearNotice) state.notice = null;
@@ -235,6 +254,7 @@ async function saveSession(form, action) {
     await loadRequests();
     await loadInventoryReports();
     await loadCustomerBalanceReports();
+    await loadCustomerCreditLimits();
     setRoute("overview", false);
   } catch (error) {
     setNotice("error", error.message);
@@ -248,6 +268,8 @@ async function logout() {
     state.session = null;
     state.inventoryReports = [];
     state.customerBalanceReports = [];
+    state.customerCreditLimits = [];
+    state.customerLimitError = null;
     setNotice("success", "تم تسجيل الخروج.");
   } catch (error) {
     setNotice("error", error.message);
@@ -547,10 +569,36 @@ async function refreshAmeenReports() {
   try {
     await loadInventoryReports();
     await loadCustomerBalanceReports();
+    await loadCustomerCreditLimits();
     setNotice("success", "تم تحديث تقارير الأمين من Supabase.");
     setRoute("ameen", false);
   } catch (error) {
     setNotice("error", error.message);
+    render();
+  }
+}
+
+async function saveCustomerLimit(form) {
+  try {
+    const customerName = form.dataset.customerName || "";
+    const customerKeyValue = form.dataset.customerKey || normalizeItemName(customerName);
+    const creditLimit = Math.max(0, toNumber(formValue(form, "creditLimit")));
+
+    if (!customerKeyValue) throw new Error("لم أستطع تحديد الزبون لحفظ الحد.");
+
+    await dataStore.upsertCustomerCreditLimit({
+      customerKey: customerKeyValue,
+      customerName,
+      creditLimit,
+      notes: formValue(form, "notes")
+    });
+
+    await loadCustomerCreditLimits();
+    setNotice("success", `تم حفظ الحد المسموح للزبون ${customerName || customerKeyValue}.`);
+    render();
+  } catch (error) {
+    state.customerLimitError = error.message || "تعذر حفظ الحد المسموح.";
+    setNotice("error", state.customerLimitError);
     render();
   }
 }
@@ -634,7 +682,7 @@ function downloadFilteredInventoryReport() {
 
 function downloadFilteredCustomerBalances() {
   const latest = state.customerBalanceReports[0];
-  const items = filteredCustomerItems(Array.isArray(latest?.items) ? latest.items : []);
+  const items = filteredCustomerItems(latestCustomerBalanceItems());
   if (!latest || !items.length) {
     setNotice("error", "لا توجد أرصدة زبائن معروضة للتصدير حسب البحث والفلتر الحالي.");
     render();
@@ -1035,12 +1083,81 @@ function customerBalance(item) {
   return Number(item?.balance || 0);
 }
 
+function customerKey(item) {
+  return String(item?.key || normalizeItemName(item?.name || "")).trim();
+}
+
 function customerLimit(item) {
   return Number(item?.creditLimit || 0);
 }
 
 function customerRemainingLimit(item) {
   return Number(item?.remainingLimit || 0);
+}
+
+function customerLimitSourceLabel(source) {
+  return {
+    internal: "حد داخلي",
+    ameen: "حد من الأمين",
+    none: "بلا حد"
+  }[source] || "بلا حد";
+}
+
+function customerLimitMap() {
+  return new Map(
+    state.customerCreditLimits
+      .filter((limit) => limit.customerKey)
+      .map((limit) => [String(limit.customerKey), limit])
+  );
+}
+
+function deriveCustomerStatus(balance, limit) {
+  if (limit > 0 && balance > limit) return "over_limit";
+  if (limit > 0 && balance > 0 && balance >= limit * 0.8) return "near_limit";
+  if (balance > 0) return "open_balance";
+  if (balance < 0) return "credit_balance";
+  return "clear";
+}
+
+function applyCustomerLimits(items) {
+  const limits = customerLimitMap();
+  return items.map((item) => {
+    const key = customerKey(item);
+    const savedLimit = limits.get(key);
+    const ameenLimit = Number(item?.creditLimit || 0);
+    const internalLimit = Number(savedLimit?.creditLimit || 0);
+    const effectiveLimit = internalLimit > 0 ? internalLimit : ameenLimit;
+    const balance = customerBalance(item);
+
+    return {
+      ...item,
+      key,
+      ameenCreditLimit: ameenLimit,
+      internalCreditLimit: internalLimit,
+      creditLimit: effectiveLimit,
+      creditLimitNotes: savedLimit?.notes || "",
+      limitSource: internalLimit > 0 ? "internal" : ameenLimit > 0 ? "ameen" : "none",
+      remainingLimit: effectiveLimit > 0 ? effectiveLimit - Math.max(0, balance) : 0,
+      status: deriveCustomerStatus(balance, effectiveLimit)
+    };
+  });
+}
+
+function latestCustomerBalanceItems() {
+  const latest = state.customerBalanceReports[0];
+  return applyCustomerLimits(Array.isArray(latest?.items) ? latest.items : []);
+}
+
+function customerBalanceTotals(items) {
+  const debitItems = items.filter((item) => customerBalance(item) > 0);
+  const creditItems = items.filter((item) => customerBalance(item) < 0);
+  return {
+    debitCustomers: debitItems.length,
+    creditCustomers: creditItems.length,
+    totalDebitBalance: debitItems.reduce((sum, item) => sum + customerBalance(item), 0),
+    totalCreditBalance: creditItems.reduce((sum, item) => sum + customerBalance(item), 0),
+    customersWithLimit: items.filter((item) => customerLimit(item) > 0).length
+  };
 }
 
 function customerStatusLabel(status) {
@@ -1212,11 +1329,23 @@ function customerBalanceRow(item) {
   const limit = customerLimit(item);
   const remaining = customerRemainingLimit(item);
   const rowState = item.status === "over_limit" ? "negative" : item.status === "near_limit" ? "low" : "active";
+  const key = customerKey(item);
   return `
     <div class="inventory-row inventory-row-${escapeHtml(rowState)}">
       <strong>${escapeHtml(item.name)}</strong>
       <span>الرصيد: ${escapeHtml(formatMoney(customerBalance(item)))} / الحد: ${escapeHtml(limit > 0 ? formatMoney(limit) : "غير محدد")}</span>
-      <span>المتبقي من الحد: ${escapeHtml(limit > 0 ? formatMoney(remaining) : "غير محدد")} / الحالة: ${escapeHtml(customerStatusLabel(item.status))}</span>
+      <span>المتبقي من الحد: ${escapeHtml(limit > 0 ? formatMoney(remaining) : "غير محدد")} / الحالة: ${escapeHtml(customerStatusLabel(item.status))} / المصدر: ${escapeHtml(customerLimitSourceLabel(item.limitSource))}</span>
+      <form class="customer-limit-editor" data-form="customer-limit" data-customer-key="${escapeHtml(key)}" data-customer-name="${escapeHtml(item.name || "")}">
+        <label>
+          الحد الداخلي
+          <input name="creditLimit" type="number" min="0" step="0.001" inputmode="decimal" value="${escapeHtml(item.internalCreditLimit > 0 ? item.internalCreditLimit : "")}" placeholder="${escapeHtml(limit > 0 ? formatMoney(limit) : "0")}">
+        </label>
+        <label>
+          ملاحظة
+          <input name="notes" maxlength="500" value="${escapeHtml(item.creditLimitNotes || "")}" placeholder="اختياري">
+        </label>
+        <button class="button secondary mini-button" type="submit">حفظ</button>
+      </form>
     </div>
   `;
 }
@@ -1231,28 +1360,34 @@ function customerBalanceSection(report) {
     `;
   }
 
-  const items = Array.isArray(report.items) ? report.items : [];
+  const items = applyCustomerLimits(Array.isArray(report.items) ? report.items : []);
   const summary = report.summary || {};
   const counts = customerFilterCounts(items);
   const filtered = filteredCustomerItems(items);
+  const totals = customerBalanceTotals(items);
 
   return `
     <section class="panel wide customer-balances">
       <div class="panel-title-row inventory-browser-head">
         <div>
           <h3>أرصدة الزبائن والحد المسموح</h3>
-          <p class="muted">الرصيد محسوب من الأمين: مدين ناقص دائن. الحد المسموح من MaxDebit، وإذا كان صفراً يظهر غير محدد.</p>
+          <p class="muted">الرصيد من الأمين. الحد المسموح يعتمد على الحد الداخلي عند حفظه هنا، وإلا يبقى حد الأمين إن وجد.</p>
         </div>
         <span class="status-chip" data-customer-count>يعرض ${escapeHtml(filtered.length)} من ${escapeHtml(items.length)}</span>
       </div>
+      ${
+        state.customerLimitError
+          ? `<div class="inline-warning">تعذر تحميل أو حفظ الحدود الداخلية. شغل ملف <code>supabase/customer-credit-limits.sql</code> في Supabase SQL Editor ثم حدث الصفحة. الخطأ: ${escapeHtml(state.customerLimitError)}</div>`
+          : ""
+      }
       <div class="inventory-metrics">
         ${inventoryMetric("عدد الزبائن", summary.totalCustomers || items.length, "من cu000")}
-        ${inventoryMetric("عليهم رصيد", summary.customersWithDebitBalance || counts.debit_balance, "رصيد موجب")}
-        ${inventoryMetric("إجمالي الديون", formatMoney(summary.totalDebitBalance || 0), "مجموع الأرصدة الموجبة")}
-        ${inventoryMetric("لهم رصيد", summary.customersWithCreditBalance || counts.credit_balance, "رصيد سالب")}
-        ${inventoryMetric("إجمالي لصالحهم", formatMoney(summary.totalCreditBalance || 0), "مجموع الأرصدة السالبة")}
-        ${inventoryMetric("تجاوزوا الحد", summary.overLimitCustomers || 0, "حسب الحد المسجل")}
-        ${inventoryMetric("حدود مسجلة", summary.customersWithLimit || 0, "MaxDebit أكبر من صفر")}
+        ${inventoryMetric("عليهم رصيد", totals.debitCustomers, "رصيد موجب")}
+        ${inventoryMetric("إجمالي الديون", formatMoney(totals.totalDebitBalance), "مجموع الأرصدة الموجبة")}
+        ${inventoryMetric("لهم رصيد", totals.creditCustomers, "رصيد سالب")}
+        ${inventoryMetric("إجمالي لصالحهم", formatMoney(totals.totalCreditBalance), "مجموع الأرصدة السالبة")}
+        ${inventoryMetric("تجاوزوا الحد", counts.over_limit, "حسب الحد الفعال")}
+        ${inventoryMetric("حدود مسجلة", totals.customersWithLimit, "داخلي أو من الأمين")}
         ${inventoryMetric("بلا حد", counts.no_limit, "لا يوجد حد مسجل")}
       </div>
       <div class="inventory-controls">
@@ -1513,23 +1648,40 @@ function updateAmeenBrowserResults() {
 
 function updateCustomerBalanceResults() {
   const latest = state.customerBalanceReports[0];
-  const items = Array.isArray(latest?.items) ? latest.items : [];
+  const items = latest ? latestCustomerBalanceItems() : [];
   const filtered = filteredCustomerItems(items);
   const results = app.querySelector("[data-customer-results]");
   const count = app.querySelector("[data-customer-count]");
+  const exportButton = app.querySelector("[data-action='download-customer-balances']");
 
   if (results) {
     results.innerHTML = filtered.length
       ? filtered.slice(0, 80).map(customerBalanceRow).join("")
       : '<p class="muted">لا توجد زبائن تطابق البحث والفلتر الحالي.</p>';
+    bindCustomerLimitForms(results);
   }
 
   if (count) {
     count.textContent = `يعرض ${filtered.length} من ${items.length}`;
   }
 
+  if (exportButton) {
+    exportButton.disabled = filtered.length === 0;
+  }
+
   app.querySelectorAll("[data-customer-filter]").forEach((button) => {
     button.classList.toggle("active", button.dataset.customerFilter === state.customerFilter);
+  });
+}
+
+function bindCustomerLimitForms(root = app) {
+  root.querySelectorAll("[data-form='customer-limit']").forEach((form) => {
+    if (form.dataset.bound === "true") return;
+    form.dataset.bound = "true";
+    form.addEventListener("submit", (event) => {
+      event.preventDefault();
+      saveCustomerLimit(event.currentTarget);
+    });
   });
 }
 
@@ -1600,6 +1752,8 @@ function render() {
     });
   });
 
+  bindCustomerLimitForms();
+
   app.querySelector("[data-form='login']")?.addEventListener("submit", (event) => {
     event.preventDefault();
     saveSession(event.currentTarget, event.submitter?.dataset.authAction || "signin");
@@ -1624,7 +1778,7 @@ boot();
 
 setInterval(() => {
   if (state.route === "ameen" && (!dataStore.isConfigured() || state.session)) {
-    Promise.all([loadInventoryReports(), loadCustomerBalanceReports()])
+    Promise.all([loadInventoryReports(), loadCustomerBalanceReports(), loadCustomerCreditLimits()])
       .then(() => render())
       .catch(() => {});
   }
