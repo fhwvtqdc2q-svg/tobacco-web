@@ -111,18 +111,24 @@
   }
 
   function normalizeDbApprovedPrice(row) {
+    const rawUnit2Factor = Number(row.unit2_factor || 1);
+    const unit2Factor = Number.isFinite(rawUnit2Factor) && rawUnit2Factor > 0 ? rawUnit2Factor : 1;
+    const rawUnit2Price = Number(row.unit2_price || 0);
+    const unit2Price = Number.isFinite(rawUnit2Price) ? Math.max(0, rawUnit2Price) : 0;
+    const fallbackUnit1Price = Number(row.unit1_price || row.sale_price || 0);
+    const unit1Price = unit2Price > 0 ? unit2Price / unit2Factor : fallbackUnit1Price;
     return {
       id: row.id,
       itemKey: row.item_key,
       itemName: row.item_name || "",
-      salePrice: Number(row.sale_price || 0),
+      salePrice: unit1Price,
       stockQty: Number(row.stock_qty || 0),
       stockStatus: row.stock_status || "",
       unit1Name: row.unit1_name || "",
       unit2Name: row.unit2_name || "",
-      unit2Factor: Number(row.unit2_factor || 1),
-      unit2Price: Number(row.unit2_price || 0),
-      unit1Price: Number(row.unit1_price || row.sale_price || 0),
+      unit2Factor,
+      unit2Price,
+      unit1Price,
       sourceReportId: row.source_report_id || "",
       sourceSyncedAt: row.source_synced_at || "",
       pricePayload: row.price_payload || {},

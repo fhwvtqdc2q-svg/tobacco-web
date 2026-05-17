@@ -181,6 +181,43 @@ update public.approved_price_items
 set unit2_price = sale_price * unit2_factor
 where unit2_price = 0 and sale_price > 0;
 
+update public.approved_price_items
+set
+  sale_price = round(unit2_price / unit2_factor, 3),
+  unit1_price = round(unit2_price / unit2_factor, 3)
+where unit2_price > 0 and unit2_factor > 0;
+
+create or replace function public.normalize_approved_price_units()
+returns trigger
+language plpgsql
+as $$
+begin
+  if new.unit2_factor is null or new.unit2_factor <= 0 then
+    new.unit2_factor := 1;
+  end if;
+
+  if new.unit2_price is not null and new.unit2_price > 0 then
+    new.sale_price := round(new.unit2_price / new.unit2_factor, 3);
+    new.unit1_price := new.sale_price;
+  elsif new.sale_price is not null and new.sale_price > 0 then
+    new.unit1_price := new.sale_price;
+    if coalesce(new.unit2_price, 0) = 0 then
+      new.unit2_price := round(new.sale_price * new.unit2_factor, 3);
+    end if;
+  end if;
+
+  new.updated_at := now();
+  return new;
+end;
+$$;
+
+drop trigger if exists normalize_approved_price_units_trigger on public.approved_price_items;
+create trigger normalize_approved_price_units_trigger
+before insert or update of sale_price, unit2_price, unit2_factor, unit1_price
+on public.approved_price_items
+for each row
+execute function public.normalize_approved_price_units();
+
 alter table public.approved_price_items enable row level security;
 
 revoke all on table public.approved_price_items from anon;

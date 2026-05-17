@@ -81,6 +81,40 @@ function Test-ApprovedPriceRow($Row) {
   return -not [string]::IsNullOrWhiteSpace([string]$Row.item_key)
 }
 
+function Convert-ToNumber($Value, [double]$Default = 0) {
+  if ($null -eq $Value) {
+    return $Default
+  }
+  $text = ([string]$Value).Trim()
+  if (-not $text) {
+    return $Default
+  }
+  $number = 0.0
+  if ([double]::TryParse($text, [System.Globalization.NumberStyles]::Any, [System.Globalization.CultureInfo]::InvariantCulture, [ref]$number)) {
+    return $number
+  }
+  if ([double]::TryParse($text, [ref]$number)) {
+    return $number
+  }
+  return $Default
+}
+
+function Get-ComputedUnit1Price($Row) {
+  $unit2Price = Convert-ToNumber $Row.unit2_price 0
+  $unit2Factor = Convert-ToNumber $Row.unit2_factor 1
+  if ($unit2Factor -le 0) {
+    $unit2Factor = 1
+  }
+  if ($unit2Price -gt 0) {
+    return [math]::Round(($unit2Price / $unit2Factor), 3)
+  }
+  $unit1Price = Convert-ToNumber $Row.unit1_price 0
+  if ($unit1Price -gt 0) {
+    return [math]::Round($unit1Price, 3)
+  }
+  return [math]::Round((Convert-ToNumber $Row.sale_price 0), 3)
+}
+
 function Write-ApprovedPricesCsv($Rows, $Path) {
   $outDir = Split-Path -Parent $Path
   if ($outDir -and -not (Test-Path -LiteralPath $outDir)) {
@@ -90,15 +124,16 @@ function Write-ApprovedPricesCsv($Rows, $Path) {
   $validRows = @($Rows | Where-Object { Test-ApprovedPriceRow $_ })
 
   $objects = @($validRows | ForEach-Object {
+    $computedUnit1Price = Get-ComputedUnit1Price $_
     [PSCustomObject]@{
       item_key = $_.item_key
       item_name = $_.item_name
       unit2_price = $_.unit2_price
       unit2_name = $_.unit2_name
       unit2_factor = $_.unit2_factor
-      sale_price = $_.sale_price
+      sale_price = $computedUnit1Price
       unit1_name = $_.unit1_name
-      unit1_price = $_.unit1_price
+      unit1_price = $computedUnit1Price
       stock_qty = $_.stock_qty
       stock_status = $_.stock_status
       approved_at = $_.approved_at

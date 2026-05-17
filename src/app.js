@@ -812,7 +812,7 @@ function downloadApprovedPricesForAccounting() {
     Number(item.unit2Price || 0),
     item.unit2Name || "",
     Number(item.unit2Factor || 1),
-    Number(item.salePrice || 0),
+    itemUnit1PriceFromSecondUnit(item),
     item.unit1Name || "",
     Number(item.stockQty || 0),
     item.stockStatus || "",
@@ -1348,6 +1348,13 @@ function itemUnit2Price(item) {
   if (savedUnit2Price > 0) return savedUnit2Price;
   const unit1Price = Number(item?.salePrice || item?.approvedPrice?.salePrice || 0);
   return unit1Price > 0 ? unit1Price * itemUnit2Factor(item) : 0;
+}
+
+function itemUnit1PriceFromSecondUnit(item) {
+  const unit2Price = Number(item?.unit2Price || item?.approvedPrice?.unit2Price || 0);
+  const unit2Factor = itemUnit2Factor(item);
+  if (unit2Price > 0 && unit2Factor > 0) return unit2Price / unit2Factor;
+  return Number(item?.salePrice || item?.approvedPrice?.salePrice || item?.unit1Price || item?.approvedPrice?.unit1Price || 0);
 }
 
 function isNegativeItem(item) {
