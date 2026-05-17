@@ -22,6 +22,21 @@ function Escape-SqlString($Value) {
   return ([string]$Value).Replace("'", "''")
 }
 
+function Read-StrongPassword($Prompt, $MinimumLength) {
+  while ($true) {
+    $securePassword = Read-Host $Prompt -AsSecureString
+    $plainPassword = Convert-SecureStringToPlainText $securePassword
+
+    if ($plainPassword.Length -ge $MinimumLength) {
+      Remove-Variable plainPassword -ErrorAction SilentlyContinue
+      return $securePassword
+    }
+
+    Write-Host "Password is too short. Type at least $MinimumLength characters."
+    Remove-Variable plainPassword -ErrorAction SilentlyContinue
+  }
+}
+
 function New-SqlConnectionString($Server, $Database, $UserName, $Password) {
   $builder = New-Object System.Data.SqlClient.SqlConnectionStringBuilder
   $builder["Data Source"] = $Server
@@ -66,7 +81,7 @@ function Invoke-Scalar($ConnectionString, $CommandText) {
 Add-Type -AssemblyName System.Data
 
 $adminSecurePassword = Read-Host "SQL admin password for $AdminUserName on $Server" -AsSecureString
-$syncSecurePassword = Read-Host "New password for read-only SQL user $SyncUserName" -AsSecureString
+$syncSecurePassword = Read-StrongPassword -Prompt "New password for read-only SQL user $SyncUserName" -MinimumLength 12
 $syncConfirmPassword = Read-Host "Confirm new password for $SyncUserName" -AsSecureString
 
 $adminPassword = $null
@@ -80,10 +95,6 @@ try {
 
   if ($syncPassword -ne $syncConfirm) {
     throw "The read-only user passwords do not match."
-  }
-
-  if ($syncPassword.Length -lt 12) {
-    throw "Use a stronger password: at least 12 characters."
   }
 
   $masterConnectionString = New-SqlConnectionString -Server $Server -Database "master" -UserName $AdminUserName -Password $adminPassword
