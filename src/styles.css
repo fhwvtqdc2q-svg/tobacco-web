@@ -1167,3 +1167,39 @@ code {
     min-height: 260px;
   }
 }
+
+/* Daily report box */
+.daily-report-box {
+  margin-top: 2rem;
+  background: var(--surface-soft);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  overflow: hidden;
+}
+
+.daily-report-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 1rem 1.25rem;
+  border-bottom: 1px solid var(--line);
+}
+
+.daily-report-head h3 {
+  margin: 0;
+  font-size: 1rem;
+  color: var(--accent);
+}
+
+.daily-report-text {
+  margin: 0;
+  padding: 1.25rem;
+  font-family: "Segoe UI", Tahoma, Arial, sans-serif;
+  font-size: 0.85rem;
+  line-height: 1.8;
+  color: var(--ink);
+  white-space: pre-wrap;
+  word-break: break-word;
+  direction: rtl;
+  text-align: right;
+}

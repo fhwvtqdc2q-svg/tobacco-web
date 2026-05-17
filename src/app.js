@@ -2077,8 +2077,58 @@ function liveMonitoringCards() {
   ];
 }
 
+function buildDailyReport() {
+  const today = todayIsoDate();
+  const todayRequests = state.requests.filter((r) => (r.createdAt || "").slice(0, 10) === today);
+  const allOpen = state.requests.filter((r) => r.status !== "مغلق");
+  const allClosed = state.requests.filter((r) => r.status === "مغلق");
+  const todayOpen = todayRequests.filter((r) => r.status !== "مغلق");
+  const todayClosed = todayRequests.filter((r) => r.status === "مغلق");
+
+  const dateLabel = new Intl.DateTimeFormat("ar-SA-u-nu-latn", { dateStyle: "full" }).format(new Date());
+
+  const openLines = allOpen.length
+    ? allOpen.map((r) => `• ${r.customer || "غير معروف"} — ${r.type || ""}${r.channel ? " (" + r.channel + ")" : ""}`).join("\n")
+    : "• لا توجد طلبات مفتوحة";
+
+  return [
+    `📋 تقرير يومي — OZK TOBACCO`,
+    `📅 ${dateLabel}`,
+    `─────────────────────`,
+    `📥 طلبات اليوم: ${todayRequests.length}`,
+    `   مفتوحة اليوم: ${todayOpen.length} | مغلقة اليوم: ${todayClosed.length}`,
+    ``,
+    `📊 الإجمالي الكلي:`,
+    `   مفتوحة: ${allOpen.length} | مغلقة: ${allClosed.length} | المجموع: ${state.requests.length}`,
+    `─────────────────────`,
+    `📌 الطلبات المفتوحة:`,
+    openLines,
+    `─────────────────────`,
+    `✅ أُعدّ التقرير بواسطة نظام OZK TOBACCO`
+  ].join("\n");
+}
+
+async function copyDailyReport() {
+  const text = buildDailyReport();
+  const button = app.querySelector("[data-action='copy-daily-report']");
+  try {
+    await navigator.clipboard.writeText(text);
+    if (button) {
+      button.textContent = "✓ تم النسخ";
+      button.disabled = true;
+      setTimeout(() => {
+        button.textContent = "نسخ للواتساب";
+        button.disabled = false;
+      }, 2500);
+    }
+  } catch {
+    setNotice("error", "تعذّر النسخ — انسخ النص يدوياً من مربع التقرير.");
+  }
+}
+
 function monitoring() {
   const cards = liveMonitoringCards();
+  const report = buildDailyReport();
 
   return shell(`
     <section class="panel wide">
@@ -2094,6 +2144,13 @@ function monitoring() {
       <div class="audit-note">
         <strong>ملاحظة تشغيلية:</strong>
         <span>${dataStore.isConfigured() ? "هذه المؤشرات تقرأ من جدول الطلبات في Supabase." : "هذه المؤشرات تجريبية وتعتمد على الحفظ المحلي في هذا المتصفح."}</span>
+      </div>
+      <div class="daily-report-box">
+        <div class="daily-report-head">
+          <h3>تقرير اليوم</h3>
+          <button type="button" class="btn-primary" data-action="copy-daily-report">نسخ للواتساب</button>
+        </div>
+        <pre class="daily-report-text">${escapeHtml(report)}</pre>
       </div>
     </section>
   `);
@@ -2484,6 +2541,7 @@ function render() {
   app.querySelector("[data-action='download-filtered-inventory']")?.addEventListener("click", downloadFilteredInventoryReport);
   app.querySelector("[data-action='download-customer-balances']")?.addEventListener("click", downloadFilteredCustomerBalances);
   app.querySelector("[data-action='refresh-ameen']")?.addEventListener("click", refreshAmeenReports);
+  app.querySelector("[data-action='copy-daily-report']")?.addEventListener("click", copyDailyReport);
   app.querySelector("[data-action='clear-customer-details']")?.addEventListener("click", () => {
     state.selectedCustomerKey = "";
     render();
