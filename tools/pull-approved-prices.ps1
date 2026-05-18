@@ -206,7 +206,8 @@ $syncPassword = Require-Value "TOBACCO_SYNC_PASSWORD" (Optional-Env "TOBACCO_SYN
 
 try {
   $session = Get-SupabaseSession -Url $supabaseUrl -ApiKey $supabaseKey -Email $syncEmail -Password $syncPassword
-  $rows = @(Invoke-SupabaseGet -Url $supabaseUrl -ApiKey $supabaseKey -Session $session -PathAndQuery "approved_price_items?select=item_key,item_name,unit2_price,unit2_name,unit2_factor,sale_price,unit1_name,unit1_price,stock_qty,stock_status,approved_at,updated_at&order=item_name.asc" | Where-Object { Test-ApprovedPriceRow $_ })
+  $response = Invoke-SupabaseGet -Url $supabaseUrl -ApiKey $supabaseKey -Session $session -PathAndQuery "approved_price_items?select=item_key,item_name,unit2_price,unit2_name,unit2_factor,sale_price,unit1_name,unit1_price,stock_qty,stock_status,approved_at,updated_at&order=item_name.asc"
+  $rows = @($response) | Where-Object { Test-ApprovedPriceRow $_ }
   Write-ApprovedPricesCsv -Rows $rows -Path $OutputPath
   Write-PricePullLog ("Pulled {0} approved prices to {1}" -f $rows.Count, (Resolve-Path -LiteralPath $OutputPath))
 } catch {

@@ -921,9 +921,12 @@ async function savePricingItem(form) {
     const latest = state.inventoryReports[0];
     const itemKey = form.dataset.itemKey || "";
     const itemName = form.dataset.itemName || "";
-    const unit1Name = form.dataset.unit1Name || "";
-    const unit2Name = form.dataset.unit2Name || unit1Name;
-    const unit2Factor = Math.max(1, toNumber(form.dataset.unit2Factor || 1));
+    const latestItem = reportItems(latest).find((item) => (item.key || normalizeItemName(item.name)) === itemKey);
+    const unit1Name = form.dataset.unit1Name || itemUnit1Name(latestItem) || "";
+    const unit2Name = form.dataset.unit2Name || itemUnit2Name(latestItem) || unit1Name;
+    const formUnit2Factor = toNumber(form.dataset.unit2Factor || 0);
+    const liveUnit2Factor = itemUnit2Factor(latestItem);
+    const unit2Factor = Math.max(1, liveUnit2Factor > 1 ? liveUnit2Factor : formUnit2Factor || 1);
     const unit2Price = toNumber(formValue(form, "salePrice"));
     const salePrice = unit2Price / unit2Factor;
     const stockQty = toNumber(form.dataset.stockQty);
