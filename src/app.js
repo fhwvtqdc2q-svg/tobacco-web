@@ -75,7 +75,7 @@ function formatDateTime(value) {
   if (!value) return "غير معروف";
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return String(value);
-  return new Intl.DateTimeFormat("ar-SA-u-nu-latn", {
+  return new Intl.DateTimeFormat("en-GB-u-ca-gregory-nu-latn", {
     dateStyle: "medium",
     timeStyle: "short"
   }).format(date);
@@ -85,7 +85,7 @@ function formatDate(value) {
   if (!value) return "غير متوفر";
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return String(value);
-  return new Intl.DateTimeFormat("ar-SA-u-nu-latn", {
+  return new Intl.DateTimeFormat("en-GB-u-ca-gregory-nu-latn", {
     dateStyle: "medium"
   }).format(date);
 }
