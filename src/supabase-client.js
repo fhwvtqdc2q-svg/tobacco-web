@@ -38,6 +38,40 @@
       .slice(0, limit);
   }
 
+  function parseNumber(value) {
+    let text = String(value ?? "")
+      .replace(/[٠-٩]/g, (digit) => String("٠١٢٣٤٥٦٧٨٩".indexOf(digit)))
+      .replace(/[۰-۹]/g, (digit) => String("۰۱۲۳۴۵۶۷۸۹".indexOf(digit)))
+      .replace(/[٫،]/g, ".")
+      .replace(/\s+/g, "")
+      .trim();
+
+    const commaCount = (text.match(/,/g) || []).length;
+    if (!text.includes(".") && commaCount === 1) {
+      const [, decimalPart = ""] = text.split(",");
+      if (/^\d{1,2}$/.test(decimalPart)) {
+        text = text.replace(",", ".");
+      }
+    }
+
+    text = text.replace(/,/g, "").replace(/[^\d.-]/g, "");
+    const isNegative = text.includes("-");
+    text = text.replace(/-/g, "");
+    const parts = text.split(".");
+    text = `${parts.shift() || ""}${parts.length ? `.${parts.join("")}` : ""}`;
+    if (text.startsWith(".")) text = `0${text}`;
+    if (isNegative && text) text = `-${text}`;
+
+    const number = Number(text);
+    return Number.isFinite(number) ? number : 0;
+  }
+
+  function roundPrice(value) {
+    const number = Number(value || 0);
+    if (!Number.isFinite(number)) return 0;
+    return Math.round((number + Number.EPSILON) * 1000) / 1000;
+  }
+
   const config = window.appConfig?.supabase || {};
   const hasConfig = Boolean(config.url && config.publishableKey);
   const hasLibrary = Boolean(window.supabase?.createClient);
@@ -92,14 +126,14 @@
       id: row.id,
       customerKey: row.customer_key,
       customerName: row.customer_name || "",
-      creditLimit: Number(row.credit_limit || 0),
+      creditLimit: parseNumber(row.credit_limit || 0),
       notes: row.notes || "",
       updatedAt: row.updated_at || row.created_at || ""
     };
   }
 
   function normalizeCustomerLimitInput(input, userId = null) {
-    const creditLimit = Number(input.creditLimit || 0);
+    const creditLimit = parseNumber(input.creditLimit || 0);
     return {
       customer_key: cleanText(input.customerKey, 240),
       customer_name: cleanText(input.customerName, 240),
@@ -111,18 +145,18 @@
   }
 
   function normalizeDbApprovedPrice(row) {
-    const rawUnit2Factor = Number(row.unit2_factor || 1);
+    const rawUnit2Factor = parseNumber(row.unit2_factor || 1);
     const unit2Factor = Number.isFinite(rawUnit2Factor) && rawUnit2Factor > 0 ? rawUnit2Factor : 1;
-    const rawUnit2Price = Number(row.unit2_price || 0);
-    const unit2Price = Number.isFinite(rawUnit2Price) ? Math.max(0, rawUnit2Price) : 0;
-    const fallbackUnit1Price = Number(row.unit1_price || row.sale_price || 0);
-    const unit1Price = unit2Price > 0 ? unit2Price / unit2Factor : fallbackUnit1Price;
+    const rawUnit2Price = parseNumber(row.unit2_price || 0);
+    const unit2Price = Number.isFinite(rawUnit2Price) ? Math.max(0, roundPrice(rawUnit2Price)) : 0;
+    const fallbackUnit1Price = parseNumber(row.unit1_price || row.sale_price || 0);
+    const unit1Price = roundPrice(unit2Price > 0 ? unit2Price / unit2Factor : fallbackUnit1Price);
     return {
       id: row.id,
       itemKey: row.item_key,
       itemName: row.item_name || "",
       salePrice: unit1Price,
-      stockQty: Number(row.stock_qty || 0),
+      stockQty: parseNumber(row.stock_qty || 0),
       stockStatus: row.stock_status || "",
       unit1Name: row.unit1_name || "",
       unit2Name: row.unit2_name || "",
@@ -139,16 +173,16 @@
   }
 
   function normalizeApprovedPriceInput(input, userId = null) {
-    const rawUnit2Factor = Number(input.unit2Factor || 1);
+    const rawUnit2Factor = parseNumber(input.unit2Factor || 1);
     const unit2Factor = Number.isFinite(rawUnit2Factor) && rawUnit2Factor > 0 ? rawUnit2Factor : 1;
-    const unit2Price = Number(input.unit2Price || 0);
-    const explicitSalePrice = Number(input.salePrice || input.unit1Price || 0);
+    const unit2Price = roundPrice(parseNumber(input.unit2Price || 0));
+    const explicitSalePrice = roundPrice(parseNumber(input.salePrice || input.unit1Price || 0));
     const salePrice =
       Number.isFinite(unit2Price) && unit2Price > 0
-        ? unit2Price / unit2Factor
+        ? roundPrice(unit2Price / unit2Factor)
         : explicitSalePrice;
-    const stockQty = Number(input.stockQty || 0);
-    const cleanSalePrice = Number.isFinite(salePrice) ? Math.max(0, salePrice) : 0;
+    const stockQty = parseNumber(input.stockQty || 0);
+    const cleanSalePrice = Number.isFinite(salePrice) ? Math.max(0, roundPrice(salePrice)) : 0;
     return {
       item_key: cleanText(input.itemKey, 240),
       item_name: cleanText(input.itemName, 240),
@@ -158,7 +192,7 @@
       unit1_name: cleanText(input.unit1Name, 80),
       unit2_name: cleanText(input.unit2Name, 80),
       unit2_factor: unit2Factor,
-      unit2_price: Number.isFinite(unit2Price) ? Math.max(0, unit2Price) : 0,
+      unit2_price: Number.isFinite(unit2Price) ? Math.max(0, roundPrice(unit2Price)) : 0,
       unit1_price: cleanSalePrice,
       source_report_id: input.sourceReportId || null,
       source_synced_at: input.sourceSyncedAt || null,

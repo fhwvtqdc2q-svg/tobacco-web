@@ -1,4 +1,4 @@
-const CACHE_NAME = "web-platform-tobacco-v26";
+const CACHE_NAME = "web-platform-tobacco-v28";
 const ASSETS = [
   "../index.html",
   "../404.html",
@@ -9,7 +9,8 @@ const ASSETS = [
   "manifest.webmanifest",
   "icons/app-icon.png",
   "icons/ozk-logo.png",
-  "icons/workspace-pattern.svg"
+  "icons/workspace-pattern.svg",
+  "vendor/html2pdf.bundle.min.js"
 ];
 
 self.addEventListener("install", (event) => {

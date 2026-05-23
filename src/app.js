@@ -54,17 +54,57 @@ function normalizeItemName(value) {
     .toLowerCase();
 }
 
-function toNumber(value) {
-  const text = String(value ?? "")
+function normalizeNumericText(value, options = {}) {
+  const { allowNegative = true, allowDecimal = true } = options;
+  let text = String(value ?? "")
     .replace(/[٠-٩]/g, (digit) => String("٠١٢٣٤٥٦٧٨٩".indexOf(digit)))
     .replace(/[۰-۹]/g, (digit) => String("۰۱۲۳۴۵۶۷۸۹".indexOf(digit)))
     .replace(/[٫،]/g, ".")
-    .replace(/,/g, "")
-    .replace(/[^\d.-]/g, "")
+    .replace(/\s+/g, "")
     .trim();
+
+  const commaCount = (text.match(/,/g) || []).length;
+  if (allowDecimal && !text.includes(".") && commaCount === 1) {
+    const [, decimalPart = ""] = text.split(",");
+    if (/^\d{1,2}$/.test(decimalPart)) {
+      text = text.replace(",", ".");
+    }
+  }
+
+  text = text.replace(/,/g, "").replace(/[^\d.-]/g, "");
+  const isNegative = allowNegative && text.includes("-");
+  text = text.replace(/-/g, "");
+
+  if (!allowDecimal) {
+    text = text.replace(/\./g, "");
+  } else {
+    const parts = text.split(".");
+    text = `${parts.shift() || ""}${parts.length ? `.${parts.join("")}` : ""}`;
+    if (text.startsWith(".")) text = `0${text}`;
+  }
+
+  return isNegative && text ? `-${text}` : text;
+}
+
+function toNumber(value) {
+  const text = normalizeNumericText(value);
   if (!text) return 0;
   const number = Number(text);
   return Number.isFinite(number) ? number : 0;
+}
+
+function roundPrice(value) {
+  const number = Number(value || 0);
+  if (!Number.isFinite(number)) return 0;
+  return Math.round((number + Number.EPSILON) * 1000) / 1000;
+}
+
+function toPositivePrice(value) {
+  return Math.max(0, roundPrice(toNumber(value)));
+}
+
+function samePrice(left, right) {
+  return Math.abs(roundPrice(left) - roundPrice(right)) <= 0.005;
 }
 
 function todayIsoDate() {
@@ -411,7 +451,17 @@ function sheetRows(workbook, preferredNames = []) {
 
 function findHeaderRow(rows) {
   const index = rows.findIndex((row) =>
-    row.some((cell) => String(cell).trim().includes("اسم المادة") || String(cell).trim() === "المادة")
+    row.some((cell) => {
+      const text = String(cell ?? "").trim();
+      const normalized = normalizeItemName(text);
+      return (
+        text.includes("اسم المادة") ||
+        text === "المادة" ||
+        normalized === "item name" ||
+        normalized === "item key" ||
+        normalized === "material name"
+      );
+    })
   );
   if (index === -1) throw new Error("لم أجد عمود اسم المادة داخل ملف Excel.");
   return index;
@@ -420,8 +470,42 @@ function findHeaderRow(rows) {
 function findColumn(header, candidates) {
   return header.findIndex((cell) => {
     const text = String(cell ?? "").trim();
-    return candidates.some((candidate) => text.includes(candidate));
+    const normalizedText = normalizeItemName(text);
+    return candidates.some((candidate) => {
+      const normalizedCandidate = normalizeItemName(candidate);
+      return text.includes(candidate) || (normalizedCandidate && normalizedText.includes(normalizedCandidate));
+    });
   });
+}
+
+function findPriceColumns(headers) {
+  return headers
+    .map((header, index) => {
+      const text = String(header ?? "").trim();
+      const normalized = normalizeItemName(text);
+      const isPriceColumn = text.includes("سعر") || /\b(price|sale)\b/i.test(normalized);
+      if (!isPriceColumn) return null;
+
+      const isUnit1 =
+        /\bunit\s*1\b/i.test(normalized) ||
+        normalized.includes("unit1") ||
+        normalized.includes("first unit") ||
+        normalized.includes("sale price") ||
+        normalized.includes("الوحده الاولي") ||
+        normalized.includes("الوحده الاولى");
+      const isUnit2 =
+        /\bunit\s*2\b/i.test(normalized) ||
+        normalized.includes("unit2") ||
+        normalized.includes("second unit") ||
+        normalized.includes("الوحده الثانيه");
+
+      return {
+        index,
+        header: text,
+        unit: isUnit1 && !isUnit2 ? "unit1" : "unit2"
+      };
+    })
+    .filter(Boolean);
 }
 
 function aggregateStockItems(rows, headerIndex, threshold) {
@@ -474,24 +558,31 @@ async function parsePriceWorkbook(file) {
   const { sheetName, rows } = sheetRows(workbook, ["لائحة", "اسعار", "أسعار"]);
   const headerIndex = findHeaderRow(rows);
   const headers = rows[headerIndex].map((cell) => String(cell ?? "").trim());
-  const itemIndex = findColumn(headers, ["اسم المادة", "المادة", "الصنف"]);
-  if (itemIndex < 0) throw new Error("ملف الأسعار لا يحتوي على عمود اسم المادة.");
-  const priceIndexes = headers
-    .map((header, index) => (header.includes("سعر") ? index : -1))
-    .filter((index) => index >= 0);
+  const itemIndex = findColumn(headers, ["اسم المادة", "المادة", "الصنف", "item_name", "item name", "material_name", "material name"]);
+  const itemKeyIndex = findColumn(headers, ["item_key", "item key", "مفتاح المادة"]);
+  if (itemIndex < 0 && itemKeyIndex < 0) throw new Error("ملف الأسعار لا يحتوي على عمود اسم المادة.");
+  const priceColumns = findPriceColumns(headers);
+  if (!priceColumns.length) throw new Error("ملف الأسعار لا يحتوي على عمود سعر واضح.");
+  const priceIndexes = priceColumns.map((column) => column.index);
 
   const priceRows = rows
     .slice(headerIndex + 1)
-    .filter((row) => normalizeItemName(row[itemIndex]))
-    .map((row) => ({
-      key: normalizeItemName(row[itemIndex]),
-      name: String(row[itemIndex] ?? "").trim(),
-      hasPrice: priceIndexes.some((index) => toNumber(row[index]) > 0),
-      raw: headers.map((_, index) => row[index] ?? "")
-    }));
+    .map((row) => {
+      const nameValue = itemIndex >= 0 ? row[itemIndex] : row[itemKeyIndex];
+      const keyValue = itemKeyIndex >= 0 ? row[itemKeyIndex] : nameValue;
+      const key = normalizeItemName(keyValue || nameValue);
+      const name = String(nameValue ?? keyValue ?? "").trim();
+      return {
+        key,
+        name,
+        hasPrice: priceColumns.some((column) => toPositivePrice(row[column.index]) > 0),
+        raw: headers.map((_, index) => row[index] ?? "")
+      };
+    })
+    .filter((row) => row.key && row.name && row.key !== normalizeItemName("اسم المادة"));
 
   if (!priceRows.length) throw new Error("ملف الأسعار لا يحتوي على مواد قابلة للقراءة.");
-  return { sheetName, headers, rows: priceRows, priceIndexes };
+  return { sheetName, headers, rows: priceRows, priceIndexes, priceColumns };
 }
 
 function movementSummary(currentItems, previousReport) {
@@ -674,12 +765,53 @@ function writePriceExportWorkbook(priceExport, filePrefix) {
   window.XLSX.writeFile(workbook, `${filePrefix}-${todayIsoDate()}.xlsx`);
 }
 
-function firstPositivePrice(rawRow, priceIndexes) {
-  for (const index of priceIndexes || []) {
-    const price = toNumber(rawRow[index]);
+function firstPositivePrice(rawRow, priceColumns, unit) {
+  for (const column of priceColumns || []) {
+    if (unit && column.unit !== unit) continue;
+    const price = toPositivePrice(rawRow[column.index]);
     if (price > 0) return price;
   }
   return 0;
+}
+
+function normalizePriceForItem(rawRow, priceColumns, unit2Factor) {
+  const factor = Math.max(1, toPositivePrice(unit2Factor) || 1);
+  const rawUnit2Price = firstPositivePrice(rawRow, priceColumns, "unit2");
+  const rawUnit1Price = firstPositivePrice(rawRow, priceColumns, "unit1");
+
+  if (rawUnit2Price > 0) {
+    const unit2Price = roundPrice(rawUnit2Price);
+    const unit1Price = roundPrice(unit2Price / factor);
+    return {
+      unit2Price,
+      unit1Price,
+      salePrice: unit1Price,
+      sourceUnit: "unit2",
+      wasCorrected: rawUnit1Price > 0 && !samePrice(rawUnit1Price, unit1Price)
+    };
+  }
+
+  if (rawUnit1Price > 0) {
+    const unit1Price = roundPrice(rawUnit1Price);
+    return {
+      unit2Price: roundPrice(unit1Price * factor),
+      unit1Price,
+      salePrice: unit1Price,
+      sourceUnit: "unit1",
+      wasCorrected: factor > 1
+    };
+  }
+
+  return { unit2Price: 0, unit1Price: 0, salePrice: 0, sourceUnit: "", wasCorrected: false };
+}
+
+function correctedPriceRow(rawRow, priceColumns, normalizedPrice) {
+  const next = [...rawRow];
+  const unit2Column = (priceColumns || []).find((column) => column.unit === "unit2");
+  const unit1Column = (priceColumns || []).find((column) => column.unit === "unit1");
+  if (unit2Column) next[unit2Column.index] = normalizedPrice.unit2Price;
+  if (unit1Column) next[unit1Column.index] = normalizedPrice.unit1Price;
+  return next;
 }
 
 function uuidOrNull(value) {
@@ -744,25 +876,29 @@ async function importLivePriceList(form) {
     const filteredRows = price.rows.filter((row) => availableKeys.has(row.key) && row.hasPrice);
     const excludedRows = price.rows.filter((row) => !availableKeys.has(row.key));
     const zeroPriceRows = price.rows.filter((row) => availableKeys.has(row.key) && !row.hasPrice);
+    let correctedPriceRows = 0;
     const approvedItems = filteredRows.map((row) => {
       const stockItem = availableByKey.get(row.key);
-      const unit2Price = firstPositivePrice(row.raw, price.priceIndexes);
       const unit2Factor = itemUnit2Factor(stockItem);
+      const normalizedPrice = normalizePriceForItem(row.raw, price.priceColumns, unit2Factor);
+      if (normalizedPrice.wasCorrected) correctedPriceRows += 1;
+      row.correctedRaw = correctedPriceRow(row.raw, price.priceColumns, normalizedPrice);
       return {
         itemKey: row.key,
         itemName: row.name,
         unit1Name: itemUnit1Name(stockItem),
         unit2Name: itemUnit2Name(stockItem),
         unit2Factor,
-        unit2Price,
-        unit1Price: unit2Price / unit2Factor,
-        salePrice: unit2Price / unit2Factor,
+        unit2Price: normalizedPrice.unit2Price,
+        unit1Price: normalizedPrice.unit1Price,
+        salePrice: normalizedPrice.salePrice,
         stockQty: itemQty(stockItem),
         stockStatus: stockItem?.status || "active",
         sourceReportId: uuidOrNull(latest.id),
         sourceSyncedAt: reportSyncedAt(latest),
         pricePayload: {
-          pricedUnit: "unit2",
+          pricedUnit: normalizedPrice.sourceUnit,
+          correctedAutomatically: normalizedPrice.wasCorrected,
           headers: price.headers,
           row: row.raw
         }
@@ -772,7 +908,7 @@ async function importLivePriceList(form) {
     state.priceExport = {
       sheetName: price.sheetName,
       headers: price.headers,
-      rows: filteredRows.map((row) => row.raw),
+      rows: filteredRows.map((row) => row.correctedRaw || row.raw),
       source: "live_inventory",
       excludedRows: excludedRows.length,
       zeroPriceRows: zeroPriceRows.length
@@ -795,9 +931,10 @@ async function importLivePriceList(form) {
         saveWarning = ` تم تنزيل الملف، لكن تعذر حفظ الأسعار لجهاز المحاسبة: ${saveError.message}`;
       }
     }
+    const correctionText = correctedPriceRows ? ` وتم تصحيح ${correctedPriceRows} سعر تلقائياً حسب عامل التحويل.` : "";
     setNotice(
       zeroPriceRows.length || saveWarning ? "error" : "success",
-      `تم تنزيل لائحة البيع النهائية: ${filteredRows.length} مادة. تم حذف ${excludedRows.length} غير موجودة في المستودع، و${zeroPriceRows.length} موجودة لكن بلا سعر. تم استبدال لائحة المحاسبة بـ ${savedCount} سعر.${saveWarning}`
+      `تم تنزيل لائحة البيع النهائية: ${filteredRows.length} مادة. تم حذف ${excludedRows.length} غير موجودة في المستودع، و${zeroPriceRows.length} موجودة لكن بلا سعر. تم استبدال لائحة المحاسبة بـ ${savedCount} سعر.${correctionText}${saveWarning}`
     );
   } catch (error) {
     setNotice("error", error.message);
@@ -838,6 +975,132 @@ function downloadApprovedPricesForAccounting() {
   window.XLSX.utils.book_append_sheet(workbook, worksheet, "accounting-prices");
   window.XLSX.writeFile(workbook, `tobacco-accounting-prices-${todayIsoDate()}.xlsx`);
   setNotice("success", "تم تنزيل الأسعار المعتمدة للمحاسبة.");
+  render();
+}
+
+function customerPriceListItems() {
+  const prices = approvedPriceMap();
+  return liveAvailableItems()
+    .map((item) => {
+      const key = item.key || normalizeItemName(item.name);
+      const approvedPrice = prices.get(key);
+      const pricedItem = { ...item, key, approvedPrice };
+      const unit2Price = itemUnit2Price(pricedItem);
+      const unit1Price = itemUnit1PriceFromSecondUnit(pricedItem);
+      return {
+        ...pricedItem,
+        groupName: item.groupName || "مواد بدون مجموعة",
+        unit1Name: itemUnit1Name(pricedItem),
+        unit2Name: itemUnit2Name(pricedItem),
+        unit2Factor: itemUnit2Factor(pricedItem),
+        unit2Price,
+        unit1Price,
+        salePrice: unit1Price
+      };
+    })
+    .filter((item) => itemQty(item) > 0 && (item.unit2Price > 0 || item.unit1Price > 0))
+    .sort(
+      (a, b) =>
+        String(a.groupName || "").localeCompare(String(b.groupName || ""), "ar") ||
+        String(a.name || "").localeCompare(String(b.name || ""), "ar")
+    );
+}
+
+function groupCustomerPriceItems(items) {
+  const groups = new Map();
+  items.forEach((item) => {
+    const groupName = item.groupName || "مواد بدون مجموعة";
+    if (!groups.has(groupName)) groups.set(groupName, []);
+    groups.get(groupName).push(item);
+  });
+  return [...groups.entries()].map(([name, groupItems]) => ({ name, items: groupItems }));
+}
+
+function pricePdfItem(item) {
+  const unit2Label = item.unit2Name || item.unit1Name || "وحدة";
+  const unit1Label = item.unit1Name || "حبة";
+  const unit2Price = item.unit2Price > 0 ? formatMoney(item.unit2Price) : "";
+  const unit1Price = item.unit1Price > 0 ? formatMoney(item.unit1Price) : "";
+  return `
+    <article class="price-pdf-item">
+      <strong>${escapeHtml(item.name || "")}</strong>
+      <span>${escapeHtml(unit2Label)}: ${escapeHtml(unit2Price)}</span>
+      <small>${escapeHtml(unit1Label)}: ${escapeHtml(unit1Price)}</small>
+    </article>
+  `;
+}
+
+function pricePdfGroup(group) {
+  return `
+    <section class="price-pdf-group">
+      <h2>${escapeHtml(group.name)}</h2>
+      <div class="price-pdf-grid">
+        ${group.items.map(pricePdfItem).join("")}
+      </div>
+    </section>
+  `;
+}
+
+function customerPricePdfMarkup(items, latest) {
+  const groups = groupCustomerPriceItems(items);
+  const syncedAt = reportSyncedAt(latest);
+  return `
+    <div class="price-pdf-sheet" dir="rtl">
+      <header class="price-pdf-header">
+        <div>
+          <h1>OZK TOBACCO</h1>
+          <p>نشرة أسعار الأصناف المتوفرة فقط</p>
+        </div>
+        <span>${escapeHtml(todayIsoDate())}</span>
+      </header>
+      <div class="price-pdf-meta">
+        <span>عدد الأصناف: ${escapeHtml(items.length)}</span>
+        <span>آخر مزامنة جرد: ${escapeHtml(formatDateTime(syncedAt))}</span>
+        <span>الأسعار قابلة للتحديث حسب توفر المخزون</span>
+      </div>
+      ${groups.map(pricePdfGroup).join("")}
+    </div>
+  `;
+}
+
+async function downloadCustomerPricePdf() {
+  const latest = state.inventoryReports[0];
+  const items = customerPriceListItems();
+  if (!latest || !items.length) {
+    setNotice("error", "لا توجد مواد متوفرة ومُسعّرة لإنشاء نشرة PDF للزبائن.");
+    render();
+    return;
+  }
+  if (!window.html2pdf) {
+    setNotice("error", "مكتبة PDF لم تتحمل بعد. حدث الصفحة ثم جرب مرة أخرى.");
+    render();
+    return;
+  }
+
+  const container = document.createElement("div");
+  container.className = "price-pdf-render";
+  container.innerHTML = customerPricePdfMarkup(items, latest);
+  document.body.appendChild(container);
+
+  try {
+    await window
+      .html2pdf()
+      .set({
+        filename: `ozk-customer-prices-${todayIsoDate()}.pdf`,
+        margin: [6, 6, 8, 6],
+        image: { type: "jpeg", quality: 0.98 },
+        html2canvas: { scale: 2, useCORS: true, backgroundColor: "#ffffff" },
+        jsPDF: { unit: "mm", format: "a4", orientation: "portrait" },
+        pagebreak: { mode: ["css", "legacy"], avoid: [".price-pdf-item", ".price-pdf-group h2"] }
+      })
+      .from(container.firstElementChild)
+      .save();
+    setNotice("success", `تم تجهيز نشرة PDF للزبائن: ${items.length} صنف متوفر ومُسعّر فقط.`);
+  } catch (error) {
+    setNotice("error", error.message || "تعذر إنشاء ملف PDF.");
+  } finally {
+    container.remove();
+  }
   render();
 }
 
@@ -927,8 +1190,8 @@ async function savePricingItem(form) {
     const formUnit2Factor = toNumber(form.dataset.unit2Factor || 0);
     const liveUnit2Factor = itemUnit2Factor(latestItem);
     const unit2Factor = Math.max(1, liveUnit2Factor > 1 ? liveUnit2Factor : formUnit2Factor || 1);
-    const unit2Price = toNumber(formValue(form, "salePrice"));
-    const salePrice = unit2Price / unit2Factor;
+    const unit2Price = toPositivePrice(formValue(form, "salePrice"));
+    const salePrice = roundPrice(unit2Price / unit2Factor);
     const stockQty = toNumber(form.dataset.stockQty);
     const stockStatus = form.dataset.stockStatus || "active";
     if (unit2Price <= 0) throw new Error("اكتب سعر الوحدة الثانية أكبر من صفر.");
@@ -1340,7 +1603,9 @@ const ameenFilters = [
 ];
 
 function itemQty(item) {
-  return Number(item?.stockQty || 0);
+  const qty = Number(item?.stockQty || 0);
+  const positiveQty = Number(item?.stockQtyPositive || 0);
+  return qty > 0 ? qty : positiveQty;
 }
 
 function itemUnit1Name(item) {
@@ -1358,16 +1623,16 @@ function itemUnit2Factor(item) {
 
 function itemUnit2Price(item) {
   const savedUnit2Price = Number(item?.unit2Price || item?.approvedPrice?.unit2Price || 0);
-  if (savedUnit2Price > 0) return savedUnit2Price;
+  if (savedUnit2Price > 0) return roundPrice(savedUnit2Price);
   const unit1Price = Number(item?.salePrice || item?.approvedPrice?.salePrice || 0);
-  return unit1Price > 0 ? unit1Price * itemUnit2Factor(item) : 0;
+  return unit1Price > 0 ? roundPrice(unit1Price * itemUnit2Factor(item)) : 0;
 }
 
 function itemUnit1PriceFromSecondUnit(item) {
   const unit2Price = Number(item?.unit2Price || item?.approvedPrice?.unit2Price || 0);
   const unit2Factor = itemUnit2Factor(item);
-  if (unit2Price > 0 && unit2Factor > 0) return unit2Price / unit2Factor;
-  return Number(item?.salePrice || item?.approvedPrice?.salePrice || item?.unit1Price || item?.approvedPrice?.unit1Price || 0);
+  if (unit2Price > 0 && unit2Factor > 0) return roundPrice(unit2Price / unit2Factor);
+  return roundPrice(Number(item?.salePrice || item?.approvedPrice?.salePrice || item?.unit1Price || item?.approvedPrice?.unit1Price || 0));
 }
 
 function isNegativeItem(item) {
@@ -1750,17 +2015,17 @@ function pricingRow(item) {
   const unit2Factor = itemUnit2Factor(item);
   const rowState = item.hasApprovedPrice ? "active" : item.status;
   return `
-    <div class="inventory-row inventory-row-${escapeHtml(rowState)}">
-      <div class="customer-row-title">
-        <strong>${escapeHtml(item.name)}</strong>
-        <small>${escapeHtml(unit2Name)} / ${escapeHtml(unit2Factor)} ${escapeHtml(unit1Name)}</small>
-        <span class="status-chip">${escapeHtml(item.hasApprovedPrice ? "سعر معتمد" : "بحاجة تسعير")}</span>
+    <div class="pricing-card inventory-row-${escapeHtml(rowState)}">
+      <div class="pricing-card-head">
+        <strong title="${escapeHtml(item.name)}">${escapeHtml(item.name)}</strong>
+        <span>${escapeHtml(qty)}</span>
       </div>
-      <span>الكمية: ${escapeHtml(qty)} / الحالة: ${escapeHtml(statusLabel(item.status))} / آخر سعر: ${escapeHtml(price > 0 ? formatMoney(price) : "غير مسعر")}</span>
-      <span>سعر ${escapeHtml(unit2Name)}: ${escapeHtml(unit2Price > 0 ? formatMoney(unit2Price) : "غير مسعر")} / سعر ${escapeHtml(unit1Name)}: ${escapeHtml(price > 0 ? formatMoney(price) : "غير مسعر")}</span>
-      <form class="customer-limit-editor" data-form="pricing-item" data-item-key="${escapeHtml(item.key)}" data-item-name="${escapeHtml(item.name || "")}" data-stock-qty="${escapeHtml(qty)}" data-stock-status="${escapeHtml(item.status || "")}" data-unit1-name="${escapeHtml(unit1Name)}" data-unit2-name="${escapeHtml(unit2Name)}" data-unit2-factor="${escapeHtml(unit2Factor)}">
+      <small>${escapeHtml(unit2Name)} / ${escapeHtml(unit2Factor)} ${escapeHtml(unit1Name)}</small>
+      <b>${escapeHtml(unit2Price > 0 ? formatMoney(unit2Price) : "غير مسعر")}</b>
+      <span>${escapeHtml(item.hasApprovedPrice ? "معتمد" : statusLabel(item.status))}</span>
+      <form class="pricing-editor" data-form="pricing-item" data-item-key="${escapeHtml(item.key)}" data-item-name="${escapeHtml(item.name || "")}" data-stock-qty="${escapeHtml(qty)}" data-stock-status="${escapeHtml(item.status || "")}" data-unit1-name="${escapeHtml(unit1Name)}" data-unit2-name="${escapeHtml(unit2Name)}" data-unit2-factor="${escapeHtml(unit2Factor)}">
         <label>
-          سعر ${escapeHtml(unit2Name)}
+          <span>سعر ${escapeHtml(unit2Name)}</span>
           <input name="salePrice" type="text" inputmode="decimal" dir="ltr" value="${escapeHtml(unit2Price > 0 ? unit2Price : "")}" placeholder="0">
         </label>
         <button class="button secondary mini-button" type="submit">حفظ السعر</button>
@@ -1813,18 +2078,20 @@ function pricing() {
         </label>
       </div>
       <div class="button-row report-actions">
+        <button class="button secondary" type="button" data-action="refresh-ameen">تحديث الجرد</button>
         <button class="button secondary" type="button" data-action="download-daily-pricing" ${items.length ? "" : "disabled"}>تنزيل قائمة تسعير اليوم</button>
         <button class="button secondary" type="button" data-action="download-price-template" ${allAvailable.length ? "" : "disabled"}>تنزيل قالب Excel</button>
+        <button class="button primary" type="button" data-action="download-customer-price-pdf" ${customerPriceListItems().length ? "" : "disabled"}>نشرة PDF للزبائن</button>
         <button class="button secondary" type="button" data-action="download-approved-prices" ${state.approvedPriceItems.length ? "" : "disabled"}>تصدير أسعار المحاسبة</button>
       </div>
       <form class="form-card compact" data-form="live-price-import">
         <label>
           رفع ملف تسعير كامل
-          <input name="livePrice" type="file" accept=".xlsx,.xls">
+          <input name="livePrice" type="file" accept=".xlsx,.xls,.csv">
         </label>
         <button class="button primary" type="submit" ${allAvailable.length ? "" : "disabled"}>اعتماد ملف الأسعار</button>
       </form>
-      <div class="inventory-list inventory-list-dense" data-pricing-results>
+      <div class="inventory-list inventory-list-dense pricing-list" data-pricing-results>
         ${items.length ? items.map(pricingRow).join("") : `<p class="muted">${escapeHtml(emptyText)}</p>`}
       </div>
     </section>
@@ -2331,6 +2598,7 @@ function render() {
   app.querySelector("[data-action='download-prices']")?.addEventListener("click", downloadFilteredPriceList);
   app.querySelector("[data-action='download-price-template']")?.addEventListener("click", downloadLivePriceTemplate);
   app.querySelector("[data-action='download-daily-pricing']")?.addEventListener("click", downloadDailyPricingWorklist);
+  app.querySelector("[data-action='download-customer-price-pdf']")?.addEventListener("click", downloadCustomerPricePdf);
   app.querySelector("[data-action='download-approved-prices']")?.addEventListener("click", downloadApprovedPricesForAccounting);
   app.querySelector("[data-action='download-inventory']")?.addEventListener("click", downloadLatestInventoryReport);
   app.querySelector("[data-action='download-filtered-inventory']")?.addEventListener("click", downloadFilteredInventoryReport);
@@ -2412,7 +2680,7 @@ function render() {
 boot();
 
 setInterval(() => {
-  if (state.route === "ameen" && (!dataStore.isConfigured() || state.session)) {
+  if ((state.route === "ameen" || state.route === "pricing") && (!dataStore.isConfigured() || state.session)) {
     Promise.all([loadInventoryReports(), loadCustomerBalanceReports(), loadCustomerCreditLimits(), loadApprovedPriceItems()])
       .then(() => render())
       .catch(() => {});

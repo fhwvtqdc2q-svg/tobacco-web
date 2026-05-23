@@ -843,6 +843,11 @@ code {
   grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
+.pricing-list {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
 .inventory-row {
   display: grid;
   gap: 5px;
@@ -869,6 +874,93 @@ code {
 
 .inventory-row span {
   color: var(--muted);
+}
+
+.pricing-card {
+  display: grid;
+  gap: 5px;
+  min-width: 0;
+  padding: 8px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #16110a;
+}
+
+.pricing-card-head {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 4px;
+  align-items: start;
+}
+
+.pricing-card strong {
+  min-width: 0;
+  color: var(--ink);
+  font-size: 0.82rem;
+  line-height: 1.35;
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow-wrap: anywhere;
+}
+
+.pricing-card-head span {
+  min-width: 28px;
+  padding: 2px 4px;
+  border-radius: 6px;
+  background: #251c10;
+  color: var(--accent);
+  font-size: 0.72rem;
+  font-weight: 900;
+  text-align: center;
+}
+
+.pricing-card small,
+.pricing-card > span {
+  color: var(--muted);
+  font-size: 0.68rem;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+
+.pricing-card b {
+  color: var(--accent);
+  font-size: 0.95rem;
+  line-height: 1.1;
+}
+
+.pricing-editor {
+  display: grid;
+  gap: 5px;
+  margin-top: 2px;
+}
+
+.pricing-editor label {
+  display: grid;
+  gap: 4px;
+  color: var(--muted);
+  font-size: 0.67rem;
+  font-weight: 800;
+}
+
+.pricing-editor input {
+  width: 100%;
+  min-height: 34px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  padding: 7px 8px;
+  background: #0d0a06;
+  color: var(--ink);
+  font: inherit;
+  font-size: 0.86rem;
+}
+
+.pricing-editor .mini-button {
+  min-height: 32px;
+  width: 100%;
+  padding: 0 6px;
+  font-size: 0.72rem;
 }
 
 .customer-row-title {
@@ -987,6 +1079,114 @@ code {
   color: #f7df9c;
 }
 
+.price-pdf-render {
+  position: fixed;
+  top: 0;
+  left: -10000px;
+  width: 794px;
+  z-index: -1;
+}
+
+.price-pdf-sheet {
+  width: 794px;
+  min-height: 1123px;
+  padding: 24px;
+  background: #ffffff;
+  color: #17130d;
+  font-family: Tahoma, Arial, sans-serif;
+  direction: rtl;
+}
+
+.price-pdf-sheet * {
+  box-sizing: border-box;
+  letter-spacing: 0;
+}
+
+.price-pdf-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  padding-bottom: 12px;
+  border-bottom: 2px solid #17130d;
+}
+
+.price-pdf-header h1 {
+  margin: 0;
+  font-size: 28px;
+}
+
+.price-pdf-header p,
+.price-pdf-header span,
+.price-pdf-meta span {
+  margin: 4px 0 0;
+  color: #514735;
+  font-size: 12px;
+}
+
+.price-pdf-meta {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  margin: 12px 0 14px;
+}
+
+.price-pdf-meta span {
+  padding: 7px 8px;
+  border: 1px solid #ddd2be;
+  border-radius: 6px;
+  background: #fbf7ee;
+}
+
+.price-pdf-group {
+  break-inside: avoid;
+  margin: 0 0 12px;
+}
+
+.price-pdf-group h2 {
+  margin: 0 0 6px;
+  padding: 6px 8px;
+  border-radius: 6px;
+  background: #17130d;
+  color: #ffffff;
+  font-size: 14px;
+}
+
+.price-pdf-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 6px;
+}
+
+.price-pdf-item {
+  break-inside: avoid;
+  display: grid;
+  gap: 3px;
+  min-height: 52px;
+  padding: 6px 7px;
+  border: 1px solid #e3d8c6;
+  border-radius: 6px;
+  background: #fffdf8;
+}
+
+.price-pdf-item strong {
+  color: #17130d;
+  font-size: 10.5px;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+
+.price-pdf-item span {
+  color: #1e1a13;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.price-pdf-item small {
+  color: #6c604d;
+  font-size: 9px;
+}
+
 @media (max-width: 900px) {
   .app-shell {
     grid-template-columns: 1fr;
@@ -1019,6 +1219,10 @@ code {
   .customer-detail-grid,
   .inventory-list-dense {
     grid-template-columns: 1fr;
+  }
+
+  .pricing-list {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
   }
 
   .topbar {

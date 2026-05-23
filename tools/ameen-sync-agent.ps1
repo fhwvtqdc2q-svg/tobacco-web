@@ -12,6 +12,9 @@ param(
 
 $ErrorActionPreference = "Stop"
 
+[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+[Net.ServicePointManager]::Expect100Continue = $false
+
 function Require-Env($Name) {
   $value = [Environment]::GetEnvironmentVariable($Name, "User")
   if (-not $value) {
@@ -69,6 +72,65 @@ function To-IsoDate($Value) {
   return ([datetime]$Value).ToString("o")
 }
 
+function New-TextFromCodePoints([int[]]$Codes) {
+  return -join ($Codes | ForEach-Object { [char]$_ })
+}
+
+function Test-TextContains($Value, [int[]]$Codes) {
+  if ($null -eq $Value) {
+    return $false
+  }
+  $text = [string]$Value
+  $needle = New-TextFromCodePoints $Codes
+  return $text.IndexOf($needle, [StringComparison]::OrdinalIgnoreCase) -ge 0
+}
+
+function Get-LowStockRule($ItemName, $GroupName, $Unit2Name, $Unit2Factor, $FallbackThreshold) {
+  if ($Unit2Factor -le 0) {
+    $Unit2Factor = 1
+  }
+
+  $groupAndName = "{0} {1}" -f $GroupName, $ItemName
+  $isMasterGroup = Test-TextContains $groupAndName @(0x0645, 0x0627, 0x0633, 0x062A, 0x0631)
+  $isGauloisesGroup = Test-TextContains $groupAndName @(0x063A, 0x0644, 0x0648, 0x0627, 0x0632)
+
+  if ($isMasterGroup -or $isGauloisesGroup) {
+    return [PSCustomObject]@{
+      Mode = "unit1"
+      Unit1Threshold = 250.0
+      Unit2Threshold = [math]::Round((250.0 / $Unit2Factor), 3)
+      Basis = "group_250_unit1"
+    }
+  }
+
+  $isCarton = (Test-TextContains $Unit2Name @(0x0643, 0x0631, 0x062A, 0x0648, 0x0646)) -or (Test-TextContains $Unit2Name @(0x0643, 0x0631, 0x062A, 0x0648, 0x0646, 0x0629))
+  if ($isCarton) {
+    return [PSCustomObject]@{
+      Mode = "unit2"
+      Unit1Threshold = 50.0 * $Unit2Factor
+      Unit2Threshold = 50.0
+      Basis = "carton_50_unit2"
+    }
+  }
+
+  $isPack = (Test-TextContains $Unit2Name @(0x0637, 0x0631, 0x062F)) -or (Test-TextContains $Unit2Name @(0x0634, 0x0631, 0x062D, 0x0629))
+  if ($isPack) {
+    return [PSCustomObject]@{
+      Mode = "unit2"
+      Unit1Threshold = 12.0 * $Unit2Factor
+      Unit2Threshold = 12.0
+      Basis = "pack_12_unit2"
+    }
+  }
+
+  return [PSCustomObject]@{
+    Mode = "unit2"
+    Unit1Threshold = [double]$FallbackThreshold * $Unit2Factor
+    Unit2Threshold = [double]$FallbackThreshold
+    Basis = "fallback_unit2"
+  }
+}
+
 function Read-JsonArray($Value) {
   if ($null -eq $Value -or $Value -eq "") {
     return @()
@@ -89,6 +151,44 @@ function ConvertTo-JsonText($Value, $Depth = 10) {
   return ($Value | ConvertTo-Json -Depth $Depth)
 }
 
+function Invoke-RestMethodWithRetry {
+  param(
+    [Parameter(Mandatory = $true)][string]$Method,
+    [Parameter(Mandatory = $true)][string]$Uri,
+    [Parameter(Mandatory = $true)][hashtable]$Headers,
+    [string]$ContentType = "",
+    [object]$Body = $null,
+    [int]$MaxAttempts = 3
+  )
+
+  for ($attempt = 1; $attempt -le $MaxAttempts; $attempt++) {
+    try {
+      $parameters = @{
+        Method = $Method
+        Uri = $Uri
+        Headers = $Headers
+        TimeoutSec = 60
+        DisableKeepAlive = $true
+      }
+      if ($ContentType) {
+        $parameters.ContentType = $ContentType
+      }
+      if ($null -ne $Body) {
+        $parameters.Body = $Body
+      }
+      return Invoke-RestMethod @parameters
+    } catch {
+      $message = $_.Exception.Message
+      $isTransient = $message -match "underlying connection|connection.*closed|receive|send|temporarily|timeout"
+      if (-not $isTransient -or $attempt -eq $MaxAttempts) {
+        throw
+      }
+      Write-AgentLog ("Supabase connection attempt {0}/{1} failed; retrying. Error: {2}" -f $attempt, $MaxAttempts, $message)
+      Start-Sleep -Seconds (2 * $attempt)
+    }
+  }
+}
+
 function Get-SupabaseSession($Url, $ApiKey, $Email, $Password) {
   $endpoint = "$Url/auth/v1/token?grant_type=password"
   $headers = @{
@@ -101,7 +201,7 @@ function Get-SupabaseSession($Url, $ApiKey, $Email, $Password) {
   }
 
   try {
-    return Invoke-RestMethod -Method Post -Uri $endpoint -Headers $headers -ContentType "application/json; charset=utf-8" -Body $body
+    return Invoke-RestMethodWithRetry -Method Post -Uri $endpoint -Headers $headers -ContentType "application/json; charset=utf-8" -Body $body
   } catch {
     throw "Supabase login failed for TOBACCO_SYNC_EMAIL. Rerun tools\setup-ameen-sync-env.ps1 with a valid Supabase Auth user. Original error: $($_.Exception.Message)"
   }
@@ -147,6 +247,9 @@ function Build-InventoryReport($Rows, $LowThreshold) {
     }
 
     $qty = To-Number $row.stock_qty
+    $qtyNet = if ($row.PSObject.Properties.Name -contains "stock_qty_net") { To-Number $row.stock_qty_net } else { $qty }
+    $qtyPositive = if ($row.PSObject.Properties.Name -contains "stock_qty_positive") { To-Number $row.stock_qty_positive } else { if ($qty -gt 0) { $qty } else { 0 } }
+    $groupName = if ($row.PSObject.Properties.Name -contains "group_name") { [string]$row.group_name } else { "" }
     $unit1Name = if ($row.PSObject.Properties.Name -contains "unit1_name") { [string]$row.unit1_name } else { "" }
     $unit2Name = if ($row.PSObject.Properties.Name -contains "unit2_name") { [string]$row.unit2_name } else { "" }
     $unit2Factor = if ($row.PSObject.Properties.Name -contains "unit2_factor") { To-Number $row.unit2_factor } else { 1 }
@@ -156,23 +259,36 @@ function Build-InventoryReport($Rows, $LowThreshold) {
     if (-not $unit2Name) {
       $unit2Name = $unit1Name
     }
+    $unit2Qty = if ($unit2Factor -gt 0) { $qty / $unit2Factor } else { $qty }
+    $lowRule = Get-LowStockRule -ItemName $name -GroupName $groupName -Unit2Name $unit2Name -Unit2Factor $unit2Factor -FallbackThreshold $LowThreshold
+
     $status = "active"
     if ($qty -le 0) {
       $status = "out"
-    } elseif ($qty -le $LowThreshold) {
+    } elseif ($lowRule.Mode -eq "unit1" -and $qty -le $lowRule.Unit1Threshold) {
+      $status = "low"
+    } elseif ($lowRule.Mode -ne "unit1" -and $unit2Qty -le $lowRule.Unit2Threshold) {
       $status = "low"
     }
 
     $items += [ordered]@{
       key = $key
       name = $name
+      groupName = $groupName
       stockQty = [math]::Round($qty, 3)
+      stockQtyNet = [math]::Round($qtyNet, 3)
+      stockQtyPositive = [math]::Round($qtyPositive, 3)
+      stockQtyUnit2 = [math]::Round($unit2Qty, 3)
       status = $status
       unit1Name = $unit1Name
       unit2Name = $unit2Name
       unit2Factor = [math]::Round($unit2Factor, 3)
       priceListed = $false
-      lowThreshold = $LowThreshold
+      lowThreshold = if ($lowRule.Mode -eq "unit1") { [math]::Round($lowRule.Unit1Threshold, 3) } else { [math]::Round($lowRule.Unit2Threshold, 3) }
+      lowThresholdUnit = $lowRule.Mode
+      lowThresholdUnit2 = [math]::Round($lowRule.Unit2Threshold, 3)
+      lowThresholdUnit1 = [math]::Round($lowRule.Unit1Threshold, 3)
+      lowThresholdBasis = $lowRule.Basis
     }
   }
 
@@ -322,7 +438,7 @@ function Send-Report($SupabaseUrl, $ApiKey, $Session, $Report, $Source) {
     created_by = $Session.user.id
   } -Depth 20
 
-  Invoke-RestMethod -Method Post -Uri $endpoint -Headers $headers -ContentType "application/json; charset=utf-8" -Body $body | Out-Null
+  Invoke-RestMethodWithRetry -Method Post -Uri $endpoint -Headers $headers -ContentType "application/json; charset=utf-8" -Body $body | Out-Null
 }
 
 function Send-InventoryReport($SupabaseUrl, $ApiKey, $Session, $Report) {
