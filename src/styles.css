@@ -1082,9 +1082,10 @@ code {
 .price-pdf-render {
   position: fixed;
   top: 0;
-  left: -10000px;
+  left: 0;
   width: 794px;
-  z-index: -1;
+  pointer-events: none;
+  z-index: 0;
 }
 
 .price-pdf-sheet {
@@ -1259,14 +1260,21 @@ code {
 }
 
 .price-pdf-groups {
-  column-count: 3;
-  column-gap: 7px;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 7px;
+  align-items: start;
+}
+
+.price-pdf-column {
+  display: grid;
+  gap: 7px;
+  min-width: 0;
 }
 
 .price-pdf-group {
-  display: inline-block;
   width: 100%;
-  margin: 0 0 7px;
+  margin: 0;
   border: 1px solid #2a2a2a;
   background: #ffffff;
 }

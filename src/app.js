@@ -1110,6 +1110,22 @@ function pricePdfGroup(group) {
   `;
 }
 
+function pricePdfColumns(groups) {
+  const columns = [[], [], []];
+  groups.forEach((group, index) => {
+    columns[index % columns.length].push(group);
+  });
+  return columns
+    .map(
+      (columnGroups) => `
+        <div class="price-pdf-column">
+          ${columnGroups.map(pricePdfGroup).join("")}
+        </div>
+      `
+    )
+    .join("");
+}
+
 function customerPricePdfMarkup(items, latest) {
   const groups = groupCustomerPriceItems(items);
   const syncedAt = reportSyncedAt(latest);
@@ -1131,7 +1147,7 @@ function customerPricePdfMarkup(items, latest) {
         ${customerPriceContactMarkup()}
       </div>
       <main class="price-pdf-groups">
-        ${groups.map(pricePdfGroup).join("")}
+        ${pricePdfColumns(groups)}
       </main>
       <footer class="price-pdf-footer">
         الأسعار قابلة للتحديث حسب توفر المخزون. للاستفسار يرجى التواصل عبر الأرقام أعلاه.
