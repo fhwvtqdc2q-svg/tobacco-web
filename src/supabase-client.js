@@ -354,10 +354,10 @@
           created_by: user.id
         })
         .select("id, customer, channel, request_type, status, note, created_at, updated_at")
-        .single();
+        .limit(1);
 
       if (error) throw new Error(error.message);
-      return normalizeDbRequest(data);
+      return data?.[0] ? normalizeDbRequest(data[0]) : request;
     },
 
     async updateRequestStatus(id, status) {
@@ -456,10 +456,10 @@
         .from(creditLimitsTable)
         .upsert(normalizeCustomerLimitInput(input, user.id), { onConflict: "customer_key" })
         .select("id, customer_key, customer_name, credit_limit, notes, created_at, updated_at")
-        .single();
+        .limit(1);
 
       if (error) throw new Error(error.message);
-      return normalizeDbCustomerLimit(data);
+      return data?.[0] ? normalizeDbCustomerLimit(data[0]) : normalizeDbCustomerLimit(payload);
     },
 
     async listApprovedPriceItems() {
@@ -577,10 +577,10 @@
           created_by: user.id
         })
         .select("id, report_date, source, summary, items, created_at")
-        .single();
+        .limit(1);
 
       if (error) throw new Error(error.message);
-      return data;
+      return data?.[0] || localReport;
     }
   };
 
