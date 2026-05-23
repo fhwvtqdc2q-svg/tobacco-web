@@ -156,8 +156,9 @@ function syncFreshnessLabel(value) {
 const allowedRoutes = new Set(["overview", "login", "requests", "ameen", "pricing", "remote", "monitoring", "payments"]);
 
 const customerPriceContacts = [
-  { label: "هاتف المبيعات", value: "+963985000771" },
-  { label: "واتساب", value: "+963996610523" }
+  { label: "هاتف المبيعات", value: "0985000771" },
+  { label: "واتساب", value: "0984000662" },
+  { label: "رقم المركز", value: "0994092038" }
 ];
 
 function initialRoute() {
