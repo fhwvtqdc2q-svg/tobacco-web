@@ -1022,53 +1022,6 @@ function groupCustomerPriceItems(items) {
   return [...groups.entries()].map(([name, groupItems]) => ({ name, items: groupItems }));
 }
 
-function pricePdfItem(item) {
-  const unit2Label = item.unit2Name || item.unit1Name || "وحدة";
-  const unit1Label = item.unit1Name || "حبة";
-  const unit2Price = item.unit2Price > 0 ? formatMoney(item.unit2Price) : "";
-  const unit1Price = item.unit1Price > 0 ? formatMoney(item.unit1Price) : "";
-  return `
-    <article class="price-pdf-item">
-      <strong>${escapeHtml(item.name || "")}</strong>
-      <span>${escapeHtml(unit2Label)}: ${escapeHtml(unit2Price)}</span>
-      <small>${escapeHtml(unit1Label)}: ${escapeHtml(unit1Price)}</small>
-    </article>
-  `;
-}
-
-function pricePdfGroup(group) {
-  return `
-    <section class="price-pdf-group">
-      <h2>${escapeHtml(group.name)}</h2>
-      <div class="price-pdf-grid">
-        ${group.items.map(pricePdfItem).join("")}
-      </div>
-    </section>
-  `;
-}
-
-function customerPricePdfMarkup(items, latest) {
-  const groups = groupCustomerPriceItems(items);
-  const syncedAt = reportSyncedAt(latest);
-  return `
-    <div class="price-pdf-sheet" dir="rtl">
-      <header class="price-pdf-header">
-        <div>
-          <h1>OZK TOBACCO</h1>
-          <p>نشرة أسعار الأصناف المتوفرة فقط</p>
-        </div>
-        <span>${escapeHtml(todayIsoDate())}</span>
-      </header>
-      <div class="price-pdf-meta">
-        <span>عدد الأصناف: ${escapeHtml(items.length)}</span>
-        <span>آخر مزامنة جرد: ${escapeHtml(formatDateTime(syncedAt))}</span>
-        <span>الأسعار قابلة للتحديث حسب توفر المخزون</span>
-      </div>
-      ${groups.map(pricePdfGroup).join("")}
-    </div>
-  `;
-}
-
 function customerPriceContactMarkup() {
   return customerPriceContacts
     .map(
@@ -1128,7 +1081,6 @@ function pricePdfColumns(groups) {
 
 function customerPricePdfMarkup(items, latest) {
   const groups = groupCustomerPriceItems(items);
-  const syncedAt = reportSyncedAt(latest);
   return `
     <div class="price-pdf-sheet" dir="rtl">
       <header class="price-pdf-header">
@@ -1142,8 +1094,6 @@ function customerPricePdfMarkup(items, latest) {
         </div>
       </header>
       <div class="price-pdf-meta">
-        <span>عدد الأصناف: ${escapeHtml(items.length)}</span>
-        <span>آخر مزامنة جرد: ${escapeHtml(formatDateTime(syncedAt))}</span>
         ${customerPriceContactMarkup()}
       </div>
       <main class="price-pdf-groups">
@@ -1182,9 +1132,9 @@ async function downloadCustomerPricePdf() {
         filename: `ozk-customer-prices-${todayIsoDate()}.pdf`,
         margin: [6, 6, 8, 6],
         image: { type: "jpeg", quality: 0.98 },
-        html2canvas: { scale: 2, useCORS: true, backgroundColor: "#ffffff" },
+        html2canvas: { scale: 2, useCORS: true, backgroundColor: "#080704", scrollX: 0, scrollY: 0 },
         jsPDF: { unit: "mm", format: "a4", orientation: "portrait" },
-        pagebreak: { mode: ["css", "legacy"], avoid: [".price-pdf-group", ".price-pdf-group h2"] }
+        pagebreak: { mode: ["css", "legacy"] }
       })
       .from(container.firstElementChild)
       .save();
