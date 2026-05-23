@@ -155,6 +155,11 @@ function syncFreshnessLabel(value) {
 
 const allowedRoutes = new Set(["overview", "login", "requests", "ameen", "pricing", "remote", "monitoring", "payments"]);
 
+const customerPriceContacts = [
+  { label: "هاتف المبيعات", value: "+963985000771" },
+  { label: "واتساب", value: "+963996610523" }
+];
+
 function initialRoute() {
   const requestedRoute = new URLSearchParams(window.location.search).get("route");
   return allowedRoutes.has(requestedRoute) ? requestedRoute : "overview";
@@ -1063,6 +1068,77 @@ function customerPricePdfMarkup(items, latest) {
   `;
 }
 
+function customerPriceContactMarkup() {
+  return customerPriceContacts
+    .map(
+      (contact) => `
+        <span class="price-pdf-contact">
+          <b>${escapeHtml(contact.label)}</b>
+          ${escapeHtml(contact.value)}
+        </span>
+      `
+    )
+    .join("");
+}
+
+function pricePdfItem(item) {
+  const unit2Label = item.unit2Name || item.unit1Name || "وحدة";
+  const unit1Label = item.unit1Name || "حبة";
+  const unit2Price = item.unit2Price > 0 ? formatMoney(item.unit2Price) : "";
+  const unit1Price = item.unit1Price > 0 ? formatMoney(item.unit1Price) : "";
+  const primaryPrice = unit2Price || unit1Price;
+  const primaryUnit = unit2Price ? unit2Label : unit1Label;
+  const secondaryText = unit2Price && unit1Price ? `${unit1Label}: ${unit1Price}` : "";
+  return `
+    <div class="price-pdf-item">
+      <span class="price-pdf-name">${escapeHtml(item.name || "")}</span>
+      <b>${escapeHtml(primaryPrice)}</b>
+      <small>${escapeHtml(primaryUnit)}${secondaryText ? ` / ${escapeHtml(secondaryText)}` : ""}</small>
+    </div>
+  `;
+}
+
+function pricePdfGroup(group) {
+  return `
+    <section class="price-pdf-group">
+      <h2>${escapeHtml(group.name)}</h2>
+      <div class="price-pdf-rows">
+        ${group.items.map(pricePdfItem).join("")}
+      </div>
+    </section>
+  `;
+}
+
+function customerPricePdfMarkup(items, latest) {
+  const groups = groupCustomerPriceItems(items);
+  const syncedAt = reportSyncedAt(latest);
+  return `
+    <div class="price-pdf-sheet" dir="rtl">
+      <header class="price-pdf-header">
+        <div>
+          <h1>قائمة أسعار OZK TOBACCO</h1>
+          <p>نشرة أسعار الأصناف المتوفرة للزبائن</p>
+        </div>
+        <div class="price-pdf-date">
+          <span>تاريخ النشرة</span>
+          <b>${escapeHtml(todayIsoDate())}</b>
+        </div>
+      </header>
+      <div class="price-pdf-meta">
+        <span>عدد الأصناف: ${escapeHtml(items.length)}</span>
+        <span>آخر مزامنة جرد: ${escapeHtml(formatDateTime(syncedAt))}</span>
+        ${customerPriceContactMarkup()}
+      </div>
+      <main class="price-pdf-groups">
+        ${groups.map(pricePdfGroup).join("")}
+      </main>
+      <footer class="price-pdf-footer">
+        الأسعار قابلة للتحديث حسب توفر المخزون. للاستفسار يرجى التواصل عبر الأرقام أعلاه.
+      </footer>
+    </div>
+  `;
+}
+
 async function downloadCustomerPricePdf() {
   const latest = state.inventoryReports[0];
   const items = customerPriceListItems();
@@ -1091,7 +1167,7 @@ async function downloadCustomerPricePdf() {
         image: { type: "jpeg", quality: 0.98 },
         html2canvas: { scale: 2, useCORS: true, backgroundColor: "#ffffff" },
         jsPDF: { unit: "mm", format: "a4", orientation: "portrait" },
-        pagebreak: { mode: ["css", "legacy"], avoid: [".price-pdf-item", ".price-pdf-group h2"] }
+        pagebreak: { mode: ["css", "legacy"], avoid: [".price-pdf-group", ".price-pdf-group h2"] }
       })
       .from(container.firstElementChild)
       .save();

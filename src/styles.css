@@ -1187,6 +1187,159 @@ code {
   font-size: 9px;
 }
 
+.price-pdf-sheet {
+  padding: 14px;
+  background: #fffdf5;
+  color: #111111;
+  font-family: Tahoma, Arial, sans-serif;
+}
+
+.price-pdf-header {
+  align-items: center;
+  padding: 10px 12px;
+  border: 1px solid #1c1710;
+  border-radius: 4px;
+  background: #080704;
+  color: #f5d36f;
+}
+
+.price-pdf-header h1 {
+  font-size: 22px;
+  line-height: 1.1;
+}
+
+.price-pdf-header p {
+  margin: 3px 0 0;
+  color: #f7ead0;
+  font-size: 11px;
+}
+
+.price-pdf-date {
+  display: grid;
+  min-width: 112px;
+  padding: 6px 8px;
+  border: 1px solid #7a612f;
+  border-radius: 4px;
+  text-align: center;
+}
+
+.price-pdf-date span {
+  margin: 0;
+  color: #d3bea0;
+  font-size: 9px;
+  font-weight: 700;
+}
+
+.price-pdf-date b {
+  color: #ffffff;
+  font-size: 12px;
+}
+
+.price-pdf-meta {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 5px;
+  margin: 8px 0 9px;
+}
+
+.price-pdf-meta span {
+  min-height: 30px;
+  padding: 5px 6px;
+  border: 1px solid #b6a063;
+  border-radius: 3px;
+  background: #fff6c4;
+  color: #17130d;
+  font-size: 9px;
+  line-height: 1.25;
+}
+
+.price-pdf-contact b {
+  display: block;
+  color: #5b4100;
+  font-size: 8px;
+}
+
+.price-pdf-groups {
+  column-count: 3;
+  column-gap: 7px;
+}
+
+.price-pdf-group {
+  display: inline-block;
+  width: 100%;
+  margin: 0 0 7px;
+  border: 1px solid #2a2a2a;
+  background: #ffffff;
+}
+
+.price-pdf-group h2 {
+  margin: 0;
+  padding: 3px 5px;
+  border-radius: 0;
+  border-bottom: 1px solid #2a2a2a;
+  background: #fff200;
+  color: #111111;
+  font-size: 10px;
+  line-height: 1.2;
+  text-align: center;
+}
+
+.price-pdf-rows {
+  display: grid;
+}
+
+.price-pdf-item {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 42px;
+  gap: 0 4px;
+  min-height: 0;
+  padding: 2px 4px;
+  border: 0;
+  border-bottom: 1px solid #8e8e8e;
+  border-radius: 0;
+  background: #ffffff;
+}
+
+.price-pdf-item:nth-child(even) {
+  background: #f3f1ee;
+}
+
+.price-pdf-item:last-child {
+  border-bottom: 0;
+}
+
+.price-pdf-name {
+  color: #111111;
+  font-size: 8.7px;
+  font-weight: 700;
+  line-height: 1.25;
+  overflow-wrap: anywhere;
+}
+
+.price-pdf-item b {
+  color: #111111;
+  font-size: 10px;
+  line-height: 1.2;
+  text-align: left;
+}
+
+.price-pdf-item small {
+  grid-column: 1 / -1;
+  color: #6b6356;
+  font-size: 6.8px;
+  line-height: 1.15;
+}
+
+.price-pdf-footer {
+  margin-top: 8px;
+  padding: 6px 8px;
+  border: 1px solid #b6a063;
+  border-radius: 3px;
+  background: #080704;
+  color: #f5d36f;
+  font-size: 9px;
+  text-align: center;
+}
+
 @media (max-width: 900px) {
   .app-shell {
     grid-template-columns: 1fr;
