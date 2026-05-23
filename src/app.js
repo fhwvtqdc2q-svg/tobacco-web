@@ -1052,37 +1052,69 @@ function pricePdfItem(item) {
   `;
 }
 
-function pricePdfGroup(group) {
-  return `
-    <section class="price-pdf-group">
-      <h2>${escapeHtml(group.name)}</h2>
-      <div class="price-pdf-rows">
-        ${group.items.map(pricePdfItem).join("")}
-      </div>
-    </section>
-  `;
+function pricePdfItemUnits(item) {
+  const nameLength = String(item.name || "").length;
+  const hasTwoPrices = item.unit2Price > 0 && item.unit1Price > 0;
+  return 1 + (nameLength > 42 ? 0.35 : 0) + (hasTwoPrices ? 0.15 : 0);
 }
 
-function pricePdfColumns(groups) {
-  const columns = [[], [], []];
-  groups.forEach((group, index) => {
-    columns[index % columns.length].push(group);
+function pricePdfRow(row) {
+  if (row.type === "group") {
+    return `<h2 class="price-pdf-group-title">${escapeHtml(row.name)}</h2>`;
+  }
+  return pricePdfItem(row.item);
+}
+
+function pricePdfPages(groups) {
+  const maxUnits = 40;
+  const groupUnits = 1.4;
+  const pages = [{ columns: [[], [], []] }];
+  let pageIndex = 0;
+  let columnIndex = 0;
+  let usedUnits = 0;
+
+  function currentColumn() {
+    return pages[pageIndex].columns[columnIndex];
+  }
+
+  function nextColumn() {
+    columnIndex += 1;
+    usedUnits = 0;
+    if (columnIndex >= 3) {
+      pages.push({ columns: [[], [], []] });
+      pageIndex += 1;
+      columnIndex = 0;
+    }
+  }
+
+  function addRow(row, units) {
+    if (usedUnits > 0 && usedUnits + units > maxUnits) nextColumn();
+    currentColumn().push(row);
+    usedUnits += units;
+  }
+
+  groups.forEach((group) => {
+    let hasGroupTitle = false;
+    group.items.forEach((item) => {
+      const itemUnits = pricePdfItemUnits(item);
+      if (!hasGroupTitle) {
+        if (usedUnits > 0 && usedUnits + groupUnits + itemUnits > maxUnits) nextColumn();
+        addRow({ type: "group", name: group.name }, groupUnits);
+        hasGroupTitle = true;
+      } else if (usedUnits > 0 && usedUnits + itemUnits > maxUnits) {
+        nextColumn();
+        addRow({ type: "group", name: group.name }, groupUnits);
+      }
+      addRow({ type: "item", item }, itemUnits);
+    });
   });
-  return columns
-    .map(
-      (columnGroups) => `
-        <div class="price-pdf-column">
-          ${columnGroups.map(pricePdfGroup).join("")}
-        </div>
-      `
-    )
-    .join("");
+
+  return pages.filter((page) => page.columns.some((column) => column.length));
 }
 
-function customerPricePdfMarkup(items, latest) {
-  const groups = groupCustomerPriceItems(items);
+function pricePdfPage(page, index, totalPages) {
   return `
-    <div class="price-pdf-sheet" dir="rtl">
+    <section class="price-pdf-page">
       <header class="price-pdf-header">
         <div>
           <h1>قائمة أسعار OZK TOBACCO</h1>
@@ -1097,11 +1129,38 @@ function customerPricePdfMarkup(items, latest) {
         ${customerPriceContactMarkup()}
       </div>
       <main class="price-pdf-groups">
-        ${pricePdfColumns(groups)}
+        ${page.columns
+          .map(
+            (column) => `
+              <div class="price-pdf-column">
+                ${column.map(pricePdfRow).join("")}
+              </div>
+            `
+          )
+          .join("")}
       </main>
       <footer class="price-pdf-footer">
-        الأسعار قابلة للتحديث حسب توفر المخزون. للاستفسار يرجى التواصل عبر الأرقام أعلاه.
+        <span>الأسعار قابلة للتحديث حسب توفر المخزون. للاستفسار يرجى التواصل عبر الأرقام أعلاه.</span>
+        <b>صفحة ${escapeHtml(index + 1)} من ${escapeHtml(totalPages)}</b>
       </footer>
+    </section>
+  `;
+}
+
+function pricePdfBook(groups) {
+  const pages = pricePdfPages(groups);
+  return pages
+    .map(
+      (page, index) => pricePdfPage(page, index, pages.length)
+    )
+    .join("");
+}
+
+function customerPricePdfMarkup(items, latest) {
+  const groups = groupCustomerPriceItems(items);
+  return `
+    <div class="price-pdf-book" dir="rtl">
+      ${pricePdfBook(groups)}
     </div>
   `;
 }
@@ -1134,7 +1193,7 @@ async function downloadCustomerPricePdf() {
         image: { type: "jpeg", quality: 0.98 },
         html2canvas: { scale: 2, useCORS: true, backgroundColor: "#080704", scrollX: 0, scrollY: 0 },
         jsPDF: { unit: "mm", format: "a4", orientation: "portrait" },
-        pagebreak: { mode: ["css", "legacy"] }
+        pagebreak: { mode: ["css"] }
       })
       .from(container.firstElementChild)
       .save();

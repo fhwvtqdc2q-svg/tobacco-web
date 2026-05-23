@@ -1089,31 +1089,43 @@ code {
   z-index: 0;
 }
 
-.price-pdf-sheet {
+.price-pdf-book {
   width: 760px;
-  min-height: auto;
-  overflow: visible;
-  padding: 12px;
   background: #080704;
   color: #f7ead0;
   font-family: Tahoma, Arial, sans-serif;
   direction: rtl;
 }
 
-.price-pdf-sheet * {
+.price-pdf-book * {
   box-sizing: border-box;
   letter-spacing: 0;
+}
+
+.price-pdf-page {
+  width: 760px;
+  height: 1086px;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  padding: 10px;
+  background: #080704;
+  break-after: page;
+  page-break-after: always;
+}
+
+.price-pdf-page:last-child {
+  break-after: auto;
+  page-break-after: auto;
 }
 
 .price-pdf-header {
   display: flex;
   justify-content: space-between;
   gap: 16px;
-}
-
-.price-pdf-header {
   align-items: center;
-  padding: 9px 11px;
+  flex: 0 0 auto;
+  padding: 8px 10px;
   border: 1px solid #c9a34e;
   border-radius: 4px;
   background: #050403;
@@ -1121,7 +1133,8 @@ code {
 }
 
 .price-pdf-header h1 {
-  font-size: 22px;
+  margin: 0;
+  font-size: 20px;
   line-height: 1.1;
 }
 
@@ -1156,12 +1169,13 @@ code {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 6px;
-  margin: 8px 0 9px;
+  flex: 0 0 auto;
+  margin: 7px 0 8px;
 }
 
 .price-pdf-meta span {
-  min-height: 28px;
-  padding: 5px 6px;
+  min-height: 25px;
+  padding: 4px 6px;
   border: 1px solid #9f7f36;
   border-radius: 3px;
   background: #17120a;
@@ -1179,6 +1193,8 @@ code {
 .price-pdf-groups {
   display: grid;
   width: 100%;
+  flex: 1 1 auto;
+  min-height: 0;
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 6px;
   align-items: start;
@@ -1188,25 +1204,20 @@ code {
 
 .price-pdf-column {
   display: grid;
-  gap: 6px;
+  grid-auto-rows: max-content;
+  align-content: start;
+  gap: 0;
   min-width: 0;
   width: 100%;
+  overflow: hidden;
 }
 
-.price-pdf-group {
+.price-pdf-group-title {
   width: 100%;
-  margin: 0;
-  break-inside: auto;
-  page-break-inside: auto;
-  border: 1px solid #9f7f36;
-  background: #0f0c08;
-}
-
-.price-pdf-group h2 {
-  margin: 0;
-  padding: 3px 5px;
+  margin: 4px 0 0;
+  padding: 3px 5px 4px;
   border-radius: 0;
-  border-bottom: 1px solid #9f7f36;
+  border: 1px solid #9f7f36;
   background: #d7a83f;
   color: #100b04;
   font-size: 10px;
@@ -1214,17 +1225,14 @@ code {
   text-align: center;
 }
 
-.price-pdf-rows {
-  display: grid;
-}
-
 .price-pdf-item {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 42px;
+  grid-template-columns: minmax(0, 1fr) 44px;
   gap: 0 4px;
   min-height: 0;
-  padding: 2px 4px;
-  border: 0;
+  padding: 2px 4px 1px;
+  border: 1px solid #43331a;
+  border-top: 0;
   border-bottom: 1px solid #43331a;
   border-radius: 0;
   background: #151009;
@@ -1240,15 +1248,15 @@ code {
 
 .price-pdf-name {
   color: #fff6dd;
-  font-size: 8.7px;
+  font-size: 8.4px;
   font-weight: 700;
-  line-height: 1.25;
+  line-height: 1.18;
   overflow-wrap: anywhere;
 }
 
 .price-pdf-item b {
   color: #f5d36f;
-  font-size: 10px;
+  font-size: 9.6px;
   line-height: 1.2;
   text-align: left;
 }
@@ -1256,19 +1264,31 @@ code {
 .price-pdf-item small {
   grid-column: 1 / -1;
   color: #c8b47c;
-  font-size: 6.8px;
-  line-height: 1.15;
+  font-size: 6.4px;
+  line-height: 1.1;
 }
 
 .price-pdf-footer {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  flex: 0 0 auto;
   margin-top: 8px;
-  padding: 6px 8px;
+  padding: 5px 7px;
   border: 1px solid #9f7f36;
   border-radius: 3px;
   background: #050403;
   color: #f5d36f;
-  font-size: 9px;
+  font-size: 8.5px;
   text-align: center;
+}
+
+.price-pdf-footer span {
+  min-width: 0;
+}
+
+.price-pdf-footer b {
+  white-space: nowrap;
 }
 
 @media (max-width: 900px) {
