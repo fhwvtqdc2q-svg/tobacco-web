@@ -986,7 +986,7 @@ function downloadApprovedPricesForAccounting() {
 
 function customerPriceListItems() {
   const prices = approvedPriceMap();
-  return liveAvailableItems()
+  const items = liveAvailableItems()
     .map((item) => {
       const key = item.key || normalizeItemName(item.name);
       const approvedPrice = prices.get(key);
@@ -1010,6 +1010,39 @@ function customerPriceListItems() {
         String(a.groupName || "").localeCompare(String(b.groupName || ""), "ar") ||
         String(a.name || "").localeCompare(String(b.name || ""), "ar")
     );
+  return mergeMazayaPriceItems(items);
+}
+
+function isMazayaPriceItem(item) {
+  const groupName = normalizeItemName(item.groupName || "");
+  const itemName = normalizeItemName(item.name || item.itemName || "");
+  return groupName.includes("مزايا") || itemName.includes("مزايا");
+}
+
+function mergeMazayaPriceItems(items) {
+  const mazayaItems = items.filter(isMazayaPriceItem);
+  if (!mazayaItems.length) return items;
+
+  const firstMazaya = mazayaItems[0];
+  const mazayaItem = {
+    ...firstMazaya,
+    key: "mazaya-mix",
+    name: "مزايا مشكل",
+    itemName: "مزايا مشكل",
+    groupName: "مزايا",
+    unit1Name: "",
+    unit2Name: "كروز",
+    unit2Factor: 1,
+    unit2Price: 140,
+    unit1Price: 0,
+    salePrice: 140
+  };
+
+  return [...items.filter((item) => !isMazayaPriceItem(item)), mazayaItem].sort(
+    (a, b) =>
+      String(a.groupName || "").localeCompare(String(b.groupName || ""), "ar") ||
+      String(a.name || "").localeCompare(String(b.name || ""), "ar")
+  );
 }
 
 function groupCustomerPriceItems(items) {
