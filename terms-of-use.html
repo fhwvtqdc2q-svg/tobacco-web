@@ -1,0 +1,878 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#080705" />
+    <title>شروط الاستخدام | OZK TOBACCO</title>
+    <style>
+      :root {
+        --bg: #080705;
+        --surface: #14100b;
+        --surface-soft: #20180e;
+        --ink: #fff6dd;
+        --muted: #bba779;
+        --line: #46361f;
+        --primary: #d7a83f;
+        --accent: #f2cf78;
+        --danger: #ff7468;
+        font-family: "Segoe UI", Tahoma, Arial, sans-serif;
+      }
+
+      * { box-sizing: border-box; margin: 0; padding: 0; }
+
+      body {
+        background: linear-gradient(180deg, #0f0c08 0%, var(--bg) 52%, #050403 100%);
+        color: var(--ink);
+        min-height: 100vh;
+        font-size: 0.94rem;
+        line-height: 1.85;
+      }
+
+      /* ── شريط العنوان ── */
+      header {
+        background: #050403;
+        border-bottom: 1px solid var(--line);
+        padding: 16px 24px;
+        display: flex;
+        align-items: center;
+        gap: 14px;
+        position: sticky;
+        top: 0;
+        z-index: 10;
+      }
+
+      header a {
+        color: var(--muted);
+        text-decoration: none;
+        font-size: 0.88rem;
+        border: 1px solid var(--line);
+        border-radius: 6px;
+        padding: 5px 13px;
+        white-space: nowrap;
+        transition: background 0.15s;
+      }
+
+      header a:hover { background: var(--surface-soft); color: var(--accent); }
+
+      header h1 {
+        font-size: 1.08rem;
+        color: var(--accent);
+        flex: 1;
+        text-align: center;
+      }
+
+      /* ── الحاوية الرئيسية ── */
+      .container {
+        max-width: 820px;
+        margin: 0 auto;
+        padding: 44px 24px 90px;
+      }
+
+      /* ── البطاقة الترحيبية ── */
+      .hero {
+        text-align: center;
+        margin-bottom: 44px;
+        padding: 38px 28px 30px;
+        background: var(--surface);
+        border: 1px solid var(--line);
+        border-radius: 14px;
+      }
+
+      .hero h2 {
+        font-size: 1.65rem;
+        color: var(--accent);
+        margin-bottom: 10px;
+        font-weight: 800;
+      }
+
+      .hero .effective-date {
+        display: inline-block;
+        margin-bottom: 16px;
+        font-size: 0.88rem;
+        color: var(--muted);
+      }
+
+      .hero .effective-date strong { color: var(--primary); }
+
+      .hero p {
+        color: var(--muted);
+        font-size: 0.91rem;
+        max-width: 580px;
+        margin: 0 auto 14px;
+      }
+
+      .hero-links {
+        display: flex;
+        flex-wrap: wrap;
+        justify-content: center;
+        gap: 10px;
+        margin-top: 18px;
+        padding-top: 18px;
+        border-top: 1px solid var(--line);
+      }
+
+      .hero-links a {
+        color: var(--primary);
+        text-decoration: none;
+        font-size: 0.88rem;
+        padding: 5px 14px;
+        border: 1px solid var(--line);
+        border-radius: 20px;
+        background: #1a1205;
+        transition: background 0.15s;
+      }
+
+      .hero-links a:hover { background: #291c08; color: var(--accent); }
+
+      /* ── فهرس المحتويات ── */
+      .toc {
+        background: var(--surface);
+        border: 1px solid var(--line);
+        border-radius: 10px;
+        padding: 22px 26px;
+        margin-bottom: 40px;
+      }
+
+      .toc h3 {
+        color: var(--accent);
+        font-size: 1rem;
+        margin-bottom: 14px;
+      }
+
+      .toc ol {
+        padding-right: 22px;
+        color: var(--muted);
+        font-size: 0.9rem;
+        line-height: 2.1;
+        columns: 2;
+        column-gap: 24px;
+      }
+
+      .toc a { color: var(--primary); text-decoration: none; }
+      .toc a:hover { text-decoration: underline; }
+
+      /* ── الأقسام ── */
+      section {
+        margin-bottom: 40px;
+        padding: 26px 28px;
+        background: var(--surface);
+        border: 1px solid var(--line);
+        border-radius: 12px;
+      }
+
+      section h2 {
+        font-size: 1.12rem;
+        color: var(--accent);
+        border-bottom: 1px solid var(--line);
+        padding-bottom: 12px;
+        margin-bottom: 20px;
+        display: flex;
+        align-items: center;
+        gap: 10px;
+      }
+
+      .num {
+        background: #291d08;
+        border: 1px solid var(--primary);
+        color: var(--primary);
+        border-radius: 50%;
+        min-width: 28px;
+        height: 28px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 0.82rem;
+        flex-shrink: 0;
+      }
+
+      section h3 {
+        color: var(--primary);
+        font-size: 0.96rem;
+        margin: 22px 0 10px;
+        font-weight: 700;
+      }
+
+      p { color: var(--ink); margin-bottom: 13px; }
+
+      ul, ol { padding-right: 22px; margin-bottom: 13px; }
+
+      li { color: var(--ink); margin-bottom: 8px; line-height: 1.8; }
+
+      strong { color: var(--accent); }
+
+      /* ── صندوق تعريف ── */
+      .def-list { margin: 12px 0; }
+
+      .def-item {
+        border-bottom: 1px solid #1e1609;
+        padding: 13px 0;
+      }
+
+      .def-item:last-child { border-bottom: none; }
+
+      .def-term {
+        color: var(--accent);
+        font-weight: 700;
+        font-size: 0.93rem;
+        margin-bottom: 5px;
+      }
+
+      .def-desc {
+        color: var(--muted);
+        font-size: 0.9rem;
+        line-height: 1.8;
+      }
+
+      /* ── صناديق التنبيه ── */
+      .highlight-box {
+        background: #1a1205;
+        border-right: 3px solid var(--primary);
+        border-radius: 0 8px 8px 0;
+        padding: 13px 16px;
+        margin: 16px 0;
+        font-size: 0.9rem;
+        line-height: 1.8;
+        color: var(--muted);
+      }
+
+      .warning-box {
+        background: #1f0e0c;
+        border: 1px solid #5c2920;
+        border-radius: 8px;
+        padding: 13px 16px;
+        margin: 16px 0;
+        font-size: 0.9rem;
+        color: #ffb5ae;
+        line-height: 1.8;
+      }
+
+      .info-box {
+        background: #0d1520;
+        border: 1px solid #1e3654;
+        border-radius: 8px;
+        padding: 13px 16px;
+        margin: 16px 0;
+        font-size: 0.9rem;
+        color: #a8c8f0;
+        line-height: 1.8;
+      }
+
+      /* ── قائمة المحظورات ── */
+      .prohibited-list {
+        list-style: none;
+        padding: 0;
+        margin: 14px 0;
+      }
+
+      .prohibited-list li {
+        padding: 9px 14px 9px 0;
+        border-bottom: 1px solid #1e1609;
+        display: flex;
+        gap: 10px;
+        align-items: flex-start;
+      }
+
+      .prohibited-list li:last-child { border-bottom: none; }
+
+      .prohibited-list .icon {
+        color: var(--danger);
+        font-size: 1rem;
+        flex-shrink: 0;
+        margin-top: 2px;
+      }
+
+      /* ── بطاقة التواصل ── */
+      .contact-card {
+        background: #100d08;
+        border: 1px solid var(--line);
+        border-radius: 10px;
+        padding: 20px;
+        margin-top: 14px;
+      }
+
+      .contact-card h4 { color: var(--accent); margin-bottom: 12px; font-size: 0.97rem; }
+
+      .contact-row {
+        display: flex;
+        align-items: flex-start;
+        gap: 10px;
+        padding: 8px 0;
+        border-bottom: 1px solid #1e1609;
+        font-size: 0.89rem;
+      }
+
+      .contact-row:last-child { border-bottom: none; }
+      .contact-label { color: var(--muted); min-width: 130px; flex-shrink: 0; }
+      .contact-value { color: var(--ink); }
+      .contact-value a { color: var(--primary); text-decoration: none; }
+      .contact-value a:hover { text-decoration: underline; }
+
+      /* ── تذييل الصفحة ── */
+      footer {
+        text-align: center;
+        padding: 28px;
+        color: var(--muted);
+        font-size: 0.82rem;
+        border-top: 1px solid var(--line);
+      }
+
+      footer a { color: var(--primary); text-decoration: none; }
+      footer a:hover { text-decoration: underline; }
+
+      /* ── استجابة الشاشات الصغيرة ── */
+      @media (max-width: 600px) {
+        .toc ol { columns: 1; }
+        .container { padding: 24px 14px 60px; }
+        section { padding: 18px 16px; }
+        .hero { padding: 26px 16px 22px; }
+        .hero h2 { font-size: 1.35rem; }
+        .contact-row { flex-direction: column; gap: 3px; }
+      }
+    </style>
+  </head>
+  <body>
+
+    <header>
+      <a href="index.html">← العودة</a>
+      <h1>شروط الاستخدام</h1>
+    </header>
+
+    <div class="container">
+
+      <!-- ═══ البطاقة الترحيبية ═══ -->
+      <div class="hero">
+        <h2>شروط استخدام منصة OZK TOBACCO</h2>
+        <div class="effective-date">تاريخ السريان: <strong>١٩ ديسمبر ٢٠٢٥</strong></div>
+        <p>
+          مرحباً بك في منصة OZK TOBACCO. تُحدِّد هذه الشروط العلاقة القانونية بينك
+          وبين الشركة، وتُنظِّم حقوقك والتزاماتك عند استخدام المنصة.
+        </p>
+        <p>
+          باستخدامك للمنصة، تُقرّ بأنك قرأت هذه الشروط وفهمتها ووافقت عليها كاملةً.
+          إذا كنت لا توافق على أي بند، يُرجى التوقف عن الاستخدام فوراً.
+        </p>
+        <div class="hero-links">
+          <a href="privacy-policy.html">سياسة الخصوصية</a>
+          <a href="mailto:legal@ozktobacco.com">التواصل القانوني</a>
+        </div>
+      </div>
+
+      <!-- ═══ فهرس المحتويات ═══ -->
+      <div class="toc">
+        <h3>فهرس المحتويات</h3>
+        <ol>
+          <li><a href="#definitions">التعاريف</a></li>
+          <li><a href="#services">وصف الخدمات</a></li>
+          <li><a href="#license">رخصة الاستخدام</a></li>
+          <li><a href="#obligations">التزامات المستخدم</a></li>
+          <li><a href="#prohibited">الاستخدامات المحظورة</a></li>
+          <li><a href="#ip">حقوق الملكية الفكرية</a></li>
+          <li><a href="#privacy">الخصوصية وحماية البيانات</a></li>
+          <li><a href="#third-party">خدمات الأطراف الثالثة</a></li>
+          <li><a href="#liability">حدود المسؤولية</a></li>
+          <li><a href="#termination">إنهاء الاستخدام</a></li>
+          <li><a href="#governing-law">القانون الحاكم وتسوية النزاعات</a></li>
+          <li><a href="#amendments">التعديلات والإشعارات</a></li>
+        </ol>
+      </div>
+
+      <!-- ═══ ١. التعاريف ═══ -->
+      <section id="definitions">
+        <h2><span class="num">١</span> التعاريف</h2>
+        <p>في هذه الشروط، تحمل المصطلحات التالية المعاني المبيَّنة أدناه:</p>
+        <div class="def-list">
+          <div class="def-item">
+            <div class="def-term">المنصة</div>
+            <div class="def-desc">
+              تطبيق الويب التدريجي (PWA) الخاص بـ OZK TOBACCO، بما يشمل جميع
+              الصفحات والوظائف والواجهات البرمجية والخدمات المرتبطة به.
+            </div>
+          </div>
+          <div class="def-item">
+            <div class="def-term">الشركة / نحن</div>
+            <div class="def-desc">
+              شركة OZK TOBACCO ومن ينوب عنها من موظفين أو وكلاء مُفوَّضين.
+            </div>
+          </div>
+          <div class="def-item">
+            <div class="def-term">المستخدم / أنت</div>
+            <div class="def-desc">
+              أي موظف أو مندوب أو طرف مُخوَّل يصل إلى المنصة بحساب معتمد من إدارة
+              النظام، سواء أكان في وضع الزائر أم المستخدم المسجّل.
+            </div>
+          </div>
+          <div class="def-item">
+            <div class="def-term">الخدمات</div>
+            <div class="def-desc">
+              جميع الوظائف التي تُوفرها المنصة، تشمل: إدارة أرصدة العملاء، قوائم
+              الأسعار، المخزون، الفواتير، التقارير، ومزامنة البيانات مع نظام أمين.
+            </div>
+          </div>
+          <div class="def-item">
+            <div class="def-term">الحساب</div>
+            <div class="def-desc">
+              بيانات الدخول (البريد الإلكتروني + كلمة المرور) التي تُخصَّص لكل مستخدم
+              من قِبَل مسؤول النظام للوصول إلى المنصة.
+            </div>
+          </div>
+          <div class="def-item">
+            <div class="def-term">البيانات</div>
+            <div class="def-desc">
+              جميع المعلومات التي تُدخلها أو تعالجها أو تستعرضها عبر المنصة، بما
+              تشمل بيانات العملاء والمعاملات والمخزون.
+            </div>
+          </div>
+          <div class="def-item">
+            <div class="def-term">شروط الاستخدام / الشروط</div>
+            <div class="def-desc">
+              هذه الوثيقة بالإضافة إلى سياسة الخصوصية وأي اتفاقيات محددة مُشار إليها،
+              وتُشكّل مجتمعةً الاتفاقية الكاملة بين المستخدم والشركة.
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ═══ ٢. وصف الخدمات ═══ -->
+      <section id="services">
+        <h2><span class="num">٢</span> وصف الخدمات</h2>
+
+        <h3>٢.١ — ما تُقدِّمه المنصة</h3>
+        <p>
+          توفر منصة OZK TOBACCO نظاماً متكاملاً لإدارة عمليات توزيع التبغ بالجملة،
+          يتضمن الوظائف التالية:
+        </p>
+        <ul>
+          <li>عرض أرصدة العملاء وسجل دفعاتهم وحدود الائتمان الممنوحة لهم</li>
+          <li>إدارة قوائم الأسعار اليومية للمنتجات ومتابعة التغييرات</li>
+          <li>مراقبة حركة المخزون والكميات المتاحة</li>
+          <li>استعراض الفواتير والمعاملات المالية</li>
+          <li>توليد التقارير التشغيلية اليومية والشهرية</li>
+          <li>مزامنة البيانات مع نظام أمين المحاسبي</li>
+          <li>إدارة طلبات العملاء وتتبع حالتها</li>
+        </ul>
+
+        <h3>٢.٢ — طبيعة الخدمة وقيودها</h3>
+        <p>
+          المنصة <strong>مخصصة للاستخدام التجاري الداخلي (B2B) حصراً</strong>،
+          وتستهدف الموظفين والمندوبين المُخوَّلين. يُحظر استخدامها لأغراض شخصية
+          أو تجارية خارج نطاق العمل مع الشركة.
+        </p>
+        <div class="info-box">
+          قد تتوقف المنصة مؤقتاً عن العمل لأغراض الصيانة أو التحديث أو لأسباب
+          تقنية طارئة، مع أو بدون إشعار مسبق. لا تتحمل الشركة المسؤولية عن
+          الخسائر الناجمة عن التوقف المؤقت المعقول.
+        </div>
+
+        <h3>٢.٣ — التحديثات والتطوير</h3>
+        <p>
+          تحتفظ الشركة بحق تعديل الخدمات أو إضافة وظائف جديدة أو إيقاف وظائف
+          قائمة في أي وقت. عند حدوث تغييرات جوهرية تؤثر على سير عملك، ستُخطرك
+          الشركة مسبقاً عبر إشعار داخل المنصة.
+        </p>
+
+        <h3>٢.٤ — القاصرون</h3>
+        <div class="warning-box">
+          نظراً لطبيعة منتجات التبغ، هذه المنصة مخصصة <strong>حصراً للبالغين
+          (١٨ عاماً فأكثر)</strong>. يُمنع منعاً باتاً وصول القاصرين إلى المنصة
+          أو استخدامها بأي شكل من الأشكال. على كل مسؤول نظام التحقق من أن جميع
+          الحسابات الممنوحة تخص بالغين فقط.
+        </div>
+      </section>
+
+      <!-- ═══ ٣. رخصة الاستخدام ═══ -->
+      <section id="license">
+        <h2><span class="num">٣</span> رخصة الاستخدام</h2>
+
+        <h3>٣.١ — نطاق الرخصة</h3>
+        <p>
+          تمنحك الشركة رخصةً <strong>محدودة، قابلة للإلغاء، غير قابلة للنقل،
+          غير حصرية، وغير قابلة للترخيص من الباطن</strong> لاستخدام المنصة وفق
+          هذه الشروط وحصراً لأغراض العمل الداخلي مع الشركة.
+        </p>
+
+        <h3>٣.٢ — تسجيل الحساب والمصادقة</h3>
+        <p>
+          للوصول إلى الوظائف الكاملة للمنصة، يجب أن تمتلك حساباً مُخصَّصاً
+          تُنشئه إدارة النظام. تلتزم بما يلي:
+        </p>
+        <ul>
+          <li>الحفاظ على سرية بيانات دخولك وعدم مشاركتها مع أي شخص</li>
+          <li>إبلاغ مسؤول النظام فوراً عند الاشتباه في اختراق حسابك</li>
+          <li>تحمّل المسؤولية الكاملة عن جميع الأنشطة التي تجري عبر حسابك</li>
+          <li>عدم السماح لأي طرف آخر باستخدام حسابك، حتى لو كان من زملاء العمل</li>
+        </ul>
+
+        <h3>٣.٣ — دقة البيانات المُدخَلة</h3>
+        <p>
+          أنت مسؤول عن دقة وصحة وسلامة البيانات التي تُدخلها في المنصة. تأكد
+          من أن البيانات مكتملة وصحيحة قبل حفظها، إذ قد تؤثر الأخطاء على قرارات
+          تجارية مهمة.
+        </p>
+
+        <h3>٣.٤ — النسخ الاحتياطية</h3>
+        <p>
+          يُنصح بأخذ نسخ احتياطية دورية من البيانات الهامة. لا تتحمل الشركة
+          المسؤولية عن فقدان البيانات الناجم عن أخطاء المستخدم أو ظروف خارجة
+          عن إرادتها.
+        </p>
+      </section>
+
+      <!-- ═══ ٤. التزامات المستخدم ═══ -->
+      <section id="obligations">
+        <h2><span class="num">٤</span> التزامات المستخدم</h2>
+        <p>باستخدامك للمنصة، تلتزم بما يلي:</p>
+        <ul>
+          <li>
+            <strong>الاستخدام المشروع:</strong> استخدام المنصة فقط للأغراض التجارية
+            المصرح بها في إطار عملك مع الشركة
+          </li>
+          <li>
+            <strong>دقة المعلومات:</strong> إدخال بيانات صحيحة وتحديثها عند تغيّرها
+            لضمان سلامة سجلات العملاء والمعاملات
+          </li>
+          <li>
+            <strong>الامتثال القانوني:</strong> الالتزام بجميع الأنظمة والقوانين
+            المعمول بها، خاصةً تلك المتعلقة بتجارة التبغ وحماية البيانات
+          </li>
+          <li>
+            <strong>صون الأمن:</strong> إبلاغ مسؤول النظام فوراً عند اكتشاف أي
+            ثغرة أمنية أو وصول غير مصرح به
+          </li>
+          <li>
+            <strong>السرية التجارية:</strong> عدم الإفصاح عن بيانات العملاء أو
+            الأسعار أو المعلومات التجارية لأطراف خارج الشركة
+          </li>
+          <li>
+            <strong>الاستخدام الشخصي للحساب:</strong> عدم تحويل أو مشاركة صلاحيات
+            الوصول مع أي شخص آخر
+          </li>
+        </ul>
+      </section>
+
+      <!-- ═══ ٥. الاستخدامات المحظورة ═══ -->
+      <section id="prohibited">
+        <h2><span class="num">٥</span> الاستخدامات المحظورة</h2>
+        <p>يُحظر عليك تحديداً وصراحةً القيام بأيٍّ مما يلي:</p>
+
+        <ul class="prohibited-list">
+          <li>
+            <span class="icon">✕</span>
+            <span>نقل أو بيع أو تأجير أو منح ترخيص استخدام المنصة أو أي جزء منها
+            لأي طرف ثالث بأي شكل كان</span>
+          </li>
+          <li>
+            <span class="icon">✕</span>
+            <span>إجراء هندسة عكسية أو فك تشفير أو محاولة استخراج الكود المصدري
+            للمنصة أو أي مكوناتها البرمجية</span>
+          </li>
+          <li>
+            <span class="icon">✕</span>
+            <span>نسخ أو تعديل أو إنشاء أعمال مشتقة من المنصة أو واجهاتها أو
+            تصاميمها دون إذن كتابي مسبق</span>
+          </li>
+          <li>
+            <span class="icon">✕</span>
+            <span>استخدام أدوات آلية أو برامج زاحفة أو سكريبتات لجمع البيانات من
+            المنصة بكميات كبيرة دون إذن</span>
+          </li>
+          <li>
+            <span class="icon">✕</span>
+            <span>إدخال بيانات مزيفة أو مضللة أو التلاعب بسجلات المعاملات بقصد
+            الغش أو الاحتيال</span>
+          </li>
+          <li>
+            <span class="icon">✕</span>
+            <span>محاولة الوصول إلى بيانات أو قواعد بيانات أو خوادم خارج نطاق
+            الصلاحيات الممنوحة لحسابك</span>
+          </li>
+          <li>
+            <span class="icon">✕</span>
+            <span>نشر أو إدخال أي فيروسات أو برامج خبيثة أو كود ضار بقصد الإضرار
+            بالمنصة أو بيانات المستخدمين الآخرين</span>
+          </li>
+          <li>
+            <span class="icon">✕</span>
+            <span>انتهاك قوانين حماية البيانات الشخصية أو الإفصاح عن معلومات
+            العملاء لأطراف غير مخولة</span>
+          </li>
+          <li>
+            <span class="icon">✕</span>
+            <span>استخدام المنصة لأي نشاط تجاري خارج نطاق العلاقة مع Ozk Tobacco،
+            أو لأغراض شخصية أو ترفيهية</span>
+          </li>
+          <li>
+            <span class="icon">✕</span>
+            <span>التحايل على أي إجراءات أمنية أو قيود وصول مطبَّقة في المنصة</span>
+          </li>
+        </ul>
+
+        <div class="warning-box">
+          يحق للشركة إيقاف حسابك فوراً وبدون إشعار مسبق في حال انتهاك أي من
+          البنود أعلاه، مع الاحتفاظ بحقها في المطالبة بالتعويض عن أي أضرار
+          ناجمة عن هذا الانتهاك.
+        </div>
+      </section>
+
+      <!-- ═══ ٦. حقوق الملكية الفكرية ═══ -->
+      <section id="ip">
+        <h2><span class="num">٦</span> حقوق الملكية الفكرية</h2>
+
+        <h3>٦.١ — ملكية المنصة</h3>
+        <p>
+          جميع حقوق الملكية الفكرية في المنصة — بما تشمل الكود المصدري، التصميم،
+          الواجهات، قواعد البيانات، الشعارات، النصوص، والوثائق — هي ملك حصري
+          للشركة أو لمرخِّصيها، وتظل محمية وفق قوانين الملكية الفكرية المعمول بها.
+        </p>
+
+        <h3>٦.٢ — ما لا تملكه</h3>
+        <p>
+          لا تمنحك هذه الشروط أي حق في استخدام أسماء تجارية أو علامات تجارية
+          أو شعارات أو أسماء نطاقات خاصة بالشركة دون موافقة كتابية مسبقة.
+        </p>
+
+        <h3>٦.٣ — ملكية بيانات العمل</h3>
+        <p>
+          البيانات التجارية التي تُدخلها في المنصة — من أرصدة عملاء وفواتير
+          ومعاملات — تبقى ملكاً للشركة. تمنح الشركة استخدامها لك في نطاق عملك
+          فقط، ولا يحق لك نسخها أو تصديرها لأغراض خارج نطاق مهامك الوظيفية.
+        </p>
+
+        <h3>٦.٤ — الملاحظات والاقتراحات</h3>
+        <p>
+          أي ملاحظات أو مقترحات تبعثها بشأن تطوير المنصة تُعتبر مُقدَّمة طوعاً،
+          وتحتفظ الشركة بحق استخدامها دون أي التزام مالي أو قانوني تجاهك.
+        </p>
+      </section>
+
+      <!-- ═══ ٧. الخصوصية ═══ -->
+      <section id="privacy">
+        <h2><span class="num">٧</span> الخصوصية وحماية البيانات</h2>
+        <p>
+          تُولي الشركة أهمية قصوى لحماية بياناتك الشخصية وبيانات العملاء المخزنة
+          في المنصة. تُنظِّم <a href="privacy-policy.html" style="color:var(--primary)">سياسة الخصوصية</a>
+          الخاصة بنا جميع جوانب جمع البيانات واستخدامها وحفظها ومشاركتها وحذفها.
+        </p>
+        <p>
+          تُعدّ سياسة الخصوصية جزءاً لا يتجزأ من هذه الشروط وتُقرأ معها. باستخدامك
+          للمنصة، تُقرّ بأنك اطلعت على سياسة الخصوصية ووافقت عليها.
+        </p>
+        <div class="highlight-box">
+          باعتبارك مستخدماً يصل إلى بيانات عملاء الشركة، أنت شخصياً مسؤول عن
+          التعامل مع هذه البيانات وفق مبادئ حماية البيانات — الحد الأدنى من
+          الوصول، السرية، وعدم الإفصاح لأطراف غير مخوّلة.
+        </div>
+      </section>
+
+      <!-- ═══ ٨. خدمات الأطراف الثالثة ═══ -->
+      <section id="third-party">
+        <h2><span class="num">٨</span> خدمات الأطراف الثالثة</h2>
+
+        <h3>٨.١ — الاعتماد على خدمات خارجية</h3>
+        <p>
+          تعتمد المنصة على خدمات مزودين خارجيين لتشغيل بنيتها التحتية، أبرزها:
+        </p>
+        <ul>
+          <li>
+            <strong>Supabase:</strong> قاعدة البيانات والمصادقة السحابية — تخضع
+            لشروط خدمة Supabase وسياسة خصوصيتها
+          </li>
+          <li>
+            <strong>نظام أمين:</strong> برنامج المحاسبة المحلي الذي يُزوِّد المنصة
+            ببيانات المخزون والفواتير
+          </li>
+        </ul>
+
+        <h3>٨.٢ — حدود مسؤولية الشركة تجاه الخدمات الخارجية</h3>
+        <p>
+          لا تتحكم الشركة في خدمات هذه الأطراف الثالثة ولا تتحمل المسؤولية عن
+          أي انقطاع أو خلل في خدماتها. لا تضمن الشركة مستوى الجودة أو
+          الموثوقية المستمرة لهذه الخدمات الخارجية.
+        </p>
+
+        <h3>٨.٣ — تغيير مزودي الخدمة</h3>
+        <p>
+          تحتفظ الشركة بحق تغيير مزودي الخدمة الخارجيين في أي وقت دون إخطار
+          مسبق، شريطة أن يظل مستوى الأمان وحماية البيانات على نفس الدرجة أو أفضل.
+        </p>
+      </section>
+
+      <!-- ═══ ٩. حدود المسؤولية ═══ -->
+      <section id="liability">
+        <h2><span class="num">٩</span> حدود المسؤولية</h2>
+
+        <h3>٩.١ — الخدمة "كما هي"</h3>
+        <p>
+          تُقدَّم المنصة والخدمات <strong>"كما هي"</strong> و<strong>"كما هي متاحة"</strong>
+          دون أي ضمانات صريحة أو ضمنية بشأن الاستمرارية أو الخلو من الأخطاء أو
+          الملاءمة لغرض محدد، إلا ما نصّ عليه القانون المعمول به.
+        </p>
+
+        <h3>٩.٢ — الأضرار غير المباشرة</h3>
+        <p>
+          لا تتحمل الشركة المسؤولية عن أي أضرار غير مباشرة أو عرضية أو خاصة أو
+          تبعية ناجمة عن استخدام المنصة أو عدم القدرة على استخدامها، بما تشمل
+          الخسائر التجارية أو خسارة الأرباح أو فقدان البيانات.
+        </p>
+
+        <h3>٩.٣ — سقف المسؤولية</h3>
+        <p>
+          في جميع الأحوال، لا تتجاوز مسؤولية الشركة تجاهك — بصرف النظر عن
+          سبب الدعوى أو نوعها — الحد الذي يفرضه القانون المعمول به في هذا الشأن.
+        </p>
+
+        <h3>٩.٤ — مسؤولية المستخدم</h3>
+        <p>
+          تتحمل أنت وحدك المسؤولية الكاملة عن أي مطالبات أو خسائر أو التزامات
+          تنشأ عن: استخدامك للخدمات، انتهاكك لهذه الشروط، أو أي نشاط يجري تحت
+          حسابك. توافق على تعويض الشركة وموظفيها وشركاءها عن أي أضرار تنجم
+          عن انتهاكك للشروط.
+        </p>
+
+        <div class="warning-box">
+          لا تُستخدم البيانات والتقارير المُولَّدة من المنصة بديلاً عن المشورة
+          القانونية أو المالية أو التجارية المتخصصة. الشركة غير مسؤولة عن
+          القرارات التجارية المبنية على مخرجات المنصة.
+        </div>
+      </section>
+
+      <!-- ═══ ١٠. إنهاء الاستخدام ═══ -->
+      <section id="termination">
+        <h2><span class="num">١٠</span> إنهاء الاستخدام</h2>
+
+        <h3>١٠.١ — الإنهاء من قِبَل المستخدم</h3>
+        <p>
+          يمكنك التوقف عن استخدام المنصة في أي وقت. يُرجى إبلاغ مسؤول النظام
+          لإلغاء حسابك رسمياً وضمان حذف بياناتك وفق سياسة الخصوصية.
+        </p>
+
+        <h3>١٠.٢ — الإنهاء من قِبَل الشركة</h3>
+        <p>
+          تحتفظ الشركة بحق إيقاف أو إنهاء وصولك للمنصة في الحالات التالية:
+        </p>
+        <ul>
+          <li>انتهاك جوهري لأي من بنود هذه الشروط</li>
+          <li>انتهاء علاقة العمل بينك وبين الشركة</li>
+          <li>وجود ما يدعو إلى الاشتباه في استخدام غير مشروع للحساب</li>
+          <li>قرار إداري بإعادة هيكلة صلاحيات الوصول</li>
+        </ul>
+
+        <h3>١٠.٣ — آثار الإنهاء</h3>
+        <p>
+          عند إنهاء الوصول بأي سبب، يسقط حقك في استخدام المنصة فوراً.
+          تبقى البنود التالية سارية بعد الإنهاء: حقوق الملكية الفكرية،
+          حدود المسؤولية، وأحكام تسوية النزاعات.
+        </p>
+      </section>
+
+      <!-- ═══ ١١. القانون الحاكم ═══ -->
+      <section id="governing-law">
+        <h2><span class="num">١١</span> القانون الحاكم وتسوية النزاعات</h2>
+
+        <h3>١١.١ — القانون المطبَّق</h3>
+        <p>
+          تخضع هذه الشروط وتُفسَّر وتُنفَّذ وفق القوانين والأنظمة المعمول بها
+          في الدولة التي تمارس فيها الشركة نشاطها التجاري الرئيسي.
+        </p>
+
+        <h3>١١.٢ — حل النزاعات ودياً</h3>
+        <p>
+          في حال نشوء أي نزاع أو خلاف يتعلق بهذه الشروط أو باستخدام المنصة،
+          يتوجب على الطرفين السعي أولاً لحله ودياً خلال <strong>٣٠ يوماً</strong>
+          من إخطار الطرف الآخر كتابةً بطبيعة النزاع.
+        </p>
+
+        <h3>١١.٣ — التقاضي</h3>
+        <p>
+          في حال تعذّر الحل الودي، يُحال النزاع إلى الجهات القضائية المختصة
+          وفق القانون المعمول به. تتنازل أنت عن حقك في المطالبة بأي تعويضات
+          زجرية أو تأديبية تتجاوز الضرر الفعلي الموثَّق.
+        </p>
+
+        <h3>١١.٤ — قابلية الفصل</h3>
+        <p>
+          إذا قضت جهة قضائية مختصة بعدم صحة أي بند من هذه الشروط أو عدم
+          قابليته للتنفيذ، يظل سائر البنود سارية المفعول بالكامل.
+        </p>
+      </section>
+
+      <!-- ═══ ١٢. التعديلات والإشعارات ═══ -->
+      <section id="amendments">
+        <h2><span class="num">١٢</span> التعديلات والإشعارات</h2>
+
+        <h3>١٢.١ — تعديل الشروط</h3>
+        <p>
+          تحتفظ الشركة بحق تعديل هذه الشروط في أي وقت. عند حدوث تغييرات
+          جوهرية، سنُبلّغك عبر:
+        </p>
+        <ul>
+          <li>إشعار بارز داخل المنصة عند تسجيل دخولك التالي</li>
+          <li>تحديث تاريخ السريان في أعلى هذه الصفحة</li>
+          <li>البريد الإلكتروني المرتبط بحسابك للتغييرات الجوهرية</li>
+        </ul>
+        <p>
+          استمرارك في استخدام المنصة بعد نشر التعديلات يُعدّ قبولاً ضمنياً
+          للنسخة المحدَّثة من الشروط. إذا لم توافق، يجب عليك التوقف عن
+          الاستخدام وطلب إلغاء حسابك.
+        </p>
+
+        <h3>١٢.٢ — قنوات الإشعار الرسمية</h3>
+        <p>
+          تُعتبر الإشعارات الواردة عبر القنوات التالية رسمية وملزِمة:
+        </p>
+        <ul>
+          <li>الإشعارات داخل المنصة (لوحة التنبيهات)</li>
+          <li>البريد الإلكتروني المرتبط بحسابك في نظام Supabase</li>
+          <li>الإشعارات الموجهة من مسؤول النظام مباشرةً</li>
+        </ul>
+        <p>
+          تأكد من أن بريدك الإلكتروني المرتبط بحسابك صحيح ومُفعَّل لاستقبال
+          الإشعارات. الشركة غير مسؤولة عن عدم وصول الإشعارات بسبب بيانات
+          تواصل غير محدَّثة.
+        </p>
+
+        <h3>١٢.٣ — التواصل القانوني</h3>
+        <p>
+          لأي استفسار قانوني متعلق بهذه الشروط أو طلب رسمي، يُرجى التواصل مع
+          إدارة الشركة عبر القنوات الرسمية:
+        </p>
+        <div class="contact-card">
+          <h4>الجهة القانونية المسؤولة — OZK TOBACCO</h4>
+          <div class="contact-row">
+            <span class="contact-label">البريد القانوني</span>
+            <span class="contact-value">
+              <a href="mailto:legal@ozktobacco.com">legal@ozktobacco.com</a>
+            </span>
+          </div>
+          <div class="contact-row">
+            <span class="contact-label">بريد الخصوصية</span>
+            <span class="contact-value">
+              <a href="mailto:privacy@ozktobacco.com">privacy@ozktobacco.com</a>
+            </span>
+          </div>
+          <div class="contact-row">
+            <span class="contact-label">مدة الرد</span>
+            <span class="contact-value">١٤ يوم عمل من استلام المراسلة</span>
+          </div>
+          <div class="contact-row">
+            <span class="contact-label">لغة المراسلة</span>
+            <span class="contact-value">العربية (مُفضَّلة) أو الإنجليزية</span>
+          </div>
+        </div>
+      </section>
+
+    </div>
+
+    <footer>
+      <p>© ٢٠٢٥ OZK TOBACCO — جميع الحقوق محفوظة</p>
+      <p style="margin-top: 8px;">
+        <a href="index.html">العودة للمنصة</a>
+        &nbsp;·&nbsp;
+        <a href="privacy-policy.html">سياسة الخصوصية</a>
+        &nbsp;·&nbsp;
+        تاريخ السريان: ١٩ ديسمبر ٢٠٢٥
+      </p>
+    </footer>
+
+  </body>
+</html>

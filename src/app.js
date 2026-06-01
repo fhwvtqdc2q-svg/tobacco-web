@@ -1024,7 +1024,8 @@ function shell(content) {
           ${navButton("payments", "الدفع")}
         </nav>
         <div style="margin-top:auto;padding-top:20px;border-top:1px solid #2f2415">
-          <a href="privacy-policy.html" style="display:block;font-size:0.78rem;color:#7a6040;text-align:center;text-decoration:none;padding:8px 0;" target="_blank">سياسة الخصوصية</a>
+          <a href="privacy-policy.html" style="display:block;font-size:0.78rem;color:#7a6040;text-align:center;text-decoration:none;padding:6px 0;" target="_blank">سياسة الخصوصية</a>
+          <a href="terms-of-use.html" style="display:block;font-size:0.78rem;color:#7a6040;text-align:center;text-decoration:none;padding:6px 0;" target="_blank">شروط الاستخدام</a>
         </div>
       </aside>
       <main class="main">
