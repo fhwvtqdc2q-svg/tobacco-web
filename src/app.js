@@ -1522,15 +1522,12 @@ function shell(content) {
           <span>${escapeHtml(appConfig.name)}</span>
         </a>
         <nav>
-          ${navButton("overview", "الرئيسية")}
+          ${navButton("overview", "🏠 الرئيسية")}
           ${state.session ? navButton("dashboard", "📊 الإحصائيات") : ""}
-          ${navButton("login", "تسجيل الدخول")}
-          ${navButton("requests", "طلبات العملاء")}
-          ${navButton("ameen", "الأمين")}
-          ${navButton("pricing", "التسعير")}
-          ${navButton("remote", "إدارة عن بعد")}
-          ${navButton("monitoring", "المراقبة")}
-          ${navButton("payments", "الدفع")}
+          ${navButton("login", "🔑 تسجيل الدخول")}
+          ${navButton("requests", "📋 طلبات العملاء")}
+          ${navButton("ameen", "📦 الأمين")}
+          ${navButton("pricing", "💰 التسعير")}
           ${state.session ? navButton("invoice", "📄 الفواتير") : ""}
           ${state.session ? navButton("staff", "👥 الموظفون") : ""}
           ${state.session?.email === appConfig.ai.ownerEmail ? navButton("ai", "🤖 المساعد الذكي") : ""}
@@ -1543,7 +1540,6 @@ function shell(content) {
       <main class="main">
         <header class="topbar">
           <div>
-            <p class="eyebrow">${escapeHtml(appConfig.tagline)}</p>
             <h1>${pageTitle()}</h1>
           </div>
           <div class="topbar-actions">
@@ -1567,30 +1563,7 @@ function shell(content) {
 }
 
 function connectionNotice() {
-  if (location.protocol === "file:") {
-    return `
-      <section class="notice-panel warning">
-        <strong>هذه نسخة محلية على اللابتوب.</strong>
-        <span>للاستخدام من الايفون افتح رابط GitHub Pages، ولا تستخدم رابط <code>file:///C:/...</code>.</span>
-      </section>
-    `;
-  }
-
-  if (dataStore.isConfigured()) {
-    return `
-      <section class="notice-panel success">
-        <strong>${escapeHtml(dataStore.statusLabel())}</strong>
-        <span>الطلبات وتسجيل الدخول سيعملان من قاعدة البيانات. لا تضع مفتاح service_role داخل الواجهة أبدا.</span>
-      </section>
-    `;
-  }
-
-  return `
-    <section class="notice-panel">
-      <strong>${escapeHtml(dataStore.statusLabel())}</strong>
-      <span>الموقع جاهز للربط. أضف رابط Supabase والمفتاح العام في <code>src/config.js</code> بعد إنشاء الجداول.</span>
-    </section>
-  `;
+  return "";
 }
 
 function messagePanel() {
