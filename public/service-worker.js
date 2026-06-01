@@ -1,4 +1,4 @@
-const CACHE_NAME = "web-platform-tobacco-v17";
+const CACHE_NAME = "web-platform-tobacco-v18";
 const ASSETS = [
   "../index.html",
   "../404.html",
@@ -26,6 +26,17 @@ self.addEventListener("activate", (event) => {
     )
   );
   self.clients.claim();
+});
+
+self.addEventListener("notificationclick", (event) => {
+  event.notification.close();
+  event.waitUntil(
+    clients.matchAll({ type: "window", includeUncontrolled: true }).then((list) => {
+      const existing = list.find((c) => c.url.includes("index.html") || c.url === self.registration.scope);
+      if (existing) return existing.focus();
+      return clients.openWindow(self.registration.scope);
+    })
+  );
 });
 
 self.addEventListener("fetch", (event) => {

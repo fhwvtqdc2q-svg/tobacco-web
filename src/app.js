@@ -140,7 +140,9 @@ const state = {
   aiSettingsOpen: false,
   invCustomer: "",
   invNotes: "",
-  invRows: [{ name: "", qty: "1", price: "" }]
+  invRows: [{ name: "", qty: "1", price: "" }],
+  notifPermission: "default",
+  seenRequestIds: new Set()
 };
 
 const app = document.querySelector("#app");
@@ -161,6 +163,39 @@ function setNotice(type, text) {
   state.notice = { type, text };
 }
 
+function notifSupported() {
+  return "Notification" in window;
+}
+
+async function requestNotifPermission() {
+  if (!notifSupported()) return;
+  const result = await Notification.requestPermission();
+  state.notifPermission = result;
+  render();
+}
+
+function fireRequestNotif(customerName) {
+  if (!notifSupported() || Notification.permission !== "granted") return;
+  const opts = { body: `طلب جديد من ${customerName}`, icon: "public/icons/app-icon.png", dir: "rtl", lang: "ar" };
+  if (navigator.serviceWorker?.controller) {
+    navigator.serviceWorker.ready
+      .then((reg) => reg.showNotification("OZK TOBACCO", opts))
+      .catch(() => new Notification("OZK TOBACCO", opts));
+  } else {
+    new Notification("OZK TOBACCO", opts);
+  }
+}
+
+function notifPermissionBanner() {
+  if (!state.session || !notifSupported() || state.notifPermission !== "default") return "";
+  return `
+    <section class="notice-panel warning notif-banner">
+      <span><strong>إشعارات الطلبات</strong> — فعّل الإشعارات لتصلك تنبيهات فورية عند وصول طلب جديد.</span>
+      <button class="button primary" type="button" data-action="enable-notif">تفعيل</button>
+    </section>
+  `;
+}
+
 async function boot() {
   await refreshSession();
   await loadRequests();
@@ -168,6 +203,8 @@ async function boot() {
   await loadCustomerBalanceReports();
   await loadCustomerCreditLimits();
   await loadApprovedPriceItems();
+  state.seenRequestIds = new Set(state.requests.map((r) => r.id));
+  state.notifPermission = notifSupported() ? Notification.permission : "denied";
   state.loading = false;
   render();
 }
@@ -1022,6 +1059,7 @@ function shell(content) {
         </a>
         <nav>
           ${navButton("overview", "الرئيسية")}
+          ${state.session ? navButton("dashboard", "📊 الإحصائيات") : ""}
           ${navButton("login", "تسجيل الدخول")}
           ${navButton("requests", "طلبات العملاء")}
           ${navButton("ameen", "الأمين")}
@@ -1050,6 +1088,7 @@ function shell(content) {
           </div>
         </header>
         ${connectionNotice()}
+        ${notifPermissionBanner()}
         ${messagePanel()}
         ${state.loading ? loadingPanel() : content}
       </main>
@@ -1109,7 +1148,8 @@ function pageTitle() {
     monitoring: "المراقبة",
     payments: "الدفع",
     ai: "المساعد الذكي",
-    invoice: "الفواتير بالدولار"
+    invoice: "الفواتير بالدولار",
+    dashboard: "الإحصائيات والتحليلات"
   }[state.route];
 }
 
@@ -2036,6 +2076,128 @@ function remote() {
   `);
 }
 
+function dashboardStats() {
+  const requests = state.requests || [];
+  const total = requests.length;
+  const open = requests.filter((r) => r.status !== "مغلق").length;
+
+  const channelCounts = {};
+  for (const r of requests) channelCounts[r.channel] = (channelCounts[r.channel] || 0) + 1;
+  const topChannel = Object.entries(channelCounts).sort((a, b) => b[1] - a[1])[0] || ["—", 0];
+  const allChannels = ["واتساب", "هاتف", "ويب", "زيارة فرع"].map((ch) => ({ label: ch, count: channelCounts[ch] || 0 }));
+
+  const typeCounts = {};
+  for (const r of requests) typeCounts[r.type] = (typeCounts[r.type] || 0) + 1;
+  const allTypes = ["استفسار", "شكوى", "متابعة", "طلب خدمة"].map((t) => ({ label: t, count: typeCounts[t] || 0 }));
+
+  const invItems = Array.isArray(state.inventoryReports[0]?.items) ? state.inventoryReports[0].items : [];
+  const inventoryAlerts = invItems.filter((i) => i.status === "low" || i.status === "out").length;
+
+  const balItems = Array.isArray(state.customerBalanceReports?.[0]?.items) ? state.customerBalanceReports[0].items : [];
+  const debitCustomers = balItems.filter((i) => Number(i.balance || 0) > 0).length;
+
+  const today = new Date();
+  const trend = Array.from({ length: 7 }, (_, i) => {
+    const d = new Date(today);
+    d.setDate(today.getDate() - (6 - i));
+    const iso = d.toISOString().slice(0, 10);
+    const day = requests.filter((r) => { try { return new Date(r.createdAt).toISOString().slice(0, 10) === iso; } catch { return false; } });
+    return { date: iso, open: day.filter((r) => r.status !== "مغلق").length, closed: day.filter((r) => r.status === "مغلق").length };
+  });
+
+  const custCounts = {};
+  for (const r of requests) if (r.customer) custCounts[r.customer] = (custCounts[r.customer] || 0) + 1;
+  const topCustomers = Object.entries(custCounts).sort((a, b) => b[1] - a[1]).slice(0, 5).map(([name, count]) => ({ name, count }));
+
+  return { total, open, topChannel, allChannels, allTypes, inventoryAlerts, debitCustomers, trend, topCustomers };
+}
+
+function dashboard() {
+  const s = dashboardStats();
+  const maxCh = Math.max(...s.allChannels.map((c) => c.count), 1);
+  const maxTy = Math.max(...s.allTypes.map((t) => t.count), 1);
+  const maxCust = Math.max(...s.topCustomers.map((c) => c.count), 1);
+  const maxTrend = Math.max(...s.trend.map((d) => d.open + d.closed), 1);
+
+  function bar(items, max, cls = "") {
+    return items.map((item) => {
+      const pct = Math.round((item.count / max) * 100);
+      return `<div class="dash-bar-row">
+        <span class="dash-bar-label">${escapeHtml(item.label)}</span>
+        <div class="dash-bar-track"><div class="dash-bar-fill ${cls}" style="width:${pct}%"></div></div>
+        <span class="dash-bar-val">${item.count}</span>
+      </div>`;
+    }).join("");
+  }
+
+  const trendRows = s.trend.map((d) => {
+    let lbl = d.date.slice(5);
+    try { lbl = new Intl.DateTimeFormat("ar-SA-u-nu-latn", { weekday: "short", day: "numeric", month: "numeric" }).format(new Date(d.date)); } catch {}
+    const op = Math.round((d.open / maxTrend) * 100);
+    const cl = Math.round((d.closed / maxTrend) * 100);
+    return `<div class="dash-trend-row">
+      <span class="dash-bar-label" style="width:80px">${escapeHtml(lbl)}</span>
+      <div class="dash-bar-track" style="flex:1"><div class="dash-bar-fill dash-bar-open" style="width:${op}%"></div><div class="dash-bar-fill dash-bar-closed" style="width:${cl}%"></div></div>
+      <span class="dash-bar-val"><span style="color:var(--primary)">${d.open}</span>/<span style="color:var(--muted)">${d.closed}</span></span>
+    </div>`;
+  }).join("");
+
+  const custRows = s.topCustomers.length
+    ? bar(s.topCustomers.map((c) => ({ label: c.name, count: c.count })), maxCust, "dash-bar-cust")
+    : '<p class="muted">لا يوجد طلبات بعد.</p>';
+
+  return shell(`
+    <div class="status-board full">
+      <article class="status-card">
+        <span>إجمالي الطلبات</span>
+        <strong>${s.total}</strong>
+        <small>${s.open} مفتوحة / ${s.total - s.open} مغلقة</small>
+      </article>
+      <article class="status-card">
+        <span>القناة الأكثر</span>
+        <strong>${escapeHtml(s.topChannel[0])}</strong>
+        <small>${s.topChannel[1]} طلب</small>
+      </article>
+      <article class="status-card" style="${s.inventoryAlerts > 0 ? "border-color:var(--danger)" : ""}">
+        <span>تنبيهات المخزون</span>
+        <strong style="${s.inventoryAlerts > 0 ? "color:var(--danger)" : ""}">${s.inventoryAlerts}</strong>
+        <small>مادة منخفضة أو نافدة</small>
+      </article>
+      <article class="status-card">
+        <span>زبائن برصيد مدين</span>
+        <strong>${s.debitCustomers}</strong>
+        <small>رصيد موجب</small>
+      </article>
+    </div>
+
+    <div class="content-grid" style="margin-top:20px">
+      <article class="panel">
+        <h3>الطلبات حسب القناة</h3>
+        <div class="dash-chart">${bar(s.allChannels, maxCh)}</div>
+      </article>
+      <article class="panel">
+        <h3>الطلبات حسب النوع</h3>
+        <div class="dash-chart">${bar(s.allTypes, maxTy)}</div>
+      </article>
+    </div>
+
+    <div class="content-grid">
+      <article class="panel">
+        <h3>نشاط آخر 7 أيام</h3>
+        <div class="dash-legend">
+          <span class="dash-legend-dot" style="background:var(--primary)"></span><span style="font-size:.82rem;color:var(--muted)">مفتوح</span>
+          <span class="dash-legend-dot" style="background:var(--line)"></span><span style="font-size:.82rem;color:var(--muted)">مغلق</span>
+        </div>
+        <div class="dash-chart">${trendRows}</div>
+      </article>
+      <article class="panel">
+        <h3>أكثر 5 عملاء طلباً</h3>
+        <div class="dash-chart">${custRows}</div>
+      </article>
+    </div>
+  `);
+}
+
 function monitoring() {
   const openRequests = state.requests.filter((request) => request.status !== "مغلق").length;
   const closedRequests = state.requests.length - openRequests;
@@ -2633,6 +2795,7 @@ function render() {
     monitoring,
     payments,
     invoice,
+    dashboard,
     ai: aiAssistant
   };
 
@@ -2651,6 +2814,7 @@ function render() {
 
   app.querySelector("[data-action='install']")?.addEventListener("click", installApp);
   app.querySelector("[data-action='logout']")?.addEventListener("click", logout);
+  app.querySelector("[data-action='enable-notif']")?.addEventListener("click", requestNotifPermission);
 
   // Invoice handlers
   app.querySelector("#inv-customer")?.addEventListener("input", (e) => {
@@ -2851,3 +3015,19 @@ setInterval(() => {
       .catch(() => {});
   }
 }, 60000);
+
+setInterval(async () => {
+  if (!state.session && dataStore.isConfigured()) return;
+  try {
+    const fresh = await dataStore.listRequests();
+    const newOnes = fresh.filter((r) => !state.seenRequestIds.has(r.id));
+    newOnes.forEach((r) => {
+      fireRequestNotif(r.customer);
+      state.seenRequestIds.add(r.id);
+    });
+    if (newOnes.length) {
+      state.requests = fresh;
+      render();
+    }
+  } catch {}
+}, 30000);

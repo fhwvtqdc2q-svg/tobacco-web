@@ -1332,6 +1332,99 @@ code {
   }
 }
 
+/* ── Notification banner ── */
+.notif-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+/* ── Dashboard ── */
+.status-board.full {
+  grid-template-columns: repeat(4, 1fr);
+}
+
+.dash-chart {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 12px;
+}
+
+.dash-bar-row,
+.dash-trend-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.dash-bar-label {
+  color: var(--muted);
+  font-size: 0.85rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  width: 100px;
+  flex-shrink: 0;
+  text-align: right;
+}
+
+.dash-bar-track {
+  flex: 1;
+  height: 10px;
+  border-radius: 999px;
+  background: var(--surface-soft);
+  overflow: hidden;
+  display: flex;
+}
+
+.dash-bar-fill {
+  height: 100%;
+  border-radius: 999px;
+  background: var(--primary);
+  transition: width 0.4s ease;
+  flex-shrink: 0;
+}
+
+.dash-bar-open   { background: var(--primary); border-radius: 0; }
+.dash-bar-closed { background: var(--line);    border-radius: 0; }
+.dash-bar-cust   { background: var(--accent); }
+
+.dash-bar-val {
+  font-size: 0.82rem;
+  color: var(--muted);
+  direction: ltr;
+  flex-shrink: 0;
+  width: 36px;
+  text-align: left;
+}
+
+.dash-legend {
+  display: flex;
+  gap: 14px;
+  align-items: center;
+  margin-bottom: 4px;
+}
+
+.dash-legend-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  display: inline-block;
+  flex-shrink: 0;
+}
+
+@media (max-width: 900px) {
+  .status-board.full { grid-template-columns: repeat(2, 1fr); }
+}
+
+@media (max-width: 640px) {
+  .status-board.full { grid-template-columns: 1fr 1fr; }
+  .dash-bar-label { width: 70px; }
+}
+
 /* ── Invoice ── */
 .inv-panel {
   padding: 0;
