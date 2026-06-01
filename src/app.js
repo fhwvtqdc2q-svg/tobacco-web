@@ -136,7 +136,8 @@ const state = {
   notice: null,
   aiMessages: [],
   aiProvider: "claude",
-  aiLoading: false
+  aiLoading: false,
+  aiSettingsOpen: false
 };
 
 const app = document.querySelector("#app");
@@ -2087,17 +2088,28 @@ function renderMarkdown(text) {
     .replace(/\n/g, "<br>");
 }
 
+function getAiKey(provider) {
+  return localStorage.getItem(`ozk_ai_key_${provider}`) || appConfig.ai?.[provider]?.apiKey || "";
+}
+
+function setAiKey(provider, value) {
+  const trimmed = value.trim();
+  if (trimmed) localStorage.setItem(`ozk_ai_key_${provider}`, trimmed);
+  else localStorage.removeItem(`ozk_ai_key_${provider}`);
+}
+
 async function sendAiMessage(input) {
   const message = input.trim();
   if (!message || state.aiLoading) return;
 
   const aiConfig = appConfig.ai;
-  const providerKey = state.aiProvider === "claude" ? aiConfig.claude.apiKey : aiConfig.chatgpt.apiKey;
+  const providerKey = getAiKey(state.aiProvider);
   if (!providerKey) {
     state.aiMessages.push({
       role: "assistant",
-      content: `⚠️ مفتاح API غير مضاف. أضف مفتاح ${state.aiProvider === "claude" ? "Anthropic" : "OpenAI"} في src/config.js ضمن ai.${state.aiProvider}.apiKey`
+      content: `⚠️ مفتاح API غير مضاف. افتح إعدادات المساعد الذكي وأدخل مفتاح ${state.aiProvider === "claude" ? "Anthropic" : "OpenAI"}.`
     });
+    state.aiSettingsOpen = true;
     render();
     return;
   }
@@ -2120,7 +2132,7 @@ async function sendAiMessage(input) {
         method: "POST",
         headers: {
           "content-type": "application/json",
-          "x-api-key": aiConfig.claude.apiKey,
+          "x-api-key": providerKey,
           "anthropic-version": "2023-06-01",
           "anthropic-dangerous-direct-browser-access": "true"
         },
@@ -2140,7 +2152,7 @@ async function sendAiMessage(input) {
         method: "POST",
         headers: {
           "content-type": "application/json",
-          authorization: `Bearer ${aiConfig.chatgpt.apiKey}`
+          authorization: `Bearer ${providerKey}`
         },
         body: JSON.stringify({
           model: aiConfig.chatgpt.model || "gpt-4o",
@@ -2175,11 +2187,10 @@ function aiAssistant() {
     `);
   }
 
-  const aiConfig = appConfig.ai;
   const msgs = state.aiMessages;
-  const hasKey = Boolean(
-    state.aiProvider === "claude" ? aiConfig.claude?.apiKey : aiConfig.chatgpt?.apiKey
-  );
+  const claudeKey = getAiKey("claude");
+  const chatgptKey = getAiKey("chatgpt");
+  const hasKey = Boolean(state.aiProvider === "claude" ? claudeKey : chatgptKey);
 
   const messagesHtml = msgs.length === 0
     ? `<div class="ai-welcome">
@@ -2194,6 +2205,54 @@ function aiAssistant() {
         ? `<div class="ai-message ai-bot"><div class="ai-bubble ai-thinking"><span></span><span></span><span></span></div></div>`
         : "");
 
+  const settingsPanel = `
+    <div class="ai-settings-panel" id="ai-settings-panel">
+      <form class="ai-keys-form" data-form="ai-keys">
+        <div class="ai-key-row">
+          <label class="ai-key-label">
+            <span>مفتاح Anthropic (Claude)</span>
+            <a class="ai-key-link" href="https://console.anthropic.com/settings/keys" target="_blank" rel="noopener">احصل على مفتاح ←</a>
+          </label>
+          <div class="ai-key-input-wrap">
+            <input
+              type="password"
+              class="ai-key-input"
+              name="claude_key"
+              placeholder="sk-ant-api03-…"
+              value="${escapeHtml(claudeKey)}"
+              autocomplete="off"
+              spellcheck="false"
+            />
+            <button type="button" class="ai-key-toggle" data-toggle-key="claude_key" title="إظهار/إخفاء">👁</button>
+          </div>
+        </div>
+        <div class="ai-key-row">
+          <label class="ai-key-label">
+            <span>مفتاح OpenAI (ChatGPT)</span>
+            <a class="ai-key-link" href="https://platform.openai.com/api-keys" target="_blank" rel="noopener">احصل على مفتاح ←</a>
+          </label>
+          <div class="ai-key-input-wrap">
+            <input
+              type="password"
+              class="ai-key-input"
+              name="chatgpt_key"
+              placeholder="sk-proj-…"
+              value="${escapeHtml(chatgptKey)}"
+              autocomplete="off"
+              spellcheck="false"
+            />
+            <button type="button" class="ai-key-toggle" data-toggle-key="chatgpt_key" title="إظهار/إخفاء">👁</button>
+          </div>
+        </div>
+        <div class="ai-key-actions">
+          <button class="button primary" type="submit">حفظ المفاتيح</button>
+          ${claudeKey || chatgptKey ? `<button class="button secondary" type="button" data-action="ai-keys-clear">حذف المفاتيح</button>` : ""}
+        </div>
+        <p class="ai-key-note">تُحفظ المفاتيح في متصفحك فقط ولا تُرسل لأي خادم آخر.</p>
+      </form>
+    </div>
+  `;
+
   return shell(`
     <section class="panel wide ai-panel">
       <div class="ai-toolbar">
@@ -2201,13 +2260,20 @@ function aiAssistant() {
           <button class="ai-tab ${state.aiProvider === "claude" ? "active" : ""}" data-ai-provider="claude">Claude</button>
           <button class="ai-tab ${state.aiProvider === "chatgpt" ? "active" : ""}" data-ai-provider="chatgpt">ChatGPT</button>
         </div>
-        ${msgs.length > 0 ? `<button class="button secondary" style="font-size:0.8rem;padding:4px 12px" data-action="ai-clear">مسح</button>` : ""}
+        <div class="ai-toolbar-end">
+          ${msgs.length > 0 ? `<button class="button secondary" style="font-size:0.8rem;padding:4px 12px" data-action="ai-clear">مسح</button>` : ""}
+          <button class="button secondary ai-settings-btn ${state.aiSettingsOpen ? "active" : ""}" data-action="ai-settings-toggle" title="إعدادات المفاتيح">
+            ⚙ إعدادات
+          </button>
+        </div>
       </div>
 
-      ${!hasKey ? `
-        <div class="notice-panel warning" style="margin-bottom:12px">
+      ${state.aiSettingsOpen ? settingsPanel : ""}
+
+      ${!hasKey && !state.aiSettingsOpen ? `
+        <div class="notice-panel warning" style="margin-bottom:12px;cursor:pointer" data-action="ai-settings-toggle">
           <strong>مفتاح API مفقود.</strong>
-          <span>أضف مفتاح ${state.aiProvider === "claude" ? "Anthropic" : "OpenAI"} في <code>src/config.js</code> ضمن <code>ai.${state.aiProvider}.apiKey</code>.</span>
+          <span>اضغط هنا أو على "⚙ إعدادات" لإضافة مفتاح ${state.aiProvider === "claude" ? "Anthropic" : "OpenAI"}.</span>
         </div>
       ` : ""}
 
@@ -2390,6 +2456,35 @@ function render() {
   app.querySelector("[data-action='logout']")?.addEventListener("click", logout);
   app.querySelector("[data-action='ai-clear']")?.addEventListener("click", () => {
     state.aiMessages = [];
+    render();
+  });
+
+  app.querySelector("[data-action='ai-settings-toggle']")?.addEventListener("click", () => {
+    state.aiSettingsOpen = !state.aiSettingsOpen;
+    render();
+  });
+
+  app.querySelector("[data-action='ai-keys-clear']")?.addEventListener("click", () => {
+    if (confirm("هل تريد حذف جميع مفاتيح API المحفوظة؟")) {
+      setAiKey("claude", "");
+      setAiKey("chatgpt", "");
+      render();
+    }
+  });
+
+  app.querySelectorAll("[data-toggle-key]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const input = btn.closest(".ai-key-input-wrap")?.querySelector("input");
+      if (input) input.type = input.type === "password" ? "text" : "password";
+    });
+  });
+
+  app.querySelector("[data-form='ai-keys']")?.addEventListener("submit", (event) => {
+    event.preventDefault();
+    const form = event.currentTarget;
+    setAiKey("claude", form.elements.claude_key.value);
+    setAiKey("chatgpt", form.elements.chatgpt_key.value);
+    state.aiSettingsOpen = false;
     render();
   });
 
