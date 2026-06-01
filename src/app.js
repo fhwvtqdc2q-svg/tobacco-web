@@ -142,7 +142,8 @@ const state = {
   invNotes: "",
   invRows: [{ name: "", qty: "1", price: "" }],
   notifPermission: "default",
-  seenRequestIds: new Set()
+  seenRequestIds: new Set(),
+  globalSearch: ""
 };
 
 const app = document.querySelector("#app");
@@ -1068,6 +1069,7 @@ function shell(content) {
           ${navButton("monitoring", "المراقبة")}
           ${navButton("payments", "الدفع")}
           ${state.session ? navButton("invoice", "📄 الفواتير") : ""}
+          ${state.session ? navButton("staff", "👥 الموظفون") : ""}
           ${state.session?.email === appConfig.ai.ownerEmail ? navButton("ai", "🤖 المساعد الذكي") : ""}
         </nav>
         <div style="margin-top:auto;padding-top:20px;border-top:1px solid #2f2415">
@@ -1082,6 +1084,11 @@ function shell(content) {
             <h1>${pageTitle()}</h1>
           </div>
           <div class="topbar-actions">
+            ${state.session ? `
+              <form class="search-wrap" data-form="global-search">
+                <input class="search-input" name="q" placeholder="🔍 بحث…" value="${escapeHtml(state.globalSearch)}" autocomplete="off" dir="auto">
+              </form>
+            ` : ""}
             ${state.installPrompt ? '<button class="button secondary" data-action="install">تثبيت</button>' : ""}
             ${state.session ? `<button class="button secondary" data-action="logout">${escapeHtml(state.session.name)}</button>` : ""}
             <a class="button primary" href="mailto:${escapeHtml(appConfig.supportEmail)}">الدعم</a>
@@ -1149,7 +1156,9 @@ function pageTitle() {
     payments: "الدفع",
     ai: "المساعد الذكي",
     invoice: "الفواتير بالدولار",
-    dashboard: "الإحصائيات والتحليلات"
+    dashboard: "الإحصائيات والتحليلات",
+    staff: "إدارة الموظفين",
+    search: `نتائج: ${escapeHtml(state.globalSearch)}`
   }[state.route];
 }
 
@@ -1292,7 +1301,10 @@ function requests() {
       <article class="panel">
         <div class="panel-title-row">
           <h3>سجل الطلبات</h3>
-          <button class="button secondary compact-button" type="button" data-action="export-ameen">تصدير للأمين</button>
+          <div style="display:flex;gap:8px">
+            <button class="button secondary compact-button" type="button" data-action="export-monthly">📥 Excel شهري</button>
+            <button class="button secondary compact-button" type="button" data-action="export-ameen">تصدير للأمين</button>
+          </div>
         </div>
         <p class="muted">يصدر الملف بصيغة CSV تفتح في Excel. عند معرفة قالب استيراد الأمين لديك نطابق الأعمدة معه بدقة.</p>
         <div class="request-list">
@@ -2198,6 +2210,125 @@ function dashboard() {
   `);
 }
 
+function exportMonthlyReport() {
+  if (!window.XLSX) { setNotice("error", "مكتبة Excel غير محملة."); render(); return; }
+  const now = new Date();
+  const mo = now.getMonth();
+  const yr = now.getFullYear();
+  const monthly = state.requests.filter((r) => {
+    try { const d = new Date(r.createdAt); return d.getMonth() === mo && d.getFullYear() === yr; }
+    catch { return false; }
+  });
+  if (!monthly.length) { setNotice("error", "لا يوجد طلبات لهذا الشهر."); render(); return; }
+
+  const wb = window.XLSX.utils.book_new();
+  const reqWs = window.XLSX.utils.aoa_to_sheet([
+    ["رقم الطلب", "العميل", "القناة", "النوع", "الحالة", "الملاحظة", "التاريخ"],
+    ...monthly.map((r) => [r.publicId || r.id, r.customer, r.channel, r.type, r.status, r.note, r.createdAt || ""])
+  ]);
+  window.XLSX.utils.book_append_sheet(wb, reqWs, "الطلبات");
+
+  const stageCounts = REQUEST_STAGES.map((s) => [s, monthly.filter((r) => (r.status || "جديد") === s).length]);
+  const sumWs = window.XLSX.utils.aoa_to_sheet([
+    ["الحالة", "العدد"], ...stageCounts, ["الإجمالي", monthly.length]
+  ]);
+  window.XLSX.utils.book_append_sheet(wb, sumWs, "ملخص");
+
+  window.XLSX.writeFile(wb, `tobacco-${yr}-${String(mo + 1).padStart(2, "0")}.xlsx`);
+  setNotice("success", "تم تصدير التقرير الشهري.");
+  render();
+}
+
+function staffPage() {
+  if (!state.session) {
+    return shell(`<section class="panel"><p class="muted">سجّل الدخول للوصول لهذه الصفحة.</p></section>`);
+  }
+  const isOwner = state.session.email === appConfig.ai.ownerEmail;
+  const roles = [
+    { name: "الإدارة", desc: "صلاحيات كاملة لجميع الصفحات", pages: ["الطلبات", "الأمين", "التسعير", "الإحصائيات", "الفواتير", "المراقبة", "الدفع"] },
+    { name: "خدمة العملاء", desc: "إدارة الطلبات والتواصل مع العملاء", pages: ["الطلبات", "المراقبة"] },
+    { name: "المراقبة", desc: "عرض التقارير والإحصائيات فقط", pages: ["الإحصائيات", "المراقبة", "الأمين"] },
+    { name: "الدعم الفني", desc: "إدارة المخزون والتسعير", pages: ["الأمين", "التسعير", "الطلبات"] }
+  ];
+  const rolesHtml = roles.map((r) => `
+    <article class="staff-role-card ${state.session.role === r.name ? "active" : ""}">
+      <div class="staff-role-head">
+        <strong>${escapeHtml(r.name)}</strong>
+        ${state.session.role === r.name ? '<span class="staff-badge">دورك الحالي</span>' : ""}
+      </div>
+      <p class="muted" style="font-size:.85rem;margin:4px 0 8px">${escapeHtml(r.desc)}</p>
+      <div class="staff-chips">${r.pages.map((p) => `<span class="staff-chip">${p}</span>`).join("")}</div>
+    </article>`).join("");
+
+  return shell(`
+    <section class="panel">
+      <h3>الموظف الحالي</h3>
+      <div class="staff-current">
+        <div class="staff-avatar">${escapeHtml((state.session.name || "؟")[0].toUpperCase())}</div>
+        <div>
+          <strong>${escapeHtml(state.session.name)}</strong>
+          <p class="muted" style="font-size:.88rem">${escapeHtml(state.session.role)}</p>
+          ${state.session.email ? `<p class="muted" style="font-size:.82rem">${escapeHtml(state.session.email)}</p>` : ""}
+        </div>
+      </div>
+    </section>
+    <section class="panel" style="margin-top:16px">
+      <h3>الأدوار الوظيفية</h3>
+      <div class="staff-roles-grid">${rolesHtml}</div>
+    </section>
+    ${isOwner ? `
+    <section class="panel" style="margin-top:16px">
+      <h3>إضافة موظف جديد</h3>
+      <p class="muted" style="margin-bottom:12px">أضف حسابات الموظفين من Supabase ثم شارك بيانات الدخول معهم.</p>
+      <ol class="staff-steps">
+        <li>افتح <strong>Supabase Dashboard</strong> → Authentication → Users</li>
+        <li>اضغط <strong>Add User</strong> وأدخل البريد وكلمة المرور</li>
+        <li>شارك بيانات الدخول مع الموظف بشكل آمن</li>
+        <li>الموظف يختار دوره عند تسجيل الدخول</li>
+      </ol>
+    </section>` : ""}
+  `);
+}
+
+function searchPage() {
+  const q = state.globalSearch.trim().toLowerCase();
+  if (!q) return shell(`<section class="panel"><p class="muted">اكتب كلمة بحث في شريط الأعلى.</p></section>`);
+
+  const results = [];
+  state.requests.forEach((r) => {
+    if ((r.customer || "").toLowerCase().includes(q) || (r.note || "").toLowerCase().includes(q)) {
+      results.push({ type: "طلب", label: `${r.publicId || r.id} — ${r.customer}`, sub: (r.note || "").slice(0, 50), route: "requests" });
+    }
+  });
+  const invItems = Array.isArray(state.inventoryReports[0]?.items) ? state.inventoryReports[0].items : [];
+  invItems.forEach((i) => {
+    if ((i.name || "").toLowerCase().includes(q)) {
+      results.push({ type: "مخزون", label: i.name, sub: `الكمية: ${i.qty ?? "—"}`, route: "ameen" });
+    }
+  });
+  const balItems = Array.isArray(state.customerBalanceReports?.[0]?.items) ? state.customerBalanceReports[0].items : [];
+  balItems.forEach((c) => {
+    const name = c.customer_name || c.name || "";
+    if (name.toLowerCase().includes(q)) {
+      results.push({ type: "عميل", label: name, sub: `الرصيد: ${c.balance ?? "—"}`, route: "ameen" });
+    }
+  });
+
+  const rows = results.slice(0, 20).map((r) => `
+    <button class="search-result-row" data-route="${escapeHtml(r.route)}" data-search-nav>
+      <span class="search-result-type">${escapeHtml(r.type)}</span>
+      <span class="search-result-label">${escapeHtml(r.label)}</span>
+      <small class="muted">${escapeHtml(r.sub)}</small>
+    </button>`).join("");
+
+  return shell(`
+    <section class="panel">
+      <p class="muted" style="margin-bottom:16px">${results.length} نتيجة لـ "<strong>${escapeHtml(state.globalSearch)}</strong>"</p>
+      ${rows || '<p class="muted">لا توجد نتائج.</p>'}
+    </section>
+  `);
+}
+
 function monitoring() {
   const openRequests = state.requests.filter((request) => request.status !== "مغلق").length;
   const closedRequests = state.requests.length - openRequests;
@@ -2676,8 +2807,13 @@ function taskItem(item) {
   `;
 }
 
+const REQUEST_STAGES = ["جديد", "قيد التجهيز", "جاهز للتسليم", "مغلق"];
+const STAGE_CLASS = { "جديد": "chip-new", "قيد التجهيز": "chip-progress", "جاهز للتسليم": "chip-ready", "مغلق": "chip-closed" };
+
 function requestCard(request) {
-  const nextStatus = request.status === "مغلق" ? "مفتوح" : "مغلق";
+  const status = REQUEST_STAGES.includes(request.status) ? request.status : "جديد";
+  const idx = REQUEST_STAGES.indexOf(status);
+  const next = REQUEST_STAGES[idx + 1] || null;
   return `
     <article class="request-card">
       <div>
@@ -2686,10 +2822,9 @@ function requestCard(request) {
       </div>
       <p>${escapeHtml(request.note)}</p>
       <div class="request-actions">
-        <span class="status-chip">${escapeHtml(request.status)}</span>
-        <button type="button" data-request="${escapeHtml(request.id)}" data-status="${nextStatus}">
-          ${request.status === "مغلق" ? "إعادة فتح" : "إغلاق"}
-        </button>
+        <span class="status-chip ${STAGE_CLASS[status] || ""}">${escapeHtml(status)}</span>
+        ${next ? `<button class="button secondary compact-button" type="button" data-request="${escapeHtml(request.id)}" data-status="${next}">→ ${next}</button>` : ""}
+        ${status !== "مغلق" ? `<button class="button secondary compact-button" type="button" data-request="${escapeHtml(request.id)}" data-status="مغلق">إغلاق</button>` : `<button class="button secondary compact-button" type="button" data-request="${escapeHtml(request.id)}" data-status="جديد">إعادة فتح</button>`}
       </div>
     </article>
   `;
@@ -2796,6 +2931,8 @@ function render() {
     payments,
     invoice,
     dashboard,
+    staff: staffPage,
+    search: searchPage,
     ai: aiAssistant
   };
 
@@ -2815,6 +2952,21 @@ function render() {
   app.querySelector("[data-action='install']")?.addEventListener("click", installApp);
   app.querySelector("[data-action='logout']")?.addEventListener("click", logout);
   app.querySelector("[data-action='enable-notif']")?.addEventListener("click", requestNotifPermission);
+  app.querySelector("[data-action='export-monthly']")?.addEventListener("click", exportMonthlyReport);
+
+  app.querySelector("[data-form='global-search']")?.addEventListener("submit", (e) => {
+    e.preventDefault();
+    const q = e.currentTarget.elements.q.value.trim();
+    state.globalSearch = q;
+    if (q) setRoute("search");
+  });
+
+  app.querySelectorAll("[data-search-nav]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      state.globalSearch = "";
+      setRoute(btn.dataset.route);
+    });
+  });
 
   // Invoice handlers
   app.querySelector("#inv-customer")?.addEventListener("input", (e) => {
