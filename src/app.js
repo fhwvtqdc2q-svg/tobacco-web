@@ -189,7 +189,17 @@ const state = {
   customerSort: "balanceDesc",
   selectedCustomerKey: "",
   loading: true,
-  notice: null
+  notice: null,
+  aiMessages: [],
+  aiProvider: "claude",
+  aiLoading: false,
+  aiSettingsOpen: false,
+  invCustomer: "",
+  invNotes: "",
+  invRows: [{ name: "", qty: "1", price: "" }],
+  notifPermission: "default",
+  seenRequestIds: new Set(),
+  globalSearch: ""
 };
 
 const app = document.querySelector("#app");
@@ -210,6 +220,39 @@ function setNotice(type, text) {
   state.notice = { type, text };
 }
 
+function notifSupported() {
+  return "Notification" in window;
+}
+
+async function requestNotifPermission() {
+  if (!notifSupported()) return;
+  const result = await Notification.requestPermission();
+  state.notifPermission = result;
+  render();
+}
+
+function fireRequestNotif(customerName) {
+  if (!notifSupported() || Notification.permission !== "granted") return;
+  const opts = { body: `طلب جديد من ${customerName}`, icon: "public/icons/app-icon.png", dir: "rtl", lang: "ar" };
+  if (navigator.serviceWorker?.controller) {
+    navigator.serviceWorker.ready
+      .then((reg) => reg.showNotification("OZK TOBACCO", opts))
+      .catch(() => new Notification("OZK TOBACCO", opts));
+  } else {
+    new Notification("OZK TOBACCO", opts);
+  }
+}
+
+function notifPermissionBanner() {
+  if (!state.session || !notifSupported() || state.notifPermission !== "default") return "";
+  return `
+    <section class="notice-panel warning notif-banner">
+      <span><strong>إشعارات الطلبات</strong> — فعّل الإشعارات لتصلك تنبيهات فورية عند وصول طلب جديد.</span>
+      <button class="button primary" type="button" data-action="enable-notif">تفعيل</button>
+    </section>
+  `;
+}
+
 async function boot() {
   await refreshSession();
   await loadRequests();
@@ -217,6 +260,8 @@ async function boot() {
   await loadCustomerBalanceReports();
   await loadCustomerCreditLimits();
   await loadApprovedPriceItems();
+  state.seenRequestIds = new Set(state.requests.map((r) => r.id));
+  state.notifPermission = notifSupported() ? Notification.permission : "denied";
   state.loading = false;
   render();
 }
@@ -1478,6 +1523,7 @@ function shell(content) {
         </a>
         <nav>
           ${navButton("overview", "الرئيسية")}
+          ${state.session ? navButton("dashboard", "📊 الإحصائيات") : ""}
           ${navButton("login", "تسجيل الدخول")}
           ${navButton("requests", "طلبات العملاء")}
           ${navButton("ameen", "الأمين")}
@@ -1485,7 +1531,14 @@ function shell(content) {
           ${navButton("remote", "إدارة عن بعد")}
           ${navButton("monitoring", "المراقبة")}
           ${navButton("payments", "الدفع")}
+          ${state.session ? navButton("invoice", "📄 الفواتير") : ""}
+          ${state.session ? navButton("staff", "👥 الموظفون") : ""}
+          ${state.session?.email === appConfig.ai.ownerEmail ? navButton("ai", "🤖 المساعد الذكي") : ""}
         </nav>
+        <div style="margin-top:auto;padding-top:20px;border-top:1px solid #2f2415">
+          <a href="privacy-policy.html" style="display:block;font-size:0.78rem;color:#7a6040;text-align:center;text-decoration:none;padding:6px 0;" target="_blank">سياسة الخصوصية</a>
+          <a href="terms-of-use.html" style="display:block;font-size:0.78rem;color:#7a6040;text-align:center;text-decoration:none;padding:6px 0;" target="_blank">شروط الاستخدام</a>
+        </div>
       </aside>
       <main class="main">
         <header class="topbar">
@@ -1494,12 +1547,18 @@ function shell(content) {
             <h1>${pageTitle()}</h1>
           </div>
           <div class="topbar-actions">
+            ${state.session ? `
+              <form class="search-wrap" data-form="global-search">
+                <input class="search-input" name="q" placeholder="🔍 بحث…" value="${escapeHtml(state.globalSearch)}" autocomplete="off" dir="auto">
+              </form>
+            ` : ""}
             ${state.installPrompt ? '<button class="button secondary" data-action="install">تثبيت</button>' : ""}
             ${state.session ? `<button class="button secondary" data-action="logout">${escapeHtml(state.session.name)}</button>` : ""}
             <a class="button primary" href="mailto:${escapeHtml(appConfig.supportEmail)}">الدعم</a>
           </div>
         </header>
         ${connectionNotice()}
+        ${notifPermissionBanner()}
         ${messagePanel()}
         ${state.loading ? loadingPanel() : content}
       </main>
@@ -1557,7 +1616,12 @@ function pageTitle() {
     pricing: "التسعير",
     remote: "الإدارة عن بعد",
     monitoring: "المراقبة",
-    payments: "الدفع"
+    payments: "الدفع",
+    ai: "المساعد الذكي",
+    invoice: "الفواتير بالدولار",
+    dashboard: "الإحصائيات والتحليلات",
+    staff: "إدارة الموظفين",
+    search: `نتائج: ${escapeHtml(state.globalSearch)}`
   }[state.route];
 }
 
@@ -1700,7 +1764,10 @@ function requests() {
       <article class="panel">
         <div class="panel-title-row">
           <h3>سجل الطلبات</h3>
-          <button class="button secondary compact-button" type="button" data-action="export-ameen">تصدير للأمين</button>
+          <div style="display:flex;gap:8px">
+            <button class="button secondary compact-button" type="button" data-action="export-monthly">📥 Excel شهري</button>
+            <button class="button secondary compact-button" type="button" data-action="export-ameen">تصدير للأمين</button>
+          </div>
         </div>
         <p class="muted">يصدر الملف بصيغة CSV تفتح في Excel. عند معرفة قالب استيراد الأمين لديك نطابق الأعمدة معه بدقة.</p>
         <div class="request-list">
@@ -2525,6 +2592,247 @@ function remote() {
   `);
 }
 
+function dashboardStats() {
+  const requests = state.requests || [];
+  const total = requests.length;
+  const open = requests.filter((r) => r.status !== "مغلق").length;
+
+  const channelCounts = {};
+  for (const r of requests) channelCounts[r.channel] = (channelCounts[r.channel] || 0) + 1;
+  const topChannel = Object.entries(channelCounts).sort((a, b) => b[1] - a[1])[0] || ["—", 0];
+  const allChannels = ["واتساب", "هاتف", "ويب", "زيارة فرع"].map((ch) => ({ label: ch, count: channelCounts[ch] || 0 }));
+
+  const typeCounts = {};
+  for (const r of requests) typeCounts[r.type] = (typeCounts[r.type] || 0) + 1;
+  const allTypes = ["استفسار", "شكوى", "متابعة", "طلب خدمة"].map((t) => ({ label: t, count: typeCounts[t] || 0 }));
+
+  const invItems = Array.isArray(state.inventoryReports[0]?.items) ? state.inventoryReports[0].items : [];
+  const inventoryAlerts = invItems.filter((i) => i.status === "low" || i.status === "out").length;
+
+  const balItems = Array.isArray(state.customerBalanceReports?.[0]?.items) ? state.customerBalanceReports[0].items : [];
+  const debitCustomers = balItems.filter((i) => Number(i.balance || 0) > 0).length;
+
+  const today = new Date();
+  const trend = Array.from({ length: 7 }, (_, i) => {
+    const d = new Date(today);
+    d.setDate(today.getDate() - (6 - i));
+    const iso = d.toISOString().slice(0, 10);
+    const day = requests.filter((r) => { try { return new Date(r.createdAt).toISOString().slice(0, 10) === iso; } catch { return false; } });
+    return { date: iso, open: day.filter((r) => r.status !== "مغلق").length, closed: day.filter((r) => r.status === "مغلق").length };
+  });
+
+  const custCounts = {};
+  for (const r of requests) if (r.customer) custCounts[r.customer] = (custCounts[r.customer] || 0) + 1;
+  const topCustomers = Object.entries(custCounts).sort((a, b) => b[1] - a[1]).slice(0, 5).map(([name, count]) => ({ name, count }));
+
+  return { total, open, topChannel, allChannels, allTypes, inventoryAlerts, debitCustomers, trend, topCustomers };
+}
+
+function dashboard() {
+  const s = dashboardStats();
+  const maxCh = Math.max(...s.allChannels.map((c) => c.count), 1);
+  const maxTy = Math.max(...s.allTypes.map((t) => t.count), 1);
+  const maxCust = Math.max(...s.topCustomers.map((c) => c.count), 1);
+  const maxTrend = Math.max(...s.trend.map((d) => d.open + d.closed), 1);
+
+  function bar(items, max, cls = "") {
+    return items.map((item) => {
+      const pct = Math.round((item.count / max) * 100);
+      return `<div class="dash-bar-row">
+        <span class="dash-bar-label">${escapeHtml(item.label)}</span>
+        <div class="dash-bar-track"><div class="dash-bar-fill ${cls}" style="width:${pct}%"></div></div>
+        <span class="dash-bar-val">${item.count}</span>
+      </div>`;
+    }).join("");
+  }
+
+  const trendRows = s.trend.map((d) => {
+    let lbl = d.date.slice(5);
+    try { lbl = new Intl.DateTimeFormat("ar-SA-u-nu-latn", { weekday: "short", day: "numeric", month: "numeric" }).format(new Date(d.date)); } catch {}
+    const op = Math.round((d.open / maxTrend) * 100);
+    const cl = Math.round((d.closed / maxTrend) * 100);
+    return `<div class="dash-trend-row">
+      <span class="dash-bar-label" style="width:80px">${escapeHtml(lbl)}</span>
+      <div class="dash-bar-track" style="flex:1"><div class="dash-bar-fill dash-bar-open" style="width:${op}%"></div><div class="dash-bar-fill dash-bar-closed" style="width:${cl}%"></div></div>
+      <span class="dash-bar-val"><span style="color:var(--primary)">${d.open}</span>/<span style="color:var(--muted)">${d.closed}</span></span>
+    </div>`;
+  }).join("");
+
+  const custRows = s.topCustomers.length
+    ? bar(s.topCustomers.map((c) => ({ label: c.name, count: c.count })), maxCust, "dash-bar-cust")
+    : '<p class="muted">لا يوجد طلبات بعد.</p>';
+
+  return shell(`
+    <div class="status-board full">
+      <article class="status-card">
+        <span>إجمالي الطلبات</span>
+        <strong>${s.total}</strong>
+        <small>${s.open} مفتوحة / ${s.total - s.open} مغلقة</small>
+      </article>
+      <article class="status-card">
+        <span>القناة الأكثر</span>
+        <strong>${escapeHtml(s.topChannel[0])}</strong>
+        <small>${s.topChannel[1]} طلب</small>
+      </article>
+      <article class="status-card" style="${s.inventoryAlerts > 0 ? "border-color:var(--danger)" : ""}">
+        <span>تنبيهات المخزون</span>
+        <strong style="${s.inventoryAlerts > 0 ? "color:var(--danger)" : ""}">${s.inventoryAlerts}</strong>
+        <small>مادة منخفضة أو نافدة</small>
+      </article>
+      <article class="status-card">
+        <span>زبائن برصيد مدين</span>
+        <strong>${s.debitCustomers}</strong>
+        <small>رصيد موجب</small>
+      </article>
+    </div>
+
+    <div class="content-grid" style="margin-top:20px">
+      <article class="panel">
+        <h3>الطلبات حسب القناة</h3>
+        <div class="dash-chart">${bar(s.allChannels, maxCh)}</div>
+      </article>
+      <article class="panel">
+        <h3>الطلبات حسب النوع</h3>
+        <div class="dash-chart">${bar(s.allTypes, maxTy)}</div>
+      </article>
+    </div>
+
+    <div class="content-grid">
+      <article class="panel">
+        <h3>نشاط آخر 7 أيام</h3>
+        <div class="dash-legend">
+          <span class="dash-legend-dot" style="background:var(--primary)"></span><span style="font-size:.82rem;color:var(--muted)">مفتوح</span>
+          <span class="dash-legend-dot" style="background:var(--line)"></span><span style="font-size:.82rem;color:var(--muted)">مغلق</span>
+        </div>
+        <div class="dash-chart">${trendRows}</div>
+      </article>
+      <article class="panel">
+        <h3>أكثر 5 عملاء طلباً</h3>
+        <div class="dash-chart">${custRows}</div>
+      </article>
+    </div>
+  `);
+}
+
+function exportMonthlyReport() {
+  if (!window.XLSX) { setNotice("error", "مكتبة Excel غير محملة."); render(); return; }
+  const now = new Date();
+  const mo = now.getMonth();
+  const yr = now.getFullYear();
+  const monthly = state.requests.filter((r) => {
+    try { const d = new Date(r.createdAt); return d.getMonth() === mo && d.getFullYear() === yr; }
+    catch { return false; }
+  });
+  if (!monthly.length) { setNotice("error", "لا يوجد طلبات لهذا الشهر."); render(); return; }
+
+  const wb = window.XLSX.utils.book_new();
+  const reqWs = window.XLSX.utils.aoa_to_sheet([
+    ["رقم الطلب", "العميل", "القناة", "النوع", "الحالة", "الملاحظة", "التاريخ"],
+    ...monthly.map((r) => [r.publicId || r.id, r.customer, r.channel, r.type, r.status, r.note, r.createdAt || ""])
+  ]);
+  window.XLSX.utils.book_append_sheet(wb, reqWs, "الطلبات");
+
+  const stageCounts = REQUEST_STAGES.map((s) => [s, monthly.filter((r) => (r.status || "جديد") === s).length]);
+  const sumWs = window.XLSX.utils.aoa_to_sheet([
+    ["الحالة", "العدد"], ...stageCounts, ["الإجمالي", monthly.length]
+  ]);
+  window.XLSX.utils.book_append_sheet(wb, sumWs, "ملخص");
+
+  window.XLSX.writeFile(wb, `tobacco-${yr}-${String(mo + 1).padStart(2, "0")}.xlsx`);
+  setNotice("success", "تم تصدير التقرير الشهري.");
+  render();
+}
+
+function staffPage() {
+  if (!state.session) {
+    return shell(`<section class="panel"><p class="muted">سجّل الدخول للوصول لهذه الصفحة.</p></section>`);
+  }
+  const isOwner = state.session.email === appConfig.ai.ownerEmail;
+  const roles = [
+    { name: "الإدارة", desc: "صلاحيات كاملة لجميع الصفحات", pages: ["الطلبات", "الأمين", "التسعير", "الإحصائيات", "الفواتير", "المراقبة", "الدفع"] },
+    { name: "خدمة العملاء", desc: "إدارة الطلبات والتواصل مع العملاء", pages: ["الطلبات", "المراقبة"] },
+    { name: "المراقبة", desc: "عرض التقارير والإحصائيات فقط", pages: ["الإحصائيات", "المراقبة", "الأمين"] },
+    { name: "الدعم الفني", desc: "إدارة المخزون والتسعير", pages: ["الأمين", "التسعير", "الطلبات"] }
+  ];
+  const rolesHtml = roles.map((r) => `
+    <article class="staff-role-card ${state.session.role === r.name ? "active" : ""}">
+      <div class="staff-role-head">
+        <strong>${escapeHtml(r.name)}</strong>
+        ${state.session.role === r.name ? '<span class="staff-badge">دورك الحالي</span>' : ""}
+      </div>
+      <p class="muted" style="font-size:.85rem;margin:4px 0 8px">${escapeHtml(r.desc)}</p>
+      <div class="staff-chips">${r.pages.map((p) => `<span class="staff-chip">${p}</span>`).join("")}</div>
+    </article>`).join("");
+
+  return shell(`
+    <section class="panel">
+      <h3>الموظف الحالي</h3>
+      <div class="staff-current">
+        <div class="staff-avatar">${escapeHtml((state.session.name || "؟")[0].toUpperCase())}</div>
+        <div>
+          <strong>${escapeHtml(state.session.name)}</strong>
+          <p class="muted" style="font-size:.88rem">${escapeHtml(state.session.role)}</p>
+          ${state.session.email ? `<p class="muted" style="font-size:.82rem">${escapeHtml(state.session.email)}</p>` : ""}
+        </div>
+      </div>
+    </section>
+    <section class="panel" style="margin-top:16px">
+      <h3>الأدوار الوظيفية</h3>
+      <div class="staff-roles-grid">${rolesHtml}</div>
+    </section>
+    ${isOwner ? `
+    <section class="panel" style="margin-top:16px">
+      <h3>إضافة موظف جديد</h3>
+      <p class="muted" style="margin-bottom:12px">أضف حسابات الموظفين من Supabase ثم شارك بيانات الدخول معهم.</p>
+      <ol class="staff-steps">
+        <li>افتح <strong>Supabase Dashboard</strong> → Authentication → Users</li>
+        <li>اضغط <strong>Add User</strong> وأدخل البريد وكلمة المرور</li>
+        <li>شارك بيانات الدخول مع الموظف بشكل آمن</li>
+        <li>الموظف يختار دوره عند تسجيل الدخول</li>
+      </ol>
+    </section>` : ""}
+  `);
+}
+
+function searchPage() {
+  const q = state.globalSearch.trim().toLowerCase();
+  if (!q) return shell(`<section class="panel"><p class="muted">اكتب كلمة بحث في شريط الأعلى.</p></section>`);
+
+  const results = [];
+  state.requests.forEach((r) => {
+    if ((r.customer || "").toLowerCase().includes(q) || (r.note || "").toLowerCase().includes(q)) {
+      results.push({ type: "طلب", label: `${r.publicId || r.id} — ${r.customer}`, sub: (r.note || "").slice(0, 50), route: "requests" });
+    }
+  });
+  const invItems = Array.isArray(state.inventoryReports[0]?.items) ? state.inventoryReports[0].items : [];
+  invItems.forEach((i) => {
+    if ((i.name || "").toLowerCase().includes(q)) {
+      results.push({ type: "مخزون", label: i.name, sub: `الكمية: ${i.qty ?? "—"}`, route: "ameen" });
+    }
+  });
+  const balItems = Array.isArray(state.customerBalanceReports?.[0]?.items) ? state.customerBalanceReports[0].items : [];
+  balItems.forEach((c) => {
+    const name = c.customer_name || c.name || "";
+    if (name.toLowerCase().includes(q)) {
+      results.push({ type: "عميل", label: name, sub: `الرصيد: ${c.balance ?? "—"}`, route: "ameen" });
+    }
+  });
+
+  const rows = results.slice(0, 20).map((r) => `
+    <button class="search-result-row" data-route="${escapeHtml(r.route)}" data-search-nav>
+      <span class="search-result-type">${escapeHtml(r.type)}</span>
+      <span class="search-result-label">${escapeHtml(r.label)}</span>
+      <small class="muted">${escapeHtml(r.sub)}</small>
+    </button>`).join("");
+
+  return shell(`
+    <section class="panel">
+      <p class="muted" style="margin-bottom:16px">${results.length} نتيجة لـ "<strong>${escapeHtml(state.globalSearch)}</strong>"</p>
+      ${rows || '<p class="muted">لا توجد نتائج.</p>'}
+    </section>
+  `);
+}
+
 function monitoring() {
   const openRequests = state.requests.filter((request) => request.status !== "مغلق").length;
   const closedRequests = state.requests.length - openRequests;
@@ -2570,6 +2878,415 @@ function payments() {
   `);
 }
 
+function renderMarkdown(text) {
+  const safe = escapeHtml(String(text ?? ""));
+  return safe
+    .replace(/\*\*([^*\n]+)\*\*/g, "<strong>$1</strong>")
+    .replace(/\*([^*\n]+)\*/g, "<em>$1</em>")
+    .replace(/`([^`\n]+)`/g, "<code>$1</code>")
+    .replace(/^#{1,3} (.+)$/gm, (_, t) => `<strong style="display:block;margin:8px 0 4px">${t}</strong>`)
+    .replace(/^[-•] (.+)$/gm, (_, t) => `<span style="display:block;padding-right:8px">• ${t}</span>`)
+    .replace(/\n\n+/g, "<br><br>")
+    .replace(/\n/g, "<br>");
+}
+
+function getAiKey(provider) {
+  return localStorage.getItem(`ozk_ai_key_${provider}`) || appConfig.ai?.[provider]?.apiKey || "";
+}
+
+function setAiKey(provider, value) {
+  const trimmed = value.trim();
+  if (trimmed) localStorage.setItem(`ozk_ai_key_${provider}`, trimmed);
+  else localStorage.removeItem(`ozk_ai_key_${provider}`);
+}
+
+async function sendAiMessage(input) {
+  const message = input.trim();
+  if (!message || state.aiLoading) return;
+
+  const aiConfig = appConfig.ai;
+  const providerKey = getAiKey(state.aiProvider);
+  if (!providerKey) {
+    state.aiMessages.push({
+      role: "assistant",
+      content: `⚠️ مفتاح API غير مضاف. افتح إعدادات المساعد الذكي وأدخل مفتاح ${state.aiProvider === "claude" ? "Anthropic" : "OpenAI"}.`
+    });
+    state.aiSettingsOpen = true;
+    render();
+    return;
+  }
+
+  state.aiMessages.push({ role: "user", content: message });
+  state.aiLoading = true;
+  render();
+
+  const scrollBottom = () => {
+    const el = document.getElementById("ai-messages");
+    if (el) el.scrollTop = el.scrollHeight;
+  };
+  setTimeout(scrollBottom, 30);
+
+  try {
+    let reply = "";
+
+    if (state.aiProvider === "claude") {
+      const response = await fetch("https://api.anthropic.com/v1/messages", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "x-api-key": providerKey,
+          "anthropic-version": "2023-06-01",
+          "anthropic-dangerous-direct-browser-access": "true"
+        },
+        body: JSON.stringify({
+          model: aiConfig.claude.model || "claude-opus-4-8",
+          max_tokens: 4096,
+          messages: state.aiMessages
+            .filter((m) => m.role === "user" || m.role === "assistant")
+            .map((m) => ({ role: m.role, content: m.content }))
+        })
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error?.message || `Claude API ${response.status}`);
+      reply = data.content?.[0]?.text || "";
+    } else {
+      const response = await fetch("https://api.openai.com/v1/chat/completions", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          authorization: `Bearer ${providerKey}`
+        },
+        body: JSON.stringify({
+          model: aiConfig.chatgpt.model || "gpt-4o",
+          messages: state.aiMessages
+            .filter((m) => m.role === "user" || m.role === "assistant")
+            .map((m) => ({ role: m.role, content: m.content }))
+        })
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error?.message || `OpenAI API ${response.status}`);
+      reply = data.choices?.[0]?.message?.content || "";
+    }
+
+    state.aiMessages.push({ role: "assistant", content: reply });
+  } catch (err) {
+    state.aiMessages.push({ role: "assistant", content: `⚠️ خطأ: ${err.message}` });
+  } finally {
+    state.aiLoading = false;
+    render();
+    setTimeout(scrollBottom, 50);
+  }
+}
+
+function aiAssistant() {
+  const ownerEmail = appConfig.ai?.ownerEmail;
+  if (state.session?.email !== ownerEmail) {
+    return shell(`
+      <section class="panel">
+        <h2>غير مصرح</h2>
+        <p class="muted">المساعد الذكي متاح فقط لحساب مسؤول النظام. سجّل الدخول بالحساب الرئيسي للوصول.</p>
+      </section>
+    `);
+  }
+
+  const msgs = state.aiMessages;
+  const claudeKey = getAiKey("claude");
+  const chatgptKey = getAiKey("chatgpt");
+  const hasKey = Boolean(state.aiProvider === "claude" ? claudeKey : chatgptKey);
+
+  const messagesHtml = msgs.length === 0
+    ? `<div class="ai-welcome">
+         <p class="ai-welcome-title">مرحباً في المساعد الذكي</p>
+         <p class="muted">اكتب أي سؤال أو مهمة. لا يوجد حد للرسائل.</p>
+       </div>`
+    : msgs.map((m) => `
+        <div class="ai-message ${m.role === "user" ? "ai-user" : "ai-bot"}">
+          <div class="ai-bubble">${m.role === "assistant" ? renderMarkdown(m.content) : escapeHtml(m.content)}</div>
+        </div>`).join("") +
+      (state.aiLoading
+        ? `<div class="ai-message ai-bot"><div class="ai-bubble ai-thinking"><span></span><span></span><span></span></div></div>`
+        : "");
+
+  const settingsPanel = `
+    <div class="ai-settings-panel" id="ai-settings-panel">
+      <form class="ai-keys-form" data-form="ai-keys">
+        <div class="ai-key-row">
+          <label class="ai-key-label">
+            <span>مفتاح Anthropic (Claude)</span>
+            <a class="ai-key-link" href="https://console.anthropic.com/settings/keys" target="_blank" rel="noopener">احصل على مفتاح ←</a>
+          </label>
+          <div class="ai-key-input-wrap">
+            <input
+              type="password"
+              class="ai-key-input"
+              name="claude_key"
+              placeholder="sk-ant-api03-…"
+              value="${escapeHtml(claudeKey)}"
+              autocomplete="off"
+              spellcheck="false"
+            />
+            <button type="button" class="ai-key-toggle" data-toggle-key="claude_key" title="إظهار/إخفاء">👁</button>
+          </div>
+        </div>
+        <div class="ai-key-row">
+          <label class="ai-key-label">
+            <span>مفتاح OpenAI (ChatGPT)</span>
+            <a class="ai-key-link" href="https://platform.openai.com/api-keys" target="_blank" rel="noopener">احصل على مفتاح ←</a>
+          </label>
+          <div class="ai-key-input-wrap">
+            <input
+              type="password"
+              class="ai-key-input"
+              name="chatgpt_key"
+              placeholder="sk-proj-…"
+              value="${escapeHtml(chatgptKey)}"
+              autocomplete="off"
+              spellcheck="false"
+            />
+            <button type="button" class="ai-key-toggle" data-toggle-key="chatgpt_key" title="إظهار/إخفاء">👁</button>
+          </div>
+        </div>
+        <div class="ai-key-actions">
+          <button class="button primary" type="submit">حفظ المفاتيح</button>
+          ${claudeKey || chatgptKey ? `<button class="button secondary" type="button" data-action="ai-keys-clear">حذف المفاتيح</button>` : ""}
+        </div>
+        <p class="ai-key-note">تُحفظ المفاتيح في متصفحك فقط ولا تُرسل لأي خادم آخر.</p>
+      </form>
+    </div>
+  `;
+
+  return shell(`
+    <section class="panel wide ai-panel">
+      <div class="ai-toolbar">
+        <div class="ai-provider-tabs">
+          <button class="ai-tab ${state.aiProvider === "claude" ? "active" : ""}" data-ai-provider="claude">Claude</button>
+          <button class="ai-tab ${state.aiProvider === "chatgpt" ? "active" : ""}" data-ai-provider="chatgpt">ChatGPT</button>
+        </div>
+        <div class="ai-toolbar-end">
+          ${msgs.length > 0 ? `<button class="button secondary" style="font-size:0.8rem;padding:4px 12px" data-action="ai-clear">مسح</button>` : ""}
+          <button class="button secondary ai-settings-btn ${state.aiSettingsOpen ? "active" : ""}" data-action="ai-settings-toggle" title="إعدادات المفاتيح">
+            ⚙ إعدادات
+          </button>
+        </div>
+      </div>
+
+      ${state.aiSettingsOpen ? settingsPanel : ""}
+
+      ${!hasKey && !state.aiSettingsOpen ? `
+        <div class="notice-panel warning" style="margin-bottom:12px;cursor:pointer" data-action="ai-settings-toggle">
+          <strong>مفتاح API مفقود.</strong>
+          <span>اضغط هنا أو على "⚙ إعدادات" لإضافة مفتاح ${state.aiProvider === "claude" ? "Anthropic" : "OpenAI"}.</span>
+        </div>
+      ` : ""}
+
+      <div class="ai-messages" id="ai-messages">${messagesHtml}</div>
+
+      <form class="ai-input-row" data-form="ai-chat">
+        <textarea
+          class="ai-textarea"
+          name="message"
+          placeholder="اكتب رسالتك… (Shift+Enter لسطر جديد، Enter للإرسال)"
+          rows="2"
+          dir="auto"
+          ${state.aiLoading ? "disabled" : ""}
+        ></textarea>
+        <button class="button primary ai-send" type="submit" ${state.aiLoading ? "disabled" : ""}>إرسال</button>
+      </form>
+    </section>
+  `);
+}
+
+function invoice() {
+  if (!state.session) {
+    return shell(`
+      <section class="panel">
+        <h2>الفواتير بالدولار</h2>
+        <p class="muted">سجّل الدخول أولاً للوصول إلى نظام الفواتير.</p>
+      </section>
+    `);
+  }
+
+  const rows = state.invRows;
+  const grandTotal = rows.reduce((sum, r) => {
+    const qty = toNumber(r.qty);
+    const price = toNumber(r.price);
+    return sum + qty * price;
+  }, 0);
+
+  const rowsHtml = rows.map((r, i) => `
+    <tr class="inv-row">
+      <td><input class="inv-input" data-inv-field="name" data-inv-index="${i}" value="${escapeHtml(r.name)}" placeholder="اسم المادة" dir="auto"></td>
+      <td><input class="inv-input inv-num" data-inv-field="qty" data-inv-index="${i}" value="${escapeHtml(r.qty)}" placeholder="0" type="number" min="0" step="any"></td>
+      <td><input class="inv-input inv-num" data-inv-field="price" data-inv-index="${i}" value="${escapeHtml(r.price)}" placeholder="0.00" type="number" min="0" step="any"></td>
+      <td class="inv-line-total">$${(toNumber(r.qty) * toNumber(r.price)).toFixed(2)}</td>
+      <td>${rows.length > 1 ? `<button class="inv-remove" data-inv-remove="${i}" title="حذف">✕</button>` : ""}</td>
+    </tr>
+  `).join("");
+
+  return shell(`
+    <section class="panel wide inv-panel">
+      <div class="inv-form-area">
+        <div class="inv-header-fields">
+          <label class="inv-label">
+            اسم العميل
+            <input class="inv-input-main" id="inv-customer" value="${escapeHtml(state.invCustomer)}" placeholder="اسم العميل أو الشركة" maxlength="120">
+          </label>
+          <label class="inv-label">
+            ملاحظة (اختياري)
+            <input class="inv-input-main" id="inv-notes" value="${escapeHtml(state.invNotes)}" placeholder="شروط الدفع، الاستحقاق، إلخ…" maxlength="300">
+          </label>
+        </div>
+
+        <div class="inv-table-wrap">
+          <table class="inv-table">
+            <thead>
+              <tr>
+                <th>المادة</th>
+                <th style="width:90px">الكمية</th>
+                <th style="width:110px">سعر الوحدة $</th>
+                <th style="width:100px">المجموع $</th>
+                <th style="width:36px"></th>
+              </tr>
+            </thead>
+            <tbody id="inv-body">${rowsHtml}</tbody>
+          </table>
+        </div>
+
+        <div class="inv-footer">
+          <button class="button secondary" data-action="inv-add-row">+ إضافة مادة</button>
+          <div class="inv-total-box">
+            <span>الإجمالي</span>
+            <strong class="inv-grand-total">$${grandTotal.toFixed(2)}</strong>
+          </div>
+        </div>
+
+        <div class="inv-actions">
+          <button class="button primary" data-action="inv-print" ${!state.invCustomer.trim() ? "disabled title='أدخل اسم العميل أولاً'" : ""}>
+            🖨 طباعة / حفظ PDF
+          </button>
+          <button class="button secondary" data-action="inv-reset">مسح</button>
+        </div>
+      </div>
+    </section>
+  `);
+}
+
+function generateInvoiceNumber() {
+  const now = new Date();
+  const yy = String(now.getFullYear()).slice(-2);
+  const mm = String(now.getMonth() + 1).padStart(2, "0");
+  const rand = String(Math.floor(Math.random() * 900) + 100);
+  return `INV-${yy}${mm}-${rand}`;
+}
+
+function printInvoice() {
+  const customer = state.invCustomer.trim();
+  const notes = state.invNotes.trim();
+  const rows = state.invRows.filter((r) => r.name.trim() && toNumber(r.qty) > 0 && toNumber(r.price) > 0);
+  if (!customer || !rows.length) {
+    setNotice("error", "أدخل اسم العميل وصف واحد على الأقل بكمية وسعر.");
+    render();
+    return;
+  }
+
+  const invNum = generateInvoiceNumber();
+  const today = new Intl.DateTimeFormat("ar-SA-u-nu-latn", { dateStyle: "long" }).format(new Date());
+  const grandTotal = rows.reduce((s, r) => s + toNumber(r.qty) * toNumber(r.price), 0);
+
+  const rowsHtml = rows.map((r, i) => `
+    <tr>
+      <td>${i + 1}</td>
+      <td>${escapeHtml(r.name)}</td>
+      <td>${toNumber(r.qty)}</td>
+      <td>$${toNumber(r.price).toFixed(2)}</td>
+      <td>$${(toNumber(r.qty) * toNumber(r.price)).toFixed(2)}</td>
+    </tr>
+  `).join("");
+
+  const html = `<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<title>فاتورة ${invNum}</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: 'Segoe UI', Tahoma, Arial, sans-serif; font-size: 13px; color: #1a1a1a; background: #fff; padding: 40px; direction: rtl; }
+  .inv-head { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 36px; border-bottom: 3px solid #b8860b; padding-bottom: 20px; }
+  .inv-company { font-size: 22px; font-weight: 700; color: #5c3d00; letter-spacing: 1px; }
+  .inv-company small { display: block; font-size: 12px; font-weight: 400; color: #888; margin-top: 4px; }
+  .inv-meta { text-align: left; direction: ltr; }
+  .inv-meta p { margin: 3px 0; font-size: 12px; color: #555; }
+  .inv-meta strong { color: #1a1a1a; }
+  .inv-num { font-size: 16px; font-weight: 700; color: #b8860b; }
+  .inv-customer { background: #faf7f0; border: 1px solid #e8dfc8; border-radius: 6px; padding: 14px 18px; margin-bottom: 28px; }
+  .inv-customer p { font-size: 12px; color: #888; margin-bottom: 4px; }
+  .inv-customer strong { font-size: 15px; }
+  table { width: 100%; border-collapse: collapse; margin-bottom: 20px; }
+  th { background: #5c3d00; color: #fff; padding: 10px 12px; text-align: right; font-size: 12px; }
+  td { padding: 9px 12px; border-bottom: 1px solid #eee; font-size: 13px; }
+  tr:nth-child(even) td { background: #fdf9f3; }
+  .col-num { width: 36px; text-align: center; color: #aaa; }
+  .col-price, .col-total { text-align: left; direction: ltr; font-family: monospace; }
+  .total-row td { border-top: 2px solid #b8860b; font-weight: 700; font-size: 14px; background: #faf7f0; }
+  .notes { font-size: 12px; color: #666; margin-bottom: 28px; padding: 10px 14px; border-right: 3px solid #b8860b; background: #fdfaf5; }
+  .inv-foot { text-align: center; font-size: 11px; color: #aaa; margin-top: 40px; border-top: 1px solid #eee; padding-top: 16px; }
+  @media print { body { padding: 24px; } @page { margin: 1.5cm; } }
+</style>
+</head>
+<body>
+<div class="inv-head">
+  <div>
+    <div class="inv-company">${escapeHtml(appConfig.name)}<small>${escapeHtml(appConfig.tagline)}</small></div>
+  </div>
+  <div class="inv-meta">
+    <p class="inv-num">${invNum}</p>
+    <p><strong>التاريخ:</strong> ${today}</p>
+    <p><strong>العملة:</strong> دولار أمريكي (USD)</p>
+  </div>
+</div>
+
+<div class="inv-customer">
+  <p>فاتورة إلى</p>
+  <strong>${escapeHtml(customer)}</strong>
+</div>
+
+<table>
+  <thead>
+    <tr>
+      <th class="col-num">#</th>
+      <th>المادة</th>
+      <th style="width:70px">الكمية</th>
+      <th style="width:110px" class="col-price">سعر الوحدة</th>
+      <th style="width:110px" class="col-total">المجموع</th>
+    </tr>
+  </thead>
+  <tbody>${rowsHtml}</tbody>
+  <tfoot>
+    <tr class="total-row">
+      <td colspan="3"></td>
+      <td>الإجمالي</td>
+      <td class="col-total">$${grandTotal.toFixed(2)}</td>
+    </tr>
+  </tfoot>
+</table>
+
+${notes ? `<div class="notes"><strong>ملاحظة:</strong> ${escapeHtml(notes)}</div>` : ""}
+
+<div class="inv-foot">${escapeHtml(appConfig.name)} &mdash; ${escapeHtml(appConfig.supportEmail)}</div>
+
+<script>window.onload = () => { window.print(); }<\/script>
+</body></html>`;
+
+  const win = window.open("", "_blank", "width=850,height=1100");
+  if (win) {
+    win.document.write(html);
+    win.document.close();
+  } else {
+    setNotice("error", "يرجى السماح بالنوافذ المنبثقة لطباعة الفاتورة.");
+    render();
+  }
+}
+
 function statusCard(item) {
   return `
     <article class="status-card">
@@ -2594,8 +3311,13 @@ function taskItem(item) {
   `;
 }
 
+const REQUEST_STAGES = ["جديد", "قيد التجهيز", "جاهز للتسليم", "مغلق"];
+const STAGE_CLASS = { "جديد": "chip-new", "قيد التجهيز": "chip-progress", "جاهز للتسليم": "chip-ready", "مغلق": "chip-closed" };
+
 function requestCard(request) {
-  const nextStatus = request.status === "مغلق" ? "مفتوح" : "مغلق";
+  const status = REQUEST_STAGES.includes(request.status) ? request.status : "جديد";
+  const idx = REQUEST_STAGES.indexOf(status);
+  const next = REQUEST_STAGES[idx + 1] || null;
   return `
     <article class="request-card">
       <div>
@@ -2604,10 +3326,9 @@ function requestCard(request) {
       </div>
       <p>${escapeHtml(request.note)}</p>
       <div class="request-actions">
-        <span class="status-chip">${escapeHtml(request.status)}</span>
-        <button type="button" data-request="${escapeHtml(request.id)}" data-status="${nextStatus}">
-          ${request.status === "مغلق" ? "إعادة فتح" : "إغلاق"}
-        </button>
+        <span class="status-chip ${STAGE_CLASS[status] || ""}">${escapeHtml(status)}</span>
+        ${next ? `<button class="button secondary compact-button" type="button" data-request="${escapeHtml(request.id)}" data-status="${next}">→ ${next}</button>` : ""}
+        ${status !== "مغلق" ? `<button class="button secondary compact-button" type="button" data-request="${escapeHtml(request.id)}" data-status="مغلق">إغلاق</button>` : `<button class="button secondary compact-button" type="button" data-request="${escapeHtml(request.id)}" data-status="جديد">إعادة فتح</button>`}
       </div>
     </article>
   `;
@@ -2711,7 +3432,12 @@ function render() {
     pricing,
     remote,
     monitoring,
-    payments
+    payments,
+    invoice,
+    dashboard,
+    staff: staffPage,
+    search: searchPage,
+    ai: aiAssistant
   };
 
   app.innerHTML = pages[state.route]();
@@ -2729,6 +3455,131 @@ function render() {
 
   app.querySelector("[data-action='install']")?.addEventListener("click", installApp);
   app.querySelector("[data-action='logout']")?.addEventListener("click", logout);
+  app.querySelector("[data-action='enable-notif']")?.addEventListener("click", requestNotifPermission);
+  app.querySelector("[data-action='export-monthly']")?.addEventListener("click", exportMonthlyReport);
+
+  app.querySelector("[data-form='global-search']")?.addEventListener("submit", (e) => {
+    e.preventDefault();
+    const q = e.currentTarget.elements.q.value.trim();
+    state.globalSearch = q;
+    if (q) setRoute("search");
+  });
+
+  app.querySelectorAll("[data-search-nav]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      state.globalSearch = "";
+      setRoute(btn.dataset.route);
+    });
+  });
+
+  // Invoice handlers
+  app.querySelector("#inv-customer")?.addEventListener("input", (e) => {
+    state.invCustomer = e.currentTarget.value;
+    render();
+  });
+  app.querySelector("#inv-notes")?.addEventListener("input", (e) => {
+    state.invNotes = e.currentTarget.value;
+  });
+  app.querySelectorAll("[data-inv-field]").forEach((input) => {
+    input.addEventListener("input", (e) => {
+      const i = Number(e.currentTarget.dataset.invIndex);
+      const field = e.currentTarget.dataset.invField;
+      state.invRows[i][field] = e.currentTarget.value;
+      const tbody = document.getElementById("inv-body");
+      if (tbody) {
+        const cells = tbody.querySelectorAll("tr")[i]?.querySelectorAll(".inv-line-total");
+        if (cells?.[0]) {
+          const qty = toNumber(state.invRows[i].qty);
+          const price = toNumber(state.invRows[i].price);
+          cells[0].textContent = `$${(qty * price).toFixed(2)}`;
+        }
+        const grandEl = document.querySelector(".inv-grand-total");
+        if (grandEl) {
+          const total = state.invRows.reduce((s, r) => s + toNumber(r.qty) * toNumber(r.price), 0);
+          grandEl.textContent = `$${total.toFixed(2)}`;
+        }
+      }
+    });
+  });
+  app.querySelectorAll("[data-inv-remove]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const i = Number(btn.dataset.invRemove);
+      state.invRows.splice(i, 1);
+      render();
+    });
+  });
+  app.querySelector("[data-action='inv-add-row']")?.addEventListener("click", () => {
+    state.invRows.push({ name: "", qty: "1", price: "" });
+    render();
+  });
+  app.querySelector("[data-action='inv-print']")?.addEventListener("click", printInvoice);
+  app.querySelector("[data-action='inv-reset']")?.addEventListener("click", () => {
+    state.invCustomer = "";
+    state.invNotes = "";
+    state.invRows = [{ name: "", qty: "1", price: "" }];
+    render();
+  });
+  app.querySelector("[data-action='ai-clear']")?.addEventListener("click", () => {
+    state.aiMessages = [];
+    render();
+  });
+
+  app.querySelector("[data-action='ai-settings-toggle']")?.addEventListener("click", () => {
+    state.aiSettingsOpen = !state.aiSettingsOpen;
+    render();
+  });
+
+  app.querySelector("[data-action='ai-keys-clear']")?.addEventListener("click", () => {
+    if (confirm("هل تريد حذف جميع مفاتيح API المحفوظة؟")) {
+      setAiKey("claude", "");
+      setAiKey("chatgpt", "");
+      render();
+    }
+  });
+
+  app.querySelectorAll("[data-toggle-key]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const input = btn.closest(".ai-key-input-wrap")?.querySelector("input");
+      if (input) input.type = input.type === "password" ? "text" : "password";
+    });
+  });
+
+  app.querySelector("[data-form='ai-keys']")?.addEventListener("submit", (event) => {
+    event.preventDefault();
+    const form = event.currentTarget;
+    setAiKey("claude", form.elements.claude_key.value);
+    setAiKey("chatgpt", form.elements.chatgpt_key.value);
+    state.aiSettingsOpen = false;
+    render();
+  });
+
+  app.querySelectorAll("[data-ai-provider]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      state.aiProvider = btn.dataset.aiProvider;
+      render();
+    });
+  });
+
+  const aiForm = app.querySelector("[data-form='ai-chat']");
+  if (aiForm) {
+    const aiTextarea = aiForm.querySelector("textarea");
+    aiTextarea?.addEventListener("keydown", (event) => {
+      if (event.key === "Enter" && !event.shiftKey) {
+        event.preventDefault();
+        if (!state.aiLoading) {
+          sendAiMessage(aiTextarea.value);
+          aiTextarea.value = "";
+        }
+      }
+    });
+    aiForm.addEventListener("submit", (event) => {
+      event.preventDefault();
+      if (!state.aiLoading && aiTextarea) {
+        sendAiMessage(aiTextarea.value);
+        aiTextarea.value = "";
+      }
+    });
+  }
   app.querySelector("[data-action='export-ameen']")?.addEventListener("click", exportRequestsForAmeen);
   app.querySelector("[data-action='download-prices']")?.addEventListener("click", downloadFilteredPriceList);
   app.querySelector("[data-action='download-price-template']")?.addEventListener("click", downloadLivePriceTemplate);
@@ -2821,3 +3672,19 @@ setInterval(() => {
       .catch(() => {});
   }
 }, 60000);
+
+setInterval(async () => {
+  if (!state.session && dataStore.isConfigured()) return;
+  try {
+    const fresh = await dataStore.listRequests();
+    const newOnes = fresh.filter((r) => !state.seenRequestIds.has(r.id));
+    newOnes.forEach((r) => {
+      fireRequestNotif(r.customer);
+      state.seenRequestIds.add(r.id);
+    });
+    if (newOnes.length) {
+      state.requests = fresh;
+      render();
+    }
+  } catch {}
+}, 30000);
