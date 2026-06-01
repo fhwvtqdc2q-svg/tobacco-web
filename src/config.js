@@ -6,6 +6,17 @@ window.appConfig = {
     "لوحة ويب عربية لإدارة طلبات العملاء، متابعة العمل عن بعد، مراقبة الحالة، وتجهيز الدفع الإلكتروني عند اختيار مزود مناسب.",
   language: "ar",
   paymentStatus: "واجهة جاهزة للربط",
+  ai: {
+    ownerEmail: "ozk.kh@outlook.com",
+    claude: {
+      apiKey: "",
+      model: "claude-opus-4-8"
+    },
+    chatgpt: {
+      apiKey: "",
+      model: "gpt-4o"
+    }
+  },
   supabase: {
     url: "https://dyxbirfpxeocqffnfdeb.supabase.co",
     publishableKey: "sb_publishable_RkM_QDWxk8Yekqz9KBKXBw_Yl14zhSH",

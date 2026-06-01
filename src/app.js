@@ -133,7 +133,10 @@ const state = {
   customerSort: "balanceDesc",
   selectedCustomerKey: "",
   loading: true,
-  notice: null
+  notice: null,
+  aiMessages: [],
+  aiProvider: "claude",
+  aiLoading: false
 };
 
 const app = document.querySelector("#app");
@@ -1022,6 +1025,7 @@ function shell(content) {
           ${navButton("remote", "إدارة عن بعد")}
           ${navButton("monitoring", "المراقبة")}
           ${navButton("payments", "الدفع")}
+          ${state.session?.email === appConfig.ai.ownerEmail ? navButton("ai", "🤖 المساعد الذكي") : ""}
         </nav>
         <div style="margin-top:auto;padding-top:20px;border-top:1px solid #2f2415">
           <a href="privacy-policy.html" style="display:block;font-size:0.78rem;color:#7a6040;text-align:center;text-decoration:none;padding:6px 0;" target="_blank">سياسة الخصوصية</a>
@@ -1098,7 +1102,8 @@ function pageTitle() {
     pricing: "التسعير",
     remote: "الإدارة عن بعد",
     monitoring: "المراقبة",
-    payments: "الدفع"
+    payments: "الدفع",
+    ai: "المساعد الذكي"
   }[state.route];
 }
 
@@ -2070,6 +2075,159 @@ function payments() {
   `);
 }
 
+function renderMarkdown(text) {
+  const safe = escapeHtml(String(text ?? ""));
+  return safe
+    .replace(/\*\*([^*\n]+)\*\*/g, "<strong>$1</strong>")
+    .replace(/\*([^*\n]+)\*/g, "<em>$1</em>")
+    .replace(/`([^`\n]+)`/g, "<code>$1</code>")
+    .replace(/^#{1,3} (.+)$/gm, (_, t) => `<strong style="display:block;margin:8px 0 4px">${t}</strong>`)
+    .replace(/^[-•] (.+)$/gm, (_, t) => `<span style="display:block;padding-right:8px">• ${t}</span>`)
+    .replace(/\n\n+/g, "<br><br>")
+    .replace(/\n/g, "<br>");
+}
+
+async function sendAiMessage(input) {
+  const message = input.trim();
+  if (!message || state.aiLoading) return;
+
+  const aiConfig = appConfig.ai;
+  const providerKey = state.aiProvider === "claude" ? aiConfig.claude.apiKey : aiConfig.chatgpt.apiKey;
+  if (!providerKey) {
+    state.aiMessages.push({
+      role: "assistant",
+      content: `⚠️ مفتاح API غير مضاف. أضف مفتاح ${state.aiProvider === "claude" ? "Anthropic" : "OpenAI"} في src/config.js ضمن ai.${state.aiProvider}.apiKey`
+    });
+    render();
+    return;
+  }
+
+  state.aiMessages.push({ role: "user", content: message });
+  state.aiLoading = true;
+  render();
+
+  const scrollBottom = () => {
+    const el = document.getElementById("ai-messages");
+    if (el) el.scrollTop = el.scrollHeight;
+  };
+  setTimeout(scrollBottom, 30);
+
+  try {
+    let reply = "";
+
+    if (state.aiProvider === "claude") {
+      const response = await fetch("https://api.anthropic.com/v1/messages", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "x-api-key": aiConfig.claude.apiKey,
+          "anthropic-version": "2023-06-01",
+          "anthropic-dangerous-direct-browser-access": "true"
+        },
+        body: JSON.stringify({
+          model: aiConfig.claude.model || "claude-opus-4-8",
+          max_tokens: 4096,
+          messages: state.aiMessages
+            .filter((m) => m.role === "user" || m.role === "assistant")
+            .map((m) => ({ role: m.role, content: m.content }))
+        })
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error?.message || `Claude API ${response.status}`);
+      reply = data.content?.[0]?.text || "";
+    } else {
+      const response = await fetch("https://api.openai.com/v1/chat/completions", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          authorization: `Bearer ${aiConfig.chatgpt.apiKey}`
+        },
+        body: JSON.stringify({
+          model: aiConfig.chatgpt.model || "gpt-4o",
+          messages: state.aiMessages
+            .filter((m) => m.role === "user" || m.role === "assistant")
+            .map((m) => ({ role: m.role, content: m.content }))
+        })
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error?.message || `OpenAI API ${response.status}`);
+      reply = data.choices?.[0]?.message?.content || "";
+    }
+
+    state.aiMessages.push({ role: "assistant", content: reply });
+  } catch (err) {
+    state.aiMessages.push({ role: "assistant", content: `⚠️ خطأ: ${err.message}` });
+  } finally {
+    state.aiLoading = false;
+    render();
+    setTimeout(scrollBottom, 50);
+  }
+}
+
+function aiAssistant() {
+  const ownerEmail = appConfig.ai?.ownerEmail;
+  if (state.session?.email !== ownerEmail) {
+    return shell(`
+      <section class="panel">
+        <h2>غير مصرح</h2>
+        <p class="muted">المساعد الذكي متاح فقط لحساب مسؤول النظام. سجّل الدخول بالحساب الرئيسي للوصول.</p>
+      </section>
+    `);
+  }
+
+  const aiConfig = appConfig.ai;
+  const msgs = state.aiMessages;
+  const hasKey = Boolean(
+    state.aiProvider === "claude" ? aiConfig.claude?.apiKey : aiConfig.chatgpt?.apiKey
+  );
+
+  const messagesHtml = msgs.length === 0
+    ? `<div class="ai-welcome">
+         <p class="ai-welcome-title">مرحباً في المساعد الذكي</p>
+         <p class="muted">اكتب أي سؤال أو مهمة. لا يوجد حد للرسائل.</p>
+       </div>`
+    : msgs.map((m) => `
+        <div class="ai-message ${m.role === "user" ? "ai-user" : "ai-bot"}">
+          <div class="ai-bubble">${m.role === "assistant" ? renderMarkdown(m.content) : escapeHtml(m.content)}</div>
+        </div>`).join("") +
+      (state.aiLoading
+        ? `<div class="ai-message ai-bot"><div class="ai-bubble ai-thinking"><span></span><span></span><span></span></div></div>`
+        : "");
+
+  return shell(`
+    <section class="panel wide ai-panel">
+      <div class="ai-toolbar">
+        <div class="ai-provider-tabs">
+          <button class="ai-tab ${state.aiProvider === "claude" ? "active" : ""}" data-ai-provider="claude">Claude</button>
+          <button class="ai-tab ${state.aiProvider === "chatgpt" ? "active" : ""}" data-ai-provider="chatgpt">ChatGPT</button>
+        </div>
+        ${msgs.length > 0 ? `<button class="button secondary" style="font-size:0.8rem;padding:4px 12px" data-action="ai-clear">مسح</button>` : ""}
+      </div>
+
+      ${!hasKey ? `
+        <div class="notice-panel warning" style="margin-bottom:12px">
+          <strong>مفتاح API مفقود.</strong>
+          <span>أضف مفتاح ${state.aiProvider === "claude" ? "Anthropic" : "OpenAI"} في <code>src/config.js</code> ضمن <code>ai.${state.aiProvider}.apiKey</code>.</span>
+        </div>
+      ` : ""}
+
+      <div class="ai-messages" id="ai-messages">${messagesHtml}</div>
+
+      <form class="ai-input-row" data-form="ai-chat">
+        <textarea
+          class="ai-textarea"
+          name="message"
+          placeholder="اكتب رسالتك… (Shift+Enter لسطر جديد، Enter للإرسال)"
+          rows="2"
+          dir="auto"
+          ${state.aiLoading ? "disabled" : ""}
+        ></textarea>
+        <button class="button primary ai-send" type="submit" ${state.aiLoading ? "disabled" : ""}>إرسال</button>
+      </form>
+    </section>
+  `);
+}
+
 function statusCard(item) {
   return `
     <article class="status-card">
@@ -2211,7 +2369,8 @@ function render() {
     pricing,
     remote,
     monitoring,
-    payments
+    payments,
+    ai: aiAssistant
   };
 
   app.innerHTML = pages[state.route]();
@@ -2229,6 +2388,38 @@ function render() {
 
   app.querySelector("[data-action='install']")?.addEventListener("click", installApp);
   app.querySelector("[data-action='logout']")?.addEventListener("click", logout);
+  app.querySelector("[data-action='ai-clear']")?.addEventListener("click", () => {
+    state.aiMessages = [];
+    render();
+  });
+
+  app.querySelectorAll("[data-ai-provider]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      state.aiProvider = btn.dataset.aiProvider;
+      render();
+    });
+  });
+
+  const aiForm = app.querySelector("[data-form='ai-chat']");
+  if (aiForm) {
+    const aiTextarea = aiForm.querySelector("textarea");
+    aiTextarea?.addEventListener("keydown", (event) => {
+      if (event.key === "Enter" && !event.shiftKey) {
+        event.preventDefault();
+        if (!state.aiLoading) {
+          sendAiMessage(aiTextarea.value);
+          aiTextarea.value = "";
+        }
+      }
+    });
+    aiForm.addEventListener("submit", (event) => {
+      event.preventDefault();
+      if (!state.aiLoading && aiTextarea) {
+        sendAiMessage(aiTextarea.value);
+        aiTextarea.value = "";
+      }
+    });
+  }
   app.querySelector("[data-action='export-ameen']")?.addEventListener("click", exportRequestsForAmeen);
   app.querySelector("[data-action='download-prices']")?.addEventListener("click", downloadFilteredPriceList);
   app.querySelector("[data-action='download-price-template']")?.addEventListener("click", downloadLivePriceTemplate);
