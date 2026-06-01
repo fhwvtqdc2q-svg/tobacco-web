@@ -1331,3 +1331,155 @@ code {
     max-width: 95%;
   }
 }
+
+/* ── Invoice ── */
+.inv-panel {
+  padding: 0;
+}
+
+.inv-form-area {
+  padding: 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.inv-header-fields {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+}
+
+.inv-label {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 0.88rem;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.inv-input-main {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--text);
+  padding: 9px 12px;
+  font-size: 0.93rem;
+  font-family: inherit;
+}
+
+.inv-input-main:focus {
+  outline: none;
+  border-color: var(--primary);
+}
+
+.inv-table-wrap {
+  overflow-x: auto;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+}
+
+.inv-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.9rem;
+}
+
+.inv-table th {
+  background: var(--primary);
+  color: #fff;
+  padding: 10px 12px;
+  text-align: right;
+  font-weight: 600;
+  font-size: 0.85rem;
+}
+
+.inv-table td {
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--border);
+}
+
+.inv-table tr:last-child td {
+  border-bottom: none;
+}
+
+.inv-input {
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  color: var(--text);
+  padding: 6px 8px;
+  font-size: 0.9rem;
+  font-family: inherit;
+  width: 100%;
+}
+
+.inv-input:focus {
+  outline: none;
+  background: var(--surface);
+  border-color: var(--primary);
+}
+
+.inv-num {
+  text-align: center;
+  direction: ltr;
+}
+
+.inv-line-total {
+  font-family: monospace;
+  direction: ltr;
+  text-align: left;
+  color: var(--muted);
+  font-size: 0.88rem;
+  padding-left: 12px;
+}
+
+.inv-remove {
+  background: none;
+  border: none;
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 0.8rem;
+  padding: 4px 6px;
+  border-radius: 4px;
+}
+
+.inv-remove:hover {
+  color: #e05252;
+  background: rgba(224, 82, 82, 0.1);
+}
+
+.inv-footer {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.inv-total-box {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-size: 0.95rem;
+  color: var(--muted);
+}
+
+.inv-grand-total {
+  font-size: 1.3rem;
+  font-weight: 700;
+  color: var(--primary);
+  font-family: monospace;
+  direction: ltr;
+}
+
+.inv-actions {
+  display: flex;
+  gap: 12px;
+  padding-top: 4px;
+}
+
+@media (max-width: 640px) {
+  .inv-header-fields {
+    grid-template-columns: 1fr;
+  }
+}

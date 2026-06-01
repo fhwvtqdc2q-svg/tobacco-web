@@ -137,7 +137,10 @@ const state = {
   aiMessages: [],
   aiProvider: "claude",
   aiLoading: false,
-  aiSettingsOpen: false
+  aiSettingsOpen: false,
+  invCustomer: "",
+  invNotes: "",
+  invRows: [{ name: "", qty: "1", price: "" }]
 };
 
 const app = document.querySelector("#app");
@@ -1026,6 +1029,7 @@ function shell(content) {
           ${navButton("remote", "إدارة عن بعد")}
           ${navButton("monitoring", "المراقبة")}
           ${navButton("payments", "الدفع")}
+          ${state.session ? navButton("invoice", "📄 الفواتير") : ""}
           ${state.session?.email === appConfig.ai.ownerEmail ? navButton("ai", "🤖 المساعد الذكي") : ""}
         </nav>
         <div style="margin-top:auto;padding-top:20px;border-top:1px solid #2f2415">
@@ -1104,7 +1108,8 @@ function pageTitle() {
     remote: "الإدارة عن بعد",
     monitoring: "المراقبة",
     payments: "الدفع",
-    ai: "المساعد الذكي"
+    ai: "المساعد الذكي",
+    invoice: "الفواتير بالدولار"
   }[state.route];
 }
 
@@ -2294,6 +2299,197 @@ function aiAssistant() {
   `);
 }
 
+function invoice() {
+  if (!state.session) {
+    return shell(`
+      <section class="panel">
+        <h2>الفواتير بالدولار</h2>
+        <p class="muted">سجّل الدخول أولاً للوصول إلى نظام الفواتير.</p>
+      </section>
+    `);
+  }
+
+  const rows = state.invRows;
+  const grandTotal = rows.reduce((sum, r) => {
+    const qty = toNumber(r.qty);
+    const price = toNumber(r.price);
+    return sum + qty * price;
+  }, 0);
+
+  const rowsHtml = rows.map((r, i) => `
+    <tr class="inv-row">
+      <td><input class="inv-input" data-inv-field="name" data-inv-index="${i}" value="${escapeHtml(r.name)}" placeholder="اسم المادة" dir="auto"></td>
+      <td><input class="inv-input inv-num" data-inv-field="qty" data-inv-index="${i}" value="${escapeHtml(r.qty)}" placeholder="0" type="number" min="0" step="any"></td>
+      <td><input class="inv-input inv-num" data-inv-field="price" data-inv-index="${i}" value="${escapeHtml(r.price)}" placeholder="0.00" type="number" min="0" step="any"></td>
+      <td class="inv-line-total">$${(toNumber(r.qty) * toNumber(r.price)).toFixed(2)}</td>
+      <td>${rows.length > 1 ? `<button class="inv-remove" data-inv-remove="${i}" title="حذف">✕</button>` : ""}</td>
+    </tr>
+  `).join("");
+
+  return shell(`
+    <section class="panel wide inv-panel">
+      <div class="inv-form-area">
+        <div class="inv-header-fields">
+          <label class="inv-label">
+            اسم العميل
+            <input class="inv-input-main" id="inv-customer" value="${escapeHtml(state.invCustomer)}" placeholder="اسم العميل أو الشركة" maxlength="120">
+          </label>
+          <label class="inv-label">
+            ملاحظة (اختياري)
+            <input class="inv-input-main" id="inv-notes" value="${escapeHtml(state.invNotes)}" placeholder="شروط الدفع، الاستحقاق، إلخ…" maxlength="300">
+          </label>
+        </div>
+
+        <div class="inv-table-wrap">
+          <table class="inv-table">
+            <thead>
+              <tr>
+                <th>المادة</th>
+                <th style="width:90px">الكمية</th>
+                <th style="width:110px">سعر الوحدة $</th>
+                <th style="width:100px">المجموع $</th>
+                <th style="width:36px"></th>
+              </tr>
+            </thead>
+            <tbody id="inv-body">${rowsHtml}</tbody>
+          </table>
+        </div>
+
+        <div class="inv-footer">
+          <button class="button secondary" data-action="inv-add-row">+ إضافة مادة</button>
+          <div class="inv-total-box">
+            <span>الإجمالي</span>
+            <strong class="inv-grand-total">$${grandTotal.toFixed(2)}</strong>
+          </div>
+        </div>
+
+        <div class="inv-actions">
+          <button class="button primary" data-action="inv-print" ${!state.invCustomer.trim() ? "disabled title='أدخل اسم العميل أولاً'" : ""}>
+            🖨 طباعة / حفظ PDF
+          </button>
+          <button class="button secondary" data-action="inv-reset">مسح</button>
+        </div>
+      </div>
+    </section>
+  `);
+}
+
+function generateInvoiceNumber() {
+  const now = new Date();
+  const yy = String(now.getFullYear()).slice(-2);
+  const mm = String(now.getMonth() + 1).padStart(2, "0");
+  const rand = String(Math.floor(Math.random() * 900) + 100);
+  return `INV-${yy}${mm}-${rand}`;
+}
+
+function printInvoice() {
+  const customer = state.invCustomer.trim();
+  const notes = state.invNotes.trim();
+  const rows = state.invRows.filter((r) => r.name.trim() && toNumber(r.qty) > 0 && toNumber(r.price) > 0);
+  if (!customer || !rows.length) {
+    setNotice("error", "أدخل اسم العميل وصف واحد على الأقل بكمية وسعر.");
+    render();
+    return;
+  }
+
+  const invNum = generateInvoiceNumber();
+  const today = new Intl.DateTimeFormat("ar-SA-u-nu-latn", { dateStyle: "long" }).format(new Date());
+  const grandTotal = rows.reduce((s, r) => s + toNumber(r.qty) * toNumber(r.price), 0);
+
+  const rowsHtml = rows.map((r, i) => `
+    <tr>
+      <td>${i + 1}</td>
+      <td>${escapeHtml(r.name)}</td>
+      <td>${toNumber(r.qty)}</td>
+      <td>$${toNumber(r.price).toFixed(2)}</td>
+      <td>$${(toNumber(r.qty) * toNumber(r.price)).toFixed(2)}</td>
+    </tr>
+  `).join("");
+
+  const html = `<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<title>فاتورة ${invNum}</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: 'Segoe UI', Tahoma, Arial, sans-serif; font-size: 13px; color: #1a1a1a; background: #fff; padding: 40px; direction: rtl; }
+  .inv-head { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 36px; border-bottom: 3px solid #b8860b; padding-bottom: 20px; }
+  .inv-company { font-size: 22px; font-weight: 700; color: #5c3d00; letter-spacing: 1px; }
+  .inv-company small { display: block; font-size: 12px; font-weight: 400; color: #888; margin-top: 4px; }
+  .inv-meta { text-align: left; direction: ltr; }
+  .inv-meta p { margin: 3px 0; font-size: 12px; color: #555; }
+  .inv-meta strong { color: #1a1a1a; }
+  .inv-num { font-size: 16px; font-weight: 700; color: #b8860b; }
+  .inv-customer { background: #faf7f0; border: 1px solid #e8dfc8; border-radius: 6px; padding: 14px 18px; margin-bottom: 28px; }
+  .inv-customer p { font-size: 12px; color: #888; margin-bottom: 4px; }
+  .inv-customer strong { font-size: 15px; }
+  table { width: 100%; border-collapse: collapse; margin-bottom: 20px; }
+  th { background: #5c3d00; color: #fff; padding: 10px 12px; text-align: right; font-size: 12px; }
+  td { padding: 9px 12px; border-bottom: 1px solid #eee; font-size: 13px; }
+  tr:nth-child(even) td { background: #fdf9f3; }
+  .col-num { width: 36px; text-align: center; color: #aaa; }
+  .col-price, .col-total { text-align: left; direction: ltr; font-family: monospace; }
+  .total-row td { border-top: 2px solid #b8860b; font-weight: 700; font-size: 14px; background: #faf7f0; }
+  .notes { font-size: 12px; color: #666; margin-bottom: 28px; padding: 10px 14px; border-right: 3px solid #b8860b; background: #fdfaf5; }
+  .inv-foot { text-align: center; font-size: 11px; color: #aaa; margin-top: 40px; border-top: 1px solid #eee; padding-top: 16px; }
+  @media print { body { padding: 24px; } @page { margin: 1.5cm; } }
+</style>
+</head>
+<body>
+<div class="inv-head">
+  <div>
+    <div class="inv-company">${escapeHtml(appConfig.name)}<small>${escapeHtml(appConfig.tagline)}</small></div>
+  </div>
+  <div class="inv-meta">
+    <p class="inv-num">${invNum}</p>
+    <p><strong>التاريخ:</strong> ${today}</p>
+    <p><strong>العملة:</strong> دولار أمريكي (USD)</p>
+  </div>
+</div>
+
+<div class="inv-customer">
+  <p>فاتورة إلى</p>
+  <strong>${escapeHtml(customer)}</strong>
+</div>
+
+<table>
+  <thead>
+    <tr>
+      <th class="col-num">#</th>
+      <th>المادة</th>
+      <th style="width:70px">الكمية</th>
+      <th style="width:110px" class="col-price">سعر الوحدة</th>
+      <th style="width:110px" class="col-total">المجموع</th>
+    </tr>
+  </thead>
+  <tbody>${rowsHtml}</tbody>
+  <tfoot>
+    <tr class="total-row">
+      <td colspan="3"></td>
+      <td>الإجمالي</td>
+      <td class="col-total">$${grandTotal.toFixed(2)}</td>
+    </tr>
+  </tfoot>
+</table>
+
+${notes ? `<div class="notes"><strong>ملاحظة:</strong> ${escapeHtml(notes)}</div>` : ""}
+
+<div class="inv-foot">${escapeHtml(appConfig.name)} &mdash; ${escapeHtml(appConfig.supportEmail)}</div>
+
+<script>window.onload = () => { window.print(); }<\/script>
+</body></html>`;
+
+  const win = window.open("", "_blank", "width=850,height=1100");
+  if (win) {
+    win.document.write(html);
+    win.document.close();
+  } else {
+    setNotice("error", "يرجى السماح بالنوافذ المنبثقة لطباعة الفاتورة.");
+    render();
+  }
+}
+
 function statusCard(item) {
   return `
     <article class="status-card">
@@ -2436,6 +2632,7 @@ function render() {
     remote,
     monitoring,
     payments,
+    invoice,
     ai: aiAssistant
   };
 
@@ -2454,6 +2651,54 @@ function render() {
 
   app.querySelector("[data-action='install']")?.addEventListener("click", installApp);
   app.querySelector("[data-action='logout']")?.addEventListener("click", logout);
+
+  // Invoice handlers
+  app.querySelector("#inv-customer")?.addEventListener("input", (e) => {
+    state.invCustomer = e.currentTarget.value;
+    render();
+  });
+  app.querySelector("#inv-notes")?.addEventListener("input", (e) => {
+    state.invNotes = e.currentTarget.value;
+  });
+  app.querySelectorAll("[data-inv-field]").forEach((input) => {
+    input.addEventListener("input", (e) => {
+      const i = Number(e.currentTarget.dataset.invIndex);
+      const field = e.currentTarget.dataset.invField;
+      state.invRows[i][field] = e.currentTarget.value;
+      const tbody = document.getElementById("inv-body");
+      if (tbody) {
+        const cells = tbody.querySelectorAll("tr")[i]?.querySelectorAll(".inv-line-total");
+        if (cells?.[0]) {
+          const qty = toNumber(state.invRows[i].qty);
+          const price = toNumber(state.invRows[i].price);
+          cells[0].textContent = `$${(qty * price).toFixed(2)}`;
+        }
+        const grandEl = document.querySelector(".inv-grand-total");
+        if (grandEl) {
+          const total = state.invRows.reduce((s, r) => s + toNumber(r.qty) * toNumber(r.price), 0);
+          grandEl.textContent = `$${total.toFixed(2)}`;
+        }
+      }
+    });
+  });
+  app.querySelectorAll("[data-inv-remove]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const i = Number(btn.dataset.invRemove);
+      state.invRows.splice(i, 1);
+      render();
+    });
+  });
+  app.querySelector("[data-action='inv-add-row']")?.addEventListener("click", () => {
+    state.invRows.push({ name: "", qty: "1", price: "" });
+    render();
+  });
+  app.querySelector("[data-action='inv-print']")?.addEventListener("click", printInvoice);
+  app.querySelector("[data-action='inv-reset']")?.addEventListener("click", () => {
+    state.invCustomer = "";
+    state.invNotes = "";
+    state.invRows = [{ name: "", qty: "1", price: "" }];
+    render();
+  });
   app.querySelector("[data-action='ai-clear']")?.addEventListener("click", () => {
     state.aiMessages = [];
     render();
