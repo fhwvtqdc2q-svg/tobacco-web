@@ -44,12 +44,12 @@ const groups = [...first, ...middle, ...last];
 
 // ── CSS ───────────────────────────────────────────────────────────────────────
 const CSS = `
-  @import url('https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700;900&display=swap');
+  @import url('https://fonts.googleapis.com/css2?family=Almarai:wght@300;400;700;800&display=swap');
 
   * { margin:0; padding:0; box-sizing:border-box; }
 
   body {
-    font-family: 'Cairo', Tahoma, Arial, sans-serif;
+    font-family: 'Almarai', Tahoma, Arial, sans-serif;
     background: #0c0a07;
     color: #e8d9b0;
     direction: rtl;
@@ -185,7 +185,7 @@ const CSS = `
     background: #d7a83f; color: #0c0a07; border: none;
     padding: 8px 18px; border-radius: 8px; font-size: 12px;
     font-weight: 900; cursor: pointer;
-    font-family: 'Cairo', Tahoma, sans-serif;
+    font-family: 'Almarai', Tahoma, sans-serif;
     box-shadow: 0 3px 12px rgba(0,0,0,.5);
   }
 `;
@@ -282,9 +282,9 @@ const indexHtml = `<!DOCTYPE html>
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>نشرات الأسعار — OZK TOBACCO</title>
 <style>
-  @import url('https://fonts.googleapis.com/css2?family=Cairo:wght@400;700;900&display=swap');
+  @import url('https://fonts.googleapis.com/css2?family=Almarai:wght@400;700;800&display=swap');
   * { margin:0; padding:0; box-sizing:border-box; }
-  body { font-family:'Cairo',Tahoma,sans-serif; background:#0c0a07; color:#e8d9b0;
+  body { font-family:'Almarai',Tahoma,sans-serif; background:#0c0a07; color:#e8d9b0;
          min-height:100vh; display:flex; flex-direction:column; align-items:center; padding:40px 20px; }
   .logo-img { height:80px; margin-bottom:6px; }
   .sub  { color:#a08850; font-size:.88rem; margin-bottom:2px; font-weight:600; }
