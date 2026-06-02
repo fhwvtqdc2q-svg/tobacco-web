@@ -1540,18 +1540,24 @@ async function savePricingItem(form) {
         }
       }
     ]);
+
+    if (!saved || !Array.isArray(saved)) {
+      throw new Error("لم يتم استقبال تأكيد الحفظ من قاعدة البيانات. تأكد من الاتصال والصلاحيات.");
+    }
+
     const priceMap = approvedPriceMap();
     saved.forEach((item) => priceMap.set(item.itemKey, item));
     state.approvedPriceItems = [...priceMap.values()].sort((a, b) => String(a.itemName || "").localeCompare(String(b.itemName || ""), "ar"));
     setNotice(
       "success",
-      `تم حفظ سعر ${itemName}. سعر ${unit2Name}: ${formatMoney(unit2Price)} / عامل التحويل: ${formatMoney(unit2Factor)} / سعر ${unit1Name}: ${formatMoney(salePrice)}.`
+      `✓ تم حفظ السعر بنجاح: ${itemName} = ${formatMoney(unit2Price)} ${unit2Name}`
     );
     render();
   } catch (error) {
-    setNotice("error", error.message);
+    console.error("savePricingItem error:", error);
+    setNotice("error", `❌ خطأ: ${error.message || "فشل الحفظ"}`);
+    render();
   }
-  render();
 }
 
 function downloadLatestInventoryReport() {
