@@ -200,11 +200,9 @@ const state = {
   notifPermission: "default",
   seenRequestIds: new Set(),
   globalSearch: "",
-  darkMode: readJson("dark-mode", true),
-  paymentRecords: {},
-  paymentLoading: false,
-  paymentError: null,
-  customerProfiles: []
+  syriaCurrency: "USD",
+  syriaExchangeRate: 1,
+  showExchangeModal: false
 };
 
 const app = document.querySelector("#app");
@@ -1359,48 +1357,63 @@ function pricePdfBook(groups) {
     .join("");
 }
 
-function customerPricePdfMarkup(items, latest) {
+function customerPricePdfMarkup(items, latest, useSyria = false) {
   const groups = groupCustomerPriceItems(items);
+  const pdfTitle = useSyria ? `نشرة الأسعار بالليرة السورية (سعر الصرف: ${state.syriaExchangeRate})` : "قائمة أسعار OZK TOBACCO";
   return `
-    <div class="price-pdf-book" dir="rtl">
-      ${pricePdfBook(groups)}
+    <div class="price-pdf-book" dir="rtl" style="background:#fff;color:#000">
+      ${pricePdfBook(groups, pdfTitle)}
     </div>
   `;
 }
 
-async function downloadCustomerPricePdf() {
+async function downloadCustomerPricePdf(useSyria = false) {
   const latest = state.inventoryReports[0];
-  const items = customerPriceListItems();
+  let items = customerPriceListItems();
+
+  if (useSyria) {
+    if (state.syriaCurrency !== "SYP") {
+      state.showExchangeModal = true;
+      render();
+      return;
+    }
+    items = items.map((item) => ({
+      ...item,
+      unit1Price: item.unit1Price > 0 ? Math.round(item.unit1Price * state.syriaExchangeRate) : 0,
+      unit2Price: item.unit2Price > 0 ? Math.round(item.unit2Price * state.syriaExchangeRate) : 0
+    }));
+  }
+
   if (!latest || !items.length) {
-    setNotice("error", "لا توجد مواد متوفرة ومُسعّرة لإنشاء نشرة PDF للزبائن.");
+    setNotice("error", "لا توجد مواد متوفرة ومُسعّرة لإنشاء نشرة PDF.");
     render();
     return;
   }
   if (!window.html2pdf) {
-    setNotice("error", "مكتبة PDF لم تتحمل بعد. حدث الصفحة ثم جرب مرة أخرى.");
+    setNotice("error", "مكتبة PDF لم تتحمل. حدث الصفحة وجرب مرة أخرى.");
     render();
     return;
   }
 
   const container = document.createElement("div");
-  container.className = "price-pdf-render";
-  container.innerHTML = customerPricePdfMarkup(items, latest);
+  container.style.width = "100%";
+  container.style.backgroundColor = "#fff";
+  container.innerHTML = customerPricePdfMarkup(items, latest, useSyria);
   document.body.appendChild(container);
 
   try {
     await window
       .html2pdf()
       .set({
-        filename: `ozk-customer-prices-${todayIsoDate()}.pdf`,
-        margin: [6, 6, 8, 6],
-        image: { type: "jpeg", quality: 0.98 },
-        html2canvas: { scale: 2, useCORS: true, backgroundColor: "#080704", scrollX: 0, scrollY: 0 },
-        jsPDF: { unit: "mm", format: "a4", orientation: "portrait" },
-        pagebreak: { mode: ["css"] }
+        filename: `ozk-${useSyria ? "prices-syria" : "customer-prices"}-${todayIsoDate()}.pdf`,
+        margin: 5,
+        image: { type: "png", quality: 0.98 },
+        html2canvas: { scale: 2, useCORS: true, backgroundColor: "#ffffff", allowTaint: true },
+        jsPDF: { unit: "mm", format: "a4", orientation: "portrait" }
       })
-      .from(container.firstElementChild)
+      .from(container)
       .save();
-    setNotice("success", `تم تجهيز نشرة PDF للزبائن: ${items.length} صنف متوفر ومُسعّر فقط.`);
+    setNotice("success", `تم تجهيز ${useSyria ? "نشرة السعر بالليرة السورية" : "نشرة PDF"}: ${items.length} صنف.`);
   } catch (error) {
     setNotice("error", error.message || "تعذر إنشاء ملف PDF.");
   } finally {
@@ -2411,7 +2424,8 @@ function pricing() {
         <button class="button secondary" type="button" data-action="refresh-ameen">تحديث الجرد</button>
         <button class="button secondary" type="button" data-action="download-daily-pricing" ${items.length ? "" : "disabled"}>تنزيل قائمة تسعير اليوم</button>
         <button class="button secondary" type="button" data-action="download-price-template" ${allAvailable.length ? "" : "disabled"}>تنزيل قالب Excel</button>
-        <button class="button primary" type="button" data-action="download-customer-price-pdf" ${customerPriceListItems().length ? "" : "disabled"}>نشرة PDF للزبائن</button>
+        <button class="button primary" type="button" data-action="download-customer-price-pdf" ${customerPriceListItems().length ? "" : "disabled"}>نشرة الدولار</button>
+        <button class="button primary" type="button" data-action="download-customer-price-syria" ${customerPriceListItems().length ? "" : "disabled"}>نشرة السوري</button>
         <button class="button secondary" type="button" data-action="download-approved-prices" ${state.approvedPriceItems.length ? "" : "disabled"}>تصدير أسعار المحاسبة</button>
       </div>
       <form class="form-card compact" data-form="live-price-import">
@@ -3644,6 +3658,38 @@ function bindPricingForms(root = app) {
 }
 
 function render() {
+  if (state.showExchangeModal) {
+    app.innerHTML = `
+      <div class="modal-overlay" onclick="if(event.target === this) { state.showExchangeModal = false; render(); }">
+        <div class="modal" style="max-width:420px">
+          <h2>🔄 سعر صرف الدولار إلى الليرة السورية</h2>
+          <p class="muted" style="margin:8px 0 16px">أدخل سعر الصرف الحالي لتحويل الأسعار وتنزيل النشرة:</p>
+          <form id="exchange-form">
+            <label style="display:flex;flex-direction:column;gap:4px;font-size:0.82rem;margin-bottom:14px">
+              السعر (ليرة سورية مقابل دولار واحد)
+              <input type="number" id="exchange-input" step="0.01" min="0" placeholder="مثال: 88000" value="${state.syriaExchangeRate}" required style="padding:8px 10px;border:1px solid var(--line);background:var(--surface);color:var(--ink);border-radius:6px;font-family:monospace">
+            </label>
+            <div style="display:flex;gap:10px;justify-content:flex-end">
+              <button class="btn btn-secondary" type="button" onclick="state.showExchangeModal = false; render()">إلغاء</button>
+              <button class="btn btn-primary" type="submit">تطبيق وتنزيل</button>
+            </div>
+          </form>
+        </div>
+      </div>
+    `;
+    const form = app.querySelector("#exchange-form");
+    if (form) {
+      form.addEventListener("submit", async (e) => {
+        e.preventDefault();
+        state.syriaExchangeRate = Number(document.getElementById("exchange-input").value) || 1;
+        state.syriaCurrency = "SYP";
+        state.showExchangeModal = false;
+        await downloadCustomerPricePdf(true);
+      });
+    }
+    return;
+  }
+
   const pages = {
     overview,
     login,
@@ -3809,7 +3855,8 @@ function render() {
   app.querySelector("[data-action='download-prices']")?.addEventListener("click", downloadFilteredPriceList);
   app.querySelector("[data-action='download-price-template']")?.addEventListener("click", downloadLivePriceTemplate);
   app.querySelector("[data-action='download-daily-pricing']")?.addEventListener("click", downloadDailyPricingWorklist);
-  app.querySelector("[data-action='download-customer-price-pdf']")?.addEventListener("click", downloadCustomerPricePdf);
+  app.querySelector("[data-action='download-customer-price-pdf']")?.addEventListener("click", () => downloadCustomerPricePdf(false));
+  app.querySelector("[data-action='download-customer-price-syria']")?.addEventListener("click", () => downloadCustomerPricePdf(true));
   app.querySelector("[data-action='download-approved-prices']")?.addEventListener("click", downloadApprovedPricesForAccounting);
   app.querySelector("[data-action='download-inventory']")?.addEventListener("click", downloadLatestInventoryReport);
   app.querySelector("[data-action='download-filtered-inventory']")?.addEventListener("click", downloadFilteredInventoryReport);
