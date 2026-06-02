@@ -1,8 +1,26 @@
 node_modules/
-.DS_Store
 dist/
+
+# Environment & credentials — never commit
 .env
-.tools/
+.env.*
+!.env.example
+tools/.env
+tools/logs/
+
+# Generated reports & CSV exports — may contain customer data
+reports/prices/*.csv
+reports/daily/
+*.xlsx
+*.xls
+
+# OS & editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# Runtime
 *.log
 *.pid
 reports/prices/*.csv

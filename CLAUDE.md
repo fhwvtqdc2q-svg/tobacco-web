@@ -103,10 +103,15 @@ reports/prices/*.csv          ← بيانات أسعار حساسة
 | جدول الجرد | `inventory_reports` |
 | جدول حدود الائتمان | `customer_credit_limits` |
 
-### ملاحظة: جدول approved_price_items
-دور `anon` محجوب بـ RLS عن هذا الجدول. لسحب الأسعار استخدم:
-```powershell
-.\tools\pull-approved-prices.ps1
+### اختبار الاتصال بـ Supabase (من cloud):
+```bash
+# اختبار وصول قاعدة البيانات — يتطلب Bearer token من جلسة مصادقة فعّالة
+# (الجدول approved_price_items يحجب دور anon، لا يعمل بالمفتاح العام وحده)
+# الطريقة الصحيحة للاختبار: شغّل السكريبت التالي على جهاز Windows:
+#   .\tools\pull-approved-prices.ps1
+# أو اختبر الاتصال بجدول عام (بدون RLS):
+curl -s "https://dyxbirfpxeocqffnfdeb.supabase.co/rest/v1/" \
+  -H "apikey: sb_publishable_RkM_QDWxk8Yekqz9KBKXBw_Yl14zhSH"
 ```
 
 ---
@@ -148,11 +153,8 @@ reports/prices/*.csv          ← بيانات أسعار حساسة
 # مع تعديل حد التنبيه للمواد قاربت النفاد (القيمة الافتراضية 50)
 .\tools\ameen-sync-agent.ps1 -Once -LowThreshold 30
 ```
-> **ملاحظة:** هذا السكريبت يقرأ البيانات من الأمين ويرفعها إلى Supabase فقط.
-> لا يكتب أسعاراً على الأمين. الاتجاه: الأمين → Supabase.
-
-> ملاحظة: `ameen-sync-agent.ps1` يقرأ بيانات الجرد والأرصدة **من** الأمين ويرفعها **إلى** Supabase.
-> لا يكتب أسعاراً على الأمين. مزامنة الأسعار تتم عبر `sync-approved-prices-to-ameen.ps1`.
+> **ملاحظة:** هذا السكريبت يقرأ البيانات من الأمين ويرفعها إلى Supabase.
+> الاتجاه: الأمين → Supabase. مزامنة الأسعار العكسية تتم عبر `sync-approved-prices-to-ameen.ps1`.
 
 ### تسجيل مهام Windows Task Scheduler
 ```powershell
