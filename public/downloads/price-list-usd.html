@@ -3,75 +3,88 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>نشرة الدولار — OZK TOBACCO</title>
+<title>نشرة الأسعار دولار — 2026-06-02</title>
 <style>
   * { margin:0; padding:0; box-sizing:border-box; }
-  body { font-family: Tahoma, 'Segoe UI', Arial, sans-serif; background:#fff; color:#1a1a1a; direction:rtl; }
+  body { font-family: Tahoma, 'Segoe UI', Arial, sans-serif; background:#fff; color:#111; direction:rtl; }
 
-  /* ── الطباعة ─────────────────────────────── */
-  @page { size: A4 portrait; margin: 12mm 10mm; }
+  @page  { size: A4 portrait; margin: 10mm 8mm; }
   @media print {
-    body { margin:0; -webkit-print-color-adjust:exact; print-color-adjust:exact; }
+    body { -webkit-print-color-adjust:exact; print-color-adjust:exact; }
     .no-print { display:none !important; }
-    .header { background:#f0ead8 !important; border:2px solid #d7a83f !important; }
-    thead tr { background:#e8d4b0 !important; }
-    tr.odd { background:#f9f7f3 !important; }
-    .footer { background:#f0ead8 !important; }
-    table { page-break-inside:auto; }
-    tr { page-break-inside:avoid; }
+    .col { break-inside: avoid-column; }
+    .group-block { break-inside: avoid; }
+    .header, .footer { background:#f0ead8 !important; }
+    .group-header { background:#e8d4b0 !important; }
+    tr.odd  { background:#f9f7f3 !important; }
   }
 
-  /* ── رأس الصفحة ──────────────────────────── */
+  /* ── رأس الصفحة ─────────────────────────── */
   .header {
-    background:#f0ead8; border:2px solid #d7a83f; border-radius:8px;
-    padding:14px 20px; margin:14px; display:flex;
-    justify-content:space-between; align-items:center; gap:12px;
+    background: #f0ead8; border: 2px solid #d7a83f; border-radius: 8px;
+    padding: 12px 18px; margin: 10px 10px 8px;
+    display: flex; justify-content: space-between; align-items: center; gap: 10px;
   }
-  .brand { display:flex; flex-direction:column; gap:3px; }
-  .brand-name { font-size:24px; font-weight:900; color:#221808; letter-spacing:1px; }
-  .brand-sub { font-size:13px; color:#6b5535; font-weight:700; }
-  .meta-block { text-align:center; }
-  .meta-block .label { font-size:9px; font-weight:700; color:#6b5535; text-transform:uppercase; letter-spacing:.5px; }
-  .meta-block .value { font-size:13px; font-weight:900; color:#221808; margin:2px 0; }
-  .meta-block .sub { font-size:10px; color:#8a6a35; }
-  .meta-sep { width:1px; background:#c8a673; align-self:stretch; opacity:.6; }
+  .brand-name  { font-size: 22px; font-weight: 900; color: #221808; letter-spacing: 1px; }
+  .bulletin-title { font-size: 16px; font-weight: 700; color: #6b5535; margin-top: 2px; }
+  .currency-badge {
+    display: inline-block; padding: 3px 10px; border-radius: 12px;
+    font-size: 12px; font-weight: 700; margin-top: 4px;
+  }
+  .badge-usd { background: #d7a83f; color: #1a1208; }
+  .badge-syp { background: #3a7a3a; color: #fff; }
 
-  /* ── الجدول ──────────────────────────────── */
-  .container { margin:0 14px 14px; }
-  table { width:100%; border-collapse:collapse; border:1px solid #d8c899; border-radius:8px; overflow:hidden; }
-  thead tr { background:#e8d4b0; }
-  thead th { padding:9px 8px; font-size:12px; color:#3a2a0a; border-bottom:2px solid #c8a673; }
-  td { padding:5px 8px; border-bottom:1px solid #e0d8c8; font-size:11px; }
-  td.name  { font-weight:700; color:#1a1a1a; }
-  td.unit  { color:#5a4010; text-align:center; }
-  td.price { font-weight:900; color:#1a1a1a; text-align:left; direction:ltr; font-size:12px; }
-  tr.odd  { background:#f9f7f3; }
-  tr.even { background:#ffffff; }
-  tr:last-child td { border-bottom:none; }
+  .meta-sep { width: 1px; background: #c8a673; align-self: stretch; opacity: .5; }
+  .meta-block { text-align: center; min-width: 90px; }
+  .meta-label { font-size: 9px; font-weight: 700; color: #6b5535; letter-spacing: .4px; }
+  .meta-value { font-size: 13px; font-weight: 900; color: #221808; margin: 2px 0; }
+  .meta-sub   { font-size: 9.5px; color: #8a6a35; }
 
-  /* ── الذيل ───────────────────────────────── */
+  /* ── شبكة العمودين ──────────────────────── */
+  .columns {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+    margin: 0 10px;
+  }
+  .col { min-width: 0; }
+
+  /* ── مجموعة مواد ────────────────────────── */
+  .group-block { margin-bottom: 6px; break-inside: avoid; }
+  .group-header {
+    background: #e8d4b0; padding: 5px 8px;
+    font-size: 11px; font-weight: 900; color: #3a2a0a;
+    border: 1px solid #c8a673; border-radius: 4px 4px 0 0;
+    display: flex; justify-content: space-between; align-items: center;
+  }
+  .group-count { font-size: 9px; color: #7a5a25; background: #fff; border-radius: 8px; padding: 1px 6px; }
+
+  /* ── جدول المواد ────────────────────────── */
+  table { width: 100%; border-collapse: collapse; border: 1px solid #d8c899; border-top: none; border-radius: 0 0 4px 4px; overflow: hidden; }
+  td { padding: 4px 6px; border-bottom: 1px solid #e8e0d0; font-size: 10.5px; }
+  td.name  { font-weight: 700; color: #111; width: 55%; }
+  td.unit  { color: #5a4010; text-align: center; width: 18%; font-size: 9.5px; }
+  td.price { font-weight: 900; text-align: left; direction: ltr; font-size: 11px; width: 27%; }
+  tr.odd  { background: #f9f7f3; }
+  tr.even { background: #fff; }
+  tr:last-child td { border-bottom: none; }
+
+  /* ── ذيل الصفحة ─────────────────────────── */
   .footer {
-    margin:12px 14px; padding:10px 16px; background:#f0ead8;
-    border:1px solid #c8a673; border-radius:6px;
-    font-size:10px; color:#3a2a0a;
-    display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:6px;
+    margin: 6px 10px 10px; padding: 8px 14px;
+    background: #f0ead8; border: 1px solid #c8a673; border-radius: 6px;
+    font-size: 9.5px; color: #3a2a0a;
+    display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 4px;
   }
-  .footer .validity { font-weight:700; color:#221808; }
-  .footer .contact { color:#6b5535; }
 
-  /* ── زر الطباعة ───────────────────────────── */
+  /* ── زر الطباعة ─────────────────────────── */
   .print-btn {
-    position:fixed; top:16px; left:16px; z-index:999;
-    background:#d7a83f; color:#1a1208; border:none;
-    padding:10px 20px; border-radius:8px; font-size:14px;
-    font-weight:700; cursor:pointer; font-family:Tahoma;
-    box-shadow:0 2px 8px rgba(0,0,0,.2);
+    position: fixed; top: 14px; left: 14px; z-index: 999;
+    background: #d7a83f; color: #1a1208; border: none;
+    padding: 9px 18px; border-radius: 8px; font-size: 13px;
+    font-weight: 700; cursor: pointer; box-shadow: 0 2px 8px rgba(0,0,0,.2);
   }
-  .print-btn:hover { background:#c49535; }
-  .count-badge {
-    display:inline-block; background:#d7a83f; color:#1a1208;
-    border-radius:12px; padding:2px 8px; font-size:10px; font-weight:700; margin-right:6px;
-  }
+  .print-btn:hover { background: #c49535; }
 </style>
 </head>
 <body>
@@ -79,1230 +92,1289 @@
 <button class="print-btn no-print" onclick="window.print()">🖨️ طباعة / PDF</button>
 
 <div class="header">
-  <div class="brand">
+  <div>
     <div class="brand-name">OZK TOBACCO</div>
-    <div class="brand-sub">نشرة الدولار الأمريكي <span class="count-badge">197 مادة</span></div>
+    <div class="bulletin-title">نشرة الأسعار — 2026-06-02</div>
+    <span class="currency-badge badge-usd">💵 دولار أمريكي</span>
   </div>
-
   <div class="meta-sep"></div>
-
   <div class="meta-block">
-    <div class="label">تاريخ الإصدار</div>
-    <div class="value">٢ حزيران ٢٠٢٦</div>
-    <div class="sub">2026-06-02</div>
+    <div class="meta-label">السعر المعروض</div>
+    <div class="meta-value">الكرتونة</div>
+    <div class="meta-sub">197 مادة</div>
   </div>
-
   <div class="meta-sep"></div>
-
   <div class="meta-block">
-    <div class="label">صالحة حتى</div>
-    <div class="value">٢ تموز ٢٠٢٦</div>
-    <div class="sub">مدة الصلاحية 30 يوماً</div>
+    <div class="meta-label">تاريخ الإصدار</div>
+    <div class="meta-value">٢ حزيران ٢٠٢٦</div>
+  </div>
+  <div class="meta-sep"></div>
+  <div class="meta-block">
+    <div class="meta-label">صالحة حتى</div>
+    <div class="meta-value">٢ تموز ٢٠٢٦</div>
+    <div class="meta-sub">30 يوماً</div>
   </div>
 </div>
 
-<div class="container">
-  <table>
-    <thead>
-      <tr>
-        <th style="text-align:right; width:60%">اسم المادة</th>
-        <th style="text-align:center; width:20%">الوحدة</th>
-        <th style="text-align:left; width:20%">السعر ($)</th>
-      </tr>
-    </thead>
-    <tbody>
-
-      <tr class="odd">
-        <td class="name">1970 سليم أزرق</td>
-        <td class="unit">كرتونة</td>
-        <td class="price">185.00 $</td>
-      </tr>
-
-      <tr class="even">
-        <td class="name">1970 سليم نعنع</td>
-        <td class="unit">كرتونة</td>
-        <td class="price">245.00 $</td>
-      </tr>
-
-      <tr class="odd">
-        <td class="name">1970 طويل أزرق</td>
-        <td class="unit">كرتونة</td>
-        <td class="price">245.00 $</td>
-      </tr>
-
-      <tr class="even">
-        <td class="name">1970 طويل اورجينال</td>
-        <td class="unit">كرتونة</td>
-        <td class="price">225.00 $</td>
-      </tr>
-
-      <tr class="odd">
-        <td class="name">1970 طويل فضي</td>
-        <td class="unit">كرتونة</td>
-        <td class="price">245.00 $</td>
-      </tr>
-
-      <tr class="even">
-        <td class="name">1970 كوين أبيض</td>
-        <td class="unit">كرتونة</td>
-        <td class="price">260.00 $</td>
-      </tr>
-
-      <tr class="odd">
-        <td class="name">1970 كوين أزرق</td>
-        <td class="unit">كرتونة</td>
-        <td class="price">260.00 $</td>
-      </tr>
-
-      <tr class="even">
-        <td class="name">أوريس بلوبيري توت طقتين</td>
-        <td class="unit">كرتونة</td>
-        <td class="price">295.00 $</td>
-      </tr>
-
-      <tr class="odd">
-        <td class="name">أوريس منغا</td>
-        <td class="unit">كرتونة</td>
-        <td class="price">280.00 $</td>
-      </tr>
-
-      <tr class="even">
-        <td class="name">اختمار طويل ازرق</td>
-        <td class="unit">كرتونة</td>
-        <td class="price">310.00 $</td>
-      </tr>
-
-      <tr class="odd">
-        <td class="name">اردن قصير ازرق</td>
-        <td class="unit">كرتونة</td>
-        <td class="price">200.00 $</td>
-      </tr>
-
-      <tr class="even">
-        <td class="name">اليغانس سليم أزرق</td>
-        <td class="unit">كرتونة</td>
-        <td class="price">335.00 $</td>
-      </tr>
-
-      <tr class="odd">
-        <td class="name">اليغانس سليم ازرق بدن طبعة</td>
-        <td class="unit">كرتونة</td>
-        <td class="price">315.00 $</td>
-      </tr>
-
-      <tr class="even">
-        <td class="name">اليغانس سليم فريز جديد</td>
-        <td class="unit">كرتونة</td>
-        <td class="price">180.00 $</td>
-      </tr>
-
-      <tr class="odd">
-        <td class="name">اليغانس سليم فضي بدون طبعة</td>
-        <td class="unit">كرتونة</td>
-        <td class="price">335.00 $</td>
-      </tr>
-
-      <tr class="even">
-        <td class="name">اليغانس سليم فضي جديد</td>
-        <td class="unit">كرتونة</td>
-        <td class="price">225.00 $</td>
-      </tr>
-
-      <tr class="odd">
-        <td class="name">اليغانس سليم نعنع جديد</td>
-        <td class="unit">كرتونة</td>
-        <td class="price">180.00 $</td>
-      </tr>
-
-      <tr class="even">
-        <td class="name">اليغانس طويل أسود</td>
-        <td class="unit">كرتونة</td>
-        <td class="price">300.00 $</td>
-      </tr>
-
-      <tr class="odd">
-        <td class="name">اليغانس طويل فضي</td>
-        <td class="unit">كرتونة</td>
-        <td class="price">325.00 $</td>
-      </tr>
-
-      <tr class="even">
-        <td class="name">اليغانس طويل فضي غير مخصص</td>
-        <td class="unit">كرتونة</td>
-        <td class="price">300.00 $</td>
-      </tr>
-
-      <tr class="odd">
-        <td class="name">اليغانس طويل فضي مخصص</td>
-        <td class="unit">كرتونة</td>
-        <td class="price">325.00 $</td>
-      </tr>
-
-      <tr class="even">
-        <td class="name">اليغانس قصير أسود</td>
-        <td class="unit">كرتونة</td>
-        <td class="price">270.00 $</td>
-      </tr>
-
-      <tr class="odd">
-        <td class="name">اليغانس قصير ابيض لايت</td>
-        <td class="unit">كرتونة</td>
-        <td class="price">180.00 $</td>
-      </tr>
-
-      <tr class="even">
-        <td class="name">اليغانس قصير فضي</td>
-        <td class="unit">كرتونة</td>
-        <td class="price">300.00 $</td>
-      </tr>
-
-      <tr class="odd">
-        <td class="name">اليغانس كوين أزرق</td>
-        <td class="unit">كرتونة</td>
-        <td class="price">245.00 $</td>
-      </tr>
-
-      <tr class="even">
-        <td class="name">اليغانس كوين اسود</td>
-        <td class="unit">كرتونة</td>
-        <td class="price">185.00 $</td>
-      </tr>
-
-      <tr class="odd">
-        <td class="name">اوريس بلاس ازرق</td>
-        <td class="unit">كرتونة</td>
-        <td class="price">285.00 $</td>
-      </tr>
-
-      <tr class="even">
-        <td class="name">اوريس توت سليم طقة</td>
-        <td class="unit">كرتونة</td>
-        <td class="price">280.00 $</td>
-      </tr>
-
-      <tr class="odd">
-        <td class="name">اوريس كوين توت طقة</td>
-        <td class="unit">كرتونة</td>
-        <td class="price">295.00 $</td>
-      </tr>
-
-      <tr class="even">
-        <td class="name">اوسكار سليم فضي</td>
-        <td class="unit">كرتونة</td>
-        <td class="price">250.00 $</td>
-      </tr>
-
-      <tr class="odd">
-        <td class="name">اوسكار كوين فريش</td>
-        <td class="unit">كرتونة</td>
-        <td class="price">230.00 $</td>
-      </tr>
-
-      <tr class="even">
-        <td class="name">اوسكار كوين وايت</td>
-        <td class="unit">كرتونة</td>
-        <td class="price">230.00 $</td>
-      </tr>
-
-      <tr class="odd">
-        <td class="name">بارسا</td>
-        <td class="unit">كرتونة</td>
-        <td class="price">270.00 $</td>
-      </tr>
-
-      <tr class="even">
-        <td class="name">برو سليم</td>
-        <td class="unit">كرتونة</td>
-        <td class="price">180.00 $</td>
-      </tr>
-
-      <tr class="odd">
-        <td class="name">برو طويل ازرق</td>
-        <td class="unit">كرتونة</td>
-        <td class="price">210.00 $</td>
-      </tr>
-
-      <tr class="even">
-        <td class="name">برو كوين</td>
-        <td class="unit">كرتونة</td>
-        <td class="price">185.00 $</td>
-      </tr>
-
-      <tr class="odd">
-        <td class="name">بزنس رويال طويل احمر</td>
-        <td class="unit">كرتونة</td>
-        <td class="price">170.00 $</td>
-      </tr>
-
-      <tr class="even">
-        <td class="name">بزنس رويال طويل ازرق</td>
-        <td class="unit">كرتونة</td>
-        <td class="price">170.00 $</td>
-      </tr>
-
-      <tr class="odd">
-        <td class="name">بزنس رويال طويل فضي</td>
-        <td class="unit">كرتونة</td>
-        <td class="price">170.00 $</td>
-      </tr>
-
-      <tr class="even">
-        <td class="name">بزنس رويال قصير ازرق</td>
-        <td class="unit">كرتونة</td>
-        <td class="price">170.00 $</td>
-      </tr>
-
-      <tr class="odd">
-        <td class="name">بزنس رويال قصير فضي</td>
-        <td class="unit">كرتونة</td>
-        <td class="price">170.00 $</td>
-      </tr>
-
-      <tr class="even">
-        <td class="name">تي اس أزرق</td>
-        <td class="unit">كرتونة</td>
-        <td class="price">220.00 $</td>
-      </tr>
-
-      <tr class="odd">
-        <td class="name">تي اس سليم فضي</td>
-        <td class="unit">كرتونة</td>
-        <td class="price">170.00 $</td>
-      </tr>
-
-      <tr class="even">
-        <td class="name">تي اس فضي</td>
-        <td class="unit">كرتونة</td>
-        <td class="price">275.00 $</td>
-      </tr>
-
-      <tr class="odd">
-        <td class="name">تيرا</td>
-        <td class="unit">كرتونة</td>
-        <td class="price">1450.00 $</td>
-      </tr>
-
-      <tr class="even">
-        <td class="name">حمرا طويلة جديدة</td>
-        <td class="unit">كرتونة</td>
-        <td class="price">325.00 $</td>
-      </tr>
-
-      <tr class="odd">
-        <td class="name">حمرا قصيرة زاوية</td>
-        <td class="unit">كرتونة</td>
-        <td class="price">275.00 $</td>
-      </tr>
-
-      <tr class="even">
-        <td class="name">حمرة طويلة قديمة</td>
-        <td class="unit">كرتونة</td>
-        <td class="price">300.00 $</td>
-      </tr>
-
-      <tr class="odd">
-        <td class="name">دخان ام تي سليم بلوبيري</td>
-        <td class="unit">كرتونة</td>
-        <td class="price">275.00 $</td>
-      </tr>
-
-      <tr class="even">
-        <td class="name">دخان ام تي سليم نعنع متلج</td>
-        <td class="unit">كرتونة</td>
-        <td class="price">250.00 $</td>
-      </tr>
-
-      <tr class="odd">
-        <td class="name">دخان ام تي كوين ابيض</td>
-        <td class="unit">كرتونة</td>
-        <td class="price">210.00 $</td>
-      </tr>
-
-      <tr class="even">
-        <td class="name">دخان ام تي كوين فضي</td>
-        <td class="unit">كرتونة</td>
-        <td class="price">210.00 $</td>
-      </tr>
-
-      <tr class="odd">
-        <td class="name">روز سليم احمر</td>
-        <td class="unit">كرتونة</td>
-        <td class="price">150.00 $</td>
-      </tr>
-
-      <tr class="even">
-        <td class="name">روز سليم فضي</td>
-        <td class="unit">كرتونة</td>
-        <td class="price">150.00 $</td>
-      </tr>
-
-      <tr class="odd">
-        <td class="name">روز سليم كومفورت كلاسيك</td>
-        <td class="unit">كرتونة</td>
-        <td class="price">225.00 $</td>
-      </tr>
-
-      <tr class="even">
-        <td class="name">روز طويل ازرق</td>
-        <td class="unit">كرتونة</td>
-        <td class="price">255.00 $</td>
-      </tr>
-
-      <tr class="odd">
-        <td class="name">روز طويل فضي</td>
-        <td class="unit">كرتونة</td>
-        <td class="price">275.00 $</td>
-      </tr>
-
-      <tr class="even">
-        <td class="name">سلفان الاصيل</td>
-        <td class="unit">طرد</td>
-        <td class="price">9.00 $</td>
-      </tr>
-
-      <tr class="odd">
-        <td class="name">سلفان الزعيم</td>
-        <td class="unit">طرد</td>
-        <td class="price">8.00 $</td>
-      </tr>
-
-      <tr class="even">
-        <td class="name">سيغار البنت</td>
-        <td class="unit">شرحة</td>
-        <td class="price">375.00 $</td>
-      </tr>
-
-      <tr class="odd">
-        <td class="name">سيغار كريمي</td>
-        <td class="unit">كروز</td>
-        <td class="price">25.00 $</td>
-      </tr>
-
-      <tr class="even">
-        <td class="name">سيناتور سيغارتين</td>
-        <td class="unit">طرد</td>
-        <td class="price">275.00 $</td>
-      </tr>
-
-      <tr class="odd">
-        <td class="name">سيناتور علب</td>
-        <td class="unit">كرتونة</td>
-        <td class="price">225.00 $</td>
-      </tr>
-
-      <tr class="even">
-        <td class="name">غلواز قصير أحمر</td>
-        <td class="unit">كرتونة</td>
-        <td class="price">400.00 $</td>
-      </tr>
-
-      <tr class="odd">
-        <td class="name">غلواز كوين أحمر</td>
-        <td class="unit">كرتونة</td>
-        <td class="price">415.00 $</td>
-      </tr>
-
-      <tr class="even">
-        <td class="name">غلواز كوين أصفر</td>
-        <td class="unit">كرتونة</td>
-        <td class="price">430.00 $</td>
-      </tr>
-
-      <tr class="odd">
-        <td class="name">غلواز كوين اصفر اس سبعة.</td>
-        <td class="unit">كرتونة</td>
-        <td class="price">385.00 $</td>
-      </tr>
-
-      <tr class="even">
-        <td class="name">فحم 500 غ B12</td>
-        <td class="unit">طرد</td>
-        <td class="price">28.00 $</td>
-      </tr>
-
-      <tr class="odd">
-        <td class="name">فحم B12</td>
-        <td class="unit">طرد</td>
-        <td class="price">27.00 $</td>
-      </tr>
-
-      <tr class="even">
-        <td class="name">فحم اغاتي</td>
-        <td class="unit">طرد</td>
-        <td class="price">30.00 $</td>
-      </tr>
-
-      <tr class="odd">
-        <td class="name">فحم الريس 250غ</td>
-        <td class="unit">طرد</td>
-        <td class="price">33.00 $</td>
-      </tr>
-
-      <tr class="even">
-        <td class="name">فحم الزعيم 1 كغ</td>
-        <td class="unit">طرد</td>
-        <td class="price">36.00 $</td>
-      </tr>
-
-      <tr class="odd">
-        <td class="name">فحم الزعيم 250غ</td>
-        <td class="unit">طرد</td>
-        <td class="price">36.00 $</td>
-      </tr>
-
-      <tr class="even">
-        <td class="name">فحم الزعيم 500غ</td>
-        <td class="unit">طرد</td>
-        <td class="price">36.00 $</td>
-      </tr>
-
-      <tr class="odd">
-        <td class="name">فحم العاصي</td>
-        <td class="unit">طرد</td>
-        <td class="price">30.00 $</td>
-      </tr>
-
-      <tr class="even">
-        <td class="name">فحم المحمود</td>
-        <td class="unit">طرد</td>
-        <td class="price">28.00 $</td>
-      </tr>
-
-      <tr class="odd">
-        <td class="name">فحم المحمود 500 غ</td>
-        <td class="unit">طرد</td>
-        <td class="price">28.00 $</td>
-      </tr>
-
-      <tr class="even">
-        <td class="name">فحم الهيبة</td>
-        <td class="unit">طرد</td>
-        <td class="price">33.00 $</td>
-      </tr>
-
-      <tr class="odd">
-        <td class="name">فحم اوركنيدنا</td>
-        <td class="unit">طرد</td>
-        <td class="price">30.00 $</td>
-      </tr>
-
-      <tr class="even">
-        <td class="name">فحم ايكو نارة احمر</td>
-        <td class="unit">طرد</td>
-        <td class="price">33.00 $</td>
-      </tr>
-
-      <tr class="odd">
-        <td class="name">فحم برو 250غ</td>
-        <td class="unit">طرد</td>
-        <td class="price">36.00 $</td>
-      </tr>
-
-      <tr class="even">
-        <td class="name">فحم سارة</td>
-        <td class="unit">طرد</td>
-        <td class="price">15.00 $</td>
-      </tr>
-
-      <tr class="odd">
-        <td class="name">فحم كوكو بحر</td>
-        <td class="unit">طرد</td>
-        <td class="price">30.00 $</td>
-      </tr>
-
-      <tr class="even">
-        <td class="name">فحم كوين شيشة</td>
-        <td class="unit">طرد</td>
-        <td class="price">27.00 $</td>
-      </tr>
-
-      <tr class="odd">
-        <td class="name">قداحات شينمو</td>
-        <td class="unit">علبة</td>
-        <td class="price">16.00 $</td>
-      </tr>
-
-      <tr class="even">
-        <td class="name">قداحات فينيكس زرقا</td>
-        <td class="unit">طرد</td>
-        <td class="price">90.00 $</td>
-      </tr>
-
-      <tr class="odd">
-        <td class="name">كابتن بلاك سليم ازرق سكاي</td>
-        <td class="unit">كرتونة</td>
-        <td class="price">230.00 $</td>
-      </tr>
-
-      <tr class="even">
-        <td class="name">كابتن بلاك سيغار</td>
-        <td class="unit">طرد</td>
-        <td class="price">275.00 $</td>
-      </tr>
-
-      <tr class="odd">
-        <td class="name">كابتن بلاك سيلفر</td>
-        <td class="unit">كرتونة</td>
-        <td class="price">230.00 $</td>
-      </tr>
-
-      <tr class="even">
-        <td class="name">كابتن بلاك كوين ازرق</td>
-        <td class="unit">كرتونة</td>
-        <td class="price">275.00 $</td>
-      </tr>
-
-      <tr class="odd">
-        <td class="name">كابتن بلاك كوين اسود</td>
-        <td class="unit">كرتونة</td>
-        <td class="price">275.00 $</td>
-      </tr>
-
-      <tr class="even">
-        <td class="name">كورسير سليم ازرق</td>
-        <td class="unit">كرتونة</td>
-        <td class="price">150.00 $</td>
-      </tr>
-
-      <tr class="odd">
-        <td class="name">كورسير سليم فضي</td>
-        <td class="unit">كرتونة</td>
-        <td class="price">150.00 $</td>
-      </tr>
-
-      <tr class="even">
-        <td class="name">كورسير طويل ازرق</td>
-        <td class="unit">كرتونة</td>
-        <td class="price">150.00 $</td>
-      </tr>
-
-      <tr class="odd">
-        <td class="name">كورسير طويل فضي</td>
-        <td class="unit">كرتونة</td>
-        <td class="price">150.00 $</td>
-      </tr>
-
-      <tr class="even">
-        <td class="name">كورسير قصير ازرق</td>
-        <td class="unit">كرتونة</td>
-        <td class="price">150.00 $</td>
-      </tr>
-
-      <tr class="odd">
-        <td class="name">كورسير قصير فضي</td>
-        <td class="unit">كرتونة</td>
-        <td class="price">150.00 $</td>
-      </tr>
-
-      <tr class="even">
-        <td class="name">كورسير كوين ازرق</td>
-        <td class="unit">كرتونة</td>
-        <td class="price">150.00 $</td>
-      </tr>
-
-      <tr class="odd">
-        <td class="name">كورسير كوين فضي</td>
-        <td class="unit">كرتونة</td>
-        <td class="price">150.00 $</td>
-      </tr>
-
-      <tr class="even">
-        <td class="name">كينت ازرق حرة</td>
-        <td class="unit">كرتونة</td>
-        <td class="price">690.00 $</td>
-      </tr>
-
-      <tr class="odd">
-        <td class="name">كينت فضي</td>
-        <td class="unit">كرتونة</td>
-        <td class="price">860.00 $</td>
-      </tr>
-
-      <tr class="even">
-        <td class="name">كينت فضي حرة</td>
-        <td class="unit">كرتونة</td>
-        <td class="price">690.00 $</td>
-      </tr>
-
-      <tr class="odd">
-        <td class="name">كينغ دوم بوكس ازرق امريكي</td>
-        <td class="unit">كرتونة</td>
-        <td class="price">200.00 $</td>
-      </tr>
-
-      <tr class="even">
-        <td class="name">كينغ دوم بوكس فضي امريكي</td>
-        <td class="unit">كرتونة</td>
-        <td class="price">200.00 $</td>
-      </tr>
-
-      <tr class="odd">
-        <td class="name">كينغ دوم سليم نعنع</td>
-        <td class="unit">كرتونة</td>
-        <td class="price">190.00 $</td>
-      </tr>
-
-      <tr class="even">
-        <td class="name">كينغ دوم كوين أبيض</td>
-        <td class="unit">كرتونة</td>
-        <td class="price">245.00 $</td>
-      </tr>
-
-      <tr class="odd">
-        <td class="name">ماستر سليم نكهات</td>
-        <td class="unit">كرتونة</td>
-        <td class="price">220.00 $</td>
-      </tr>
-
-      <tr class="even">
-        <td class="name">ماستر طويل ورق</td>
-        <td class="unit">كرتونة</td>
-        <td class="price">400.00 $</td>
-      </tr>
-
-      <tr class="odd">
-        <td class="name">ماستر طويل ورق ازرق</td>
-        <td class="unit">كرتونة</td>
-        <td class="price">400.00 $</td>
-      </tr>
-
-      <tr class="even">
-        <td class="name">ماستر قصير أزرق</td>
-        <td class="unit">كرتونة</td>
-        <td class="price">350.00 $</td>
-      </tr>
-
-      <tr class="odd">
-        <td class="name">ماستر قصير ازرق كرتون</td>
-        <td class="unit">كرتونة</td>
-        <td class="price">350.00 $</td>
-      </tr>
-
-      <tr class="even">
-        <td class="name">ماستر كوين أبيض</td>
-        <td class="unit">كرتونة</td>
-        <td class="price">340.00 $</td>
-      </tr>
-
-      <tr class="odd">
-        <td class="name">مالبورو تنك</td>
-        <td class="unit">كرتونة</td>
-        <td class="price">410.00 $</td>
-      </tr>
-
-      <tr class="even">
-        <td class="name">مالبورو طقتين</td>
-        <td class="unit">كرتونة</td>
-        <td class="price">1200.00 $</td>
-      </tr>
-
-      <tr class="odd">
-        <td class="name">مالبورو غولد تاريخ</td>
-        <td class="unit">كرتونة</td>
-        <td class="price">700.00 $</td>
-      </tr>
-
-      <tr class="even">
-        <td class="name">مالبورو غولد حرة</td>
-        <td class="unit">كرتونة</td>
-        <td class="price">1300.00 $</td>
-      </tr>
-
-      <tr class="odd">
-        <td class="name">مالبورو غولد حرة لبنان</td>
-        <td class="unit">كرتونة</td>
-        <td class="price">1450.00 $</td>
-      </tr>
-
-      <tr class="even">
-        <td class="name">مالبورو غولد طابع</td>
-        <td class="unit">كرتونة</td>
-        <td class="price">1150.00 $</td>
-      </tr>
-
-      <tr class="odd">
-        <td class="name">مالبورو غولد محزر</td>
-        <td class="unit">كرتونة</td>
-        <td class="price">1200.00 $</td>
-      </tr>
-
-      <tr class="even">
-        <td class="name">مانشستر طقتين</td>
-        <td class="unit">كرتونة</td>
-        <td class="price">325.00 $</td>
-      </tr>
-
-      <tr class="odd">
-        <td class="name">مانشستر طويل احمر</td>
-        <td class="unit">كرتونة</td>
-        <td class="price">215.00 $</td>
-      </tr>
-
-      <tr class="even">
-        <td class="name">مانشستر طويل فضي</td>
-        <td class="unit">كرتونة</td>
-        <td class="price">235.00 $</td>
-      </tr>
-
-      <tr class="odd">
-        <td class="name">مانشستر قصير ازرق</td>
-        <td class="unit">كرتونة</td>
-        <td class="price">240.00 $</td>
-      </tr>
-
-      <tr class="even">
-        <td class="name">مانشستر قصير فضي</td>
-        <td class="unit">كرتونة</td>
-        <td class="price">185.00 $</td>
-      </tr>
-
-      <tr class="odd">
-        <td class="name">مانشستر كوين ابيض</td>
-        <td class="unit">كرتونة</td>
-        <td class="price">175.00 $</td>
-      </tr>
-
-      <tr class="even">
-        <td class="name">مانشستر كوين طقة توت</td>
-        <td class="unit">كرتونة</td>
-        <td class="price">210.00 $</td>
-      </tr>
-
-      <tr class="odd">
-        <td class="name">مانشستر كوين كريمي</td>
-        <td class="unit">كرتونة</td>
-        <td class="price">185.00 $</td>
-      </tr>
-
-      <tr class="even">
-        <td class="name">مزايا بحريني 100غ</td>
-        <td class="unit">طرد</td>
-        <td class="price">40.00 $</td>
-      </tr>
-
-      <tr class="odd">
-        <td class="name">مزايا بطيخ ونعنع</td>
-        <td class="unit">شرحة</td>
-        <td class="price">145.00 $</td>
-      </tr>
-
-      <tr class="even">
-        <td class="name">مزايا بولو 250غ علب</td>
-        <td class="unit">شرحة</td>
-        <td class="price">145.00 $</td>
-      </tr>
-
-      <tr class="odd">
-        <td class="name">معسل الاسطورة 5 تفاحات</td>
-        <td class="unit">شرحة</td>
-        <td class="price">92.00 $</td>
-      </tr>
-
-      <tr class="even">
-        <td class="name">معسل الاسطورة احمر كروز</td>
-        <td class="unit">شرحة</td>
-        <td class="price">92.00 $</td>
-      </tr>
-
-      <tr class="odd">
-        <td class="name">معسل الاسطورة اماراتي كروز</td>
-        <td class="unit">شرحة</td>
-        <td class="price">92.00 $</td>
-      </tr>
-
-      <tr class="even">
-        <td class="name">معسل الاسطورة اماراتي كف</td>
-        <td class="unit">شرحة</td>
-        <td class="price">92.00 $</td>
-      </tr>
-
-      <tr class="odd">
-        <td class="name">معسل الاسطورة بولو</td>
-        <td class="unit">شرحة</td>
-        <td class="price">92.00 $</td>
-      </tr>
-
-      <tr class="even">
-        <td class="name">معسل الاسطورة جوكر</td>
-        <td class="unit">شرحة</td>
-        <td class="price">92.00 $</td>
-      </tr>
-
-      <tr class="odd">
-        <td class="name">معسل الاسطورة روبي كراش</td>
-        <td class="unit">شرحة</td>
-        <td class="price">92.00 $</td>
-      </tr>
-
-      <tr class="even">
-        <td class="name">معسل الاسطورة علكة</td>
-        <td class="unit">شرحة</td>
-        <td class="price">92.00 $</td>
-      </tr>
-
-      <tr class="odd">
-        <td class="name">معسل الاسطورة علكة ونعنع</td>
-        <td class="unit">شرحة</td>
-        <td class="price">92.00 $</td>
-      </tr>
-
-      <tr class="even">
-        <td class="name">معسل الاسطورة كف احمر</td>
-        <td class="unit">شرحة</td>
-        <td class="price">92.00 $</td>
-      </tr>
-
-      <tr class="odd">
-        <td class="name">معسل الصفوة جميع نكهات</td>
-        <td class="unit">شرحة</td>
-        <td class="price">85.00 $</td>
-      </tr>
-
-      <tr class="even">
-        <td class="name">معسل الفاخر احمر حرة</td>
-        <td class="unit">شرحة</td>
-        <td class="price">155.00 $</td>
-      </tr>
-
-      <tr class="odd">
-        <td class="name">معسل الفاخر نعنع</td>
-        <td class="unit">شرحة</td>
-        <td class="price">145.00 $</td>
-      </tr>
-
-      <tr class="even">
-        <td class="name">معسل روز تفاحتين بحريني</td>
-        <td class="unit">شرحة</td>
-        <td class="price">85.00 $</td>
-      </tr>
-
-      <tr class="odd">
-        <td class="name">معسل روز عنب</td>
-        <td class="unit">شرحة</td>
-        <td class="price">85.00 $</td>
-      </tr>
-
-      <tr class="even">
-        <td class="name">معسل روز كف بولو</td>
-        <td class="unit">شرحة</td>
-        <td class="price">85.00 $</td>
-      </tr>
-
-      <tr class="odd">
-        <td class="name">معسل روز مثلج</td>
-        <td class="unit">شرحة</td>
-        <td class="price">85.00 $</td>
-      </tr>
-
-      <tr class="even">
-        <td class="name">معسل روز مسكة</td>
-        <td class="unit">شرحة</td>
-        <td class="price">85.00 $</td>
-      </tr>
-
-      <tr class="odd">
-        <td class="name">معسل روز مصري</td>
-        <td class="unit">شرحة</td>
-        <td class="price">85.00 $</td>
-      </tr>
-
-      <tr class="even">
-        <td class="name">معسل روز نعنع</td>
-        <td class="unit">شرحة</td>
-        <td class="price">85.00 $</td>
-      </tr>
-
-      <tr class="odd">
-        <td class="name">معسل روز نكهات</td>
-        <td class="unit">شرحة</td>
-        <td class="price">85.00 $</td>
-      </tr>
-
-      <tr class="even">
-        <td class="name">معسل فاخر احمر كروز</td>
-        <td class="unit">شرحة</td>
-        <td class="price">145.00 $</td>
-      </tr>
-
-      <tr class="odd">
-        <td class="name">معسل فاخر بلوبيري</td>
-        <td class="unit">شرحة</td>
-        <td class="price">145.00 $</td>
-      </tr>
-
-      <tr class="even">
-        <td class="name">معسل فاخر تفاحتين اسود بحريني</td>
-        <td class="unit">شرحة</td>
-        <td class="price">145.00 $</td>
-      </tr>
-
-      <tr class="odd">
-        <td class="name">معسل فاخر علكة</td>
-        <td class="unit">شرحة</td>
-        <td class="price">145.00 $</td>
-      </tr>
-
-      <tr class="even">
-        <td class="name">معسل فاخر علكة ونعنع</td>
-        <td class="unit">شرحة</td>
-        <td class="price">145.00 $</td>
-      </tr>
-
-      <tr class="odd">
-        <td class="name">معسل فاخر عنب</td>
-        <td class="unit">شرحة</td>
-        <td class="price">145.00 $</td>
-      </tr>
-
-      <tr class="even">
-        <td class="name">معسل فاخر ماجيك لوف</td>
-        <td class="unit">شرحة</td>
-        <td class="price">145.00 $</td>
-      </tr>
-
-      <tr class="odd">
-        <td class="name">معسل مزايا بولو</td>
-        <td class="unit">شرحة</td>
-        <td class="price">145.00 $</td>
-      </tr>
-
-      <tr class="even">
-        <td class="name">معسل مزايا بيل جيم</td>
-        <td class="unit">شرحة</td>
-        <td class="price">145.00 $</td>
-      </tr>
-
-      <tr class="odd">
-        <td class="name">معسل مزايا تفاحتين بحريني كروز</td>
-        <td class="unit">شرحة</td>
-        <td class="price">150.00 $</td>
-      </tr>
-
-      <tr class="even">
-        <td class="name">معسل مزايا تفاحتين بحريني كف</td>
-        <td class="unit">شرحة</td>
-        <td class="price">150.00 $</td>
-      </tr>
-
-      <tr class="odd">
-        <td class="name">معسل مزايا تفاحتين فرنسي كروز</td>
-        <td class="unit">شرحة</td>
-        <td class="price">145.00 $</td>
-      </tr>
-
-      <tr class="even">
-        <td class="name">معسل مزايا روبي كراش</td>
-        <td class="unit">شرحة</td>
-        <td class="price">145.00 $</td>
-      </tr>
-
-      <tr class="odd">
-        <td class="name">معسل مزايا علكة</td>
-        <td class="unit">شرحة</td>
-        <td class="price">145.00 $</td>
-      </tr>
-
-      <tr class="even">
-        <td class="name">معسل مزايا علكة مثلج</td>
-        <td class="unit">شرحة</td>
-        <td class="price">145.00 $</td>
-      </tr>
-
-      <tr class="odd">
-        <td class="name">معسل مزايا علكة ونعنع مثلج</td>
-        <td class="unit">شرحة</td>
-        <td class="price">145.00 $</td>
-      </tr>
-
-      <tr class="even">
-        <td class="name">معسل مزايا عنب</td>
-        <td class="unit">شرحة</td>
-        <td class="price">145.00 $</td>
-      </tr>
-
-      <tr class="odd">
-        <td class="name">معسل مزايا عنب وتوت</td>
-        <td class="unit">شرحة</td>
-        <td class="price">145.00 $</td>
-      </tr>
-
-      <tr class="even">
-        <td class="name">معسل مزايا كاندي دروبس</td>
-        <td class="unit">شرحة</td>
-        <td class="price">145.00 $</td>
-      </tr>
-
-      <tr class="odd">
-        <td class="name">معسل مزايا كف لوف</td>
-        <td class="unit">شرحة</td>
-        <td class="price">145.00 $</td>
-      </tr>
-
-      <tr class="even">
-        <td class="name">معسل نخلة اخضر كروز.</td>
-        <td class="unit">شرحة</td>
-        <td class="price">190.00 $</td>
-      </tr>
-
-      <tr class="odd">
-        <td class="name">معسل نخلة تنك وزاري</td>
-        <td class="unit">طرد</td>
-        <td class="price">410.00 $</td>
-      </tr>
-
-      <tr class="even">
-        <td class="name">معسل نخلة صلاحية 12</td>
-        <td class="unit">شرحة</td>
-        <td class="price">325.00 $</td>
-      </tr>
-
-      <tr class="odd">
-        <td class="name">معسل نخلة صلاحية كف شهر 12</td>
-        <td class="unit">شرحة</td>
-        <td class="price">325.00 $</td>
-      </tr>
-
-      <tr class="even">
-        <td class="name">معسل نخلة كف صلاحية</td>
-        <td class="unit">طرد</td>
-        <td class="price">300.00 $</td>
-      </tr>
-
-      <tr class="odd">
-        <td class="name">معسل نخلة كف محزر</td>
-        <td class="unit">شرحة</td>
-        <td class="price">410.00 $</td>
-      </tr>
-
-      <tr class="even">
-        <td class="name">معسل نخلة محزر</td>
-        <td class="unit">شرحة</td>
-        <td class="price">540.00 $</td>
-      </tr>
-
-      <tr class="odd">
-        <td class="name">مليونير طويل أزرق</td>
-        <td class="unit">كرتونة</td>
-        <td class="price">235.00 $</td>
-      </tr>
-
-      <tr class="even">
-        <td class="name">مليونير طويل فضي</td>
-        <td class="unit">كرتونة</td>
-        <td class="price">235.00 $</td>
-      </tr>
-
-      <tr class="odd">
-        <td class="name">مليونير كوين ازرق</td>
-        <td class="unit">كرتونة</td>
-        <td class="price">160.00 $</td>
-      </tr>
-
-      <tr class="even">
-        <td class="name">مليونير كوين فضي</td>
-        <td class="unit">كرتونة</td>
-        <td class="price">160.00 $</td>
-      </tr>
-
-      <tr class="odd">
-        <td class="name">نابولي ابيض</td>
-        <td class="unit">كرتونة</td>
-        <td class="price">245.00 $</td>
-      </tr>
-
-      <tr class="even">
-        <td class="name">نابولي احمر</td>
-        <td class="unit">كرتونة</td>
-        <td class="price">245.00 $</td>
-      </tr>
-
-      <tr class="odd">
-        <td class="name">نابولي سيلفر</td>
-        <td class="unit">كرتونة</td>
-        <td class="price">245.00 $</td>
-      </tr>
-
-      <tr class="even">
-        <td class="name">نابولي غولد</td>
-        <td class="unit">كرتونة</td>
-        <td class="price">245.00 $</td>
-      </tr>
-
-      <tr class="odd">
-        <td class="name">نخلة صلاحية شهر 1</td>
-        <td class="unit">شرحة</td>
-        <td class="price">480.00 $</td>
-      </tr>
-
-      <tr class="even">
-        <td class="name">نخلة صلاحية شهر 10</td>
-        <td class="unit">شرحة</td>
-        <td class="price">325.00 $</td>
-      </tr>
-
-      <tr class="odd">
-        <td class="name">ورق سموكينغ</td>
-        <td class="unit">كرتونة</td>
-        <td class="price">500.00 $</td>
-      </tr>
-
-      <tr class="even">
-        <td class="name">ورق شام</td>
-        <td class="unit">كرتونة</td>
-        <td class="price">270.00 $</td>
-      </tr>
-
-      <tr class="odd">
-        <td class="name">ولسون طويل فضي</td>
-        <td class="unit">كرتونة</td>
-        <td class="price">235.00 $</td>
-      </tr>
-
-      <tr class="even">
-        <td class="name">وينستون احمر حرة</td>
-        <td class="unit">كرتونة</td>
-        <td class="price">660.00 $</td>
-      </tr>
-
-      <tr class="odd">
-        <td class="name">وينستون ازرق حرة</td>
-        <td class="unit">كرتونة</td>
-        <td class="price">675.00 $</td>
-      </tr>
-
-      <tr class="even">
-        <td class="name">وينستون ازرق علب</td>
-        <td class="unit">كرتونة</td>
-        <td class="price">325.00 $</td>
-      </tr>
-
-      <tr class="odd">
-        <td class="name">وينستون فضي حرة</td>
-        <td class="unit">كرتونة</td>
-        <td class="price">675.00 $</td>
-      </tr>
-
-      <tr class="even">
-        <td class="name">وينستون فضي علب</td>
-        <td class="unit">كرتونة</td>
-        <td class="price">325.00 $</td>
-      </tr>
-
-      <tr class="odd">
-        <td class="name">يونايتد غير مخصص</td>
-        <td class="unit">كرتونة</td>
-        <td class="price">310.00 $</td>
-      </tr>
-    </tbody>
-  </table>
+<div class="columns">
+  <div class="col">
+  <div class="group-block">
+    <div class="group-header">
+      <span>1970</span>
+      <span class="group-count">7</span>
+    </div>
+    <table><tbody>
+    <tr class="odd">
+      <td class="name">1970 سليم أزرق</td>
+      <td class="unit">كرتونة</td>
+      <td class="price">185.00 $</td>
+    </tr>
+    <tr class="even">
+      <td class="name">1970 سليم نعنع</td>
+      <td class="unit">كرتونة</td>
+      <td class="price">245.00 $</td>
+    </tr>
+    <tr class="odd">
+      <td class="name">1970 طويل أزرق</td>
+      <td class="unit">كرتونة</td>
+      <td class="price">245.00 $</td>
+    </tr>
+    <tr class="even">
+      <td class="name">1970 طويل اورجينال</td>
+      <td class="unit">كرتونة</td>
+      <td class="price">225.00 $</td>
+    </tr>
+    <tr class="odd">
+      <td class="name">1970 طويل فضي</td>
+      <td class="unit">كرتونة</td>
+      <td class="price">245.00 $</td>
+    </tr>
+    <tr class="even">
+      <td class="name">1970 كوين أبيض</td>
+      <td class="unit">كرتونة</td>
+      <td class="price">260.00 $</td>
+    </tr>
+    <tr class="odd">
+      <td class="name">1970 كوين أزرق</td>
+      <td class="unit">كرتونة</td>
+      <td class="price">260.00 $</td>
+    </tr></tbody></table>
+  </div>
+  <div class="group-block">
+    <div class="group-header">
+      <span>أوريس</span>
+      <span class="group-count">2</span>
+    </div>
+    <table><tbody>
+    <tr class="odd">
+      <td class="name">أوريس بلوبيري توت طقتين</td>
+      <td class="unit">كرتونة</td>
+      <td class="price">295.00 $</td>
+    </tr>
+    <tr class="even">
+      <td class="name">أوريس منغا</td>
+      <td class="unit">كرتونة</td>
+      <td class="price">280.00 $</td>
+    </tr></tbody></table>
+  </div>
+  <div class="group-block">
+    <div class="group-header">
+      <span>اختمار</span>
+      <span class="group-count">1</span>
+    </div>
+    <table><tbody>
+    <tr class="odd">
+      <td class="name">اختمار طويل ازرق</td>
+      <td class="unit">كرتونة</td>
+      <td class="price">310.00 $</td>
+    </tr></tbody></table>
+  </div>
+  <div class="group-block">
+    <div class="group-header">
+      <span>اردن</span>
+      <span class="group-count">1</span>
+    </div>
+    <table><tbody>
+    <tr class="odd">
+      <td class="name">اردن قصير ازرق</td>
+      <td class="unit">كرتونة</td>
+      <td class="price">200.00 $</td>
+    </tr></tbody></table>
+  </div>
+  <div class="group-block">
+    <div class="group-header">
+      <span>اليغانس</span>
+      <span class="group-count">15</span>
+    </div>
+    <table><tbody>
+    <tr class="odd">
+      <td class="name">اليغانس سليم أزرق</td>
+      <td class="unit">كرتونة</td>
+      <td class="price">335.00 $</td>
+    </tr>
+    <tr class="even">
+      <td class="name">اليغانس سليم ازرق بدن طبعة</td>
+      <td class="unit">كرتونة</td>
+      <td class="price">315.00 $</td>
+    </tr>
+    <tr class="odd">
+      <td class="name">اليغانس سليم فريز جديد</td>
+      <td class="unit">كرتونة</td>
+      <td class="price">180.00 $</td>
+    </tr>
+    <tr class="even">
+      <td class="name">اليغانس سليم فضي بدون طبعة</td>
+      <td class="unit">كرتونة</td>
+      <td class="price">335.00 $</td>
+    </tr>
+    <tr class="odd">
+      <td class="name">اليغانس سليم فضي جديد</td>
+      <td class="unit">كرتونة</td>
+      <td class="price">225.00 $</td>
+    </tr>
+    <tr class="even">
+      <td class="name">اليغانس سليم نعنع جديد</td>
+      <td class="unit">كرتونة</td>
+      <td class="price">180.00 $</td>
+    </tr>
+    <tr class="odd">
+      <td class="name">اليغانس طويل أسود</td>
+      <td class="unit">كرتونة</td>
+      <td class="price">300.00 $</td>
+    </tr>
+    <tr class="even">
+      <td class="name">اليغانس طويل فضي</td>
+      <td class="unit">كرتونة</td>
+      <td class="price">325.00 $</td>
+    </tr>
+    <tr class="odd">
+      <td class="name">اليغانس طويل فضي غير مخصص</td>
+      <td class="unit">كرتونة</td>
+      <td class="price">300.00 $</td>
+    </tr>
+    <tr class="even">
+      <td class="name">اليغانس طويل فضي مخصص</td>
+      <td class="unit">كرتونة</td>
+      <td class="price">325.00 $</td>
+    </tr>
+    <tr class="odd">
+      <td class="name">اليغانس قصير أسود</td>
+      <td class="unit">كرتونة</td>
+      <td class="price">270.00 $</td>
+    </tr>
+    <tr class="even">
+      <td class="name">اليغانس قصير ابيض لايت</td>
+      <td class="unit">كرتونة</td>
+      <td class="price">180.00 $</td>
+    </tr>
+    <tr class="odd">
+      <td class="name">اليغانس قصير فضي</td>
+      <td class="unit">كرتونة</td>
+      <td class="price">300.00 $</td>
+    </tr>
+    <tr class="even">
+      <td class="name">اليغانس كوين أزرق</td>
+      <td class="unit">كرتونة</td>
+      <td class="price">245.00 $</td>
+    </tr>
+    <tr class="odd">
+      <td class="name">اليغانس كوين اسود</td>
+      <td class="unit">كرتونة</td>
+      <td class="price">185.00 $</td>
+    </tr></tbody></table>
+  </div>
+  <div class="group-block">
+    <div class="group-header">
+      <span>اوريس</span>
+      <span class="group-count">3</span>
+    </div>
+    <table><tbody>
+    <tr class="odd">
+      <td class="name">اوريس بلاس ازرق</td>
+      <td class="unit">كرتونة</td>
+      <td class="price">285.00 $</td>
+    </tr>
+    <tr class="even">
+      <td class="name">اوريس توت سليم طقة</td>
+      <td class="unit">كرتونة</td>
+      <td class="price">280.00 $</td>
+    </tr>
+    <tr class="odd">
+      <td class="name">اوريس كوين توت طقة</td>
+      <td class="unit">كرتونة</td>
+      <td class="price">295.00 $</td>
+    </tr></tbody></table>
+  </div>
+  <div class="group-block">
+    <div class="group-header">
+      <span>اوسكار</span>
+      <span class="group-count">3</span>
+    </div>
+    <table><tbody>
+    <tr class="odd">
+      <td class="name">اوسكار سليم فضي</td>
+      <td class="unit">كرتونة</td>
+      <td class="price">250.00 $</td>
+    </tr>
+    <tr class="even">
+      <td class="name">اوسكار كوين فريش</td>
+      <td class="unit">كرتونة</td>
+      <td class="price">230.00 $</td>
+    </tr>
+    <tr class="odd">
+      <td class="name">اوسكار كوين وايت</td>
+      <td class="unit">كرتونة</td>
+      <td class="price">230.00 $</td>
+    </tr></tbody></table>
+  </div>
+  <div class="group-block">
+    <div class="group-header">
+      <span>بارسا</span>
+      <span class="group-count">1</span>
+    </div>
+    <table><tbody>
+    <tr class="odd">
+      <td class="name">بارسا</td>
+      <td class="unit">كرتونة</td>
+      <td class="price">270.00 $</td>
+    </tr></tbody></table>
+  </div>
+  <div class="group-block">
+    <div class="group-header">
+      <span>برو</span>
+      <span class="group-count">3</span>
+    </div>
+    <table><tbody>
+    <tr class="odd">
+      <td class="name">برو سليم</td>
+      <td class="unit">كرتونة</td>
+      <td class="price">180.00 $</td>
+    </tr>
+    <tr class="even">
+      <td class="name">برو طويل ازرق</td>
+      <td class="unit">كرتونة</td>
+      <td class="price">210.00 $</td>
+    </tr>
+    <tr class="odd">
+      <td class="name">برو كوين</td>
+      <td class="unit">كرتونة</td>
+      <td class="price">185.00 $</td>
+    </tr></tbody></table>
+  </div>
+  <div class="group-block">
+    <div class="group-header">
+      <span>بزنس</span>
+      <span class="group-count">5</span>
+    </div>
+    <table><tbody>
+    <tr class="odd">
+      <td class="name">بزنس رويال طويل احمر</td>
+      <td class="unit">كرتونة</td>
+      <td class="price">170.00 $</td>
+    </tr>
+    <tr class="even">
+      <td class="name">بزنس رويال طويل ازرق</td>
+      <td class="unit">كرتونة</td>
+      <td class="price">170.00 $</td>
+    </tr>
+    <tr class="odd">
+      <td class="name">بزنس رويال طويل فضي</td>
+      <td class="unit">كرتونة</td>
+      <td class="price">170.00 $</td>
+    </tr>
+    <tr class="even">
+      <td class="name">بزنس رويال قصير ازرق</td>
+      <td class="unit">كرتونة</td>
+      <td class="price">170.00 $</td>
+    </tr>
+    <tr class="odd">
+      <td class="name">بزنس رويال قصير فضي</td>
+      <td class="unit">كرتونة</td>
+      <td class="price">170.00 $</td>
+    </tr></tbody></table>
+  </div>
+  <div class="group-block">
+    <div class="group-header">
+      <span>تي</span>
+      <span class="group-count">3</span>
+    </div>
+    <table><tbody>
+    <tr class="odd">
+      <td class="name">تي اس أزرق</td>
+      <td class="unit">كرتونة</td>
+      <td class="price">220.00 $</td>
+    </tr>
+    <tr class="even">
+      <td class="name">تي اس سليم فضي</td>
+      <td class="unit">كرتونة</td>
+      <td class="price">170.00 $</td>
+    </tr>
+    <tr class="odd">
+      <td class="name">تي اس فضي</td>
+      <td class="unit">كرتونة</td>
+      <td class="price">275.00 $</td>
+    </tr></tbody></table>
+  </div>
+  <div class="group-block">
+    <div class="group-header">
+      <span>تيرا</span>
+      <span class="group-count">1</span>
+    </div>
+    <table><tbody>
+    <tr class="odd">
+      <td class="name">تيرا</td>
+      <td class="unit">كرتونة</td>
+      <td class="price">1450.00 $</td>
+    </tr></tbody></table>
+  </div>
+  <div class="group-block">
+    <div class="group-header">
+      <span>حمرا</span>
+      <span class="group-count">2</span>
+    </div>
+    <table><tbody>
+    <tr class="odd">
+      <td class="name">حمرا طويلة جديدة</td>
+      <td class="unit">كرتونة</td>
+      <td class="price">325.00 $</td>
+    </tr>
+    <tr class="even">
+      <td class="name">حمرا قصيرة زاوية</td>
+      <td class="unit">كرتونة</td>
+      <td class="price">275.00 $</td>
+    </tr></tbody></table>
+  </div>
+  <div class="group-block">
+    <div class="group-header">
+      <span>حمرة</span>
+      <span class="group-count">1</span>
+    </div>
+    <table><tbody>
+    <tr class="odd">
+      <td class="name">حمرة طويلة قديمة</td>
+      <td class="unit">كرتونة</td>
+      <td class="price">300.00 $</td>
+    </tr></tbody></table>
+  </div>
+  <div class="group-block">
+    <div class="group-header">
+      <span>دخان</span>
+      <span class="group-count">4</span>
+    </div>
+    <table><tbody>
+    <tr class="odd">
+      <td class="name">دخان ام تي سليم بلوبيري</td>
+      <td class="unit">كرتونة</td>
+      <td class="price">275.00 $</td>
+    </tr>
+    <tr class="even">
+      <td class="name">دخان ام تي سليم نعنع متلج</td>
+      <td class="unit">كرتونة</td>
+      <td class="price">250.00 $</td>
+    </tr>
+    <tr class="odd">
+      <td class="name">دخان ام تي كوين ابيض</td>
+      <td class="unit">كرتونة</td>
+      <td class="price">210.00 $</td>
+    </tr>
+    <tr class="even">
+      <td class="name">دخان ام تي كوين فضي</td>
+      <td class="unit">كرتونة</td>
+      <td class="price">210.00 $</td>
+    </tr></tbody></table>
+  </div>
+  <div class="group-block">
+    <div class="group-header">
+      <span>روز</span>
+      <span class="group-count">5</span>
+    </div>
+    <table><tbody>
+    <tr class="odd">
+      <td class="name">روز سليم احمر</td>
+      <td class="unit">كرتونة</td>
+      <td class="price">150.00 $</td>
+    </tr>
+    <tr class="even">
+      <td class="name">روز سليم فضي</td>
+      <td class="unit">كرتونة</td>
+      <td class="price">150.00 $</td>
+    </tr>
+    <tr class="odd">
+      <td class="name">روز سليم كومفورت كلاسيك</td>
+      <td class="unit">كرتونة</td>
+      <td class="price">225.00 $</td>
+    </tr>
+    <tr class="even">
+      <td class="name">روز طويل ازرق</td>
+      <td class="unit">كرتونة</td>
+      <td class="price">255.00 $</td>
+    </tr>
+    <tr class="odd">
+      <td class="name">روز طويل فضي</td>
+      <td class="unit">كرتونة</td>
+      <td class="price">275.00 $</td>
+    </tr></tbody></table>
+  </div>
+  <div class="group-block">
+    <div class="group-header">
+      <span>سلفان</span>
+      <span class="group-count">2</span>
+    </div>
+    <table><tbody>
+    <tr class="odd">
+      <td class="name">سلفان الاصيل</td>
+      <td class="unit">طرد</td>
+      <td class="price">9.00 $</td>
+    </tr>
+    <tr class="even">
+      <td class="name">سلفان الزعيم</td>
+      <td class="unit">طرد</td>
+      <td class="price">8.00 $</td>
+    </tr></tbody></table>
+  </div>
+  <div class="group-block">
+    <div class="group-header">
+      <span>سيغار</span>
+      <span class="group-count">2</span>
+    </div>
+    <table><tbody>
+    <tr class="odd">
+      <td class="name">سيغار البنت</td>
+      <td class="unit">شرحة</td>
+      <td class="price">375.00 $</td>
+    </tr>
+    <tr class="even">
+      <td class="name">سيغار كريمي</td>
+      <td class="unit">كروز</td>
+      <td class="price">25.00 $</td>
+    </tr></tbody></table>
+  </div>
+  <div class="group-block">
+    <div class="group-header">
+      <span>سيناتور</span>
+      <span class="group-count">2</span>
+    </div>
+    <table><tbody>
+    <tr class="odd">
+      <td class="name">سيناتور سيغارتين</td>
+      <td class="unit">طرد</td>
+      <td class="price">275.00 $</td>
+    </tr>
+    <tr class="even">
+      <td class="name">سيناتور علب</td>
+      <td class="unit">كرتونة</td>
+      <td class="price">225.00 $</td>
+    </tr></tbody></table>
+  </div>
+  <div class="group-block">
+    <div class="group-header">
+      <span>غلواز</span>
+      <span class="group-count">4</span>
+    </div>
+    <table><tbody>
+    <tr class="odd">
+      <td class="name">غلواز قصير أحمر</td>
+      <td class="unit">كرتونة</td>
+      <td class="price">400.00 $</td>
+    </tr>
+    <tr class="even">
+      <td class="name">غلواز كوين أحمر</td>
+      <td class="unit">كرتونة</td>
+      <td class="price">415.00 $</td>
+    </tr>
+    <tr class="odd">
+      <td class="name">غلواز كوين أصفر</td>
+      <td class="unit">كرتونة</td>
+      <td class="price">430.00 $</td>
+    </tr>
+    <tr class="even">
+      <td class="name">غلواز كوين اصفر اس سبعة.</td>
+      <td class="unit">كرتونة</td>
+      <td class="price">385.00 $</td>
+    </tr></tbody></table>
+  </div>
+  <div class="group-block">
+    <div class="group-header">
+      <span>فحم</span>
+      <span class="group-count">17</span>
+    </div>
+    <table><tbody>
+    <tr class="odd">
+      <td class="name">فحم 500 غ B12</td>
+      <td class="unit">طرد</td>
+      <td class="price">28.00 $</td>
+    </tr>
+    <tr class="even">
+      <td class="name">فحم B12</td>
+      <td class="unit">طرد</td>
+      <td class="price">27.00 $</td>
+    </tr>
+    <tr class="odd">
+      <td class="name">فحم اغاتي</td>
+      <td class="unit">طرد</td>
+      <td class="price">30.00 $</td>
+    </tr>
+    <tr class="even">
+      <td class="name">فحم الريس 250غ</td>
+      <td class="unit">طرد</td>
+      <td class="price">33.00 $</td>
+    </tr>
+    <tr class="odd">
+      <td class="name">فحم الزعيم 1 كغ</td>
+      <td class="unit">طرد</td>
+      <td class="price">36.00 $</td>
+    </tr>
+    <tr class="even">
+      <td class="name">فحم الزعيم 250غ</td>
+      <td class="unit">طرد</td>
+      <td class="price">36.00 $</td>
+    </tr>
+    <tr class="odd">
+      <td class="name">فحم الزعيم 500غ</td>
+      <td class="unit">طرد</td>
+      <td class="price">36.00 $</td>
+    </tr>
+    <tr class="even">
+      <td class="name">فحم العاصي</td>
+      <td class="unit">طرد</td>
+      <td class="price">30.00 $</td>
+    </tr>
+    <tr class="odd">
+      <td class="name">فحم المحمود</td>
+      <td class="unit">طرد</td>
+      <td class="price">28.00 $</td>
+    </tr>
+    <tr class="even">
+      <td class="name">فحم المحمود 500 غ</td>
+      <td class="unit">طرد</td>
+      <td class="price">28.00 $</td>
+    </tr>
+    <tr class="odd">
+      <td class="name">فحم الهيبة</td>
+      <td class="unit">طرد</td>
+      <td class="price">33.00 $</td>
+    </tr>
+    <tr class="even">
+      <td class="name">فحم اوركنيدنا</td>
+      <td class="unit">طرد</td>
+      <td class="price">30.00 $</td>
+    </tr>
+    <tr class="odd">
+      <td class="name">فحم ايكو نارة احمر</td>
+      <td class="unit">طرد</td>
+      <td class="price">33.00 $</td>
+    </tr>
+    <tr class="even">
+      <td class="name">فحم برو 250غ</td>
+      <td class="unit">طرد</td>
+      <td class="price">36.00 $</td>
+    </tr>
+    <tr class="odd">
+      <td class="name">فحم سارة</td>
+      <td class="unit">طرد</td>
+      <td class="price">15.00 $</td>
+    </tr>
+    <tr class="even">
+      <td class="name">فحم كوكو بحر</td>
+      <td class="unit">طرد</td>
+      <td class="price">30.00 $</td>
+    </tr>
+    <tr class="odd">
+      <td class="name">فحم كوين شيشة</td>
+      <td class="unit">طرد</td>
+      <td class="price">27.00 $</td>
+    </tr></tbody></table>
+  </div>
+  <div class="group-block">
+    <div class="group-header">
+      <span>قداحات</span>
+      <span class="group-count">2</span>
+    </div>
+    <table><tbody>
+    <tr class="odd">
+      <td class="name">قداحات شينمو</td>
+      <td class="unit">علبة</td>
+      <td class="price">16.00 $</td>
+    </tr>
+    <tr class="even">
+      <td class="name">قداحات فينيكس زرقا</td>
+      <td class="unit">طرد</td>
+      <td class="price">90.00 $</td>
+    </tr></tbody></table>
+  </div>
+  <div class="group-block">
+    <div class="group-header">
+      <span>كابتن</span>
+      <span class="group-count">5</span>
+    </div>
+    <table><tbody>
+    <tr class="odd">
+      <td class="name">كابتن بلاك سليم ازرق سكاي</td>
+      <td class="unit">كرتونة</td>
+      <td class="price">230.00 $</td>
+    </tr>
+    <tr class="even">
+      <td class="name">كابتن بلاك سيغار</td>
+      <td class="unit">طرد</td>
+      <td class="price">275.00 $</td>
+    </tr>
+    <tr class="odd">
+      <td class="name">كابتن بلاك سيلفر</td>
+      <td class="unit">كرتونة</td>
+      <td class="price">230.00 $</td>
+    </tr>
+    <tr class="even">
+      <td class="name">كابتن بلاك كوين ازرق</td>
+      <td class="unit">كرتونة</td>
+      <td class="price">275.00 $</td>
+    </tr>
+    <tr class="odd">
+      <td class="name">كابتن بلاك كوين اسود</td>
+      <td class="unit">كرتونة</td>
+      <td class="price">275.00 $</td>
+    </tr></tbody></table>
+  </div></div>
+  <div class="col">
+  <div class="group-block">
+    <div class="group-header">
+      <span>كورسير</span>
+      <span class="group-count">8</span>
+    </div>
+    <table><tbody>
+    <tr class="odd">
+      <td class="name">كورسير سليم ازرق</td>
+      <td class="unit">كرتونة</td>
+      <td class="price">150.00 $</td>
+    </tr>
+    <tr class="even">
+      <td class="name">كورسير سليم فضي</td>
+      <td class="unit">كرتونة</td>
+      <td class="price">150.00 $</td>
+    </tr>
+    <tr class="odd">
+      <td class="name">كورسير طويل ازرق</td>
+      <td class="unit">كرتونة</td>
+      <td class="price">150.00 $</td>
+    </tr>
+    <tr class="even">
+      <td class="name">كورسير طويل فضي</td>
+      <td class="unit">كرتونة</td>
+      <td class="price">150.00 $</td>
+    </tr>
+    <tr class="odd">
+      <td class="name">كورسير قصير ازرق</td>
+      <td class="unit">كرتونة</td>
+      <td class="price">150.00 $</td>
+    </tr>
+    <tr class="even">
+      <td class="name">كورسير قصير فضي</td>
+      <td class="unit">كرتونة</td>
+      <td class="price">150.00 $</td>
+    </tr>
+    <tr class="odd">
+      <td class="name">كورسير كوين ازرق</td>
+      <td class="unit">كرتونة</td>
+      <td class="price">150.00 $</td>
+    </tr>
+    <tr class="even">
+      <td class="name">كورسير كوين فضي</td>
+      <td class="unit">كرتونة</td>
+      <td class="price">150.00 $</td>
+    </tr></tbody></table>
+  </div>
+  <div class="group-block">
+    <div class="group-header">
+      <span>كينت</span>
+      <span class="group-count">3</span>
+    </div>
+    <table><tbody>
+    <tr class="odd">
+      <td class="name">كينت ازرق حرة</td>
+      <td class="unit">كرتونة</td>
+      <td class="price">690.00 $</td>
+    </tr>
+    <tr class="even">
+      <td class="name">كينت فضي</td>
+      <td class="unit">كرتونة</td>
+      <td class="price">860.00 $</td>
+    </tr>
+    <tr class="odd">
+      <td class="name">كينت فضي حرة</td>
+      <td class="unit">كرتونة</td>
+      <td class="price">690.00 $</td>
+    </tr></tbody></table>
+  </div>
+  <div class="group-block">
+    <div class="group-header">
+      <span>كينغ</span>
+      <span class="group-count">4</span>
+    </div>
+    <table><tbody>
+    <tr class="odd">
+      <td class="name">كينغ دوم بوكس ازرق امريكي</td>
+      <td class="unit">كرتونة</td>
+      <td class="price">200.00 $</td>
+    </tr>
+    <tr class="even">
+      <td class="name">كينغ دوم بوكس فضي امريكي</td>
+      <td class="unit">كرتونة</td>
+      <td class="price">200.00 $</td>
+    </tr>
+    <tr class="odd">
+      <td class="name">كينغ دوم سليم نعنع</td>
+      <td class="unit">كرتونة</td>
+      <td class="price">190.00 $</td>
+    </tr>
+    <tr class="even">
+      <td class="name">كينغ دوم كوين أبيض</td>
+      <td class="unit">كرتونة</td>
+      <td class="price">245.00 $</td>
+    </tr></tbody></table>
+  </div>
+  <div class="group-block">
+    <div class="group-header">
+      <span>ماستر</span>
+      <span class="group-count">6</span>
+    </div>
+    <table><tbody>
+    <tr class="odd">
+      <td class="name">ماستر سليم نكهات</td>
+      <td class="unit">كرتونة</td>
+      <td class="price">220.00 $</td>
+    </tr>
+    <tr class="even">
+      <td class="name">ماستر طويل ورق</td>
+      <td class="unit">كرتونة</td>
+      <td class="price">400.00 $</td>
+    </tr>
+    <tr class="odd">
+      <td class="name">ماستر طويل ورق ازرق</td>
+      <td class="unit">كرتونة</td>
+      <td class="price">400.00 $</td>
+    </tr>
+    <tr class="even">
+      <td class="name">ماستر قصير أزرق</td>
+      <td class="unit">كرتونة</td>
+      <td class="price">350.00 $</td>
+    </tr>
+    <tr class="odd">
+      <td class="name">ماستر قصير ازرق كرتون</td>
+      <td class="unit">كرتونة</td>
+      <td class="price">350.00 $</td>
+    </tr>
+    <tr class="even">
+      <td class="name">ماستر كوين أبيض</td>
+      <td class="unit">كرتونة</td>
+      <td class="price">340.00 $</td>
+    </tr></tbody></table>
+  </div>
+  <div class="group-block">
+    <div class="group-header">
+      <span>مالبورو</span>
+      <span class="group-count">7</span>
+    </div>
+    <table><tbody>
+    <tr class="odd">
+      <td class="name">مالبورو تنك</td>
+      <td class="unit">كرتونة</td>
+      <td class="price">410.00 $</td>
+    </tr>
+    <tr class="even">
+      <td class="name">مالبورو طقتين</td>
+      <td class="unit">كرتونة</td>
+      <td class="price">1200.00 $</td>
+    </tr>
+    <tr class="odd">
+      <td class="name">مالبورو غولد تاريخ</td>
+      <td class="unit">كرتونة</td>
+      <td class="price">700.00 $</td>
+    </tr>
+    <tr class="even">
+      <td class="name">مالبورو غولد حرة</td>
+      <td class="unit">كرتونة</td>
+      <td class="price">1300.00 $</td>
+    </tr>
+    <tr class="odd">
+      <td class="name">مالبورو غولد حرة لبنان</td>
+      <td class="unit">كرتونة</td>
+      <td class="price">1450.00 $</td>
+    </tr>
+    <tr class="even">
+      <td class="name">مالبورو غولد طابع</td>
+      <td class="unit">كرتونة</td>
+      <td class="price">1150.00 $</td>
+    </tr>
+    <tr class="odd">
+      <td class="name">مالبورو غولد محزر</td>
+      <td class="unit">كرتونة</td>
+      <td class="price">1200.00 $</td>
+    </tr></tbody></table>
+  </div>
+  <div class="group-block">
+    <div class="group-header">
+      <span>مانشستر</span>
+      <span class="group-count">8</span>
+    </div>
+    <table><tbody>
+    <tr class="odd">
+      <td class="name">مانشستر طقتين</td>
+      <td class="unit">كرتونة</td>
+      <td class="price">325.00 $</td>
+    </tr>
+    <tr class="even">
+      <td class="name">مانشستر طويل احمر</td>
+      <td class="unit">كرتونة</td>
+      <td class="price">215.00 $</td>
+    </tr>
+    <tr class="odd">
+      <td class="name">مانشستر طويل فضي</td>
+      <td class="unit">كرتونة</td>
+      <td class="price">235.00 $</td>
+    </tr>
+    <tr class="even">
+      <td class="name">مانشستر قصير ازرق</td>
+      <td class="unit">كرتونة</td>
+      <td class="price">240.00 $</td>
+    </tr>
+    <tr class="odd">
+      <td class="name">مانشستر قصير فضي</td>
+      <td class="unit">كرتونة</td>
+      <td class="price">185.00 $</td>
+    </tr>
+    <tr class="even">
+      <td class="name">مانشستر كوين ابيض</td>
+      <td class="unit">كرتونة</td>
+      <td class="price">175.00 $</td>
+    </tr>
+    <tr class="odd">
+      <td class="name">مانشستر كوين طقة توت</td>
+      <td class="unit">كرتونة</td>
+      <td class="price">210.00 $</td>
+    </tr>
+    <tr class="even">
+      <td class="name">مانشستر كوين كريمي</td>
+      <td class="unit">كرتونة</td>
+      <td class="price">185.00 $</td>
+    </tr></tbody></table>
+  </div>
+  <div class="group-block">
+    <div class="group-header">
+      <span>مزايا</span>
+      <span class="group-count">3</span>
+    </div>
+    <table><tbody>
+    <tr class="odd">
+      <td class="name">مزايا بحريني 100غ</td>
+      <td class="unit">طرد</td>
+      <td class="price">40.00 $</td>
+    </tr>
+    <tr class="even">
+      <td class="name">مزايا بطيخ ونعنع</td>
+      <td class="unit">شرحة</td>
+      <td class="price">145.00 $</td>
+    </tr>
+    <tr class="odd">
+      <td class="name">مزايا بولو 250غ علب</td>
+      <td class="unit">شرحة</td>
+      <td class="price">145.00 $</td>
+    </tr></tbody></table>
+  </div>
+  <div class="group-block">
+    <div class="group-header">
+      <span>معسل</span>
+      <span class="group-count">48</span>
+    </div>
+    <table><tbody>
+    <tr class="odd">
+      <td class="name">معسل الاسطورة 5 تفاحات</td>
+      <td class="unit">شرحة</td>
+      <td class="price">92.00 $</td>
+    </tr>
+    <tr class="even">
+      <td class="name">معسل الاسطورة احمر كروز</td>
+      <td class="unit">شرحة</td>
+      <td class="price">92.00 $</td>
+    </tr>
+    <tr class="odd">
+      <td class="name">معسل الاسطورة اماراتي كروز</td>
+      <td class="unit">شرحة</td>
+      <td class="price">92.00 $</td>
+    </tr>
+    <tr class="even">
+      <td class="name">معسل الاسطورة اماراتي كف</td>
+      <td class="unit">شرحة</td>
+      <td class="price">92.00 $</td>
+    </tr>
+    <tr class="odd">
+      <td class="name">معسل الاسطورة بولو</td>
+      <td class="unit">شرحة</td>
+      <td class="price">92.00 $</td>
+    </tr>
+    <tr class="even">
+      <td class="name">معسل الاسطورة جوكر</td>
+      <td class="unit">شرحة</td>
+      <td class="price">92.00 $</td>
+    </tr>
+    <tr class="odd">
+      <td class="name">معسل الاسطورة روبي كراش</td>
+      <td class="unit">شرحة</td>
+      <td class="price">92.00 $</td>
+    </tr>
+    <tr class="even">
+      <td class="name">معسل الاسطورة علكة</td>
+      <td class="unit">شرحة</td>
+      <td class="price">92.00 $</td>
+    </tr>
+    <tr class="odd">
+      <td class="name">معسل الاسطورة علكة ونعنع</td>
+      <td class="unit">شرحة</td>
+      <td class="price">92.00 $</td>
+    </tr>
+    <tr class="even">
+      <td class="name">معسل الاسطورة كف احمر</td>
+      <td class="unit">شرحة</td>
+      <td class="price">92.00 $</td>
+    </tr>
+    <tr class="odd">
+      <td class="name">معسل الصفوة جميع نكهات</td>
+      <td class="unit">شرحة</td>
+      <td class="price">85.00 $</td>
+    </tr>
+    <tr class="even">
+      <td class="name">معسل الفاخر احمر حرة</td>
+      <td class="unit">شرحة</td>
+      <td class="price">155.00 $</td>
+    </tr>
+    <tr class="odd">
+      <td class="name">معسل الفاخر نعنع</td>
+      <td class="unit">شرحة</td>
+      <td class="price">145.00 $</td>
+    </tr>
+    <tr class="even">
+      <td class="name">معسل روز تفاحتين بحريني</td>
+      <td class="unit">شرحة</td>
+      <td class="price">85.00 $</td>
+    </tr>
+    <tr class="odd">
+      <td class="name">معسل روز عنب</td>
+      <td class="unit">شرحة</td>
+      <td class="price">85.00 $</td>
+    </tr>
+    <tr class="even">
+      <td class="name">معسل روز كف بولو</td>
+      <td class="unit">شرحة</td>
+      <td class="price">85.00 $</td>
+    </tr>
+    <tr class="odd">
+      <td class="name">معسل روز مثلج</td>
+      <td class="unit">شرحة</td>
+      <td class="price">85.00 $</td>
+    </tr>
+    <tr class="even">
+      <td class="name">معسل روز مسكة</td>
+      <td class="unit">شرحة</td>
+      <td class="price">85.00 $</td>
+    </tr>
+    <tr class="odd">
+      <td class="name">معسل روز مصري</td>
+      <td class="unit">شرحة</td>
+      <td class="price">85.00 $</td>
+    </tr>
+    <tr class="even">
+      <td class="name">معسل روز نعنع</td>
+      <td class="unit">شرحة</td>
+      <td class="price">85.00 $</td>
+    </tr>
+    <tr class="odd">
+      <td class="name">معسل روز نكهات</td>
+      <td class="unit">شرحة</td>
+      <td class="price">85.00 $</td>
+    </tr>
+    <tr class="even">
+      <td class="name">معسل فاخر احمر كروز</td>
+      <td class="unit">شرحة</td>
+      <td class="price">145.00 $</td>
+    </tr>
+    <tr class="odd">
+      <td class="name">معسل فاخر بلوبيري</td>
+      <td class="unit">شرحة</td>
+      <td class="price">145.00 $</td>
+    </tr>
+    <tr class="even">
+      <td class="name">معسل فاخر تفاحتين اسود بحريني</td>
+      <td class="unit">شرحة</td>
+      <td class="price">145.00 $</td>
+    </tr>
+    <tr class="odd">
+      <td class="name">معسل فاخر علكة</td>
+      <td class="unit">شرحة</td>
+      <td class="price">145.00 $</td>
+    </tr>
+    <tr class="even">
+      <td class="name">معسل فاخر علكة ونعنع</td>
+      <td class="unit">شرحة</td>
+      <td class="price">145.00 $</td>
+    </tr>
+    <tr class="odd">
+      <td class="name">معسل فاخر عنب</td>
+      <td class="unit">شرحة</td>
+      <td class="price">145.00 $</td>
+    </tr>
+    <tr class="even">
+      <td class="name">معسل فاخر ماجيك لوف</td>
+      <td class="unit">شرحة</td>
+      <td class="price">145.00 $</td>
+    </tr>
+    <tr class="odd">
+      <td class="name">معسل مزايا بولو</td>
+      <td class="unit">شرحة</td>
+      <td class="price">145.00 $</td>
+    </tr>
+    <tr class="even">
+      <td class="name">معسل مزايا بيل جيم</td>
+      <td class="unit">شرحة</td>
+      <td class="price">145.00 $</td>
+    </tr>
+    <tr class="odd">
+      <td class="name">معسل مزايا تفاحتين بحريني كروز</td>
+      <td class="unit">شرحة</td>
+      <td class="price">150.00 $</td>
+    </tr>
+    <tr class="even">
+      <td class="name">معسل مزايا تفاحتين بحريني كف</td>
+      <td class="unit">شرحة</td>
+      <td class="price">150.00 $</td>
+    </tr>
+    <tr class="odd">
+      <td class="name">معسل مزايا تفاحتين فرنسي كروز</td>
+      <td class="unit">شرحة</td>
+      <td class="price">145.00 $</td>
+    </tr>
+    <tr class="even">
+      <td class="name">معسل مزايا روبي كراش</td>
+      <td class="unit">شرحة</td>
+      <td class="price">145.00 $</td>
+    </tr>
+    <tr class="odd">
+      <td class="name">معسل مزايا علكة</td>
+      <td class="unit">شرحة</td>
+      <td class="price">145.00 $</td>
+    </tr>
+    <tr class="even">
+      <td class="name">معسل مزايا علكة مثلج</td>
+      <td class="unit">شرحة</td>
+      <td class="price">145.00 $</td>
+    </tr>
+    <tr class="odd">
+      <td class="name">معسل مزايا علكة ونعنع مثلج</td>
+      <td class="unit">شرحة</td>
+      <td class="price">145.00 $</td>
+    </tr>
+    <tr class="even">
+      <td class="name">معسل مزايا عنب</td>
+      <td class="unit">شرحة</td>
+      <td class="price">145.00 $</td>
+    </tr>
+    <tr class="odd">
+      <td class="name">معسل مزايا عنب وتوت</td>
+      <td class="unit">شرحة</td>
+      <td class="price">145.00 $</td>
+    </tr>
+    <tr class="even">
+      <td class="name">معسل مزايا كاندي دروبس</td>
+      <td class="unit">شرحة</td>
+      <td class="price">145.00 $</td>
+    </tr>
+    <tr class="odd">
+      <td class="name">معسل مزايا كف لوف</td>
+      <td class="unit">شرحة</td>
+      <td class="price">145.00 $</td>
+    </tr>
+    <tr class="even">
+      <td class="name">معسل نخلة اخضر كروز.</td>
+      <td class="unit">شرحة</td>
+      <td class="price">190.00 $</td>
+    </tr>
+    <tr class="odd">
+      <td class="name">معسل نخلة تنك وزاري</td>
+      <td class="unit">طرد</td>
+      <td class="price">410.00 $</td>
+    </tr>
+    <tr class="even">
+      <td class="name">معسل نخلة صلاحية 12</td>
+      <td class="unit">شرحة</td>
+      <td class="price">325.00 $</td>
+    </tr>
+    <tr class="odd">
+      <td class="name">معسل نخلة صلاحية كف شهر 12</td>
+      <td class="unit">شرحة</td>
+      <td class="price">325.00 $</td>
+    </tr>
+    <tr class="even">
+      <td class="name">معسل نخلة كف صلاحية</td>
+      <td class="unit">طرد</td>
+      <td class="price">300.00 $</td>
+    </tr>
+    <tr class="odd">
+      <td class="name">معسل نخلة كف محزر</td>
+      <td class="unit">شرحة</td>
+      <td class="price">410.00 $</td>
+    </tr>
+    <tr class="even">
+      <td class="name">معسل نخلة محزر</td>
+      <td class="unit">شرحة</td>
+      <td class="price">540.00 $</td>
+    </tr></tbody></table>
+  </div>
+  <div class="group-block">
+    <div class="group-header">
+      <span>مليونير</span>
+      <span class="group-count">4</span>
+    </div>
+    <table><tbody>
+    <tr class="odd">
+      <td class="name">مليونير طويل أزرق</td>
+      <td class="unit">كرتونة</td>
+      <td class="price">235.00 $</td>
+    </tr>
+    <tr class="even">
+      <td class="name">مليونير طويل فضي</td>
+      <td class="unit">كرتونة</td>
+      <td class="price">235.00 $</td>
+    </tr>
+    <tr class="odd">
+      <td class="name">مليونير كوين ازرق</td>
+      <td class="unit">كرتونة</td>
+      <td class="price">160.00 $</td>
+    </tr>
+    <tr class="even">
+      <td class="name">مليونير كوين فضي</td>
+      <td class="unit">كرتونة</td>
+      <td class="price">160.00 $</td>
+    </tr></tbody></table>
+  </div>
+  <div class="group-block">
+    <div class="group-header">
+      <span>نابولي</span>
+      <span class="group-count">4</span>
+    </div>
+    <table><tbody>
+    <tr class="odd">
+      <td class="name">نابولي ابيض</td>
+      <td class="unit">كرتونة</td>
+      <td class="price">245.00 $</td>
+    </tr>
+    <tr class="even">
+      <td class="name">نابولي احمر</td>
+      <td class="unit">كرتونة</td>
+      <td class="price">245.00 $</td>
+    </tr>
+    <tr class="odd">
+      <td class="name">نابولي سيلفر</td>
+      <td class="unit">كرتونة</td>
+      <td class="price">245.00 $</td>
+    </tr>
+    <tr class="even">
+      <td class="name">نابولي غولد</td>
+      <td class="unit">كرتونة</td>
+      <td class="price">245.00 $</td>
+    </tr></tbody></table>
+  </div>
+  <div class="group-block">
+    <div class="group-header">
+      <span>نخلة</span>
+      <span class="group-count">2</span>
+    </div>
+    <table><tbody>
+    <tr class="odd">
+      <td class="name">نخلة صلاحية شهر 1</td>
+      <td class="unit">شرحة</td>
+      <td class="price">480.00 $</td>
+    </tr>
+    <tr class="even">
+      <td class="name">نخلة صلاحية شهر 10</td>
+      <td class="unit">شرحة</td>
+      <td class="price">325.00 $</td>
+    </tr></tbody></table>
+  </div>
+  <div class="group-block">
+    <div class="group-header">
+      <span>ورق</span>
+      <span class="group-count">2</span>
+    </div>
+    <table><tbody>
+    <tr class="odd">
+      <td class="name">ورق سموكينغ</td>
+      <td class="unit">كرتونة</td>
+      <td class="price">500.00 $</td>
+    </tr>
+    <tr class="even">
+      <td class="name">ورق شام</td>
+      <td class="unit">كرتونة</td>
+      <td class="price">270.00 $</td>
+    </tr></tbody></table>
+  </div>
+  <div class="group-block">
+    <div class="group-header">
+      <span>ولسون</span>
+      <span class="group-count">1</span>
+    </div>
+    <table><tbody>
+    <tr class="odd">
+      <td class="name">ولسون طويل فضي</td>
+      <td class="unit">كرتونة</td>
+      <td class="price">235.00 $</td>
+    </tr></tbody></table>
+  </div>
+  <div class="group-block">
+    <div class="group-header">
+      <span>وينستون</span>
+      <span class="group-count">5</span>
+    </div>
+    <table><tbody>
+    <tr class="odd">
+      <td class="name">وينستون احمر حرة</td>
+      <td class="unit">كرتونة</td>
+      <td class="price">660.00 $</td>
+    </tr>
+    <tr class="even">
+      <td class="name">وينستون ازرق حرة</td>
+      <td class="unit">كرتونة</td>
+      <td class="price">675.00 $</td>
+    </tr>
+    <tr class="odd">
+      <td class="name">وينستون ازرق علب</td>
+      <td class="unit">كرتونة</td>
+      <td class="price">325.00 $</td>
+    </tr>
+    <tr class="even">
+      <td class="name">وينستون فضي حرة</td>
+      <td class="unit">كرتونة</td>
+      <td class="price">675.00 $</td>
+    </tr>
+    <tr class="odd">
+      <td class="name">وينستون فضي علب</td>
+      <td class="unit">كرتونة</td>
+      <td class="price">325.00 $</td>
+    </tr></tbody></table>
+  </div>
+  <div class="group-block">
+    <div class="group-header">
+      <span>يونايتد</span>
+      <span class="group-count">1</span>
+    </div>
+    <table><tbody>
+    <tr class="odd">
+      <td class="name">يونايتد غير مخصص</td>
+      <td class="unit">كرتونة</td>
+      <td class="price">310.00 $</td>
+    </tr></tbody></table>
+  </div></div>
 </div>
 
 <div class="footer">
-  <div>
-    <span class="validity">⚠️ الأسعار سارية حتى: ٢ تموز ٢٠٢٦</span>
-    &nbsp;—&nbsp; الأسعار خاضعة للتغيير بدون إشعار مسبق
-  </div>
-  <div class="contact">للاستفسار: ozk.kh@outlook.com</div>
+  <span>⚠️ الأسعار سارية حتى <strong>٢ تموز ٢٠٢٦</strong> — خاضعة للتغيير بدون إشعار</span>
+  <span>ozk.kh@outlook.com</span>
 </div>
 
 </body>
