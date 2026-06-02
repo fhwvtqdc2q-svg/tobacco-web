@@ -1121,8 +1121,8 @@ code {
 
 .price-pdf-book {
   width: 760px;
-  background: #080704;
-  color: #f7ead0;
+  background: #ffffff !important;
+  color: #1a1a1a !important;
   font-family: Tahoma, Arial, sans-serif;
   direction: rtl;
 }
@@ -1139,7 +1139,7 @@ code {
   flex-direction: column;
   overflow: hidden;
   padding: 10px;
-  background: #080704;
+  background: #ffffff !important;
   break-after: page;
   page-break-after: always;
 }
@@ -1156,10 +1156,10 @@ code {
   align-items: center;
   flex: 0 0 auto;
   padding: 8px 10px;
-  border: 1px solid #c9a34e;
+  border: 2px solid #d7a83f;
   border-radius: 4px;
-  background: #050403;
-  color: #f5d36f;
+  background: #faf8f5 !important;
+  color: #1a1a1a !important;
 }
 
 .price-pdf-header h1 {
@@ -1170,7 +1170,7 @@ code {
 
 .price-pdf-header p {
   margin: 3px 0 0;
-  color: #f7ead0;
+  color: #4a3f35 !important;
   font-size: 11px;
 }
 
@@ -1178,20 +1178,21 @@ code {
   display: grid;
   min-width: 112px;
   padding: 6px 8px;
-  border: 1px solid #7a612f;
+  border: 1px solid #c8a673 !important;
   border-radius: 4px;
   text-align: center;
+  background: #ffffff !important;
 }
 
 .price-pdf-date span {
   margin: 0;
-  color: #d3bea0;
+  color: #6b5535 !important;
   font-size: 9px;
   font-weight: 700;
 }
 
 .price-pdf-date b {
-  color: #ffffff;
+  color: #1a1a1a !important;
   font-size: 12px;
 }
 
@@ -1206,17 +1207,17 @@ code {
 .price-pdf-meta span {
   min-height: 25px;
   padding: 4px 6px;
-  border: 1px solid #9f7f36;
+  border: 1px solid #c8a673 !important;
   border-radius: 3px;
-  background: #17120a;
-  color: #f7ead0;
+  background: #faf8f5 !important;
+  color: #4a3f35 !important;
   font-size: 9px;
   line-height: 1.25;
 }
 
 .price-pdf-contact b {
   display: block;
-  color: #f5d36f;
+  color: #8b5e11 !important;
   font-size: 8px;
 }
 
@@ -1247,9 +1248,9 @@ code {
   margin: 4px 0 0;
   padding: 3px 5px 4px;
   border-radius: 0;
-  border: 1px solid #9f7f36;
-  background: #d7a83f;
-  color: #100b04;
+  border: 1px solid #c8a673 !important;
+  background: #e8d4b0 !important;
+  color: #3a2a0a !important;
   font-size: 10px;
   line-height: 1.2;
   text-align: center;
@@ -1261,15 +1262,15 @@ code {
   gap: 0 4px;
   min-height: 0;
   padding: 2px 4px 1px;
-  border: 1px solid #43331a;
+  border: 1px solid #d8c899 !important;
   border-top: 0;
-  border-bottom: 1px solid #43331a;
+  border-bottom: 1px solid #d8c899 !important;
   border-radius: 0;
-  background: #151009;
+  background: #ffffff !important;
 }
 
 .price-pdf-item:nth-child(even) {
-  background: #1b140b;
+  background: #f9f7f3 !important;
 }
 
 .price-pdf-item:last-child {
@@ -1277,7 +1278,7 @@ code {
 }
 
 .price-pdf-name {
-  color: #fff6dd;
+  color: #1a1a1a !important;
   font-size: 8.4px;
   font-weight: 700;
   line-height: 1.18;
@@ -1285,7 +1286,7 @@ code {
 }
 
 .price-pdf-item b {
-  color: #f5d36f;
+  color: #1a1a1a !important;
   font-size: 9.6px;
   line-height: 1.2;
   text-align: left;
@@ -1293,7 +1294,7 @@ code {
 
 .price-pdf-item small {
   grid-column: 1 / -1;
-  color: #c8b47c;
+  color: #5a5a5a !important;
   font-size: 6.4px;
   line-height: 1.1;
 }
@@ -1305,10 +1306,10 @@ code {
   flex: 0 0 auto;
   margin-top: 8px;
   padding: 5px 7px;
-  border: 1px solid #9f7f36;
+  border: 1px solid #c8a673 !important;
   border-radius: 3px;
-  background: #050403;
-  color: #f5d36f;
+  background: #f0ead8 !important;
+  color: #3a2a0a !important;
   font-size: 8.5px;
   text-align: center;
 }
@@ -1319,6 +1320,7 @@ code {
 
 .price-pdf-footer b {
   white-space: nowrap;
+  color: #3a2a0a !important;
 }
 
 @media (max-width: 900px) {
