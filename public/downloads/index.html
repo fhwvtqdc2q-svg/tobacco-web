@@ -8,92 +8,35 @@
   * { margin: 0; padding: 0; box-sizing: border-box; }
   body {
     font-family: 'Segoe UI', Tahoma, sans-serif;
-    background: #0d0b08;
-    color: #e8d9b0;
-    min-height: 100vh;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    padding: 40px 20px;
+    background: #0d0b08; color: #e8d9b0;
+    min-height: 100vh; display: flex; flex-direction: column;
+    align-items: center; padding: 40px 20px;
   }
-  .logo {
-    font-size: 2rem;
-    font-weight: 900;
-    color: #d7a83f;
-    letter-spacing: 2px;
-    margin-bottom: 6px;
-  }
-  .subtitle {
-    color: #a08850;
-    font-size: 0.95rem;
-    margin-bottom: 50px;
-  }
-  h1 {
-    font-size: 1.4rem;
-    color: #e8d9b0;
-    margin-bottom: 30px;
-    text-align: center;
-  }
-  .cards {
-    display: flex;
-    gap: 24px;
-    flex-wrap: wrap;
-    justify-content: center;
-    width: 100%;
-    max-width: 700px;
-  }
+  .logo { font-size: 2rem; font-weight: 900; color: #d7a83f; letter-spacing: 2px; margin-bottom: 4px; }
+  .subtitle { color: #a08850; font-size: 0.9rem; margin-bottom: 6px; }
+  .issue-date { color: #6b5535; font-size: 0.82rem; margin-bottom: 44px; }
+  h1 { font-size: 1.3rem; color: #e8d9b0; margin-bottom: 28px; text-align: center; }
+  .cards { display: flex; gap: 24px; flex-wrap: wrap; justify-content: center; width: 100%; max-width: 680px; }
   .card {
-    background: #1a160f;
-    border: 1px solid #5a4524;
-    border-radius: 12px;
-    padding: 32px 28px;
-    flex: 1;
-    min-width: 260px;
-    max-width: 320px;
-    text-align: center;
-    text-decoration: none;
-    color: inherit;
-    transition: border-color 0.2s, transform 0.15s;
-    display: block;
+    background: #1a160f; border: 1px solid #5a4524; border-radius: 12px;
+    padding: 30px 24px; flex: 1; min-width: 260px; max-width: 300px;
+    text-align: center; text-decoration: none; color: inherit;
+    transition: border-color 0.2s, transform 0.15s; display: block;
   }
-  .card:hover {
-    border-color: #d7a83f;
-    transform: translateY(-3px);
-  }
-  .card-icon { font-size: 3rem; margin-bottom: 16px; }
-  .card-title {
-    font-size: 1.2rem;
-    font-weight: 700;
-    color: #d7a83f;
-    margin-bottom: 8px;
-  }
-  .card-desc {
-    font-size: 0.88rem;
-    color: #a08850;
-    line-height: 1.6;
-  }
-  .card-btn {
-    display: inline-block;
-    margin-top: 20px;
-    background: #d7a83f;
-    color: #1a1208;
-    font-weight: 700;
-    padding: 10px 24px;
-    border-radius: 6px;
-    font-size: 0.9rem;
-  }
-  .footer {
-    margin-top: 60px;
-    color: #5a4524;
-    font-size: 0.8rem;
-    text-align: center;
-  }
+  .card:hover { border-color: #d7a83f; transform: translateY(-3px); }
+  .card-icon { font-size: 2.8rem; margin-bottom: 14px; }
+  .card-title { font-size: 1.15rem; font-weight: 700; color: #d7a83f; margin-bottom: 6px; }
+  .card-desc { font-size: 0.85rem; color: #a08850; line-height: 1.6; }
+  .card-validity { font-size: 0.78rem; color: #6b5535; margin-top: 8px; }
+  .card-btn { display: inline-block; margin-top: 18px; background: #d7a83f; color: #1a1208; font-weight: 700; padding: 9px 22px; border-radius: 6px; font-size: 0.88rem; }
+  .footer { margin-top: 56px; color: #5a4524; font-size: 0.78rem; text-align: center; line-height: 1.8; }
 </style>
 </head>
 <body>
 
 <div class="logo">OZK TOBACCO</div>
 <div class="subtitle">نشرات الأسعار الرسمية</div>
+<div class="issue-date">تاريخ الإصدار: ٢ حزيران ٢٠٢٦ &nbsp;|&nbsp; صالحة لـ 30 يوماً</div>
 
 <h1>اختر نشرة الأسعار</h1>
 
@@ -103,6 +46,7 @@
     <div class="card-icon">💵</div>
     <div class="card-title">نشرة الدولار</div>
     <div class="card-desc">أسعار جميع المواد بالدولار الأمريكي</div>
+    <div class="card-validity">صالحة حتى: ٢ تموز ٢٠٢٦</div>
     <div class="card-btn">عرض وطباعة</div>
   </a>
 
@@ -110,13 +54,15 @@
     <div class="card-icon">🇸🇾</div>
     <div class="card-title">نشرة الليرة السورية</div>
     <div class="card-desc">أسعار جميع المواد بالليرة السورية<br>سعر الصرف: 14,050 ل.س/دولار</div>
+    <div class="card-validity">صالحة حتى: ٢ تموز ٢٠٢٦</div>
     <div class="card-btn">عرض وطباعة</div>
   </a>
 
 </div>
 
 <div class="footer">
-  لفتح النشرة اضغط "عرض وطباعة" ← ثم Ctrl+P أو زر الطباعة لحفظها PDF
+  لفتح النشرة اضغط "عرض وطباعة" ← ثم Ctrl+P أو زر الطباعة لحفظها PDF<br>
+  للاستفسار: ozk.kh@outlook.com
 </div>
 
 </body>

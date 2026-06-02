@@ -1,4 +1,5 @@
 node_modules/
+.playwright/
 dist/
 
 # Environment & credentials — never commit
