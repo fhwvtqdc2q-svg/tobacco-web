@@ -1172,16 +1172,28 @@ code {
   color: #1a1a1a !important;
 }
 
+.price-pdf-logo {
+  height: 42px;
+  width: auto;
+  object-fit: contain;
+  flex-shrink: 0;
+}
+
+.price-pdf-title-block {
+  flex: 1;
+  min-width: 0;
+}
+
 .price-pdf-header h1 {
   margin: 0;
-  font-size: 20px;
-  line-height: 1.1;
+  font-size: 17px;
+  line-height: 1.15;
 }
 
 .price-pdf-header p {
   margin: 3px 0 0;
   color: #4a3f35 !important;
-  font-size: 11px;
+  font-size: 10px;
 }
 
 .price-pdf-date {
