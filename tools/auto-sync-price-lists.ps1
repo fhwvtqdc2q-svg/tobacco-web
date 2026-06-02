@@ -1,10 +1,11 @@
 # ============================================================
 # auto-sync-price-lists.ps1
-# يسحب من الأمين وSupabase → يحدّث price-data.json → يرفع لـ GitHub
-# بعده GitHub Actions يولّد النشرات تلقائياً
+# يبني price-data.json من الصفر:
+#   المواد + الوحدات + المجموعات  ← الأمين (مستودعات)
+#   الأسعار المعتمدة (USD)        ← Supabase (الموقع)
+# ثم يرفع لـ GitHub → GitHub Actions يولّد النشرات
 # ============================================================
-# الاستخدام اليدوي: .\tools\auto-sync-price-lists.ps1
-# التشغيل التلقائي: سجّل بـ register-price-list-sync-task.ps1
+# الاستخدام: .\tools\auto-sync-price-lists.ps1
 # ============================================================
 
 param(
@@ -24,171 +25,209 @@ function Log($msg, $color = "White") {
     $line | Add-Content $LogFile -Encoding UTF8
 }
 
-Log "═══ بدء مزامنة نشرات الأسعار ═══" "Cyan"
+Log "═══ بناء نشرة الأسعار من الأمين + Supabase ═══" "Cyan"
 
-# ── قراءة إعدادات .env ───────────────────────────────────────────────────────
+# ── قراءة .env ───────────────────────────────────────────────────────────────
 if (Test-Path $EnvFile) {
     Get-Content $EnvFile | Where-Object { $_ -match '^\s*[^#].+=.+' } | ForEach-Object {
-        $parts = $_ -split '=', 2
-        [System.Environment]::SetEnvironmentVariable($parts[0].Trim(), $parts[1].Trim())
+        $p = $_ -split '=', 2
+        [System.Environment]::SetEnvironmentVariable($p[0].Trim(), $p[1].Trim())
     }
 }
 
-# ── 1. سحب الأسعار من Supabase ───────────────────────────────────────────────
-$supabaseUrl = $env:SUPABASE_URL ?? "https://dyxbirfpxeocqffnfdeb.supabase.co"
-$apiKey      = $env:SUPABASE_SERVICE_KEY ?? "sb_publishable_RkM_QDWxk8Yekqz9KBKXBw_Yl14zhSH"
+# ════════════════════════════════════════════════════════════════════════════
+# 1. سحب المواد من الأمين
+# ════════════════════════════════════════════════════════════════════════════
+$connStr = $env:AMEEN_SQL_CONNECTION_STRING
+if (-not $connStr) {
+    Log "خطأ: AMEEN_SQL_CONNECTION_STRING غير موجود" "Red"
+    Log "شغّل أولاً: .\tools\setup-ameen-sync-env.ps1" "Yellow"
+    exit 1
+}
 
-Log "جارٍ سحب الأسعار من Supabase..." "Cyan"
+Log "الاتصال بالأمين..." "Cyan"
+$conn = New-Object System.Data.SqlClient.SqlConnection($connStr)
+$conn.Open()
 
+# ── اكتشاف الأعمدة المتاحة ────────────────────────────────────────────────
+$discCmd = $conn.CreateCommand()
+$discCmd.CommandText = @"
+SELECT TABLE_NAME, COLUMN_NAME
+FROM INFORMATION_SCHEMA.COLUMNS
+WHERE TABLE_NAME LIKE 'Material%'
+  AND (COLUMN_NAME LIKE '%unit%'   OR COLUMN_NAME LIKE '%Unit%'
+    OR COLUMN_NAME LIKE '%factor%' OR COLUMN_NAME LIKE '%Factor%'
+    OR COLUMN_NAME LIKE '%group%'  OR COLUMN_NAME LIKE '%Group%'
+    OR COLUMN_NAME LIKE '%categ%'  OR COLUMN_NAME LIKE '%Categ%'
+    OR COLUMN_NAME LIKE '%class%'  OR COLUMN_NAME LIKE '%small%'
+    OR COLUMN_NAME LIKE '%pack%')
+ORDER BY TABLE_NAME, COLUMN_NAME
+"@
+$dr = $discCmd.ExecuteReader()
+$colMap = @{}
+while ($dr.Read()) {
+    $t = "$($dr["TABLE_NAME"])"; $c = "$($dr["COLUMN_NAME"])"
+    if (-not $colMap[$t]) { $colMap[$t] = @() }
+    $colMap[$t] += $c
+}
+$dr.Close()
+
+$matCols = if ($colMap["MaterialCard000"]) { $colMap["MaterialCard000"] } else { @() }
+Log "أعمدة MaterialCard000: $($matCols -join ', ')" "Gray"
+
+# ── اختيار أعمدة الوحدة والمجموعة ────────────────────────────────────────
+$pick = {
+    param([string[]]$list, [string[]]$candidates)
+    $candidates | Where-Object { $list -contains $_ } | Select-Object -First 1
+}
+
+$factorCol = & $pick $matCols @("UnitFactor","ConversionFactor","PackSize","UnitsPerCarton","Qty2")
+$unit1Col  = & $pick $matCols @("SmallUnitName","Unit1Name","UnitSmallName","SmallUnit","Unit1","UnitName","Unit")
+$unit2Col  = & $pick $matCols @("BigUnitName","Unit2Name","UnitBigName","BigUnit","Unit2","UnitName2")
+$groupCol  = & $pick $matCols @("GroupName","CategoryName","ClassName","Group","Category","Class")
+
+Log ("عامل التحويل: " + $(if ($factorCol) {$factorCol} else {"(افتراضي 10)"})) "Gray"
+Log ("وحدة أولى  : " + $(if ($unit1Col)  {$unit1Col}  else {"(غير موجود)"}))  "Gray"
+Log ("وحدة ثانية : " + $(if ($unit2Col)  {$unit2Col}  else {"(افتراضي كرتونة)"})) "Gray"
+Log ("مجموعة     : " + $(if ($groupCol)  {$groupCol}  else {"(أول كلمة من الاسم)"})) "Gray"
+
+$fExpr  = if ($factorCol) { "COALESCE(m.$factorCol, 10)" }                        else { "10" }
+$u1Expr = if ($unit1Col)  { "ISNULL(CAST(m.$unit1Col AS NVARCHAR(100)), '')" }    else { "''" }
+$u2Expr = if ($unit2Col)  { "ISNULL(CAST(m.$unit2Col AS NVARCHAR(100)), '')" }    else { "'كرتونة'" }
+$grExpr = if ($groupCol)  { "ISNULL(CAST(m.$groupCol AS NVARCHAR(200)), '')" }    else { "''" }
+
+# ── استعلام المواد الكاملة ────────────────────────────────────────────────
+$sql = @"
+SELECT
+    RTRIM(LTRIM(m.Name)) AS item_name,
+    RTRIM(LTRIM(m.Code)) AS item_key,
+    $fExpr               AS unit_factor,
+    $u1Expr              AS unit1_name,
+    $u2Expr              AS unit2_name,
+    $grExpr              AS item_group
+FROM MaterialCard000 m
+WHERE (m.IsActive = 1 OR m.Active = 1 OR m.Deleted = 0)
+  AND m.Code IS NOT NULL
+  AND LEN(RTRIM(m.Name)) > 0
+ORDER BY m.Name
+"@
+
+$cmd = $conn.CreateCommand()
+$cmd.CommandText = $sql
+$cmd.CommandTimeout = 60
+
+$ameenItems = @()
+$reader = $cmd.ExecuteReader()
+while ($reader.Read()) {
+    $grp = "$($reader["item_group"])".Trim()
+    if ($grp -eq "") {
+        # المجموعة = أول كلمة من اسم المادة
+        $grp = "$($reader["item_name"])".Trim() -replace ' .*', ''
+    }
+    $ameenItems += [PSCustomObject]@{
+        item_key    = "$($reader["item_key"])".Trim()
+        item_name   = "$($reader["item_name"])".Trim()
+        unit_factor = [int]$reader["unit_factor"]
+        unit1_name  = "$($reader["unit1_name"])".Trim()
+        unit2_name  = "$($reader["unit2_name"])".Trim()
+        item_group  = $grp
+    }
+}
+$reader.Close()
+$conn.Close()
+
+Log "✓ الأمين: $($ameenItems.Count) مادة نشطة" "Green"
+if ($ameenItems.Count -eq 0) {
+    Log "لا مواد — تحقق من الاتصال أو الـ schema" "Red"; exit 1
+}
+
+# ════════════════════════════════════════════════════════════════════════════
+# 2. سحب الأسعار المعتمدة من Supabase
+# ════════════════════════════════════════════════════════════════════════════
+$supaUrl = if ($env:SUPABASE_URL) { $env:SUPABASE_URL } else { "https://dyxbirfpxeocqffnfdeb.supabase.co" }
+$apiKey  = if ($env:SUPABASE_SERVICE_KEY) { $env:SUPABASE_SERVICE_KEY } else { "sb_publishable_RkM_QDWxk8Yekqz9KBKXBw_Yl14zhSH" }
+
+Log "سحب الأسعار من Supabase..." "Cyan"
 $headers = @{
     "apikey"         = $apiKey
     "Authorization"  = "Bearer $apiKey"
     "Accept-Profile" = "public"
 }
-$url = "$supabaseUrl/rest/v1/approved_price_items?select=item_key,item_name,unit1_name,unit2_name,unit2_factor,unit2_price&order=item_name.asc&limit=5000"
 
+$supaMap = @{}
 try {
-    $supaItems = Invoke-RestMethod -Uri $url -Headers $headers -Method GET -ErrorAction Stop
-    Log "✓ Supabase: $($supaItems.Count) صنف" "Green"
+    $rows = Invoke-RestMethod `
+        -Uri "$supaUrl/rest/v1/approved_price_items?select=item_key,unit2_price&limit=5000" `
+        -Headers $headers -Method GET -ErrorAction Stop
+    foreach ($r in $rows) {
+        if ($r.unit2_price -and [double]$r.unit2_price -gt 0) {
+            $supaMap[$r.item_key] = [Math]::Round([double]$r.unit2_price, 2)
+        }
+    }
+    Log "✓ Supabase: $($supaMap.Count) سعر معتمد" "Green"
 } catch {
-    Log "تحذير Supabase: $_" "Yellow"
-    $supaItems = @()
+    Log "تحذير Supabase: $_ — لن تظهر أسعار في النشرة بدون أسعار معتمدة" "Yellow"
 }
 
-# ── 2. سحب عوامل التحويل من الأمين ──────────────────────────────────────────
-$connStr = $env:AMEEN_SQL_CONNECTION_STRING
-$ameenRows = @()
+# ════════════════════════════════════════════════════════════════════════════
+# 3. بناء price-data.json (المواد التي عندها سعر معتمد فقط)
+# ════════════════════════════════════════════════════════════════════════════
+$priceData = [System.Collections.Generic.List[object]]::new()
+$skipped   = 0
 
-if ($connStr) {
-    Log "جارٍ الاتصال بالأمين..." "Cyan"
-    try {
-        $conn = New-Object System.Data.SqlClient.SqlConnection($connStr)
-        $conn.Open()
+foreach ($item in $ameenItems) {
+    $usd = $supaMap[$item.item_key]
+    if (-not $usd -or $usd -le 0) { $skipped++; continue }
 
-        # اكتشاف أعمدة الوحدة الأولى والعامل
-        $discoverCmd = $conn.CreateCommand()
-        $discoverCmd.CommandText = @"
-SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS
-WHERE TABLE_NAME LIKE 'MaterialCard%'
-  AND (COLUMN_NAME LIKE '%unit%' OR COLUMN_NAME LIKE '%Unit%'
-    OR COLUMN_NAME LIKE '%factor%' OR COLUMN_NAME LIKE '%Factor%'
-    OR COLUMN_NAME LIKE '%pack%'   OR COLUMN_NAME LIKE '%small%')
-"@
-        $dr = $discoverCmd.ExecuteReader()
-        $cols = @(); while ($dr.Read()) { $cols += $dr["COLUMN_NAME"] }
-        $dr.Close()
+    $u2 = if ($item.unit2_name -ne "") { $item.unit2_name } else { "كرتونة" }
 
-        $factorCols = @("UnitFactor","ConversionFactor","PackSize","UnitsPerCarton","Qty")
-        $unit1Cols  = @("SmallUnitName","Unit1Name","UnitSmallName","SmallUnit","Unit1","UnitName","Unit")
-        $factorCol  = $factorCols | Where-Object { $cols -contains $_ } | Select-Object -First 1
-        $unit1Col   = $unit1Cols  | Where-Object { $cols -contains $_ } | Select-Object -First 1
-
-        $factorExpr = if ($factorCol) { "COALESCE(m.$factorCol, 10)" } else { "10" }
-        $unit1Expr  = if ($unit1Col)  { "ISNULL(m.$unit1Col, '')"    } else { "''" }
-
-        $cmd = $conn.CreateCommand()
-        $cmd.CommandText = @"
-SELECT m.Code AS item_key,
-       $factorExpr AS unit_factor,
-       $unit1Expr  AS unit1_name
-FROM MaterialCard000 m
-WHERE m.IsActive=1 OR m.Active=1 OR m.Deleted=0
-"@
-        $cmd.CommandTimeout = 60
-        $reader = $cmd.ExecuteReader()
-        while ($reader.Read()) {
-            $ameenRows += [PSCustomObject]@{
-                item_key    = "$($reader["item_key"])".Trim()
-                unit_factor = [int]$reader["unit_factor"]
-                unit1_name  = "$($reader["unit1_name"])".Trim()
-            }
-        }
-        $reader.Close()
-        $conn.Close()
-        Log "✓ الأمين: $($ameenRows.Count) صنف" "Green"
-    } catch {
-        Log "تحذير الأمين: $_" "Yellow"
+    $entry = [ordered]@{
+        name       = $item.item_name
+        unit       = $u2
+        usd        = $usd
+        group      = $item.item_group
+        unitFactor = $item.unit_factor
+        item_key   = $item.item_key
     }
-} else {
-    Log "AMEEN_SQL_CONNECTION_STRING غير موجود — سيتم الاعتماد على Supabase فقط" "Yellow"
+    if ($item.unit1_name -ne "") { $entry["unit1"] = $item.unit1_name }
+
+    $priceData.Add([PSCustomObject]$entry)
 }
 
-# ── 3. بناء خرائط البحث ──────────────────────────────────────────────────────
-$supaMap  = @{}; foreach ($r in $supaItems)  { $supaMap[$r.item_key]  = $r }
-$ameenMap = @{}; foreach ($r in $ameenRows)  { $ameenMap[$r.item_key] = $r }
+Log "✓ بسعر معتمد: $($priceData.Count) مادة | بدون سعر (تخطّيت): $skipped" "Green"
 
-# ── 4. تحديث price-data.json ─────────────────────────────────────────────────
+if ($priceData.Count -eq 0) {
+    Log "لا مواد للنشرة — اعتمد أسعار على الموقع أولاً" "Yellow"
+    exit 0
+}
+
+# ════════════════════════════════════════════════════════════════════════════
+# 4. حفظ price-data.json
+# ════════════════════════════════════════════════════════════════════════════
 $dataPath = Join-Path $ProjectRoot "scripts\price-data.json"
-if (-not (Test-Path $dataPath)) {
-    Log "خطأ: $dataPath غير موجود" "Red"; exit 1
-}
-
-$priceData  = Get-Content $dataPath -Raw | ConvertFrom-Json
-$updatedUsd = 0; $updatedFactor = 0; $updatedUnit1 = 0
-
-foreach ($item in $priceData) {
-    $key = $item.item_key
-    if (-not $key) { continue }
-
-    # سعر الدولار من Supabase
-    if ($supaMap.ContainsKey($key)) {
-        $s = $supaMap[$key]
-        if ($s.unit2_price -and [double]$s.unit2_price -gt 0) {
-            $item.usd = [Math]::Round([double]$s.unit2_price, 2)
-            $updatedUsd++
-        }
-        # unit1 من Supabase إن وُجد
-        if ($s.unit1_name) {
-            $item | Add-Member -NotePropertyName "unit1" -NotePropertyValue $s.unit1_name -Force
-            $updatedUnit1++
-        }
-        if ($s.unit2_factor -and [int]$s.unit2_factor -gt 0) {
-            $item.unitFactor = [int]$s.unit2_factor
-            $updatedFactor++
-        }
-    }
-
-    # عوامل الأمين تأخذ الأولوية على Supabase
-    if ($ameenMap.ContainsKey($key)) {
-        $a = $ameenMap[$key]
-        if ($a.unit_factor -gt 0) {
-            $item.unitFactor = $a.unit_factor
-            $updatedFactor++
-        }
-        if ($a.unit1_name -ne "") {
-            $item | Add-Member -NotePropertyName "unit1" -NotePropertyValue $a.unit1_name -Force
-            $updatedUnit1++
-        }
-    }
-}
-
-$newJson = $priceData | ConvertTo-Json -Depth 5
-$oldJson = Get-Content $dataPath -Raw
+$newJson  = $priceData | ConvertTo-Json -Depth 5
+$oldJson  = if (Test-Path $dataPath) { Get-Content $dataPath -Raw -Encoding UTF8 } else { "" }
 
 if ($newJson.Trim() -eq $oldJson.Trim()) {
     Log "لا تغييرات في البيانات — لن يتم الرفع" "Yellow"
     exit 0
 }
 
-Set-Content $dataPath $newJson -Encoding UTF8
-Log "✓ price-data.json — أسعار: $updatedUsd | عوامل: $updatedFactor | وحدات: $updatedUnit1" "Green"
+Set-Content $dataPath -Value $newJson -Encoding UTF8
+Log "✓ price-data.json محدَّث ($($priceData.Count) مادة)" "Green"
 
-# ── 5. رفع التغييرات لـ GitHub ────────────────────────────────────────────────
-Log "جارٍ رفع التغييرات لـ GitHub..." "Cyan"
+# ════════════════════════════════════════════════════════════════════════════
+# 5. رفع لـ GitHub → يشغّل GitHub Actions تلقائياً
+# ════════════════════════════════════════════════════════════════════════════
+Log "رفع التغييرات لـ GitHub..." "Cyan"
 
-try {
-    $gitArgs = @("-C", $ProjectRoot)
-    & git @gitArgs add "scripts/price-data.json" 2>&1
-    $diffOutput = & git @gitArgs diff --staged --quiet 2>&1
-    if ($LASTEXITCODE -eq 0) {
-        Log "لا تغييرات للرفع" "Yellow"; exit 0
-    }
-    $msg = "Auto-sync: price data from Ameen — $timestamp"
-    & git @gitArgs commit -m $msg 2>&1
-    & git @gitArgs push 2>&1
-    Log "✓ تم الرفع — GitHub Actions سيولّد النشرات تلقائياً" "Green"
-} catch {
-    Log "خطأ git: $_" "Red"; exit 1
-}
+& git -C $ProjectRoot add "scripts/price-data.json" 2>&1 | Out-Null
+& git -C $ProjectRoot diff --staged --quiet 2>&1 | Out-Null
+if ($LASTEXITCODE -eq 0) { Log "لا تغييرات للرفع" "Yellow"; exit 0 }
 
+$msg = "Auto: $($priceData.Count) items from Ameen+Supabase — $timestamp"
+& git -C $ProjectRoot commit -m $msg 2>&1 | Out-Null
+& git -C $ProjectRoot push 2>&1 | Out-Null
+
+Log "✓ تم الرفع — GitHub Actions يولّد النشرات" "Green"
 Log "═══ اكتمل ═══" "Cyan"
