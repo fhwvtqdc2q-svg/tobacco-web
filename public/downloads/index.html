@@ -5,119 +5,50 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>نشرات الأسعار — OZK TOBACCO</title>
 <style>
-  * { margin: 0; padding: 0; box-sizing: border-box; }
-  body {
-    font-family: 'Segoe UI', Tahoma, sans-serif;
-    background: #0d0b08;
-    color: #e8d9b0;
-    min-height: 100vh;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    padding: 40px 20px;
-  }
-  .logo {
-    font-size: 2rem;
-    font-weight: 900;
-    color: #d7a83f;
-    letter-spacing: 2px;
-    margin-bottom: 6px;
-  }
-  .subtitle {
-    color: #a08850;
-    font-size: 0.95rem;
-    margin-bottom: 50px;
-  }
-  h1 {
-    font-size: 1.4rem;
-    color: #e8d9b0;
-    margin-bottom: 30px;
-    text-align: center;
-  }
-  .cards {
-    display: flex;
-    gap: 24px;
-    flex-wrap: wrap;
-    justify-content: center;
-    width: 100%;
-    max-width: 700px;
-  }
-  .card {
-    background: #1a160f;
-    border: 1px solid #5a4524;
-    border-radius: 12px;
-    padding: 32px 28px;
-    flex: 1;
-    min-width: 260px;
-    max-width: 320px;
-    text-align: center;
-    text-decoration: none;
-    color: inherit;
-    transition: border-color 0.2s, transform 0.15s;
-    display: block;
-  }
-  .card:hover {
-    border-color: #d7a83f;
-    transform: translateY(-3px);
-  }
-  .card-icon { font-size: 3rem; margin-bottom: 16px; }
-  .card-title {
-    font-size: 1.2rem;
-    font-weight: 700;
-    color: #d7a83f;
-    margin-bottom: 8px;
-  }
-  .card-desc {
-    font-size: 0.88rem;
-    color: #a08850;
-    line-height: 1.6;
-  }
-  .card-btn {
-    display: inline-block;
-    margin-top: 20px;
-    background: #d7a83f;
-    color: #1a1208;
-    font-weight: 700;
-    padding: 10px 24px;
-    border-radius: 6px;
-    font-size: 0.9rem;
-  }
-  .footer {
-    margin-top: 60px;
-    color: #5a4524;
-    font-size: 0.8rem;
-    text-align: center;
-  }
+  @import url('https://fonts.googleapis.com/css2?family=Almarai:wght@400;700;800&display=swap');
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body { font-family:'Almarai',Tahoma,sans-serif; background:#0c0a07; color:#e8d9b0;
+         min-height:100vh; display:flex; flex-direction:column; align-items:center; padding:40px 20px; }
+  .logo-img { height:80px; margin-bottom:6px; }
+  .sub  { color:#a08850; font-size:.88rem; margin-bottom:2px; font-weight:600; }
+  .date { color:#6b5535; font-size:.78rem; margin-bottom:44px; direction:ltr; }
+  h1 { font-size:1.2rem; color:#d7a83f; margin-bottom:24px; font-weight:700; }
+  .cards { display:flex; gap:20px; flex-wrap:wrap; justify-content:center; max-width:640px; }
+  .card { background:#1a1208; border:1px solid #3a2810; border-radius:12px;
+          padding:26px 20px; flex:1; min-width:240px; max-width:280px;
+          text-align:center; text-decoration:none; color:inherit;
+          transition:border-color .2s,transform .15s; display:block; }
+  .card:hover { border-color:#d7a83f; transform:translateY(-3px); }
+  .card-icon  { font-size:2.4rem; margin-bottom:10px; }
+  .card-title { font-size:1.05rem; font-weight:900; color:#d7a83f; margin-bottom:4px; }
+  .card-unit  { font-size:.8rem; color:#a08030; margin-bottom:5px; font-weight:700; }
+  .card-desc  { font-size:.8rem; color:#8a7050; line-height:1.6; }
+  .card-btn   { display:inline-block; margin-top:14px; background:#d7a83f; color:#0c0a07;
+                font-weight:900; padding:8px 20px; border-radius:6px; font-size:.84rem; }
+  .footer { margin-top:50px; color:#3a2810; font-size:.75rem; text-align:center; line-height:1.9; }
 </style>
 </head>
 <body>
-
-<div class="logo">OZK TOBACCO</div>
-<div class="subtitle">نشرات الأسعار الرسمية</div>
-
+<img src="../icons/ozk-logo.png" alt="OZK TOBACCO" class="logo-img">
+<div class="sub">نشرات الأسعار الرسمية</div>
+<div class="date">02 June 2026</div>
 <h1>اختر نشرة الأسعار</h1>
-
 <div class="cards">
-
+  <a class="card" href="price-list-syp-14050.html" target="_blank">
+    <div class="card-icon">🇸🇾</div>
+    <div class="card-title">نشرة السوري</div>
+    <div class="card-unit">سعر الوحدة الواحدة</div>
+    <div class="card-desc">بالليرة السورية<br>صرف 14,050 ل.س/دولار</div>
+    <div class="card-btn">عرض وطباعة</div>
+  </a>
   <a class="card" href="price-list-usd.html" target="_blank">
     <div class="card-icon">💵</div>
     <div class="card-title">نشرة الدولار</div>
-    <div class="card-desc">أسعار جميع المواد بالدولار الأمريكي</div>
+    <div class="card-unit">سعر الكرتونة الكاملة</div>
+    <div class="card-desc">بالدولار الأمريكي</div>
     <div class="card-btn">عرض وطباعة</div>
   </a>
-
-  <a class="card" href="price-list-syp-14050.html" target="_blank">
-    <div class="card-icon">🇸🇾</div>
-    <div class="card-title">نشرة الليرة السورية</div>
-    <div class="card-desc">أسعار جميع المواد بالليرة السورية<br>سعر الصرف: 14,050 ل.س/دولار</div>
-    <div class="card-btn">عرض وطباعة</div>
-  </a>
-
 </div>
-
-<div class="footer">
-  لفتح النشرة اضغط "عرض وطباعة" ← ثم Ctrl+P أو زر الطباعة لحفظها PDF
-</div>
-
+<div class="footer">0985000771 &nbsp;|&nbsp; 0984000662 &nbsp;|&nbsp; مركز: 0994092038</div>
 </body>
 </html>
