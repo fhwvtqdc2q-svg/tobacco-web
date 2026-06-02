@@ -5,3 +5,6 @@ dist/
 .tools/
 *.log
 *.pid
+reports/prices/*.csv
+tools/.env
+tools/logs/
