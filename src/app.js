@@ -1547,6 +1547,7 @@ async function savePricingItem(form) {
       "success",
       `تم حفظ سعر ${itemName}. سعر ${unit2Name}: ${formatMoney(unit2Price)} / عامل التحويل: ${formatMoney(unit2Factor)} / سعر ${unit1Name}: ${formatMoney(salePrice)}.`
     );
+    render();
   } catch (error) {
     setNotice("error", error.message);
   }
