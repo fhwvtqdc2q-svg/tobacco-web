@@ -1,0 +1,21 @@
+{
+  "mcpServers": {
+    "playwright": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "@modelcontextprotocol/server-playwright"
+      ]
+    },
+    "github": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "@modelcontextprotocol/server-github"
+      ],
+      "env": {
+        "GITHUB_PERSONAL_ACCESS_TOKEN": "github_pat_11CDCSL7Q0dqFiYmXJZlEY_hYU7TQIjOG1zLKXemszwXEDN2bRUazqjiUuuQeeWbZHHI2UW7COjeiQECd"
+      }
+    }
+  }
+}
