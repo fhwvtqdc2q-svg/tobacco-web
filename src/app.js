@@ -1330,12 +1330,14 @@ function pricePdfPages(groups) {
   return pages.filter((page) => page.columns.some((column) => column.length));
 }
 
-function pricePdfPage(page, index, totalPages) {
+function pricePdfPage(page, index, totalPages, pdfTitle = "قائمة أسعار OZK TOBACCO") {
+  const logoSrc = `${window.location.origin}/public/icons/ozk-logo.png`;
   return `
     <section class="price-pdf-page">
       <header class="price-pdf-header">
-        <div>
-          <h1>قائمة أسعار OZK TOBACCO</h1>
+        <img class="price-pdf-logo" src="${logoSrc}" alt="OZK TOBACCO" />
+        <div class="price-pdf-title-block">
+          <h1>${escapeHtml(pdfTitle)}</h1>
           <p>نشرة أسعار الأصناف المتوفرة للزبائن</p>
         </div>
         <div class="price-pdf-date">
@@ -1365,12 +1367,10 @@ function pricePdfPage(page, index, totalPages) {
   `;
 }
 
-function pricePdfBook(groups) {
+function pricePdfBook(groups, pdfTitle = "قائمة أسعار OZK TOBACCO") {
   const pages = pricePdfPages(groups);
   return pages
-    .map(
-      (page, index) => pricePdfPage(page, index, pages.length)
-    )
+    .map((page, index) => pricePdfPage(page, index, pages.length, pdfTitle))
     .join("");
 }
 
