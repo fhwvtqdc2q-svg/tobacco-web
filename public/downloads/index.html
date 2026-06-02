@@ -5,43 +5,40 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>نشرات الأسعار — OZK TOBACCO</title>
 <style>
+  @import url('https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700;900&display=swap');
   * { margin:0; padding:0; box-sizing:border-box; }
-  body { font-family:'Segoe UI',Tahoma,sans-serif; background:#0d0b08; color:#e8d9b0;
+  body { font-family:'Cairo',Tahoma,sans-serif; background:#0d0b08; color:#e8d9b0;
          min-height:100vh; display:flex; flex-direction:column; align-items:center; padding:40px 20px; }
-  .logo   { font-size:2rem; font-weight:900; color:#d7a83f; letter-spacing:2px; margin-bottom:4px; }
-  .sub    { color:#a08850; font-size:.9rem; margin-bottom:4px; }
-  .date   { color:#6b5535; font-size:.8rem; margin-bottom:44px; }
-  h1 { font-size:1.3rem; color:#e8d9b0; margin-bottom:28px; text-align:center; }
-  .cards  { display:flex; gap:24px; flex-wrap:wrap; justify-content:center; width:100%; max-width:680px; }
+  .logo-img { height:80px; margin-bottom:8px; }
+  .sub    { color:#a08850; font-size:.88rem; margin-bottom:4px; font-weight:600; }
+  .date   { color:#6b5535; font-size:.8rem; margin-bottom:44px; direction:ltr; }
+  h1 { font-size:1.25rem; color:#e8d9b0; margin-bottom:26px; text-align:center; font-weight:700; }
+  .cards  { display:flex; gap:22px; flex-wrap:wrap; justify-content:center; width:100%; max-width:660px; }
   .card   { background:#1a160f; border:1px solid #5a4524; border-radius:12px;
-            padding:28px 22px; flex:1; min-width:255px; max-width:295px;
+            padding:26px 20px; flex:1; min-width:250px; max-width:290px;
             text-align:center; text-decoration:none; color:inherit;
             transition:border-color .2s,transform .15s; display:block; }
   .card:hover { border-color:#d7a83f; transform:translateY(-3px); }
-  .card-icon     { font-size:2.6rem; margin-bottom:12px; }
-  .card-title    { font-size:1.1rem; font-weight:700; color:#d7a83f; margin-bottom:5px; }
-  .card-unit     { font-size:.82rem; color:#c8a663; margin-bottom:5px; font-weight:700; }
-  .card-desc     { font-size:.83rem; color:#a08850; line-height:1.6; }
-  .card-validity { font-size:.76rem; color:#6b5535; margin-top:7px; }
-  .card-btn      { display:inline-block; margin-top:16px; background:#d7a83f; color:#1a1208;
-                   font-weight:700; padding:8px 20px; border-radius:6px; font-size:.86rem; }
-  .footer { margin-top:52px; color:#5a4524; font-size:.77rem; text-align:center; line-height:1.9; }
+  .card-icon  { font-size:2.5rem; margin-bottom:12px; }
+  .card-title { font-size:1.1rem; font-weight:900; color:#d7a83f; margin-bottom:4px; }
+  .card-unit  { font-size:.82rem; color:#c8a663; margin-bottom:5px; font-weight:700; }
+  .card-desc  { font-size:.82rem; color:#a08850; line-height:1.6; }
+  .card-btn   { display:inline-block; margin-top:16px; background:#d7a83f; color:#0d0b08;
+                font-weight:700; padding:8px 20px; border-radius:6px; font-size:.85rem; }
+  .footer { margin-top:50px; color:#5a4524; font-size:.76rem; text-align:center; line-height:1.9; }
 </style>
 </head>
 <body>
-<div class="logo">OZK TOBACCO</div>
+<img src="../icons/ozk-logo.png" alt="OZK TOBACCO" class="logo-img">
 <div class="sub">نشرات الأسعار الرسمية</div>
-<div class="date">تاريخ الإصدار: ٢ حزيران ٢٠٢٦ &nbsp;|&nbsp; صالحة لـ 30 يوماً</div>
-
+<div class="date">02 June 2026</div>
 <h1>اختر نشرة الأسعار</h1>
-
 <div class="cards">
   <a class="card" href="price-list-syp-14050.html" target="_blank">
     <div class="card-icon">🇸🇾</div>
     <div class="card-title">نشرة السوري</div>
     <div class="card-unit">سعر الوحدة الواحدة</div>
     <div class="card-desc">بالليرة السورية<br>صرف 14,050 ل.س/دولار</div>
-    <div class="card-validity">صالحة حتى: ٢ تموز ٢٠٢٦</div>
     <div class="card-btn">عرض وطباعة</div>
   </a>
   <a class="card" href="price-list-usd.html" target="_blank">
@@ -49,14 +46,12 @@
     <div class="card-title">نشرة الدولار</div>
     <div class="card-unit">سعر الكرتونة الكاملة</div>
     <div class="card-desc">بالدولار الأمريكي</div>
-    <div class="card-validity">صالحة حتى: ٢ تموز ٢٠٢٦</div>
     <div class="card-btn">عرض وطباعة</div>
   </a>
 </div>
-
 <div class="footer">
-  اضغط "عرض وطباعة" ← ثم Ctrl+P أو زر الطباعة لحفظها PDF<br>
-  للاستفسار: ozk.kh@outlook.com
+  اضغط "عرض وطباعة" ← ثم Ctrl+P لحفظها PDF<br>
+  ozk.kh@outlook.com
 </div>
 </body>
 </html>

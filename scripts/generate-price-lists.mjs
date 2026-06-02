@@ -1,13 +1,6 @@
 /**
  * توليد نشرات الأسعار HTML
- *
- * الاستخدام:
- *   node scripts/generate-price-lists.mjs [--rate 14050] [--validity 30]
- *
- * المخرجات:
- *   public/downloads/price-list-usd.html        ← سعر الكرتونة بالدولار
- *   public/downloads/price-list-syp-<rate>.html ← سعر الوحدة بالليرة
- *   public/downloads/index.html
+ * node scripts/generate-price-lists.mjs [--rate 14050] [--validity 30]
  */
 
 import { readFileSync, writeFileSync } from "node:fs";
@@ -15,138 +8,220 @@ import { fileURLToPath } from "node:url";
 import { dirname, resolve } from "node:path";
 
 const __dir = dirname(fileURLToPath(import.meta.url));
-const root = resolve(__dir, "..");
+const root  = resolve(__dir, "..");
 
-// ── CLI args ─────────────────────────────────────────────────────────────────
+// ── CLI ───────────────────────────────────────────────────────────────────────
 const args = process.argv.slice(2);
-const idx = (flag) => args.indexOf(flag);
-const SYP_RATE    = idx("--rate")     !== -1 ? Number(args[idx("--rate")     + 1]) : 14050;
-const VALIDITY    = idx("--validity") !== -1 ? Number(args[idx("--validity") + 1]) : 30;
+const get  = (flag) => { const i = args.indexOf(flag); return i !== -1 ? args[i+1] : null; };
+const SYP_RATE = Number(get("--rate")     ?? 14050);
+const VALIDITY = Number(get("--validity") ?? 30);
 
-// ── تواريخ ───────────────────────────────────────────────────────────────────
+// ── تاريخ بالإنجليزية ─────────────────────────────────────────────────────────
 const today = new Date();
+const issueDate = today.toLocaleDateString("en-GB", { day: "2-digit", month: "long", year: "numeric" });
 const isoDate   = today.toISOString().slice(0, 10);
-const fmtLong   = (d) => d.toLocaleDateString("ar-SY", { year: "numeric", month: "long", day: "numeric" });
-const issueDate = fmtLong(today);
-const expiryDate = fmtLong(new Date(today.getTime() + VALIDITY * 864e5));
 
-// ── بيانات الأسعار ───────────────────────────────────────────────────────────
+// ── بيانات ───────────────────────────────────────────────────────────────────
 const items = JSON.parse(readFileSync(resolve(root, "scripts/price-data.json"), "utf8"));
 
-// ── تجميع المواد حسب group ───────────────────────────────────────────────────
+// ── شعار base64 ───────────────────────────────────────────────────────────────
+const logoB64 = readFileSync(resolve(root, "public/icons/ozk-logo.png")).toString("base64");
+const logoSrc = `data:image/png;base64,${logoB64}`;
+
+// ── ترتيب المجموعات ───────────────────────────────────────────────────────────
+const FIRST = ["ماستر", "غلواز"];
+const LAST  = ["أردن", "برو", "كينت", "بزنس", "MT", "سلفان", "قداحات", "ورق", "كورسير"];
+
 const groupMap = new Map();
 for (const item of items) {
   const g = item.group ?? item.name.split(" ")[0];
   if (!groupMap.has(g)) groupMap.set(g, []);
   groupMap.get(g).push(item);
 }
-const groups = [...groupMap.entries()]; // [[name, items[]], ...]
 
-// ── توزيع المجموعات على عمودين (حسب عدد الصفوف) ────────────────────────────
+const allGroups = [...groupMap.entries()];
+const first  = FIRST.map(n => allGroups.find(([g]) => g === n)).filter(Boolean);
+const last   = LAST .map(n => allGroups.find(([g]) => g === n)).filter(Boolean);
+const middle = allGroups.filter(([g]) => !FIRST.includes(g) && !LAST.includes(g));
+const groups = [...first, ...middle, ...last];
+
+// ── توزيع على عمودين ──────────────────────────────────────────────────────────
 function splitColumns(groups) {
-  // row count per group = header (1) + items
   const sizes = groups.map(([, its]) => 1 + its.length);
-  const total = sizes.reduce((a, b) => a + b, 0);
-  const half  = total / 2;
-
-  let colA = [], colB = [];
-  let sumA = 0;
-  let switched = false;
+  const half  = sizes.reduce((a, b) => a + b, 0) / 2;
+  let colA = [], colB = [], sumA = 0, done = false;
   for (let i = 0; i < groups.length; i++) {
-    if (!switched && sumA + sizes[i] / 2 >= half) switched = true;
-    if (!switched) { colA.push(groups[i]); sumA += sizes[i]; }
-    else            { colB.push(groups[i]); }
+    if (!done && sumA + sizes[i] / 2 >= half) done = true;
+    if (!done) { colA.push(groups[i]); sumA += sizes[i]; }
+    else        { colB.push(groups[i]); }
   }
   return [colA, colB];
 }
-
 const [colA, colB] = splitColumns(groups);
 
 // ── CSS ───────────────────────────────────────────────────────────────────────
 const CSS = `
-  * { margin:0; padding:0; box-sizing:border-box; }
-  body { font-family: Tahoma, 'Segoe UI', Arial, sans-serif; background:#fff; color:#111; direction:rtl; }
+  @import url('https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700;900&display=swap');
 
-  @page  { size: A4 portrait; margin: 10mm 8mm; }
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body {
+    font-family: 'Cairo', Tahoma, 'Segoe UI', Arial, sans-serif;
+    background: #fff; color: #111; direction: rtl;
+  }
+
+  @page { size: A4 portrait; margin: 8mm 7mm; }
   @media print {
-    body { -webkit-print-color-adjust:exact; print-color-adjust:exact; }
-    .no-print { display:none !important; }
-    .col { break-inside: avoid-column; }
-    .group-block { break-inside: avoid; }
-    .header, .footer { background:#f0ead8 !important; }
-    .group-header { background:#e8d4b0 !important; }
-    tr.odd  { background:#f9f7f3 !important; }
+    body { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+    .no-print { display: none !important; }
+    .header        { background: #0d0b08 !important; }
+    .group-header  { background: #2a2010 !important; }
+    .subheader     { background: #f5f0e8 !important; }
+    tr.odd  { background: #faf7f2 !important; }
   }
 
   /* ── رأس الصفحة ─────────────────────────── */
   .header {
-    background: #f0ead8; border: 2px solid #d7a83f; border-radius: 8px;
-    padding: 12px 18px; margin: 10px 10px 8px;
-    display: flex; justify-content: space-between; align-items: center; gap: 10px;
+    background: #0d0b08;
+    padding: 10px 16px 8px;
+    margin-bottom: 6px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
   }
-  .brand-name  { font-size: 22px; font-weight: 900; color: #221808; letter-spacing: 1px; }
-  .bulletin-title { font-size: 16px; font-weight: 700; color: #6b5535; margin-top: 2px; }
+  .header-logo {
+    height: 52px;
+    width: auto;
+    object-fit: contain;
+  }
+  .header-info {
+    text-align: center;
+    flex: 1;
+  }
+  .header-title {
+    font-size: 19px;
+    font-weight: 900;
+    color: #d7a83f;
+    letter-spacing: .5px;
+    line-height: 1.2;
+  }
+  .header-date {
+    font-size: 11px;
+    color: #a08850;
+    margin-top: 3px;
+    font-weight: 600;
+    direction: ltr;
+    text-align: center;
+  }
   .currency-badge {
-    display: inline-block; padding: 3px 10px; border-radius: 12px;
-    font-size: 12px; font-weight: 700; margin-top: 4px;
+    display: inline-block;
+    padding: 4px 14px;
+    border-radius: 20px;
+    font-size: 11px;
+    font-weight: 700;
+    margin-top: 5px;
   }
-  .badge-usd { background: #d7a83f; color: #1a1208; }
-  .badge-syp { background: #3a7a3a; color: #fff; }
+  .badge-usd { background: #d7a83f; color: #0d0b08; }
+  .badge-syp { background: #2d6a2d; color: #fff; }
+  .header-right {
+    text-align: left;
+    min-width: 80px;
+  }
+  .item-count {
+    font-size: 10px;
+    color: #6b5535;
+    font-weight: 700;
+  }
+  .item-count span {
+    display: block;
+    font-size: 20px;
+    color: #d7a83f;
+    font-weight: 900;
+    line-height: 1.1;
+  }
 
-  .meta-sep { width: 1px; background: #c8a673; align-self: stretch; opacity: .5; }
-  .meta-block { text-align: center; min-width: 90px; }
-  .meta-label { font-size: 9px; font-weight: 700; color: #6b5535; letter-spacing: .4px; }
-  .meta-value { font-size: 13px; font-weight: 900; color: #221808; margin: 2px 0; }
-  .meta-sub   { font-size: 9.5px; color: #8a6a35; }
+  /* ── شريط فرعي ──────────────────────────── */
+  .subheader {
+    background: #f5f0e8;
+    border-bottom: 2px solid #d7a83f;
+    padding: 4px 14px;
+    font-size: 9.5px;
+    color: #5a4010;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 7px;
+    font-weight: 600;
+  }
 
   /* ── شبكة العمودين ──────────────────────── */
   .columns {
     display: grid;
     grid-template-columns: 1fr 1fr;
-    gap: 8px;
-    margin: 0 10px;
+    gap: 7px;
+    padding: 0 5px;
   }
   .col { min-width: 0; }
 
   /* ── مجموعة مواد ────────────────────────── */
-  .group-block { margin-bottom: 6px; break-inside: avoid; }
-  .group-header {
-    background: #e8d4b0; padding: 5px 8px;
-    font-size: 11px; font-weight: 900; color: #3a2a0a;
-    border: 1px solid #c8a673; border-radius: 4px 4px 0 0;
-    display: flex; justify-content: space-between; align-items: center;
+  .group-block {
+    margin-bottom: 5px;
+    break-inside: avoid;
+    border-radius: 5px;
+    overflow: hidden;
+    border: 1px solid #ddd6c4;
   }
-  .group-count { font-size: 9px; color: #7a5a25; background: #fff; border-radius: 8px; padding: 1px 6px; }
+  .group-header {
+    background: #2a2010;
+    padding: 5px 10px;
+    font-size: 11.5px;
+    font-weight: 900;
+    color: #d7a83f;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    letter-spacing: .3px;
+  }
+  .group-count {
+    font-size: 9px;
+    color: #a08030;
+    background: rgba(255,255,255,.1);
+    border-radius: 8px;
+    padding: 1px 6px;
+    font-weight: 700;
+  }
 
   /* ── جدول المواد ────────────────────────── */
-  table { width: 100%; border-collapse: collapse; border: 1px solid #d8c899; border-top: none; border-radius: 0 0 4px 4px; overflow: hidden; }
-  td { padding: 4px 6px; border-bottom: 1px solid #e8e0d0; font-size: 10.5px; }
-  td.name  { font-weight: 700; color: #111; width: 55%; }
-  td.unit  { color: #5a4010; text-align: center; width: 18%; font-size: 9.5px; }
-  td.price { font-weight: 900; text-align: left; direction: ltr; font-size: 11px; width: 27%; }
-  tr.odd  { background: #f9f7f3; }
-  tr.even { background: #fff; }
-  tr:last-child td { border-bottom: none; }
-
-  /* ── ذيل الصفحة ─────────────────────────── */
-  .footer {
-    margin: 6px 10px 10px; padding: 8px 14px;
-    background: #f0ead8; border: 1px solid #c8a673; border-radius: 6px;
-    font-size: 9.5px; color: #3a2a0a;
-    display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 4px;
+  table { width: 100%; border-collapse: collapse; }
+  td {
+    padding: 4px 8px;
+    border-bottom: 1px solid #ede8dc;
+    font-size: 10.5px;
+    font-family: 'Cairo', Tahoma, sans-serif;
   }
+  td.name  { font-weight: 700; color: #1a1208; width: 54%; }
+  td.unit  { color: #7a5a30; text-align: center; width: 16%; font-size: 9.5px; }
+  td.price {
+    font-weight: 900; text-align: left; direction: ltr;
+    font-size: 11px; width: 30%; color: #1a1208;
+  }
+  tr.odd  { background: #faf7f2; }
+  tr.even { background: #ffffff; }
+  tr:last-child td { border-bottom: none; }
 
   /* ── زر الطباعة ─────────────────────────── */
   .print-btn {
     position: fixed; top: 14px; left: 14px; z-index: 999;
-    background: #d7a83f; color: #1a1208; border: none;
-    padding: 9px 18px; border-radius: 8px; font-size: 13px;
-    font-weight: 700; cursor: pointer; box-shadow: 0 2px 8px rgba(0,0,0,.2);
+    background: #d7a83f; color: #0d0b08; border: none;
+    padding: 9px 20px; border-radius: 8px; font-size: 13px;
+    font-weight: 700; cursor: pointer;
+    box-shadow: 0 3px 12px rgba(0,0,0,.25);
+    font-family: 'Cairo', Tahoma, sans-serif;
   }
   .print-btn:hover { background: #c49535; }
 `;
 
-// ── بناء مجموعة HTML ──────────────────────────────────────────────────────────
+// ── مجموعة HTML ───────────────────────────────────────────────────────────────
 function renderGroup([name, its], priceFormatter) {
   const rows = its.map((item, i) => `
     <tr class="${i % 2 === 0 ? "odd" : "even"}">
@@ -154,7 +229,6 @@ function renderGroup([name, its], priceFormatter) {
       <td class="unit">${item.unit}</td>
       <td class="price">${priceFormatter(item)}</td>
     </tr>`).join("");
-
   return `
   <div class="group-block">
     <div class="group-header">
@@ -165,11 +239,12 @@ function renderGroup([name, its], priceFormatter) {
   </div>`;
 }
 
-// ── بناء HTML كامل ────────────────────────────────────────────────────────────
-function buildHtml({ titleSuffix, badgeClass, badgeLabel, priceFormatter, unitLabel }) {
-  const colAHtml = colA.map(g => renderGroup(g, priceFormatter)).join("");
-  const colBHtml = colB.map(g => renderGroup(g, priceFormatter)).join("");
-
+// ── بناء HTML ─────────────────────────────────────────────────────────────────
+function buildHtml({ titleSuffix, badgeClass, badgeLabel, unitLabel, priceFormatter }) {
+  const [colAHtml, colBHtml] = [colA, colB].map(col =>
+    col.map(g => renderGroup(g, priceFormatter)).join("")
+  );
+  const totalItems = items.length;
   return `<!DOCTYPE html>
 <html dir="rtl" lang="ar">
 <head>
@@ -183,28 +258,23 @@ function buildHtml({ titleSuffix, badgeClass, badgeLabel, priceFormatter, unitLa
 <button class="print-btn no-print" onclick="window.print()">🖨️ طباعة / PDF</button>
 
 <div class="header">
-  <div>
-    <div class="brand-name">OZK TOBACCO</div>
-    <div class="bulletin-title">نشرة الأسعار — ${isoDate}</div>
-    <span class="currency-badge ${badgeClass}">${badgeLabel}</span>
+  <img src="${logoSrc}" alt="OZK TOBACCO" class="header-logo">
+  <div class="header-info">
+    <div class="header-title">نشرة الأسعار</div>
+    <div class="header-date">${issueDate}</div>
+    <div><span class="currency-badge ${badgeClass}">${badgeLabel}</span></div>
   </div>
-  <div class="meta-sep"></div>
-  <div class="meta-block">
-    <div class="meta-label">السعر المعروض</div>
-    <div class="meta-value">${unitLabel}</div>
-    <div class="meta-sub">${items.length} مادة</div>
+  <div class="header-right">
+    <div class="item-count">
+      <span>${totalItems}</span>
+      مادة
+    </div>
   </div>
-  <div class="meta-sep"></div>
-  <div class="meta-block">
-    <div class="meta-label">تاريخ الإصدار</div>
-    <div class="meta-value">${issueDate}</div>
-  </div>
-  <div class="meta-sep"></div>
-  <div class="meta-block">
-    <div class="meta-label">صالحة حتى</div>
-    <div class="meta-value">${expiryDate}</div>
-    <div class="meta-sub">${VALIDITY} يوماً</div>
-  </div>
+</div>
+
+<div class="subheader">
+  <span>السعر المعروض: <strong>${unitLabel}</strong></span>
+  <span>ozk.kh@outlook.com</span>
 </div>
 
 <div class="columns">
@@ -212,39 +282,38 @@ function buildHtml({ titleSuffix, badgeClass, badgeLabel, priceFormatter, unitLa
   <div class="col">${colBHtml}</div>
 </div>
 
-<div class="footer">
-  <span>⚠️ الأسعار سارية حتى <strong>${expiryDate}</strong> — خاضعة للتغيير بدون إشعار</span>
-  <span>ozk.kh@outlook.com</span>
-</div>
-
 </body>
 </html>`;
 }
 
-// ── نشرة الدولار (سعر الكرتونة) ──────────────────────────────────────────────
-const usdHtml = buildHtml({
-  titleSuffix: "دولار",
-  badgeClass:  "badge-usd",
-  badgeLabel:  "💵 دولار أمريكي",
-  unitLabel:   "الكرتونة",
-  priceFormatter: (item) => `${item.usd.toFixed(2)} $`,
-});
-writeFileSync(resolve(root, "public/downloads/price-list-usd.html"), usdHtml);
-console.log("✓ price-list-usd.html  (كرتونة — دولار)");
+// ── نشرة الدولار ──────────────────────────────────────────────────────────────
+writeFileSync(
+  resolve(root, "public/downloads/price-list-usd.html"),
+  buildHtml({
+    titleSuffix: "دولار",
+    badgeClass:  "badge-usd",
+    badgeLabel:  "💵 دولار أمريكي",
+    unitLabel:   "سعر الكرتونة",
+    priceFormatter: (item) => `${item.usd.toFixed(2)} $`,
+  })
+);
+console.log("✓ price-list-usd.html");
 
-// ── نشرة الليرة (سعر الوحدة) ────────────────────────────────────────────────
-const sypHtml = buildHtml({
-  titleSuffix: "سوري",
-  badgeClass:  "badge-syp",
-  badgeLabel:  `🇸🇾 ليرة سورية — صرف ${SYP_RATE.toLocaleString()}`,
-  unitLabel:   "الوحدة",
-  priceFormatter: (item) => {
-    const unitPrice = (item.usd * SYP_RATE) / (item.unitFactor ?? 10);
-    return `${Math.round(unitPrice).toLocaleString("ar-SY")} ل.س`;
-  },
-});
-writeFileSync(resolve(root, `public/downloads/price-list-syp-${SYP_RATE}.html`), sypHtml);
-console.log(`✓ price-list-syp-${SYP_RATE}.html  (وحدة — ليرة، صرف ${SYP_RATE.toLocaleString()})`);
+// ── نشرة الليرة ───────────────────────────────────────────────────────────────
+writeFileSync(
+  resolve(root, `public/downloads/price-list-syp-${SYP_RATE}.html`),
+  buildHtml({
+    titleSuffix: "سوري",
+    badgeClass:  "badge-syp",
+    badgeLabel:  `🇸🇾 ليرة — صرف ${SYP_RATE.toLocaleString()}`,
+    unitLabel:   "سعر الوحدة",
+    priceFormatter: (item) => {
+      const p = Math.round((item.usd * SYP_RATE) / (item.unitFactor ?? 10));
+      return `${p.toLocaleString("ar-SY")} ل.س`;
+    },
+  })
+);
+console.log(`✓ price-list-syp-${SYP_RATE}.html`);
 
 // ── index.html ────────────────────────────────────────────────────────────────
 const indexHtml = `<!DOCTYPE html>
@@ -254,43 +323,40 @@ const indexHtml = `<!DOCTYPE html>
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>نشرات الأسعار — OZK TOBACCO</title>
 <style>
+  @import url('https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700;900&display=swap');
   * { margin:0; padding:0; box-sizing:border-box; }
-  body { font-family:'Segoe UI',Tahoma,sans-serif; background:#0d0b08; color:#e8d9b0;
+  body { font-family:'Cairo',Tahoma,sans-serif; background:#0d0b08; color:#e8d9b0;
          min-height:100vh; display:flex; flex-direction:column; align-items:center; padding:40px 20px; }
-  .logo   { font-size:2rem; font-weight:900; color:#d7a83f; letter-spacing:2px; margin-bottom:4px; }
-  .sub    { color:#a08850; font-size:.9rem; margin-bottom:4px; }
-  .date   { color:#6b5535; font-size:.8rem; margin-bottom:44px; }
-  h1 { font-size:1.3rem; color:#e8d9b0; margin-bottom:28px; text-align:center; }
-  .cards  { display:flex; gap:24px; flex-wrap:wrap; justify-content:center; width:100%; max-width:680px; }
+  .logo-img { height:80px; margin-bottom:8px; }
+  .sub    { color:#a08850; font-size:.88rem; margin-bottom:4px; font-weight:600; }
+  .date   { color:#6b5535; font-size:.8rem; margin-bottom:44px; direction:ltr; }
+  h1 { font-size:1.25rem; color:#e8d9b0; margin-bottom:26px; text-align:center; font-weight:700; }
+  .cards  { display:flex; gap:22px; flex-wrap:wrap; justify-content:center; width:100%; max-width:660px; }
   .card   { background:#1a160f; border:1px solid #5a4524; border-radius:12px;
-            padding:28px 22px; flex:1; min-width:255px; max-width:295px;
+            padding:26px 20px; flex:1; min-width:250px; max-width:290px;
             text-align:center; text-decoration:none; color:inherit;
             transition:border-color .2s,transform .15s; display:block; }
   .card:hover { border-color:#d7a83f; transform:translateY(-3px); }
-  .card-icon     { font-size:2.6rem; margin-bottom:12px; }
-  .card-title    { font-size:1.1rem; font-weight:700; color:#d7a83f; margin-bottom:5px; }
-  .card-unit     { font-size:.82rem; color:#c8a663; margin-bottom:5px; font-weight:700; }
-  .card-desc     { font-size:.83rem; color:#a08850; line-height:1.6; }
-  .card-validity { font-size:.76rem; color:#6b5535; margin-top:7px; }
-  .card-btn      { display:inline-block; margin-top:16px; background:#d7a83f; color:#1a1208;
-                   font-weight:700; padding:8px 20px; border-radius:6px; font-size:.86rem; }
-  .footer { margin-top:52px; color:#5a4524; font-size:.77rem; text-align:center; line-height:1.9; }
+  .card-icon  { font-size:2.5rem; margin-bottom:12px; }
+  .card-title { font-size:1.1rem; font-weight:900; color:#d7a83f; margin-bottom:4px; }
+  .card-unit  { font-size:.82rem; color:#c8a663; margin-bottom:5px; font-weight:700; }
+  .card-desc  { font-size:.82rem; color:#a08850; line-height:1.6; }
+  .card-btn   { display:inline-block; margin-top:16px; background:#d7a83f; color:#0d0b08;
+                font-weight:700; padding:8px 20px; border-radius:6px; font-size:.85rem; }
+  .footer { margin-top:50px; color:#5a4524; font-size:.76rem; text-align:center; line-height:1.9; }
 </style>
 </head>
 <body>
-<div class="logo">OZK TOBACCO</div>
+<img src="../icons/ozk-logo.png" alt="OZK TOBACCO" class="logo-img">
 <div class="sub">نشرات الأسعار الرسمية</div>
-<div class="date">تاريخ الإصدار: ${issueDate} &nbsp;|&nbsp; صالحة لـ ${VALIDITY} يوماً</div>
-
+<div class="date">${issueDate}</div>
 <h1>اختر نشرة الأسعار</h1>
-
 <div class="cards">
   <a class="card" href="price-list-syp-${SYP_RATE}.html" target="_blank">
     <div class="card-icon">🇸🇾</div>
     <div class="card-title">نشرة السوري</div>
     <div class="card-unit">سعر الوحدة الواحدة</div>
     <div class="card-desc">بالليرة السورية<br>صرف ${SYP_RATE.toLocaleString()} ل.س/دولار</div>
-    <div class="card-validity">صالحة حتى: ${expiryDate}</div>
     <div class="card-btn">عرض وطباعة</div>
   </a>
   <a class="card" href="price-list-usd.html" target="_blank">
@@ -298,18 +364,15 @@ const indexHtml = `<!DOCTYPE html>
     <div class="card-title">نشرة الدولار</div>
     <div class="card-unit">سعر الكرتونة الكاملة</div>
     <div class="card-desc">بالدولار الأمريكي</div>
-    <div class="card-validity">صالحة حتى: ${expiryDate}</div>
     <div class="card-btn">عرض وطباعة</div>
   </a>
 </div>
-
 <div class="footer">
-  اضغط "عرض وطباعة" ← ثم Ctrl+P أو زر الطباعة لحفظها PDF<br>
-  للاستفسار: ozk.kh@outlook.com
+  اضغط "عرض وطباعة" ← ثم Ctrl+P لحفظها PDF<br>
+  ozk.kh@outlook.com
 </div>
 </body>
 </html>`;
 writeFileSync(resolve(root, "public/downloads/index.html"), indexHtml);
 console.log("✓ index.html");
-
-console.log(`\nاكتمل — ${items.length} مادة | ${groups.length} مجموعة | صرف ${SYP_RATE.toLocaleString()} | صلاحية ${VALIDITY} يوماً`);
+console.log(`\nاكتمل — ${items.length} مادة | ${groups.length} مجموعة`);
