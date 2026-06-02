@@ -140,6 +140,10 @@
   tr.even  { background: #0f0c07; }
   tr:last-child td { border-bottom: none; }
 
+  /* ── أرقام الهاتف في الشريط الفرعي ─────── */
+  .phones { display: flex; flex-direction: column; align-items: flex-end; gap: 0px; }
+  .phones span { font-size: 9px; color: #8a6a35; font-weight: 700; direction: ltr; }
+
   /* ── زر طباعة ───────────────────────────── */
   .print-btn {
     position: fixed; top: 12px; left: 12px; z-index: 999;
@@ -170,7 +174,11 @@
 
 <div class="subheader">
   <span>السعر المعروض: <strong>سعر الكرتونة</strong></span>
-  <span>ozk.kh@outlook.com</span>
+  <div class="phones">
+    <span>0985000771</span>
+    <span>0984000662</span>
+    <span>مركز: 0994092038</span>
+  </div>
 </div>
 
 <div class="columns">

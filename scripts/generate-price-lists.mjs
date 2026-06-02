@@ -179,6 +179,10 @@ const CSS = `
   tr.even  { background: #0f0c07; }
   tr:last-child td { border-bottom: none; }
 
+  /* ── أرقام الهاتف في الشريط الفرعي ─────── */
+  .phones { display: flex; flex-direction: column; align-items: flex-end; gap: 0px; }
+  .phones span { font-size: 9px; color: #8a6a35; font-weight: 700; direction: ltr; }
+
   /* ── زر طباعة ───────────────────────────── */
   .print-btn {
     position: fixed; top: 12px; left: 12px; z-index: 999;
@@ -191,7 +195,7 @@ const CSS = `
 `;
 
 // ── مجموعة HTML ───────────────────────────────────────────────────────────────
-const renderGroup = ([name, its], priceFormatter) => `
+const renderGroup = ([name, its], priceFormatter, unitFormatter = (item) => item.unit) => `
 <div class="group-block">
   <div class="group-header">
     <span>${name}</span>
@@ -201,14 +205,14 @@ const renderGroup = ([name, its], priceFormatter) => `
     ${its.map((item, i) => `
     <tr class="${i%2===0?"odd":"even"}">
       <td class="name">${item.name}</td>
-      <td class="unit">${item.unit}</td>
+      <td class="unit">${unitFormatter(item)}</td>
       <td class="price">${priceFormatter(item)}</td>
     </tr>`).join("")}
   </tbody></table>
 </div>`;
 
 // ── بناء HTML ─────────────────────────────────────────────────────────────────
-const buildHtml = ({ titleSuffix, badgeClass, badgeLabel, unitLabel, priceFormatter }) => `<!DOCTYPE html>
+const buildHtml = ({ titleSuffix, badgeClass, badgeLabel, unitLabel, priceFormatter, unitFormatter = (item) => item.unit }) => `<!DOCTYPE html>
 <html dir="rtl" lang="ar">
 <head>
 <meta charset="UTF-8">
@@ -235,11 +239,15 @@ const buildHtml = ({ titleSuffix, badgeClass, badgeLabel, unitLabel, priceFormat
 
 <div class="subheader">
   <span>السعر المعروض: <strong>${unitLabel}</strong></span>
-  <span>ozk.kh@outlook.com</span>
+  <div class="phones">
+    <span>0985000771</span>
+    <span>0984000662</span>
+    <span>مركز: 0994092038</span>
+  </div>
 </div>
 
 <div class="columns">
-  ${groups.map(g => renderGroup(g, priceFormatter)).join("\n")}
+  ${groups.map(g => renderGroup(g, priceFormatter, unitFormatter)).join("\n")}
 </div>
 
 </body>
@@ -270,6 +278,7 @@ writeFileSync(
       const p = Math.round((item.usd * SYP_RATE) / (item.unitFactor ?? 10));
       return `${p.toLocaleString("ar-SY")} ل.س`;
     },
+    unitFormatter: (item) => item.unit1 || (item.unit === 'كرتونة' ? 'علبة' : item.unit),
   })
 );
 console.log(`✓ price-list-syp-${SYP_RATE}.html`);
@@ -326,7 +335,7 @@ const indexHtml = `<!DOCTYPE html>
     <div class="card-btn">عرض وطباعة</div>
   </a>
 </div>
-<div class="footer">ozk.kh@outlook.com</div>
+<div class="footer">0985000771 &nbsp;|&nbsp; 0984000662 &nbsp;|&nbsp; مركز: 0994092038</div>
 </body>
 </html>`;
 writeFileSync(resolve(root, "public/downloads/index.html"), indexHtml);
