@@ -239,15 +239,28 @@
   }
 
   function translateAuthError(message) {
-    if (/auth session missing|session.*missing/i.test(message || "")) {
-      return missingSessionMessage();
-    }
-    return message;
+    const msg = message || "";
+    if (/auth session missing|session.*missing/i.test(msg)) return missingSessionMessage();
+    if (/invalid.*credentials|invalid.*password|wrong.*password/i.test(msg)) return "البريد الإلكتروني أو كلمة المرور غير صحيحة.";
+    if (/email.*not.*confirmed|email.*unconfirmed/i.test(msg)) return "يرجى تأكيد بريدك الإلكتروني قبل تسجيل الدخول.";
+    if (/too many requests|rate.*limit/i.test(msg)) return "محاولات كثيرة. انتظر قليلاً ثم حاول مجدداً.";
+    if (/user.*not.*found|no user/i.test(msg)) return "لا يوجد حساب بهذا البريد الإلكتروني.";
+    return msg;
+  }
+
+  function translateDbError(message) {
+    const msg = message || "";
+    if (/pgrst116|no rows/i.test(msg)) return "لم يُعثر على البيانات المطلوبة.";
+    if (/pgrst301|jwt.*expired/i.test(msg)) return "انتهت جلسة الدخول. سجّل الدخول مجدداً.";
+    if (/pgrst\d+|postgres|relation|column|violates|constraint/i.test(msg)) return "حدث خطأ في قاعدة البيانات. حاول مجدداً أو تواصل مع الدعم.";
+    if (/fetch|network|ECONNREFUSED/i.test(msg)) return "تعذر الاتصال بالخادم. تحقق من اتصالك بالإنترنت.";
+    if (/permission|denied|403|401/i.test(msg)) return "ليس لديك صلاحية لتنفيذ هذه العملية.";
+    return msg;
   }
 
   async function getSupabaseSession() {
     const { data, error } = await client.auth.getSession();
-    if (error) throw new Error(error.message);
+    if (error) throw new Error(translateDbError(error.message));
     return normalizeSession(data.session);
   }
 
@@ -323,7 +336,7 @@
           }
         }
       });
-      if (error) throw new Error(error.message);
+      if (error) throw new Error(translateDbError(error.message));
 
       return {
         session: normalizeSession(data.session),
@@ -334,7 +347,7 @@
     async signOut() {
       if (client) {
         const { error } = await client.auth.signOut();
-        if (error) throw new Error(error.message);
+        if (error) throw new Error(translateDbError(error.message));
       }
       writeJson(SESSION_KEY, null);
     },
@@ -351,7 +364,7 @@
         .order("created_at", { ascending: false })
         .limit(100);
 
-      if (error) throw new Error(error.message);
+      if (error) throw new Error(translateDbError(error.message));
       return data.map(normalizeDbRequest);
     },
 
@@ -386,7 +399,7 @@
         .select("id, customer, channel, request_type, status, note, created_at, updated_at")
         .limit(1);
 
-      if (error) throw new Error(error.message);
+      if (error) throw new Error(translateDbError(error.message));
       return data?.[0] ? normalizeDbRequest(data[0]) : request;
     },
 
@@ -405,7 +418,7 @@
         .update({ status: toDbStatus(status), updated_at: new Date().toISOString() })
         .eq("id", id);
 
-      if (error) throw new Error(error.message);
+      if (error) throw new Error(translateDbError(error.message));
     },
 
     async listInventoryReports() {
@@ -423,7 +436,7 @@
         .order("created_at", { ascending: false })
         .limit(12);
 
-      if (error) throw new Error(error.message);
+      if (error) throw new Error(translateDbError(error.message));
       return data || [];
     },
 
@@ -442,7 +455,7 @@
         .order("created_at", { ascending: false })
         .limit(12);
 
-      if (error) throw new Error(error.message);
+      if (error) throw new Error(translateDbError(error.message));
       return data || [];
     },
 
@@ -458,7 +471,7 @@
         .order("updated_at", { ascending: false })
         .limit(1000);
 
-      if (error) throw new Error(error.message);
+      if (error) throw new Error(translateDbError(error.message));
       return (data || []).map(normalizeDbCustomerLimit);
     },
 
@@ -488,7 +501,7 @@
         .select("id, customer_key, customer_name, credit_limit, notes, created_at, updated_at")
         .limit(1);
 
-      if (error) throw new Error(error.message);
+      if (error) throw new Error(translateDbError(error.message));
       return data?.[0] ? normalizeDbCustomerLimit(data[0]) : normalizeDbCustomerLimit(payload);
     },
 
@@ -504,7 +517,7 @@
         .order("item_name", { ascending: true })
         .limit(5000);
 
-      if (error) throw new Error(error.message);
+      if (error) throw new Error(translateDbError(error.message));
       return (data || []).map(normalizeDbApprovedPrice);
     },
 
@@ -538,7 +551,7 @@
         .upsert(withUser, { onConflict: "item_key" })
         .select("id, item_key, item_name, sale_price, stock_qty, stock_status, unit1_name, unit2_name, unit2_factor, unit2_price, unit1_price, source_report_id, source_synced_at, price_payload, notes, approved_at, updated_at");
 
-      if (error) throw new Error(error.message);
+      if (error) throw new Error(translateDbError(error.message));
       return (data || []).map(normalizeDbApprovedPrice);
     },
 
@@ -576,7 +589,7 @@
         .insert(withUser)
         .select("id, item_key, item_name, sale_price, stock_qty, stock_status, unit1_name, unit2_name, unit2_factor, unit2_price, unit1_price, source_report_id, source_synced_at, price_payload, notes, approved_at, updated_at");
 
-      if (error) throw new Error(error.message);
+      if (error) throw new Error(translateDbError(error.message));
       return (data || []).map(normalizeDbApprovedPrice);
     },
 
@@ -704,7 +717,7 @@
         .select("id, report_date, source, summary, items, created_at")
         .limit(1);
 
-      if (error) throw new Error(error.message);
+      if (error) throw new Error(translateDbError(error.message));
       return data?.[0] || localReport;
     }
   };

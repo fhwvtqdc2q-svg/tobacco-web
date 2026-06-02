@@ -179,9 +179,6 @@ order by
   cu.CustomerName;
 "@
 
-  $params = @(
-    (New-Object System.Data.SqlClient.SqlParameter("@reportDate", [System.Data.SqlDbType]::DateTime)).Value = $parsedDate
-  )
   $dateParam = New-Object System.Data.SqlClient.SqlParameter("@reportDate", [System.Data.SqlDbType]::DateTime)
   $dateParam.Value = $parsedDate
 
