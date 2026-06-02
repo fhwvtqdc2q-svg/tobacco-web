@@ -1374,8 +1374,15 @@ function pricePdfBook(groups) {
 }
 
 function customerPricePdfMarkup(items, latest, useSyria = false) {
-  const groups = groupCustomerPriceItems(items);
-  const pdfTitle = useSyria ? `نشرة الأسعار بالليرة السورية (سعر الصرف: ${state.syriaExchangeRate})` : "قائمة أسعار OZK TOBACCO";
+  const displayItems = useSyria
+    ? items.map((item) =>
+        item.unit1Price > 0
+          ? { ...item, unit2Price: item.unit1Price, unit2Name: item.unit1Name || "علبة", unit1Price: 0, unit1Name: "" }
+          : item
+      )
+    : items;
+  const groups = groupCustomerPriceItems(displayItems);
+  const pdfTitle = useSyria ? `نشرة الأسعار بالليرة السورية — صرف ${state.syriaExchangeRate}` : "قائمة أسعار OZK TOBACCO";
   return `
     <div class="price-pdf-book" dir="rtl" style="background:#fff;color:#000">
       ${pricePdfBook(groups, pdfTitle)}
@@ -1412,7 +1419,7 @@ async function downloadCustomerPricePdf(useSyria = false) {
   }
 
   const container = document.createElement("div");
-  container.style.width = "100%";
+  container.style.width = "760px";
   container.style.backgroundColor = "#fff";
   container.innerHTML = customerPricePdfMarkup(items, latest, useSyria);
   document.body.appendChild(container);
@@ -1422,10 +1429,11 @@ async function downloadCustomerPricePdf(useSyria = false) {
       .html2pdf()
       .set({
         filename: `ozk-${useSyria ? "prices-syria" : "customer-prices"}-${todayIsoDate()}.pdf`,
-        margin: 5,
+        margin: [4, 4, 4, 4],
         image: { type: "png", quality: 0.98 },
         html2canvas: { scale: 2, useCORS: true, backgroundColor: "#ffffff", allowTaint: true },
-        jsPDF: { unit: "mm", format: "a4", orientation: "portrait" }
+        jsPDF: { unit: "mm", format: "a4", orientation: "portrait" },
+        pagebreak: { mode: ["css", "legacy"], before: ".price-pdf-page" }
       })
       .from(container)
       .save();
