@@ -91,9 +91,8 @@ reports/prices/*.csv          ← بيانات أسعار حساسة
 - شغّل `npm run check` قبل ادعاء نجاح أي تعديل
 
 ### 5. قيود أمنية معروفة (GitHub Pages)
-- **`frame-ancestors 'none'`** في `<meta>` CSP: المتصفحات لا تطبّقه عبر meta tag (المعيار W3C يستثنيه).
-  الحل الكامل يتطلب إضافة HTTP header `Content-Security-Policy` من server أو CDN (Cloudflare Pages).
-  حتى يتم ذلك، الحماية من clickjacking تعتمد على حسن نية CDN فقط.
+- **`frame-ancestors`**: محذوف من `<meta>` CSP لأن المعيار W3C يستثنيه صراحةً — المتصفحات لا تطبّقه عبر meta tag.
+  الحماية من clickjacking تتطلب HTTP header من server أو CDN (Cloudflare Pages) عند الانتقال مستقبلاً.
 - **CDN scripts**: إذا تم ترقية `@supabase/supabase-js` أو `xlsx`، يجب تحديث الـ pin والـ SRI hash في `index.html`.
 
 ---
