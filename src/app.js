@@ -1779,41 +1779,34 @@ function login() {
   return shell(`
     <section class="panel wide form-layout">
       <div>
-        <p class="eyebrow">Access</p>
         <h2>دخول الموظفين والإدارة</h2>
-        <p class="muted">
-          ${live
-            ? "هذا الدخول متصل بقاعدة Supabase. استخدم بريد وكلمة مرور لحساب موظف."
-            : "هذا دخول تجريبي محلي الآن. بعد إضافة مفاتيح Supabase سيصبح الدخول حقيقيا."}
-        </p>
+        <p class="muted">${live ? "أدخل بريدك الإلكتروني وكلمة المرور للدخول، أو أنشئ حساباً جديداً." : "هذا دخول تجريبي محلي."}</p>
       </div>
+      ${state.session ? `
+        <div class="notice-panel success">
+          <strong>أنت داخل الآن</strong>
+          <span>${escapeHtml(state.session.name)} — ${escapeHtml(state.session.role)}</span>
+        </div>
+      ` : ""}
       <form class="form-card" data-form="login">
+        ${live ? "" : `
+          <label>
+            الاسم
+            <input name="name" placeholder="مثال: أحمد" autocomplete="name">
+          </label>
+        `}
         <label>
-          اسم المستخدم
-          <input name="name" placeholder="مثال: أحمد من خدمة العملاء" autocomplete="name">
+          البريد الإلكتروني
+          <input name="email" type="email" placeholder="example@gmail.com" autocomplete="email" ${live ? "required" : ""}>
         </label>
         <label>
-          الدور
-          <select name="role">
-            <option>خدمة العملاء</option>
-            <option>الإدارة</option>
-            <option>المراقبة</option>
-            <option>الدعم الفني</option>
-          </select>
-        </label>
-        <label class="${live ? "" : "optional-field"}">
-          البريد
-          <input name="email" type="email" placeholder="staff@example.com" autocomplete="email">
-        </label>
-        <label class="${live ? "" : "optional-field"}">
           كلمة المرور
-          <input name="password" type="password" minlength="8" autocomplete="current-password">
+          <input name="password" type="password" placeholder="8 أحرف على الأقل" minlength="8" autocomplete="current-password" ${live ? "required" : ""}>
         </label>
         <div class="button-row">
-          <button class="button primary" type="submit" data-auth-action="signin">${live ? "دخول" : "دخول تجريبي"}</button>
+          <button class="button primary" type="submit" data-auth-action="signin">دخول</button>
           ${live ? '<button class="button secondary" type="submit" data-auth-action="signup">إنشاء حساب جديد</button>' : ""}
         </div>
-        ${state.session ? `<p class="success-note">أنت داخل الآن باسم ${escapeHtml(state.session.name)} - ${escapeHtml(state.session.role)}</p>` : ""}
       </form>
     </section>
   `);
