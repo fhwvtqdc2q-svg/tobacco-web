@@ -140,14 +140,16 @@ reports/prices/*.csv          ← بيانات أسعار حساسة
 # الناتج: reports\prices\tobacco-approved-prices.csv
 ```
 
-### مزامنة الأسعار مع الأمين
+### رفع جرد الأمين → Supabase (قراءة من الأمين، كتابة على Supabase)
 ```powershell
-# معاينة فقط (بدون تطبيق)
+# تشغيل مرة واحدة: يقرأ المخزون وأرصدة العملاء من Ameen ويرفعها لـ Supabase
 .\tools\ameen-sync-agent.ps1 -Once
 
-# تطبيق فعلي على الأمين
-.\tools\ameen-sync-agent.ps1 -Once -LowThreshold 0
+# مع تعديل حد التنبيه للمواد قاربت النفاد (القيمة الافتراضية 50)
+.\tools\ameen-sync-agent.ps1 -Once -LowThreshold 30
 ```
+> **ملاحظة:** هذا السكريبت يقرأ البيانات من الأمين ويرفعها إلى Supabase فقط.
+> لا يكتب أسعاراً على الأمين. الاتجاه: الأمين → Supabase.
 
 > ملاحظة: `ameen-sync-agent.ps1` يقرأ بيانات الجرد والأرصدة **من** الأمين ويرفعها **إلى** Supabase.
 > لا يكتب أسعاراً على الأمين. مزامنة الأسعار تتم عبر `sync-approved-prices-to-ameen.ps1`.
