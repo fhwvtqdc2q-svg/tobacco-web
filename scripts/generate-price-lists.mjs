@@ -278,7 +278,7 @@ writeFileSync(
       const p = Math.round((item.usd * SYP_RATE) / (item.unitFactor ?? 10));
       return `${p.toLocaleString("ar-SY")} ل.س`;
     },
-    unitFormatter: (item) => item.unit1 || item.unit,
+    unitFormatter: (item) => item.unit1 || (item.unit === 'كرتونة' ? 'علبة' : item.unit),
   })
 );
 console.log(`✓ price-list-syp-${SYP_RATE}.html`);
