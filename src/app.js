@@ -199,7 +199,8 @@ const state = {
   invRows: [{ name: "", qty: "1", price: "" }],
   notifPermission: "default",
   seenRequestIds: new Set(),
-  globalSearch: ""
+  globalSearch: "",
+  darkMode: readJson("dark-mode", true)
 };
 
 const app = document.querySelector("#app");
@@ -243,6 +244,48 @@ function fireRequestNotif(customerName) {
   }
 }
 
+function applyTheme() {
+  document.documentElement.dataset.theme = state.darkMode ? "dark" : "light";
+  writeJson("dark-mode", state.darkMode);
+}
+
+let shortcutsInitialized = false;
+function initKeyboardShortcuts() {
+  if (shortcutsInitialized) return;
+  shortcutsInitialized = true;
+  document.addEventListener("keydown", (event) => {
+    const typing = document.activeElement?.matches("input, textarea, select, [contenteditable]");
+    if (event.altKey && !event.ctrlKey && !event.metaKey) {
+      const routeMap = { "1": "overview", "2": "dashboard", "3": "requests", "4": "ameen", "5": "pricing", "6": "invoice" };
+      const target = routeMap[event.key];
+      if (target) {
+        event.preventDefault();
+        if ((target === "dashboard" || target === "invoice") && !state.session) return;
+        setRoute(target);
+        render();
+        return;
+      }
+      if (event.key === "t" || event.key === "T") {
+        event.preventDefault();
+        state.darkMode = !state.darkMode;
+        applyTheme();
+        render();
+        return;
+      }
+    }
+    if (!typing) {
+      if (event.key === "/" && !event.ctrlKey && !event.metaKey) {
+        event.preventDefault();
+        app.querySelector(".search-input")?.focus();
+      }
+      if (event.key === "Escape") {
+        if (state.aiSettingsOpen) { state.aiSettingsOpen = false; render(); }
+        else if (state.selectedCustomerKey) { state.selectedCustomerKey = ""; render(); }
+      }
+    }
+  });
+}
+
 function notifPermissionBanner() {
   if (!state.session || !notifSupported() || state.notifPermission !== "default") return "";
   return `
@@ -254,6 +297,8 @@ function notifPermissionBanner() {
 }
 
 async function boot() {
+  applyTheme();
+  initKeyboardShortcuts();
   await refreshSession();
   await loadRequests();
   await loadInventoryReports();
@@ -1550,6 +1595,7 @@ function shell(content) {
                 <input class="search-input" name="q" placeholder="🔍 بحث…" value="${escapeHtml(state.globalSearch)}" autocomplete="off" dir="auto">
               </form>
             ` : ""}
+            <button class="button secondary theme-toggle" data-action="toggle-theme" title="${state.darkMode ? "وضع النهار" : "وضع الليل"}">${state.darkMode ? "☀️" : "🌙"}</button>
             ${state.installPrompt ? '<button class="button secondary" data-action="install">تثبيت</button>' : ""}
             ${state.session ? `<button class="button secondary" data-action="logout">${escapeHtml(state.session.name)}</button>` : ""}
             <a class="button primary" href="mailto:${escapeHtml(appConfig.supportEmail)}">الدعم</a>
@@ -2319,8 +2365,7 @@ function customerBalanceRow(item) {
   return `
     <div class="inventory-row inventory-row-${escapeHtml(rowState)}">
       <div class="customer-row-title">
-        <strong>${escapeHtml(item.name)}</strong>
-        <button class="button secondary mini-button" type="button" data-customer-details="${escapeHtml(key)}">تفاصيل</button>
+        <button class="customer-name-btn" type="button" data-customer-details="${escapeHtml(key)}">${escapeHtml(item.name)}</button>
       </div>
       <span>الرصيد: ${escapeHtml(formatMoney(customerBalance(item)))} / الحد: ${escapeHtml(limit > 0 ? formatMoney(limit) : "غير محدد")}</span>
       <span>المتبقي من الحد: ${escapeHtml(limit > 0 ? formatMoney(remaining) : "غير محدد")} / الحالة: ${escapeHtml(customerStatusLabel(item.status))} / المصدر: ${escapeHtml(customerLimitSourceLabel(item.limitSource))}</span>
@@ -2363,41 +2408,69 @@ function customerMovementRow(movement) {
 function customerDetailsPanel(item) {
   if (!item) {
     return `
-      <section class="customer-detail-panel" data-customer-detail-panel>
-        <p class="muted">اضغط زر تفاصيل بجانب أي زبون لعرض آخر الدفعات وكشف الحركة المختصر.</p>
+      <section class="customer-detail-panel customer-detail-empty" data-customer-detail-panel>
+        <span class="customer-detail-hint">👆 اضغط على اسم أي زبون لعرض سجل دفعاته الكامل</span>
       </section>
     `;
   }
 
   const payments = Array.isArray(item.recentPayments) ? item.recentPayments : [];
   const movements = Array.isArray(item.recentMovements) ? item.recentMovements : [];
+  const sortedPayments = [...payments].sort((a, b) => new Date(b.date || 0) - new Date(a.date || 0));
+  const sortedMovements = [...movements].sort((a, b) => new Date(b.date || 0) - new Date(a.date || 0));
 
   return `
     <section class="customer-detail-panel" data-customer-detail-panel>
       <div class="panel-title-row inventory-browser-head">
         <div>
           <h3>${escapeHtml(item.name)}</h3>
-          <p class="muted">تفاصيل الرصيد، الحد، آخر الدفعات، وكشف حركة مختصر من الأمين.</p>
+          <p class="muted">سجل الدفعات والحركة المالية من الأمين.</p>
         </div>
-        <button class="button secondary compact-button" type="button" data-action="clear-customer-details">إغلاق التفاصيل</button>
+        <button class="button secondary compact-button" type="button" data-action="clear-customer-details">✕ إغلاق</button>
       </div>
       <div class="inventory-metrics customer-detail-metrics">
-        ${inventoryMetric("الرصيد", formatMoney(customerBalance(item)), customerStatusLabel(item.status))}
+        ${inventoryMetric("الرصيد الحالي", formatMoney(customerBalance(item)), customerStatusLabel(item.status))}
         ${inventoryMetric("الحد المسموح", customerLimit(item) > 0 ? formatMoney(customerLimit(item)) : "غير محدد", customerLimitSourceLabel(item.limitSource))}
-        ${inventoryMetric("المتبقي", customerLimit(item) > 0 ? formatMoney(customerRemainingLimit(item)) : "غير محدد", "من الحد الفعال")}
+        ${inventoryMetric("المتبقي من الحد", customerLimit(item) > 0 ? formatMoney(customerRemainingLimit(item)) : "غير محدد", "من الحد الفعال")}
         ${inventoryMetric("آخر دفعة", customerLastPaymentAmount(item) > 0 ? formatMoney(customerLastPaymentAmount(item)) : "غير متوفر", customerLastPaymentDate(item) ? formatDate(customerLastPaymentDate(item)) : "لا يوجد تاريخ")}
       </div>
       <div class="customer-detail-grid">
         <article>
-          <h4>آخر الدفعات</h4>
-          <div class="detail-list">
-            ${payments.length ? payments.map(customerPaymentRow).join("") : '<p class="muted">لا توجد دفعات مسجلة لهذا الزبون.</p>'}
+          <div class="detail-section-head">
+            <h4>سجل الدفعات</h4>
+            <span class="status-chip">${sortedPayments.length} دفعة</span>
+          </div>
+          <div class="detail-list payment-timeline">
+            ${sortedPayments.length
+              ? sortedPayments.map((p) => `
+                <div class="payment-entry">
+                  <div class="payment-entry-dot"></div>
+                  <div class="payment-entry-body">
+                    <strong class="payment-amount">${escapeHtml(formatMoney(p?.amount || 0))}</strong>
+                    <span class="payment-date">${escapeHtml(p?.date ? formatDate(p.date) : "بلا تاريخ")}</span>
+                    ${p?.notes ? `<small class="payment-note">${escapeHtml(p.notes)}</small>` : ""}
+                  </div>
+                </div>`).join("")
+              : '<p class="muted" style="padding:12px 0">لا توجد دفعات مسجلة لهذا الزبون.</p>'}
           </div>
         </article>
         <article>
-          <h4>كشف حركة مختصر</h4>
-          <div class="detail-list">
-            ${movements.length ? movements.map(customerMovementRow).join("") : '<p class="muted">لا توجد حركة مختصرة لهذا الزبون.</p>'}
+          <div class="detail-section-head">
+            <h4>كشف الحركة</h4>
+            <span class="status-chip">${sortedMovements.length} حركة</span>
+          </div>
+          <div class="detail-list payment-timeline">
+            ${sortedMovements.length
+              ? sortedMovements.map((m) => `
+                <div class="payment-entry">
+                  <div class="payment-entry-dot movement-dot"></div>
+                  <div class="payment-entry-body">
+                    <strong class="payment-amount">${escapeHtml(movementLabel(m))}: ${escapeHtml(formatMoney(movementAmount(m)))}</strong>
+                    <span class="payment-date">${escapeHtml(m?.date ? formatDate(m.date) : "بلا تاريخ")}</span>
+                    ${m?.notes ? `<small class="payment-note">${escapeHtml(m.notes)}</small>` : ""}
+                  </div>
+                </div>`).join("")
+              : '<p class="muted" style="padding:12px 0">لا توجد حركة مسجلة لهذا الزبون.</p>'}
           </div>
         </article>
       </div>
@@ -3488,6 +3561,11 @@ function render() {
     button.addEventListener("click", () => toggleItem(button.dataset.task));
   });
 
+  app.querySelector("[data-action='toggle-theme']")?.addEventListener("click", () => {
+    state.darkMode = !state.darkMode;
+    applyTheme();
+    render();
+  });
   app.querySelector("[data-action='install']")?.addEventListener("click", installApp);
   app.querySelector("[data-action='logout']")?.addEventListener("click", logout);
   app.querySelector("[data-action='enable-notif']")?.addEventListener("click", requestNotifPermission);
