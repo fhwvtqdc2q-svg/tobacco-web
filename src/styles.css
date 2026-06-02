@@ -186,6 +186,18 @@ code {
   color: var(--accent);
 }
 
+.button.success {
+  background: #1a7a3a;
+  color: #fff;
+  border-color: #1a7a3a;
+}
+.button.success:hover { background: #15632f; }
+
+.bulletin-status { margin: 6px 0 2px; font-size: 0.88rem; padding: 6px 10px; border-radius: 6px; }
+.bulletin-status.success { background: #0d2e1a; color: #4caf7d; }
+.bulletin-status.error   { background: #2e0d0d; color: #f06060; }
+.bulletin-status.muted   { background: var(--surface-soft); color: var(--muted); }
+
 .button:disabled {
   opacity: 0.55;
   cursor: not-allowed;

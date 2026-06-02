@@ -200,6 +200,7 @@ const state = {
   ameenFilter: "alerts",
   ameenSort: "qtyAsc",
   pricingSearch: "",
+  bulletinStatus: null,
   customerSearch: "",
   customerFilter: "debit_balance",
   customerSort: "balanceDesc",
@@ -1383,6 +1384,51 @@ function customerPricePdfMarkup(items, latest, useSyria = false) {
   `;
 }
 
+async function publishBulletin() {
+  const REPO = "fhwvtqdc2q-svg/tobacco-web";
+  const WORKFLOW = "generate-price-lists.yml";
+
+  let token = localStorage.getItem("gh_publish_token");
+  if (!token) {
+    token = prompt("أدخل GitHub Token لنشر النشرة (يُحفظ مرة واحدة على هذا الجهاز):");
+    if (!token) return;
+    localStorage.setItem("gh_publish_token", token.trim());
+  }
+
+  state.bulletinStatus = { type: "muted", msg: "⏳ جارٍ إرسال طلب التوليد..." };
+  render();
+
+  try {
+    const resp = await fetch(
+      `https://api.github.com/repos/${REPO}/actions/workflows/${WORKFLOW}/dispatches`,
+      {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
+          Accept: "application/vnd.github+json",
+        },
+        body: JSON.stringify({ ref: "main" }),
+      }
+    );
+
+    if (resp.status === 204) {
+      state.bulletinStatus = {
+        type: "success",
+        msg: "✅ تم الطلب — النشرة ستكون جاهزة للزبائن خلال دقيقتين على الرابط الثابت.",
+      };
+    } else if (resp.status === 401 || resp.status === 403) {
+      localStorage.removeItem("gh_publish_token");
+      state.bulletinStatus = { type: "error", msg: "❌ Token غير صحيح أو منتهي — أعد المحاولة وأدخل token جديد." };
+    } else {
+      state.bulletinStatus = { type: "error", msg: `❌ خطأ ${resp.status} — تحقق من صلاحيات Token.` };
+    }
+  } catch {
+    state.bulletinStatus = { type: "error", msg: "❌ تعذر الاتصال بـ GitHub. تحقق من الإنترنت." };
+  }
+  render();
+}
+
 async function downloadCustomerPricePdf(useSyria = false) {
   const latest = state.inventoryReports[0];
   let items = customerPriceListItems();
@@ -2449,7 +2495,9 @@ function pricing() {
         <button class="button primary" type="button" data-action="download-customer-price-pdf" ${customerPriceListItems().length ? "" : "disabled"}>نشرة الدولار</button>
         <button class="button primary" type="button" data-action="download-customer-price-syria" ${customerPriceListItems().length ? "" : "disabled"}>نشرة السوري</button>
         <button class="button secondary" type="button" data-action="download-approved-prices" ${state.approvedPriceItems.length ? "" : "disabled"}>تصدير أسعار المحاسبة</button>
+        <button class="button success" type="button" data-action="publish-bulletin" ${state.session ? "" : "disabled"} title="ينشر النشرتين على رابط الزبائن">🚀 نشر النشرة للزبائن</button>
       </div>
+      ${state.bulletinStatus ? `<p class="bulletin-status ${state.bulletinStatus.type}">${escapeHtml(state.bulletinStatus.msg)}</p>` : ""}
       <form class="form-card compact" data-form="live-price-import">
         <label>
           رفع ملف تسعير كامل
@@ -3880,6 +3928,7 @@ function render() {
   app.querySelector("[data-action='download-daily-pricing']")?.addEventListener("click", downloadDailyPricingWorklist);
   app.querySelector("[data-action='download-customer-price-pdf']")?.addEventListener("click", () => downloadCustomerPricePdf(false));
   app.querySelector("[data-action='download-customer-price-syria']")?.addEventListener("click", () => downloadCustomerPricePdf(true));
+  app.querySelector("[data-action='publish-bulletin']")?.addEventListener("click", publishBulletin);
   app.querySelector("[data-action='download-approved-prices']")?.addEventListener("click", downloadApprovedPricesForAccounting);
   app.querySelector("[data-action='download-inventory']")?.addEventListener("click", downloadLatestInventoryReport);
   app.querySelector("[data-action='download-filtered-inventory']")?.addEventListener("click", downloadFilteredInventoryReport);
