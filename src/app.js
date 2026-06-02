@@ -1811,8 +1811,8 @@ function login() {
         </label>
         <div class="button-row">
           <button class="button primary" type="submit" data-auth-action="signin">${live ? "دخول" : "دخول تجريبي"}</button>
+          ${live ? '<button class="button secondary" type="submit" data-auth-action="signup">إنشاء حساب جديد</button>' : ""}
         </div>
-        ${live ? '<p class="muted">أنشئ حسابات الموظفين من Supabase Authentication لتجنب حد رسائل البريد.</p>' : ""}
         ${state.session ? `<p class="success-note">أنت داخل الآن باسم ${escapeHtml(state.session.name)} - ${escapeHtml(state.session.role)}</p>` : ""}
       </form>
     </section>
