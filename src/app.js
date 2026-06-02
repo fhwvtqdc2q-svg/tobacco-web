@@ -4,6 +4,22 @@ const monitoringCards = window.monitoringCards;
 const remoteServices = window.remoteServices;
 const dataStore = window.tobaccoData;
 
+function safeErrorMessage(error) {
+  const msg = String(error?.message ?? "");
+  console.error("[OZK Error]", msg);
+  if (/لا توجد جلسة|سجل الدخول|كلمة المرور|البريد|تأكيد|مصادقة/.test(msg)) return msg;
+  if (/لا يمكن حفظ|لا توجد أسعار|لا توجد طلبات|لا يوجد جرد/.test(msg)) return msg;
+  if (/fetch|ECONNREFUSED|ENOTFOUND|network|Failed to fetch/i.test(msg))
+    return "تعذر الاتصال بالخادم. تحقق من اتصالك بالإنترنت.";
+  if (/401|403|unauthorized|permission|denied/i.test(msg))
+    return "ليس لديك صلاحية لتنفيذ هذه العملية.";
+  if (/pgrst|postgres|supabase|relation|column|database|sql/i.test(msg))
+    return "حدث خطأ في قاعدة البيانات. حاول مجدداً أو تواصل مع الدعم.";
+  if (msg.length > 120 || /Error:|\.js:\d+|at \w+\s/i.test(msg))
+    return "حدث خطأ غير متوقع. حاول مجدداً.";
+  return msg || "حدث خطأ غير متوقع.";
+}
+
 function readJson(key, fallback) {
   try {
     return JSON.parse(localStorage.getItem(key) || JSON.stringify(fallback));
@@ -321,7 +337,7 @@ async function refreshSession() {
     state.session = await dataStore.getSession();
   } catch (error) {
     state.session = null;
-    setNotice("error", `تعذر فحص تسجيل الدخول: ${error.message}`);
+    setNotice("error", safeErrorMessage(error));
   }
 }
 
@@ -334,7 +350,7 @@ async function loadRequests() {
     state.requests = await dataStore.listRequests();
   } catch (error) {
     state.requests = dataStore.defaultRequests;
-    setNotice("error", `تعذر تحميل الطلبات: ${error.message}`);
+    setNotice("error", safeErrorMessage(error));
   }
 }
 
@@ -378,7 +394,7 @@ async function loadCustomerCreditLimits() {
       : [];
   } catch (error) {
     state.customerCreditLimits = [];
-    state.customerLimitError = error.message || "تعذر تحميل حدود الزبائن.";
+    state.customerLimitError = safeErrorMessage(error);
   }
 }
 
@@ -392,7 +408,7 @@ async function loadApprovedPriceItems() {
     state.approvedPriceItems = dataStore.listApprovedPriceItems ? await dataStore.listApprovedPriceItems() : [];
   } catch (error) {
     state.approvedPriceItems = [];
-    state.approvedPriceError = error.message || "تعذر تحميل الأسعار المعتمدة.";
+    state.approvedPriceError = safeErrorMessage(error);
   }
 }
 
@@ -510,7 +526,7 @@ async function saveSession(form, action) {
     await loadApprovedPriceItems();
     setRoute("overview", false);
   } catch (error) {
-    setNotice("error", error.message);
+    setNotice("error", safeErrorMessage(error));
     render();
   }
 }
@@ -527,7 +543,7 @@ async function logout() {
     state.approvedPriceError = null;
     setNotice("success", "تم تسجيل الخروج.");
   } catch (error) {
-    setNotice("error", error.message);
+    setNotice("error", safeErrorMessage(error));
   }
   render();
 }
@@ -544,7 +560,7 @@ async function addRequest(form) {
     setNotice("success", dataStore.isConfigured() ? "تم حفظ الطلب في Supabase." : "تم حفظ الطلب محليا للتجربة.");
     setRoute("requests", false);
   } catch (error) {
-    setNotice("error", error.message);
+    setNotice("error", safeErrorMessage(error));
     if (/سجل الدخول/i.test(error.message)) state.route = "login";
     render();
   }
@@ -556,7 +572,7 @@ async function updateRequest(id, status) {
     await loadRequests();
     setNotice("success", "تم تحديث حالة الطلب.");
   } catch (error) {
-    setNotice("error", error.message);
+    setNotice("error", safeErrorMessage(error));
   }
   render();
 }
@@ -866,7 +882,7 @@ async function importAmeenReport(form) {
     );
     setRoute("ameen", false);
   } catch (error) {
-    setNotice("error", error.message);
+    setNotice("error", safeErrorMessage(error));
     render();
   }
 }
@@ -880,7 +896,7 @@ async function refreshAmeenReports() {
     setNotice("success", "تم تحديث تقارير الأمين من Supabase.");
     setRoute("ameen", false);
   } catch (error) {
-    setNotice("error", error.message);
+    setNotice("error", safeErrorMessage(error));
     render();
   }
 }
@@ -904,7 +920,7 @@ async function saveCustomerLimit(form) {
     setNotice("success", `تم حفظ الحد المسموح للزبون ${customerName || customerKeyValue}.`);
     render();
   } catch (error) {
-    state.customerLimitError = error.message || "تعذر حفظ الحد المسموح.";
+    state.customerLimitError = safeErrorMessage(error);
     setNotice("error", state.customerLimitError);
     render();
   }
@@ -1111,7 +1127,7 @@ async function importLivePriceList(form) {
       `تم تنزيل لائحة البيع النهائية: ${filteredRows.length} مادة. تم حذف ${excludedRows.length} غير موجودة في المستودع، و${zeroPriceRows.length} موجودة لكن بلا سعر. تم استبدال لائحة المحاسبة بـ ${savedCount} سعر.${correctionText}${saveWarning}`
     );
   } catch (error) {
-    setNotice("error", error.message);
+    setNotice("error", safeErrorMessage(error));
   }
   render();
 }
@@ -1554,8 +1570,7 @@ async function savePricingItem(form) {
     );
     render();
   } catch (error) {
-    console.error("savePricingItem error:", error);
-    setNotice("error", `❌ خطأ: ${error.message || "فشل الحفظ"}`);
+    setNotice("error", safeErrorMessage(error));
     render();
   }
 }
@@ -3129,13 +3144,13 @@ function renderMarkdown(text) {
 }
 
 function getAiKey(provider) {
-  return localStorage.getItem(`ozk_ai_key_${provider}`) || appConfig.ai?.[provider]?.apiKey || "";
+  return sessionStorage.getItem(`ozk_ai_key_${provider}`) || appConfig.ai?.[provider]?.apiKey || "";
 }
 
 function setAiKey(provider, value) {
   const trimmed = value.trim();
-  if (trimmed) localStorage.setItem(`ozk_ai_key_${provider}`, trimmed);
-  else localStorage.removeItem(`ozk_ai_key_${provider}`);
+  if (trimmed) sessionStorage.setItem(`ozk_ai_key_${provider}`, trimmed);
+  else sessionStorage.removeItem(`ozk_ai_key_${provider}`);
 }
 
 async function sendAiMessage(input) {
@@ -3512,13 +3527,14 @@ ${notes ? `<div class="notes"><strong>ملاحظة:</strong> ${escapeHtml(notes)
 
 <div class="inv-foot">${escapeHtml(appConfig.name)} &mdash; ${escapeHtml(appConfig.supportEmail)}</div>
 
-<script>window.onload = () => { window.print(); }<\/script>
 </body></html>`;
 
   const win = window.open("", "_blank", "width=850,height=1100");
   if (win) {
     win.document.write(html);
     win.document.close();
+    win.focus();
+    win.print();
   } else {
     setNotice("error", "يرجى السماح بالنوافذ المنبثقة لطباعة الفاتورة.");
     render();
