@@ -2036,3 +2036,62 @@ code {
     grid-template-columns: 1fr;
   }
 }
+
+/* ── Overdue customers ── */
+.overdue-panel {
+  border: 1px solid var(--danger) !important;
+  background: rgba(255, 116, 104, 0.06);
+}
+
+.overdue-header {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+
+.overdue-icon {
+  font-size: 1.4rem;
+  flex-shrink: 0;
+}
+
+.overdue-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.overdue-row {
+  display: grid;
+  grid-template-columns: 1fr auto auto;
+  gap: 12px;
+  align-items: center;
+  padding: 8px 10px;
+  background: var(--surface);
+  border-radius: 8px;
+  border: 1px solid var(--line);
+}
+
+.overdue-name {
+  font-size: 0.9rem;
+  font-weight: 500;
+}
+
+.overdue-balance {
+  font-family: monospace;
+  font-size: 0.88rem;
+  direction: ltr;
+  color: var(--danger);
+  font-weight: 600;
+}
+
+.overdue-days {
+  font-size: 0.8rem;
+  border-radius: 4px;
+  padding: 2px 8px;
+  font-weight: 600;
+}
+
+.overdue-warn     { background: rgba(215,168,63,.2);  color: var(--primary); }
+.overdue-critical { background: rgba(255,116,104,.2); color: var(--danger); }
+.overdue-unknown  { background: var(--surface-soft);  color: var(--muted); }

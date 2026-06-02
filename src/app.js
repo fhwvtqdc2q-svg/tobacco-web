@@ -264,6 +264,8 @@ async function boot() {
   state.notifPermission = notifSupported() ? Notification.permission : "denied";
   state.loading = false;
   render();
+  const overdue = overdueCustomers();
+  if (overdue.length > 0) fireOverdueNotif(overdue.length);
 }
 
 async function refreshSession() {
@@ -1980,6 +1982,42 @@ function latestCustomerBalanceItems() {
   return applyCustomerLimits(Array.isArray(latest?.items) ? latest.items : []);
 }
 
+function overdueCustomers(thresholdDays = 3) {
+  const items = latestCustomerBalanceItems();
+  const now = new Date();
+  return items
+    .filter((item) => customerBalance(item) > 0)
+    .map((item) => {
+      const dateStr = item.lastPaymentDate || "";
+      let daysSince = null;
+      if (dateStr) {
+        try {
+          const d = new Date(dateStr);
+          if (!isNaN(d)) daysSince = Math.floor((now - d) / 86400000);
+        } catch {}
+      }
+      return { ...item, daysSince };
+    })
+    .filter((item) => item.daysSince === null || item.daysSince >= thresholdDays)
+    .sort((a, b) => (b.daysSince ?? 9999) - (a.daysSince ?? 9999));
+}
+
+function fireOverdueNotif(count) {
+  if (!notifSupported() || Notification.permission !== "granted") return;
+  const opts = {
+    body: `${count} زبون بدون دفعة منذ أكثر من 3 أيام`,
+    icon: "public/icons/app-icon.png",
+    dir: "rtl",
+    lang: "ar",
+    tag: "overdue-customers"
+  };
+  if (navigator.serviceWorker?.controller) {
+    navigator.serviceWorker.ready.then((reg) => reg.showNotification("OZK — تنبيه ديون", opts)).catch(() => new Notification("OZK — تنبيه ديون", opts));
+  } else {
+    new Notification("OZK — تنبيه ديون", opts);
+  }
+}
+
 function customerBalanceTotals(items) {
   const debitItems = items.filter((item) => customerBalance(item) > 0);
   const creditItems = items.filter((item) => customerBalance(item) < 0);
@@ -2384,7 +2422,31 @@ function customerBalanceSection(report) {
   const totals = customerBalanceTotals(items);
   const detailItem = selectedCustomer(items);
 
+  const overdue = overdueCustomers();
+  const overdueHtml = overdue.length > 0 ? `
+    <section class="panel overdue-panel" style="margin-bottom:16px">
+      <div class="overdue-header">
+        <span class="overdue-icon">⚠️</span>
+        <div>
+          <strong>${overdue.length} زبون بدون دفعة منذ أكثر من 3 أيام</strong>
+          <p class="muted" style="font-size:.85rem;margin:2px 0 0">هؤلاء الزبائن عليهم رصيد ولم يسجّل لهم أي دفعة خلال الفترة المحددة.</p>
+        </div>
+      </div>
+      <div class="overdue-list">
+        ${overdue.slice(0, 20).map((item) => `
+          <div class="overdue-row">
+            <span class="overdue-name">${escapeHtml(item.customer_name || item.name || "—")}</span>
+            <span class="overdue-balance">${formatMoney(customerBalance(item))}</span>
+            <span class="overdue-days ${item.daysSince === null ? "overdue-unknown" : item.daysSince >= 7 ? "overdue-critical" : "overdue-warn"}">
+              ${item.daysSince === null ? "تاريخ دفع غير معروف" : `${item.daysSince} يوم`}
+            </span>
+          </div>`).join("")}
+      </div>
+    </section>
+  ` : "";
+
   return `
+    ${overdueHtml}
     <section class="panel wide customer-balances">
       <div class="panel-title-row inventory-browser-head">
         <div>
