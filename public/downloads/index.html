@@ -1,0 +1,123 @@
+<!DOCTYPE html>
+<html dir="rtl" lang="ar">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>نشرات الأسعار — OZK TOBACCO</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: 'Segoe UI', Tahoma, sans-serif;
+    background: #0d0b08;
+    color: #e8d9b0;
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 40px 20px;
+  }
+  .logo {
+    font-size: 2rem;
+    font-weight: 900;
+    color: #d7a83f;
+    letter-spacing: 2px;
+    margin-bottom: 6px;
+  }
+  .subtitle {
+    color: #a08850;
+    font-size: 0.95rem;
+    margin-bottom: 50px;
+  }
+  h1 {
+    font-size: 1.4rem;
+    color: #e8d9b0;
+    margin-bottom: 30px;
+    text-align: center;
+  }
+  .cards {
+    display: flex;
+    gap: 24px;
+    flex-wrap: wrap;
+    justify-content: center;
+    width: 100%;
+    max-width: 700px;
+  }
+  .card {
+    background: #1a160f;
+    border: 1px solid #5a4524;
+    border-radius: 12px;
+    padding: 32px 28px;
+    flex: 1;
+    min-width: 260px;
+    max-width: 320px;
+    text-align: center;
+    text-decoration: none;
+    color: inherit;
+    transition: border-color 0.2s, transform 0.15s;
+    display: block;
+  }
+  .card:hover {
+    border-color: #d7a83f;
+    transform: translateY(-3px);
+  }
+  .card-icon { font-size: 3rem; margin-bottom: 16px; }
+  .card-title {
+    font-size: 1.2rem;
+    font-weight: 700;
+    color: #d7a83f;
+    margin-bottom: 8px;
+  }
+  .card-desc {
+    font-size: 0.88rem;
+    color: #a08850;
+    line-height: 1.6;
+  }
+  .card-btn {
+    display: inline-block;
+    margin-top: 20px;
+    background: #d7a83f;
+    color: #1a1208;
+    font-weight: 700;
+    padding: 10px 24px;
+    border-radius: 6px;
+    font-size: 0.9rem;
+  }
+  .footer {
+    margin-top: 60px;
+    color: #5a4524;
+    font-size: 0.8rem;
+    text-align: center;
+  }
+</style>
+</head>
+<body>
+
+<div class="logo">OZK TOBACCO</div>
+<div class="subtitle">نشرات الأسعار الرسمية</div>
+
+<h1>اختر نشرة الأسعار</h1>
+
+<div class="cards">
+
+  <a class="card" href="price-list-usd.html" target="_blank">
+    <div class="card-icon">💵</div>
+    <div class="card-title">نشرة الدولار</div>
+    <div class="card-desc">أسعار جميع المواد بالدولار الأمريكي</div>
+    <div class="card-btn">عرض وطباعة</div>
+  </a>
+
+  <a class="card" href="price-list-syp-14050.html" target="_blank">
+    <div class="card-icon">🇸🇾</div>
+    <div class="card-title">نشرة الليرة السورية</div>
+    <div class="card-desc">أسعار جميع المواد بالليرة السورية<br>سعر الصرف: 14,050 ل.س/دولار</div>
+    <div class="card-btn">عرض وطباعة</div>
+  </a>
+
+</div>
+
+<div class="footer">
+  لفتح النشرة اضغط "عرض وطباعة" ← ثم Ctrl+P أو زر الطباعة لحفظها PDF
+</div>
+
+</body>
+</html>
