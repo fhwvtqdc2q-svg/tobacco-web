@@ -6,6 +6,10 @@ window.appConfig = {
     "لوحة ويب عربية لإدارة طلبات العملاء، متابعة العمل عن بعد، مراقبة الحالة، وتجهيز الدفع الإلكتروني عند اختيار مزود مناسب.",
   language: "ar",
   paymentStatus: "واجهة جاهزة للربط",
+  staffRoles: {
+    "ozk.kh@outlook.com": { name: "المدير", role: "مدير" },
+    "khalelkhalouf1196@gmail.com": { name: "خليل خلوف", role: "محاسب" }
+  },
   ai: {
     ownerEmail: "ozk.kh@outlook.com",
     claude: {

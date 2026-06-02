@@ -96,12 +96,15 @@
     const user = session?.user;
     if (!user) return null;
 
+    const email = (user.email || "").toLowerCase();
+    const staffEntry = window.appConfig?.staffRoles?.[email];
+
     return {
       provider: "supabase",
       id: user.id,
       email: user.email || "",
-      name: user.user_metadata?.display_name || user.email || "موظف OZK",
-      role: user.user_metadata?.role || "خدمة العملاء"
+      name: staffEntry?.name || user.user_metadata?.display_name || user.email || "موظف OZK",
+      role: staffEntry?.role || user.user_metadata?.role || "خدمة العملاء"
     };
   }
 
