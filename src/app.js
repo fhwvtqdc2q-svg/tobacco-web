@@ -200,7 +200,11 @@ const state = {
   notifPermission: "default",
   seenRequestIds: new Set(),
   globalSearch: "",
-  darkMode: readJson("dark-mode", true)
+  darkMode: readJson("dark-mode", true),
+  paymentRecords: {},
+  paymentLoading: false,
+  paymentError: null,
+  customerProfiles: []
 };
 
 const app = document.querySelector("#app");
@@ -305,6 +309,7 @@ async function boot() {
   await loadCustomerBalanceReports();
   await loadCustomerCreditLimits();
   await loadApprovedPriceItems();
+  await loadCustomerProfiles();
   state.seenRequestIds = new Set(state.requests.map((r) => r.id));
   state.notifPermission = notifSupported() ? Notification.permission : "denied";
   state.loading = false;
@@ -391,6 +396,79 @@ async function loadApprovedPriceItems() {
     state.approvedPriceItems = [];
     state.approvedPriceError = error.message || "تعذر تحميل الأسعار المعتمدة.";
   }
+}
+
+async function loadPaymentRecords(customerKey) {
+  if (!customerKey || !state.session) return;
+  try {
+    state.paymentLoading = true;
+    const records = await dataStore.listPaymentRecords(customerKey);
+    state.paymentRecords = { ...state.paymentRecords, [customerKey]: records };
+    state.paymentLoading = false;
+    state.paymentError = null;
+    render();
+  } catch (error) {
+    state.paymentLoading = false;
+    state.paymentError = error.message;
+    render();
+  }
+}
+
+async function loadCustomerProfiles() {
+  try {
+    state.customerProfiles = await dataStore.listCustomerProfiles();
+  } catch {}
+}
+
+function customerProfile(key) {
+  return state.customerProfiles.find((p) => p.customerKey === key) || null;
+}
+
+function printOverdueReport() {
+  const overdue = overdueCustomers();
+  if (!overdue.length) {
+    setNotice("error", "لا يوجد زبائن متأخرون حالياً.");
+    render();
+    return;
+  }
+  const now = new Date().toLocaleDateString("ar-SA", { year: "numeric", month: "long", day: "numeric" });
+  const rows = overdue.map((item, i) => `
+    <tr style="background:${i % 2 === 0 ? "#fff" : "#fdf8ee"}">
+      <td style="padding:8px 10px;border:1px solid #d8c890;text-align:center">${i + 1}</td>
+      <td style="padding:8px 10px;border:1px solid #d8c890">${escapeHtml(item.customer_name || item.name || "—")}</td>
+      <td style="padding:8px 10px;border:1px solid #d8c890;direction:ltr;text-align:left;font-family:monospace">${formatMoney(customerBalance(item))}</td>
+      <td style="padding:8px 10px;border:1px solid #d8c890;text-align:center;color:${item.daysSince === null ? "#888" : item.daysSince >= 7 ? "#b00" : "#9a6000"};font-weight:bold">${item.daysSince === null ? "—" : item.daysSince + " يوم"}</td>
+    </tr>`).join("");
+  const html = `
+    <div dir="rtl" style="font-family:Tahoma,Arial,sans-serif;color:#221808;padding:20px">
+      <div style="text-align:center;margin-bottom:20px;border-bottom:2px solid #d7a83f;padding-bottom:16px">
+        <h2 style="margin:0 0 4px;font-size:1.4rem">OZK TOBACCO</h2>
+        <h3 style="margin:0;font-size:1.1rem;color:#6b4e10">تقرير الزبائن المتأخرين عن الدفع</h3>
+        <p style="margin:8px 0 0;font-size:0.85rem;color:#888">التاريخ: ${now}</p>
+      </div>
+      <table style="width:100%;border-collapse:collapse;font-size:0.9rem">
+        <thead>
+          <tr style="background:#d7a83f;color:#1a1000">
+            <th style="padding:9px 10px;border:1px solid #b8892a;width:40px">#</th>
+            <th style="padding:9px 10px;border:1px solid #b8892a;text-align:right">اسم الزبون</th>
+            <th style="padding:9px 10px;border:1px solid #b8892a;text-align:right">الرصيد</th>
+            <th style="padding:9px 10px;border:1px solid #b8892a;text-align:center">أيام بلا دفعة</th>
+          </tr>
+        </thead>
+        <tbody>${rows}</tbody>
+      </table>
+      <p style="margin-top:16px;font-size:0.82rem;color:#888">المجموع: ${overdue.length} زبون / أكثر من 7 أيام: ${overdue.filter((x) => x.daysSince !== null && x.daysSince >= 7).length}</p>
+    </div>`;
+  const container = document.createElement("div");
+  container.innerHTML = html;
+  document.body.appendChild(container);
+  window.html2pdf().set({
+    margin: [10, 15, 10, 15],
+    filename: `ozk-overdue-${new Date().toISOString().slice(0, 10)}.pdf`,
+    image: { type: "jpeg", quality: 0.95 },
+    html2canvas: { scale: 2, useCORS: true },
+    jsPDF: { unit: "mm", format: "a4", orientation: "portrait" }
+  }).from(container).save().finally(() => container.remove());
 }
 
 function setRoute(route, clearNotice = true) {
@@ -2414,54 +2492,91 @@ function customerDetailsPanel(item) {
     `;
   }
 
-  const payments = Array.isArray(item.recentPayments) ? item.recentPayments : [];
-  const movements = Array.isArray(item.recentMovements) ? item.recentMovements : [];
-  const sortedPayments = [...payments].sort((a, b) => new Date(b.date || 0) - new Date(a.date || 0));
-  const sortedMovements = [...movements].sort((a, b) => new Date(b.date || 0) - new Date(a.date || 0));
+  const key = customerKey(item);
+  const profile = customerProfile(key);
+  const ameenPayments = (Array.isArray(item.recentPayments) ? item.recentPayments : [])
+    .map((p) => ({ amount: p.amount, date: p.date || "", notes: p.notes, source: "ameen" }));
+  const manualPayments = (state.paymentRecords[key] || [])
+    .map((p) => ({ amount: p.amount, date: p.paymentDate || "", notes: p.notes, source: "manual" }));
+  const allPayments = [...ameenPayments, ...manualPayments]
+    .sort((a, b) => new Date(b.date || 0) - new Date(a.date || 0));
+  const movements = Array.isArray(item.recentMovements)
+    ? [...item.recentMovements].sort((a, b) => new Date(b.date || 0) - new Date(a.date || 0))
+    : [];
 
   return `
     <section class="customer-detail-panel" data-customer-detail-panel>
       <div class="panel-title-row inventory-browser-head">
         <div>
           <h3>${escapeHtml(item.name)}</h3>
-          <p class="muted">سجل الدفعات والحركة المالية من الأمين.</p>
+          <p class="muted">الرصيد، تسجيل الدفعات، معلومات التواصل.</p>
         </div>
         <button class="button secondary compact-button" type="button" data-action="clear-customer-details">✕ إغلاق</button>
       </div>
+
       <div class="inventory-metrics customer-detail-metrics">
         ${inventoryMetric("الرصيد الحالي", formatMoney(customerBalance(item)), customerStatusLabel(item.status))}
         ${inventoryMetric("الحد المسموح", customerLimit(item) > 0 ? formatMoney(customerLimit(item)) : "غير محدد", customerLimitSourceLabel(item.limitSource))}
         ${inventoryMetric("المتبقي من الحد", customerLimit(item) > 0 ? formatMoney(customerRemainingLimit(item)) : "غير محدد", "من الحد الفعال")}
         ${inventoryMetric("آخر دفعة", customerLastPaymentAmount(item) > 0 ? formatMoney(customerLastPaymentAmount(item)) : "غير متوفر", customerLastPaymentDate(item) ? formatDate(customerLastPaymentDate(item)) : "لا يوجد تاريخ")}
       </div>
+
+      ${state.session ? `
+        <div class="payment-record-section">
+          <h4>تسجيل دفعة جديدة</h4>
+          <form class="payment-record-form" data-form="record-payment" data-customer-key="${escapeHtml(key)}" data-customer-name="${escapeHtml(item.name || "")}">
+            <div class="payment-form-row">
+              <label>المبلغ<input name="amount" type="text" inputmode="decimal" dir="ltr" placeholder="0.00" required></label>
+              <label>التاريخ<input name="date" type="date" value="${new Date().toISOString().slice(0, 10)}" required></label>
+            </div>
+            <label>ملاحظة<input name="notes" maxlength="500" placeholder="مثال: دفعة نقدية"></label>
+            <button class="button primary mini-button" type="submit" ${state.paymentLoading ? "disabled" : ""}>${state.paymentLoading ? "جاري الحفظ..." : "✓ حفظ الدفعة"}</button>
+          </form>
+          ${state.paymentError ? `<p style="color:var(--danger);font-size:0.82rem;margin:6px 0 0">${escapeHtml(state.paymentError)}</p>` : ""}
+        </div>
+      ` : ""}
+
+      <details class="customer-profile-details">
+        <summary>معلومات التواصل ${profile ? "✓" : ""}</summary>
+        <form class="form-card compact" data-form="customer-profile" data-customer-key="${escapeHtml(key)}" data-customer-name="${escapeHtml(item.name || "")}">
+          <div class="profile-form-row">
+            <label>رقم الهاتف<input name="phone" type="tel" dir="ltr" value="${escapeHtml(profile?.phone || "")}" placeholder="+963..."></label>
+            <label>العنوان<input name="address" value="${escapeHtml(profile?.address || "")}" placeholder="حي، مدينة..."></label>
+          </div>
+          <label>ملاحظات<input name="notes" value="${escapeHtml(profile?.notes || "")}" placeholder="أي معلومات إضافية..."></label>
+          <button class="button secondary mini-button" type="submit">حفظ</button>
+        </form>
+      </details>
+
       <div class="customer-detail-grid">
         <article>
           <div class="detail-section-head">
             <h4>سجل الدفعات</h4>
-            <span class="status-chip">${sortedPayments.length} دفعة</span>
+            <span class="status-chip">${allPayments.length} دفعة</span>
           </div>
           <div class="detail-list payment-timeline">
-            ${sortedPayments.length
-              ? sortedPayments.map((p) => `
+            ${allPayments.length
+              ? allPayments.map((p) => `
                 <div class="payment-entry">
-                  <div class="payment-entry-dot"></div>
+                  <div class="payment-entry-dot ${p.source === "manual" ? "manual-dot" : ""}"></div>
                   <div class="payment-entry-body">
-                    <strong class="payment-amount">${escapeHtml(formatMoney(p?.amount || 0))}</strong>
-                    <span class="payment-date">${escapeHtml(p?.date ? formatDate(p.date) : "بلا تاريخ")}</span>
-                    ${p?.notes ? `<small class="payment-note">${escapeHtml(p.notes)}</small>` : ""}
+                    <strong class="payment-amount">${escapeHtml(formatMoney(p.amount || 0))}</strong>
+                    <span class="payment-date">${escapeHtml(p.date ? formatDate(p.date) : "بلا تاريخ")}</span>
+                    <span class="payment-source-badge ${p.source === "manual" ? "badge-manual" : "badge-ameen"}">${p.source === "manual" ? "يدوي" : "الأمين"}</span>
+                    ${p.notes ? `<small class="payment-note">${escapeHtml(p.notes)}</small>` : ""}
                   </div>
                 </div>`).join("")
-              : '<p class="muted" style="padding:12px 0">لا توجد دفعات مسجلة لهذا الزبون.</p>'}
+              : `<p class="muted" style="padding:12px 0">${state.paymentLoading ? "جاري التحميل..." : "لا توجد دفعات مسجلة."}</p>`}
           </div>
         </article>
         <article>
           <div class="detail-section-head">
             <h4>كشف الحركة</h4>
-            <span class="status-chip">${sortedMovements.length} حركة</span>
+            <span class="status-chip">${movements.length} حركة</span>
           </div>
           <div class="detail-list payment-timeline">
-            ${sortedMovements.length
-              ? sortedMovements.map((m) => `
+            ${movements.length
+              ? movements.map((m) => `
                 <div class="payment-entry">
                   <div class="payment-entry-dot movement-dot"></div>
                   <div class="payment-entry-body">
@@ -2470,7 +2585,7 @@ function customerDetailsPanel(item) {
                     ${m?.notes ? `<small class="payment-note">${escapeHtml(m.notes)}</small>` : ""}
                   </div>
                 </div>`).join("")
-              : '<p class="muted" style="padding:12px 0">لا توجد حركة مسجلة لهذا الزبون.</p>'}
+              : '<p class="muted" style="padding:12px 0">لا توجد حركة مسجلة.</p>'}
           </div>
         </article>
       </div>
@@ -2500,10 +2615,11 @@ function customerBalanceSection(report) {
     <section class="panel overdue-panel" style="margin-bottom:16px">
       <div class="overdue-header">
         <span class="overdue-icon">⚠️</span>
-        <div>
+        <div style="flex:1">
           <strong>${overdue.length} زبون بدون دفعة منذ أكثر من 3 أيام</strong>
           <p class="muted" style="font-size:.85rem;margin:2px 0 0">هؤلاء الزبائن عليهم رصيد ولم يسجّل لهم أي دفعة خلال الفترة المحددة.</p>
         </div>
+        <button class="button secondary compact-button" type="button" data-action="print-overdue">🖨️ PDF</button>
       </div>
       <div class="overdue-list">
         ${overdue.slice(0, 20).map((item) => `
@@ -3514,8 +3630,11 @@ function bindCustomerDetailButtons(root = app) {
     if (button.dataset.bound === "true") return;
     button.dataset.bound = "true";
     button.addEventListener("click", () => {
-      state.selectedCustomerKey = button.dataset.customerDetails;
+      const key = button.dataset.customerDetails;
+      state.selectedCustomerKey = key;
+      state.paymentError = null;
       render();
+      loadPaymentRecords(key);
     });
   });
 }
@@ -3705,7 +3824,52 @@ function render() {
   app.querySelector("[data-action='refresh-ameen']")?.addEventListener("click", refreshAmeenReports);
   app.querySelector("[data-action='clear-customer-details']")?.addEventListener("click", () => {
     state.selectedCustomerKey = "";
+    state.paymentError = null;
     render();
+  });
+
+  app.querySelector("[data-action='print-overdue']")?.addEventListener("click", printOverdueReport);
+
+  app.querySelectorAll("[data-form='record-payment']").forEach((form) => {
+    form.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      const key = form.dataset.customerKey;
+      const name = form.dataset.customerName;
+      const amount = formValue(form, "amount");
+      const date = formValue(form, "date");
+      const notes = formValue(form, "notes");
+      state.paymentLoading = true;
+      state.paymentError = null;
+      render();
+      try {
+        await dataStore.createPaymentRecord({ customerKey: key, customerName: name, amount, paymentDate: date, notes });
+        form.reset();
+        form.querySelector("[name='date']").value = new Date().toISOString().slice(0, 10);
+        setNotice("success", "تم تسجيل الدفعة بنجاح ✓");
+        await loadPaymentRecords(key);
+      } catch (error) {
+        state.paymentLoading = false;
+        state.paymentError = error.message;
+        render();
+      }
+    });
+  });
+
+  app.querySelectorAll("[data-form='customer-profile']").forEach((form) => {
+    form.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      const key = form.dataset.customerKey;
+      const name = form.dataset.customerName;
+      try {
+        await dataStore.upsertCustomerProfile({ customerKey: key, customerName: name, phone: formValue(form, "phone"), address: formValue(form, "address"), notes: formValue(form, "notes") });
+        await loadCustomerProfiles();
+        setNotice("success", "تم حفظ معلومات الزبون ✓");
+        render();
+      } catch (error) {
+        setNotice("error", error.message);
+        render();
+      }
+    });
   });
 
   app.querySelector("[data-ameen-search]")?.addEventListener("input", (event) => {

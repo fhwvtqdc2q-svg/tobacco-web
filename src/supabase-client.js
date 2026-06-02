@@ -79,6 +79,8 @@
   const inventoryReportsTable = config.inventoryReportsTable || "inventory_reports";
   const creditLimitsTable = config.creditLimitsTable || "customer_credit_limits";
   const approvedPricesTable = config.approvedPricesTable || "approved_price_items";
+  const paymentRecordsTable = config.paymentRecordsTable || "payment_records";
+  const customerProfilesTable = config.customerProfilesTable || "customer_profiles";
   const client =
     hasConfig && hasLibrary
       ? window.supabase.createClient(config.url, config.publishableKey, {
@@ -141,6 +143,31 @@
       notes: cleanText(input.notes, 500),
       updated_at: new Date().toISOString(),
       ...(userId ? { updated_by: userId } : {})
+    };
+  }
+
+  function normalizeDbPaymentRecord(row) {
+    return {
+      id: row.id,
+      customerKey: row.customer_key,
+      customerName: row.customer_name || "",
+      amount: parseNumber(row.amount || 0),
+      paymentDate: row.payment_date || "",
+      notes: row.notes || "",
+      source: "manual",
+      createdAt: row.created_at || ""
+    };
+  }
+
+  function normalizeDbCustomerProfile(row) {
+    return {
+      id: row.id,
+      customerKey: row.customer_key,
+      customerName: row.customer_name || "",
+      phone: row.phone || "",
+      address: row.address || "",
+      notes: row.notes || "",
+      updatedAt: row.updated_at || row.created_at || ""
     };
   }
 
@@ -548,6 +575,101 @@
 
       if (error) throw new Error(error.message);
       return (data || []).map(normalizeDbApprovedPrice);
+    },
+
+    async listPaymentRecords(customerKey) {
+      const key = String(customerKey || "").trim();
+      if (!key) return [];
+      if (!client) {
+        return readJson("payment-records", []).filter((r) => r.customerKey === key);
+      }
+      const session = await getSupabaseSession();
+      if (!session) return [];
+      const { data, error } = await client
+        .from(paymentRecordsTable)
+        .select("id, customer_key, customer_name, amount, payment_date, notes, created_at")
+        .eq("customer_key", key)
+        .order("payment_date", { ascending: false })
+        .limit(100);
+      if (error) {
+        if (error.code === "42P01") return [];
+        throw new Error(error.message);
+      }
+      return (data || []).map(normalizeDbPaymentRecord);
+    },
+
+    async createPaymentRecord(input) {
+      const record = {
+        customerKey: cleanText(input.customerKey, 240),
+        customerName: cleanText(input.customerName, 240),
+        amount: Math.max(0, parseNumber(input.amount || 0)),
+        paymentDate: String(input.paymentDate || new Date().toISOString().slice(0, 10)),
+        notes: cleanText(input.notes, 500)
+      };
+      if (!record.amount) throw new Error("أدخل مبلغ دفعة صحيح.");
+      if (!client) {
+        const all = readJson("payment-records", []);
+        const local = { id: `PR-${Date.now()}`, ...record, source: "manual", createdAt: new Date().toISOString() };
+        writeJson("payment-records", [local, ...all].slice(0, 500));
+        return local;
+      }
+      const user = await requireUser();
+      const { data, error } = await client
+        .from(paymentRecordsTable)
+        .insert({ customer_key: record.customerKey, customer_name: record.customerName, amount: record.amount, payment_date: record.paymentDate, notes: record.notes, created_by: user.id })
+        .select("id, customer_key, customer_name, amount, payment_date, notes, created_at")
+        .limit(1);
+      if (error) {
+        if (error.code === "42P01") throw new Error("جدول payment_records غير موجود. شغّل SQL الإعداد في Supabase أولاً.");
+        throw new Error(error.message);
+      }
+      return data?.[0] ? normalizeDbPaymentRecord(data[0]) : { id: `PR-${Date.now()}`, ...record, source: "manual" };
+    },
+
+    async listCustomerProfiles() {
+      if (!client) return readJson("customer-profiles", []);
+      const session = await getSupabaseSession();
+      if (!session) return [];
+      const { data, error } = await client
+        .from(customerProfilesTable)
+        .select("id, customer_key, customer_name, phone, address, notes, updated_at")
+        .order("updated_at", { ascending: false })
+        .limit(1000);
+      if (error) {
+        if (error.code === "42P01") return [];
+        throw new Error(error.message);
+      }
+      return (data || []).map(normalizeDbCustomerProfile);
+    },
+
+    async upsertCustomerProfile(input) {
+      const profile = {
+        customerKey: cleanText(input.customerKey, 240),
+        customerName: cleanText(input.customerName, 240),
+        phone: cleanText(input.phone, 40),
+        address: cleanText(input.address, 240),
+        notes: cleanText(input.notes, 500)
+      };
+      if (!profile.customerKey) throw new Error("لا يمكن حفظ بيانات زبون بدون مفتاح.");
+      if (!client) {
+        const all = readJson("customer-profiles", []);
+        const idx = all.findIndex((p) => p.customerKey === profile.customerKey);
+        const rec = { id: profile.customerKey, ...profile, updatedAt: new Date().toISOString() };
+        if (idx >= 0) all[idx] = rec; else all.unshift(rec);
+        writeJson("customer-profiles", all);
+        return rec;
+      }
+      const user = await requireUser();
+      const { data, error } = await client
+        .from(customerProfilesTable)
+        .upsert({ customer_key: profile.customerKey, customer_name: profile.customerName, phone: profile.phone, address: profile.address, notes: profile.notes, updated_at: new Date().toISOString(), updated_by: user.id }, { onConflict: "customer_key" })
+        .select("id, customer_key, customer_name, phone, address, notes, updated_at")
+        .limit(1);
+      if (error) {
+        if (error.code === "42P01") throw new Error("جدول customer_profiles غير موجود. شغّل SQL الإعداد في Supabase أولاً.");
+        throw new Error(error.message);
+      }
+      return data?.[0] ? normalizeDbCustomerProfile(data[0]) : { id: profile.customerKey, ...profile, updatedAt: new Date().toISOString() };
     },
 
     async createInventoryReport(report) {
