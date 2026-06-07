@@ -5,6 +5,7 @@ const required = [
   "src/app.js",
   "src/config.js",
   "src/supabase-client.js",
+  "src/number-normalizer.js",
   "src/styles.css",
   "public/manifest.webmanifest",
   "public/service-worker.js"
@@ -27,6 +28,33 @@ if (!html.includes('id="app"')) {
 
 if (!html.includes("supabase-client.js")) {
   console.error("index.html is missing Supabase client wiring.");
+  failed = true;
+}
+
+if (!html.includes("number-normalizer.js")) {
+  console.error("index.html is missing number-normalizer.js wiring.");
+  failed = true;
+}
+
+// تناسق نسخة الكاش: كل أصل محلي في index.html يجب أن يحمل نفس قيمة ?v=
+// يلتقط خطأ "رفعت رقم النسخة لبعض الملفات ونسيت الباقي" قبل النشر.
+const versionTags = [...html.matchAll(/(?:src|href)="[^"]*\?v=([^"&]+)"/g)].map((m) => m[1]);
+if (versionTags.length === 0) {
+  console.error("index.html has no ?v= cache-busting versions on local assets.");
+  failed = true;
+} else {
+  const uniqueVersions = [...new Set(versionTags)];
+  if (uniqueVersions.length > 1) {
+    console.error(`index.html has mismatched asset versions: ${uniqueVersions.join(", ")}. Bump them all to the same value.`);
+    failed = true;
+  }
+}
+
+// service worker يجب أن يحمل CACHE_NAME غير فارغ (يُرفع رقمه عند كل نشر).
+const sw = readFileSync("public/service-worker.js", "utf8");
+const cacheMatch = sw.match(/CACHE_NAME\s*=\s*["']([^"']+)["']/);
+if (!cacheMatch || !cacheMatch[1].trim()) {
+  console.error("service-worker.js is missing a non-empty CACHE_NAME.");
   failed = true;
 }
 
