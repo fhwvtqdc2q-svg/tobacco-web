@@ -1195,7 +1195,7 @@ function customerPriceListItems() {
         String(a.groupName || "").localeCompare(String(b.groupName || ""), "ar") ||
         String(a.name || "").localeCompare(String(b.name || ""), "ar")
     );
-  return mergeMazayaPriceItems(items);
+  return mergeOstoraPriceItems(mergeMazayaPriceItems(items));
 }
 
 function isMazayaPriceItem(item) {
@@ -1224,6 +1224,39 @@ function mergeMazayaPriceItems(items) {
   };
 
   return [...items.filter((item) => !isMazayaPriceItem(item)), mazayaItem].sort(
+    (a, b) =>
+      String(a.groupName || "").localeCompare(String(b.groupName || ""), "ar") ||
+      String(a.name || "").localeCompare(String(b.name || ""), "ar")
+  );
+}
+
+// صنف الأسطورة: سطر واحد بدل كل البنود (طلب الإدارة) — السعر يتبع البيانات تلقائيًا
+function isOstoraPriceItem(item) {
+  const groupName = normalizeItemName(item.groupName || "");
+  const itemName = normalizeItemName(item.name || item.itemName || "");
+  return groupName.includes("اسطوره") || itemName.includes("اسطوره");
+}
+
+function mergeOstoraPriceItems(items) {
+  const ostora = items.filter(isOstoraPriceItem);
+  if (!ostora.length) return items;
+
+  const first = ostora.find((it) => it.unit2Price > 0) || ostora[0];
+  const ostoraItem = {
+    ...first,
+    key: "ostora-all",
+    name: "معسل الأسطورة",
+    itemName: "معسل الأسطورة",
+    groupName: "معسل الاسطورة",
+    unit1Name: "",
+    unit1Price: 0,
+    unit2Name: first.unit2Name || "شرحة",
+    unit2Factor: first.unit2Factor || 1,
+    unit2Price: first.unit2Price > 0 ? first.unit2Price : 0,
+    salePrice: first.unit2Price > 0 ? first.unit2Price : first.salePrice
+  };
+
+  return [...items.filter((item) => !isOstoraPriceItem(item)), ostoraItem].sort(
     (a, b) =>
       String(a.groupName || "").localeCompare(String(b.groupName || ""), "ar") ||
       String(a.name || "").localeCompare(String(b.name || ""), "ar")
@@ -1360,7 +1393,6 @@ function pricePdfPage(page, index, totalPages, pdfTitle = "قائمة أسعار
           .join("")}
       </main>
       <footer class="price-pdf-footer">
-        <span>الأسعار قابلة للتحديث حسب توفر المخزون. للاستفسار يرجى التواصل عبر الأرقام أعلاه.</span>
         <b>صفحة ${escapeHtml(index + 1)} من ${escapeHtml(totalPages)}</b>
       </footer>
     </section>
@@ -1374,6 +1406,20 @@ function pricePdfBook(groups, pdfTitle = "قائمة أسعار OZK TOBACCO") {
     .join("");
 }
 
+// أهم مجموعتين تظهران أول النشرة دائمًا (طلب الإدارة)
+const PRIORITY_PRICE_GROUPS = ["غلواز", "ماستر"];
+
+function orderPriorityGroups(groups) {
+  const rank = (name) => {
+    const n = normalizeItemName(name || "");
+    const i = PRIORITY_PRICE_GROUPS.findIndex((g) => n.includes(normalizeItemName(g)));
+    return i === -1 ? PRIORITY_PRICE_GROUPS.length : i;
+  };
+  return [...groups].sort(
+    (a, b) => rank(a.name) - rank(b.name) || String(a.name || "").localeCompare(String(b.name || ""), "ar")
+  );
+}
+
 function customerPricePdfMarkup(items, latest, useSyria = false) {
   const displayItems = useSyria
     ? items.map((item) =>
@@ -1382,7 +1428,7 @@ function customerPricePdfMarkup(items, latest, useSyria = false) {
           : item
       )
     : items;
-  const groups = groupCustomerPriceItems(displayItems);
+  const groups = orderPriorityGroups(groupCustomerPriceItems(displayItems));
   const pdfTitle = useSyria ? `نشرة الأسعار بالليرة السورية — صرف ${state.syriaExchangeRate}` : "قائمة أسعار OZK TOBACCO";
   return `
     <div class="price-pdf-book" dir="rtl" style="background:#fff;color:#000">
@@ -1479,7 +1525,7 @@ async function downloadCustomerPricePdf(useSyria = false) {
         image: { type: "png", quality: 0.98 },
         html2canvas: { scale: 2, useCORS: true, backgroundColor: "#ffffff", allowTaint: true },
         jsPDF: { unit: "mm", format: "a4", orientation: "portrait" },
-        pagebreak: { mode: ["css", "legacy"], before: ".price-pdf-page" }
+        pagebreak: { mode: ["css"] }
       })
       .from(container)
       .save();
