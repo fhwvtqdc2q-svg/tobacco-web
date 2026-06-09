@@ -221,6 +221,7 @@ const state = {
   syriaExchangeRate: readJson("syria-exchange-rate", 1),
   syriaRateConfirmed: false,
   openSections: {},
+  priceMode: readJson("price-mode", "jumla"),
   showExchangeModal: false,
   pricePreview: null
 };
@@ -1522,13 +1523,13 @@ function prepareBulletinItems(useSyria = false) {
   let items = customerPriceListItems();
 
   if (useSyria) {
-    // نشرة المفرّق: سعر الكروز (الوحدة الأولى) بالليرة = سعر الدولار × سعر الصرف
+    // نشرة المفرّق: سعر المفرق (يدوي) بالليرة = سعر المفرق بالدولار × سعر الصرف
     const rate = Number(state.syriaExchangeRate) || 1;
     items = items
       .map((item) => {
-        const retail = item.unit1Price > 0 ? item.unit1Price : item.unit2Price;
-        const retailName = item.unit1Price > 0 ? (item.unit1Name || "كروز") : (item.unit2Name || "وحدة");
-        return { ...item, unit2Price: Math.round(retail * rate), unit2Name: retailName, unit2Factor: 1, unit1Price: 0, unit1Name: "" };
+        const r = item.approvedPrice && item.approvedPrice.pricePayload && item.approvedPrice.pricePayload.retail;
+        const retail = Number((r && r.price) || 0);
+        return { ...item, unit2Price: Math.round(retail * rate), unit2Name: item.unit1Name || "كروز", unit2Factor: 1, unit1Price: 0, unit1Name: "" };
       })
       .filter((item) => item.unit2Price > 0);
   } else {
@@ -1707,16 +1708,32 @@ async function savePricingItem(form) {
     const formUnit2Factor = toNumber(form.dataset.unit2Factor || 0);
     const liveUnit2Factor = itemUnit2Factor(latestItem);
     const unit2Factor = Math.max(1, liveUnit2Factor > 1 ? liveUnit2Factor : formUnit2Factor || 1);
-    const unit2Price = toPositivePrice(formValue(form, "salePrice"));
-    const salePrice = roundPrice(unit2Price / unit2Factor);
+    const entered = toPositivePrice(formValue(form, "salePrice"));
     const stockQty = toNumber(form.dataset.stockQty);
     const stockStatus = form.dataset.stockStatus || "active";
-    if (unit2Price <= 0) throw new Error("اكتب سعر الوحدة الثانية أكبر من صفر.");
+    const mode = state.priceMode === "mufrak" ? "mufrak" : "jumla";
 
+    if (entered <= 0) throw new Error("اكتب سعرًا أكبر من صفر.");
     if (!latest) throw new Error("لا يوجد جرد حي للمطابقة.");
     if (!itemKey || !itemName) throw new Error("لا يمكن حفظ السعر بدون مادة واضحة.");
-    if (salePrice <= 0) throw new Error("اكتب سعر بيع أكبر من صفر.");
     if (!dataStore.upsertApprovedPriceItems) throw new Error("حفظ الأسعار غير مفعل في قاعدة البيانات.");
+
+    const existing = approvedPriceMap().get(itemKey);
+    const basePayload = (existing && existing.pricePayload) || {};
+    let unit2Price, salePrice, payloadObj, savedLabel;
+
+    if (mode === "mufrak") {
+      unit2Price = Number((existing && existing.unit2Price) || 0);
+      if (unit2Price <= 0) throw new Error("سعّر الجملة أولاً، ثم بدّل لوضع المفرق وأضف سعره.");
+      salePrice = Number((existing && existing.salePrice) || roundPrice(unit2Price / unit2Factor));
+      payloadObj = { ...basePayload, retail: { price: entered }, source: "phone_pricing_page", pricedDate: todayIsoDate() };
+      savedLabel = `سعر المفرق ${formatMoney(entered)}$`;
+    } else {
+      unit2Price = entered;
+      salePrice = roundPrice(entered / unit2Factor);
+      payloadObj = { ...basePayload, source: "phone_pricing_page", pricedUnit: "unit2", pricedDate: todayIsoDate() };
+      savedLabel = `سعر الجملة ${formatMoney(entered)}$`;
+    }
 
     const saved = await dataStore.upsertApprovedPriceItems([
       {
@@ -1732,11 +1749,7 @@ async function savePricingItem(form) {
         stockStatus,
         sourceReportId: uuidOrNull(latest.id),
         sourceSyncedAt: reportSyncedAt(latest),
-        pricePayload: {
-          source: "phone_pricing_page",
-          pricedUnit: "unit2",
-          pricedDate: todayIsoDate()
-        }
+        pricePayload: payloadObj
       }
     ]);
 
@@ -1747,10 +1760,7 @@ async function savePricingItem(form) {
     const priceMap = approvedPriceMap();
     saved.forEach((item) => priceMap.set(item.itemKey, item));
     state.approvedPriceItems = [...priceMap.values()].sort((a, b) => String(a.itemName || "").localeCompare(String(b.itemName || ""), "ar"));
-    setNotice(
-      "success",
-      `✓ تم حفظ السعر بنجاح: ${itemName} = ${formatMoney(unit2Price)} ${unit2Name}`
-    );
+    setNotice("success", `✓ تم حفظ ${savedLabel}: ${itemName}`);
     render();
     return true;
   } catch (error) {
@@ -2537,14 +2547,24 @@ function ameenBrowser(items) {
   `;
 }
 
+function itemRetailPrice(item) {
+  const r = item && item.approvedPrice && item.approvedPrice.pricePayload && item.approvedPrice.pricePayload.retail;
+  return Number((r && r.price) || 0);
+}
+
 function pricingRow(item) {
   const qty = itemQty(item);
-  const price = Number(item.salePrice || 0);
-  const unit2Price = itemUnit2Price(item);
   const unit1Name = itemUnit1Name(item);
   const unit2Name = itemUnit2Name(item);
   const unit2Factor = itemUnit2Factor(item);
-  const rowState = item.hasApprovedPrice ? "active" : item.status;
+  const mode = state.priceMode === "mufrak" ? "mufrak" : "jumla";
+  const wholesale = itemUnit2Price(item);
+  const retail = itemRetailPrice(item);
+  const shown = mode === "mufrak" ? retail : wholesale;
+  const unitLabel = mode === "mufrak" ? (unit1Name || "كروز") : (unit2Name || "كرتونة");
+  const modeLabel = mode === "mufrak" ? "سعر المفرق" : "سعر الجملة";
+  const priced = shown > 0;
+  const rowState = (wholesale > 0 || retail > 0) ? "active" : item.status;
   return `
     <div class="pricing-card inventory-row-${escapeHtml(rowState)}">
       <div class="pricing-card-head">
@@ -2552,12 +2572,12 @@ function pricingRow(item) {
         <span>${escapeHtml(qty)}</span>
       </div>
       <small>${escapeHtml(unit2Name)} / ${escapeHtml(unit2Factor)} ${escapeHtml(unit1Name)}</small>
-      <b>${escapeHtml(unit2Price > 0 ? formatMoney(unit2Price) : "غير مسعر")}</b>
-      <span>${escapeHtml(item.hasApprovedPrice ? "معتمد" : statusLabel(item.status))}</span>
+      <b>${priced ? escapeHtml(formatMoney(shown)) + " $" : "غير مسعر"}</b>
+      <span>${escapeHtml(priced ? (mode === "mufrak" ? "مفرق ✓" : "جملة ✓") : statusLabel(item.status))}</span>
       <form class="pricing-editor" data-form="pricing-item" data-item-key="${escapeHtml(item.key)}" data-item-name="${escapeHtml(item.name || "")}" data-stock-qty="${escapeHtml(qty)}" data-stock-status="${escapeHtml(item.status || "")}" data-unit1-name="${escapeHtml(unit1Name)}" data-unit2-name="${escapeHtml(unit2Name)}" data-unit2-factor="${escapeHtml(unit2Factor)}">
         <label>
-          <span>سعر ${escapeHtml(unit2Name)}</span>
-          <input name="salePrice" type="text" inputmode="decimal" dir="ltr" value="${escapeHtml(unit2Price > 0 ? unit2Price : "")}" placeholder="0">
+          <span>${escapeHtml(modeLabel)} (${escapeHtml(unitLabel)} $)</span>
+          <input name="salePrice" type="text" inputmode="decimal" dir="ltr" value="${escapeHtml(priced ? shown : "")}" placeholder="0">
         </label>
         <button class="button secondary mini-button" type="submit">حفظ السعر</button>
       </form>
@@ -2601,6 +2621,10 @@ function pricing() {
         ${inventoryMetric("بحاجة تسعير", waiting, "لا يوجد لها سعر معتمد")}
         ${inventoryMetric("أسعار المحاسبة", state.approvedPriceItems.length, "جاهزة للسحب الآلي")}
         ${inventoryMetric("تسجيل الدخول", state.session ? "نعم" : "لا", state.session?.email || "لن يتم الحفظ قبل الدخول")}
+      </div>
+      <div class="currency-toggle" role="group">
+        <button type="button" class="ctgl ${state.priceMode === "mufrak" ? "" : "active"}" data-mode="jumla">🧾 تسعير جملة</button>
+        <button type="button" class="ctgl ${state.priceMode === "mufrak" ? "active" : ""}" data-mode="mufrak">🛒 تسعير مفرق</button>
       </div>
       <div class="inventory-controls">
         <label>
@@ -4394,6 +4418,14 @@ function render() {
   app.querySelector("[data-pricing-search]")?.addEventListener("input", (event) => {
     state.pricingSearch = event.currentTarget.value;
     updatePricingResults();
+  });
+
+  app.querySelectorAll("[data-mode]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      state.priceMode = btn.dataset.mode === "mufrak" ? "mufrak" : "jumla";
+      writeJson("price-mode", state.priceMode);
+      render();
+    });
   });
 
   app.querySelectorAll("[data-ameen-filter]").forEach((button) => {
