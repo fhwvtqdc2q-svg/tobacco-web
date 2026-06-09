@@ -218,7 +218,8 @@ const state = {
   seenRequestIds: new Set(),
   globalSearch: "",
   syriaCurrency: "USD",
-  syriaExchangeRate: 1,
+  syriaExchangeRate: readJson("syria-exchange-rate", 1),
+  syriaRateConfirmed: false,
   showExchangeModal: false,
   pricePreview: null
 };
@@ -1382,6 +1383,7 @@ function pricePdfPage(page, index, totalPages, pdfTitle = "قائمة أسعار
         <div class="price-pdf-title-block">
           <h1>${escapeHtml(pdfTitle)}</h1>
           <p>نشرة أسعار الأصناف المتوفرة للزبائن</p>
+          <p class="price-pdf-cash">البيع حصراً نقدي</p>
         </div>
         <div class="price-pdf-date">
           <span>تاريخ النشرة</span>
@@ -1502,11 +1504,6 @@ function prepareBulletinItems(useSyria = false) {
   let items = customerPriceListItems();
 
   if (useSyria) {
-    if (state.syriaCurrency !== "SYP") {
-      state.showExchangeModal = true;
-      render();
-      return null;
-    }
     items = items.map((item) => ({
       ...item,
       unit1Price: item.unit1Price > 0 ? Math.round(item.unit1Price * state.syriaExchangeRate) : 0,
@@ -1529,7 +1526,13 @@ function prepareBulletinItems(useSyria = false) {
 
 // يفتح معاينة النشرة قبل التصدير
 function openPricePreview(useSyria = false) {
+  if (useSyria && !state.syriaRateConfirmed) {
+    state.showExchangeModal = true;
+    render();
+    return;
+  }
   const prepared = prepareBulletinItems(useSyria);
+  state.syriaRateConfirmed = false;
   if (!prepared) return;
   state.pricePreview = { open: true, useSyria, items: prepared.items, latest: prepared.latest };
   render();
@@ -1718,9 +1721,11 @@ async function savePricingItem(form) {
       `✓ تم حفظ السعر بنجاح: ${itemName} = ${formatMoney(unit2Price)} ${unit2Name}`
     );
     render();
+    return true;
   } catch (error) {
     setNotice("error", safeErrorMessage(error));
     render();
+    return false;
   }
 }
 
@@ -3805,11 +3810,34 @@ function bindPricingForms(root = app) {
   root.querySelectorAll("[data-form='pricing-item']").forEach((form) => {
     if (form.dataset.bound === "true") return;
     form.dataset.bound = "true";
-    form.addEventListener("submit", (event) => {
+    form.addEventListener("submit", async (event) => {
       event.preventDefault();
-      savePricingItem(event.currentTarget);
+      const forms = [...app.querySelectorAll("[data-form='pricing-item']")];
+      const idx = forms.indexOf(event.currentTarget);
+      const nextKey = forms[idx + 1]?.dataset.itemKey || "";
+      const ok = await savePricingItem(event.currentTarget);
+      if (ok && nextKey) {
+        const nextForm = [...app.querySelectorAll("[data-form='pricing-item']")].find((f) => f.dataset.itemKey === nextKey);
+        const nextInput = nextForm?.querySelector("input[name='salePrice']");
+        if (nextInput) {
+          nextInput.focus();
+          nextInput.select?.();
+          nextForm.scrollIntoView({ block: "center", behavior: "smooth" });
+        }
+      }
     });
   });
+}
+
+// تحديث قائمة نتائج التسعير فقط (دون إعادة رسم الصفحة) حتى لا يضيع التركيز أثناء البحث
+function updatePricingResults() {
+  const items = pricingWorklistItems();
+  const results = app.querySelector("[data-pricing-results]");
+  if (!results) return;
+  results.innerHTML = items.length
+    ? items.map(pricingRow).join("")
+    : '<p class="muted">لا توجد مواد تطابق البحث الحالي.</p>';
+  bindPricingForms(results);
 }
 
 function render() {
@@ -3837,7 +3865,8 @@ function render() {
       form.addEventListener("submit", async (e) => {
         e.preventDefault();
         state.syriaExchangeRate = Number(document.getElementById("exchange-input").value) || 1;
-        state.syriaCurrency = "SYP";
+        writeJson("syria-exchange-rate", state.syriaExchangeRate);
+        state.syriaRateConfirmed = true;
         state.showExchangeModal = false;
         openPricePreview(true);
       });
@@ -4107,7 +4136,7 @@ function render() {
 
   app.querySelector("[data-pricing-search]")?.addEventListener("input", (event) => {
     state.pricingSearch = event.currentTarget.value;
-    render();
+    updatePricingResults();
   });
 
   app.querySelectorAll("[data-ameen-filter]").forEach((button) => {
