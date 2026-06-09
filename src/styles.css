@@ -2428,3 +2428,7 @@ code {
 details[open]>.acc-summary::after{transform:rotate(180deg)}
 .acc-count{background:var(--primary,#b8892a);color:#fff;border-radius:20px;padding:1px 10px;font-size:0.72rem;font-weight:700}
 .acc-body{padding:8px}
+
+.currency-toggle{display:flex;margin:10px 0 6px;border:1px solid var(--line);border-radius:9px;overflow:hidden;width:fit-content}
+.currency-toggle .ctgl{padding:9px 18px;border:0;background:var(--surface);color:var(--ink);cursor:pointer;font-weight:800;font-size:0.85rem}
+.currency-toggle .ctgl.active{background:var(--primary,#b8892a);color:#fff}
