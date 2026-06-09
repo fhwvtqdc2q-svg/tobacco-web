@@ -2673,6 +2673,99 @@ function customerMovementRow(movement) {
   `;
 }
 
+// ====== تقارير PDF (محرّك مشترك) ======
+const REPORT_STYLE = `<style>
+.ozk-rpt{font-family:Tahoma,Arial,sans-serif;color:#221808;background:#fff;direction:rtl;padding:6px 10px}
+.ozk-rpt .rhead{display:flex;justify-content:space-between;align-items:flex-start;border-bottom:2px solid #b8892a;padding-bottom:8px;margin-bottom:12px}
+.ozk-rpt .brand{font-weight:900;font-size:19px}.ozk-rpt .brand small{display:block;font-weight:400;font-size:10px;color:#6b5535}
+.ozk-rpt .rtitle{text-align:left}.ozk-rpt .rtitle h2{margin:0;font-size:16px;color:#b8892a}.ozk-rpt .rtitle span{font-size:10px;color:#6b5535}
+.ozk-rpt .balbox{background:#f6ead0;border:1px solid #b8892a;border-radius:8px;padding:10px 14px;display:flex;justify-content:space-between;align-items:center;margin-bottom:8px}
+.ozk-rpt .balbox .nm{font-weight:900;font-size:15px}.ozk-rpt .balbox .big{font-size:24px;font-weight:900;color:#c0271f}
+.ozk-rpt .muted{color:#6b5535;font-size:10.5px}
+.ozk-rpt .sec{font-weight:800;font-size:12.5px;margin:12px 0 4px}
+.ozk-rpt table{width:100%;border-collapse:collapse;font-size:12px}
+.ozk-rpt th{background:#ece6d4;padding:6px 8px;text-align:right;border:1px solid #c8b890;font-size:11px}
+.ozk-rpt td{padding:5px 8px;border:1px solid #c8b890}
+.ozk-rpt tr{page-break-inside:avoid}
+.ozk-rpt tr:nth-child(even) td{background:#faf6ec}
+.ozk-rpt .deb{color:#c0271f;font-weight:700}.ozk-rpt .cred{color:#16794f;font-weight:700}
+</style>`;
+
+async function exportReportPdf(bodyHtml, filename) {
+  if (!window.html2pdf) {
+    setNotice("error", "مكتبة PDF لم تتحمل. حدّث الصفحة وجرّب مجددًا.");
+    render();
+    return;
+  }
+  const container = document.createElement("div");
+  container.style.width = "780px";
+  container.style.backgroundColor = "#fff";
+  container.innerHTML = bodyHtml;
+  document.body.appendChild(container);
+  try {
+    await window
+      .html2pdf()
+      .set({
+        filename,
+        margin: [8, 8, 8, 8],
+        image: { type: "png", quality: 0.98 },
+        html2canvas: { scale: 2, useCORS: true, backgroundColor: "#ffffff" },
+        jsPDF: { unit: "mm", format: "a4", orientation: "portrait" },
+        pagebreak: { mode: ["css", "legacy"] }
+      })
+      .from(container)
+      .save();
+  } catch (error) {
+    setNotice("error", error.message || "تعذر إنشاء ملف PDF.");
+  } finally {
+    container.remove();
+  }
+}
+
+function customerStatementPdfMarkup(item) {
+  const key = customerKey(item);
+  const profile = customerProfile(key);
+  const ameenP = (Array.isArray(item.recentPayments) ? item.recentPayments : []).map((p) => ({ amount: p.amount, date: p.date || "", notes: p.notes }));
+  const manualP = ((state.paymentRecords && state.paymentRecords[key]) || []).map((p) => ({ amount: p.amount, date: p.paymentDate || "", notes: p.notes }));
+  const payments = [...ameenP, ...manualP].sort((a, b) => new Date(b.date || 0) - new Date(a.date || 0)).slice(0, 25);
+  const movements = (Array.isArray(item.recentMovements) ? [...item.recentMovements] : []).sort((a, b) => new Date(b.date || 0) - new Date(a.date || 0)).slice(0, 25);
+  const lastD = customerLastPaymentDate(item);
+  const phone = profile?.phone ? ` — هاتف: ${escapeHtml(profile.phone)}` : "";
+  const pr = payments.length
+    ? payments.map((p) => `<tr><td>${p.date ? escapeHtml(String(p.date).slice(0, 10)) : "—"}</td><td class="cred">${escapeHtml(formatMoney(p.amount || 0))}</td><td>${escapeHtml(p.notes || "—")}</td></tr>`).join("")
+    : `<tr><td colspan="3" class="muted">لا توجد دفعات مسجّلة</td></tr>`;
+  const mv = movements.length
+    ? movements.map((m) => {
+        const d = Number(m.debit || 0), c = Number(m.credit || 0);
+        return `<tr><td>${m.date ? escapeHtml(String(m.date).slice(0, 10)) : "—"}</td><td class="deb">${d > 0 ? escapeHtml(formatMoney(d)) : "—"}</td><td class="cred">${c > 0 ? escapeHtml(formatMoney(c)) : "—"}</td><td>${escapeHtml(m.notes || "—")}</td></tr>`;
+      }).join("")
+    : `<tr><td colspan="4" class="muted">لا توجد حركة مسجّلة</td></tr>`;
+  return `${REPORT_STYLE}<div class="ozk-rpt">
+    <div class="rhead"><div class="brand">OZK TOBACCO<small>كشف حساب زبون</small></div>
+      <div class="rtitle"><h2>كشف حساب</h2><span>بتاريخ ${escapeHtml(todayIsoDate())}</span></div></div>
+    <div class="balbox"><div><div class="nm">${escapeHtml(item.name || "")}</div>
+      <div class="muted">آخر دفعة: ${lastD ? escapeHtml(String(lastD).slice(0, 10)) : "لا يوجد"}${phone}</div></div>
+      <div style="text-align:left"><div class="muted">الرصيد المستحق</div><div class="big">${escapeHtml(formatMoney(customerBalance(item)))}</div></div></div>
+    <div class="sec">سجل الدفعات</div>
+    <table><tr><th>التاريخ</th><th>المبلغ</th><th>ملاحظات</th></tr>${pr}</table>
+    <div class="sec">كشف الحركة</div>
+    <table><tr><th>التاريخ</th><th>مدين (بضاعة)</th><th>دائن (دفع)</th><th>ملاحظات</th></tr>${mv}</table>
+  </div>`;
+}
+
+async function exportCustomerStatementPdf() {
+  const item = selectedCustomer(latestCustomerBalanceItems());
+  if (!item) {
+    setNotice("error", "اختر زبونًا أولاً.");
+    render();
+    return;
+  }
+  const safe = String(item.name || "customer").replace(/[^\p{L}\p{N}]+/gu, "_").slice(0, 40);
+  await exportReportPdf(customerStatementPdfMarkup(item), `كشف-حساب-${safe}-${todayIsoDate()}.pdf`);
+  setNotice("success", "تم تجهيز كشف الحساب PDF.");
+  render();
+}
+
 function customerDetailsPanel(item) {
   if (!item) {
     return `
@@ -2701,7 +2794,10 @@ function customerDetailsPanel(item) {
           <h3>${escapeHtml(item.name)}</h3>
           <p class="muted">الرصيد، تسجيل الدفعات، معلومات التواصل.</p>
         </div>
-        <button class="button secondary compact-button" type="button" data-action="clear-customer-details">✕ إغلاق</button>
+        <div style="display:flex;gap:8px">
+          <button class="button primary compact-button" type="button" data-action="export-statement">📄 كشف حساب PDF</button>
+          <button class="button secondary compact-button" type="button" data-action="clear-customer-details">✕ إغلاق</button>
+        </div>
       </div>
 
       <div class="inventory-metrics customer-detail-metrics">
@@ -4103,6 +4199,8 @@ function render() {
     state.paymentError = null;
     render();
   });
+
+  app.querySelector("[data-action='export-statement']")?.addEventListener("click", exportCustomerStatementPdf);
 
   app.querySelector("[data-action='print-overdue']")?.addEventListener("click", printOverdueReport);
 
