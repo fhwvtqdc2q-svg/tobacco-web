@@ -2419,3 +2419,12 @@ code {
 .business-hero .hero-logo{max-width:260px;width:70%;height:auto;display:block;background:#fff;padding:14px 18px;border-radius:14px;box-shadow:0 6px 20px rgba(0,0,0,.18)}
 
 .price-pdf-cash{display:inline-block;margin:4px 0 0;font-weight:800;color:#111 !important;border-bottom:2.5px solid #c0271f;padding-bottom:1px;font-size:13px;letter-spacing:0}
+
+.acc-group{border:1px solid var(--line);border-radius:8px;margin-bottom:8px;background:var(--surface);overflow:hidden}
+.acc-summary{cursor:pointer;list-style:none;display:flex;align-items:center;gap:8px;padding:11px 14px;font-weight:800;background:var(--surface-soft);color:var(--ink);user-select:none}
+.acc-summary::-webkit-details-marker{display:none}
+.acc-title{flex:1}
+.acc-summary::after{content:"\25BC";font-size:0.62rem;color:var(--muted);transition:transform .2s}
+details[open]>.acc-summary::after{transform:rotate(180deg)}
+.acc-count{background:var(--primary,#b8892a);color:#fff;border-radius:20px;padding:1px 10px;font-size:0.72rem;font-weight:700}
+.acc-body{padding:8px}
