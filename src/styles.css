@@ -833,7 +833,7 @@ code {
   border: 1px solid var(--line);
   border-radius: 7px;
   padding: 10px 12px;
-  background: #0d0a06;
+  background: var(--surface);
   color: var(--ink);
   font: inherit;
 }
@@ -1002,7 +1002,7 @@ code {
   border: 1px solid var(--line);
   border-radius: 7px;
   padding: 7px 8px;
-  background: #0d0a06;
+  background: var(--surface);
   color: var(--ink);
   font: inherit;
   font-size: 0.86rem;
@@ -2415,3 +2415,5 @@ code {
     grid-template-columns: 1fr;
   }
 }
+
+.business-hero .hero-logo{max-width:260px;width:70%;height:auto;display:block;background:#fff;padding:14px 18px;border-radius:14px;box-shadow:0 6px 20px rgba(0,0,0,.18)}
