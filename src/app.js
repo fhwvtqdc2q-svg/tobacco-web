@@ -221,6 +221,7 @@ const state = {
   syriaExchangeRate: readJson("syria-exchange-rate", 1),
   syriaRateConfirmed: false,
   openSections: {},
+  priceCurrency: readJson("price-currency", "USD"),
   showExchangeModal: false,
   pricePreview: null
 };
@@ -1458,19 +1459,12 @@ function orderPriorityGroups(groups) {
 }
 
 function bulletinDisplayGroups(items, useSyria = false) {
-  const displayItems = useSyria
-    ? items.map((item) =>
-        item.unit1Price > 0
-          ? { ...item, unit2Price: item.unit1Price, unit2Name: item.unit1Name || "علبة", unit1Price: 0, unit1Name: "" }
-          : item
-      )
-    : items;
-  return orderPriorityGroups(groupCustomerPriceItems(displayItems));
+  return orderPriorityGroups(groupCustomerPriceItems(items));
 }
 
 function customerPricePdfMarkup(items, latest, useSyria = false) {
   const groups = bulletinDisplayGroups(items, useSyria);
-  const pdfTitle = useSyria ? `نشرة الأسعار بالليرة السورية — صرف ${state.syriaExchangeRate}` : "قائمة أسعار OZK TOBACCO";
+  const pdfTitle = useSyria ? "قائمة أسعار OZK TOBACCO — بالليرة السورية" : "قائمة أسعار OZK TOBACCO";
   return `
     <div class="price-pdf-book" dir="rtl" style="background:#fff;color:#000">
       ${pricePdfBook(groups, pdfTitle)}
@@ -1529,11 +1523,15 @@ function prepareBulletinItems(useSyria = false) {
   let items = customerPriceListItems();
 
   if (useSyria) {
-    items = items.map((item) => ({
-      ...item,
-      unit1Price: item.unit1Price > 0 ? Math.round(item.unit1Price * state.syriaExchangeRate) : 0,
-      unit2Price: item.unit2Price > 0 ? Math.round(item.unit2Price * state.syriaExchangeRate) : 0
-    }));
+    items = items
+      .map((item) => {
+        const syp = item.approvedPrice && item.approvedPrice.pricePayload && item.approvedPrice.pricePayload.syp;
+        const factor = itemUnit2Factor(item) || 1;
+        const u2 = Number((syp && syp.unit2Price) || 0);
+        const u1 = Number((syp && syp.salePrice) || (u2 > 0 ? roundPrice(u2 / factor) : 0));
+        return { ...item, unit2Price: u2, unit1Price: u1, salePrice: u1 };
+      })
+      .filter((item) => item.unit2Price > 0 || item.unit1Price > 0);
   }
 
   if (!latest || !items.length) {
@@ -1551,13 +1549,7 @@ function prepareBulletinItems(useSyria = false) {
 
 // يفتح معاينة النشرة قبل التصدير
 function openPricePreview(useSyria = false) {
-  if (useSyria && !state.syriaRateConfirmed) {
-    state.showExchangeModal = true;
-    render();
-    return;
-  }
   const prepared = prepareBulletinItems(useSyria);
-  state.syriaRateConfirmed = false;
   if (!prepared) return;
   state.pricePreview = { open: true, useSyria, items: prepared.items, latest: prepared.latest };
   render();
@@ -1701,16 +1693,32 @@ async function savePricingItem(form) {
     const formUnit2Factor = toNumber(form.dataset.unit2Factor || 0);
     const liveUnit2Factor = itemUnit2Factor(latestItem);
     const unit2Factor = Math.max(1, liveUnit2Factor > 1 ? liveUnit2Factor : formUnit2Factor || 1);
-    const unit2Price = toPositivePrice(formValue(form, "salePrice"));
-    const salePrice = roundPrice(unit2Price / unit2Factor);
+    const entered = toPositivePrice(formValue(form, "salePrice"));
     const stockQty = toNumber(form.dataset.stockQty);
     const stockStatus = form.dataset.stockStatus || "active";
-    if (unit2Price <= 0) throw new Error("اكتب سعر الوحدة الثانية أكبر من صفر.");
+    const currency = state.priceCurrency === "SYP" ? "SYP" : "USD";
 
+    if (entered <= 0) throw new Error("اكتب سعرًا أكبر من صفر.");
     if (!latest) throw new Error("لا يوجد جرد حي للمطابقة.");
     if (!itemKey || !itemName) throw new Error("لا يمكن حفظ السعر بدون مادة واضحة.");
-    if (salePrice <= 0) throw new Error("اكتب سعر بيع أكبر من صفر.");
     if (!dataStore.upsertApprovedPriceItems) throw new Error("حفظ الأسعار غير مفعل في قاعدة البيانات.");
+
+    const existing = approvedPriceMap().get(itemKey);
+    const basePayload = (existing && existing.pricePayload) || {};
+    let usd2, usd1, payloadObj, savedLabel;
+
+    if (currency === "SYP") {
+      usd2 = Number((existing && existing.unit2Price) || 0);
+      usd1 = Number((existing && (existing.unit1Price || existing.salePrice)) || 0);
+      if (usd2 <= 0) throw new Error("سعّر الصنف بالدولار أولاً، ثم بدّل إلى الليرة وأضف سعرها.");
+      payloadObj = { ...basePayload, syp: { unit2Price: entered, salePrice: roundPrice(entered / unit2Factor) }, source: "phone_pricing_page", pricedDate: todayIsoDate() };
+      savedLabel = `${formatMoney(entered)} ل.س`;
+    } else {
+      usd2 = entered;
+      usd1 = roundPrice(entered / unit2Factor);
+      payloadObj = { ...basePayload, source: "phone_pricing_page", pricedUnit: "unit2", pricedDate: todayIsoDate() };
+      savedLabel = `${formatMoney(entered)} ${unit2Name}`;
+    }
 
     const saved = await dataStore.upsertApprovedPriceItems([
       {
@@ -1719,18 +1727,14 @@ async function savePricingItem(form) {
         unit1Name,
         unit2Name,
         unit2Factor,
-        unit2Price,
-        unit1Price: salePrice,
-        salePrice,
+        unit2Price: usd2,
+        unit1Price: usd1,
+        salePrice: usd1,
         stockQty,
         stockStatus,
         sourceReportId: uuidOrNull(latest.id),
         sourceSyncedAt: reportSyncedAt(latest),
-        pricePayload: {
-          source: "phone_pricing_page",
-          pricedUnit: "unit2",
-          pricedDate: todayIsoDate()
-        }
+        pricePayload: payloadObj
       }
     ]);
 
@@ -1741,10 +1745,7 @@ async function savePricingItem(form) {
     const priceMap = approvedPriceMap();
     saved.forEach((item) => priceMap.set(item.itemKey, item));
     state.approvedPriceItems = [...priceMap.values()].sort((a, b) => String(a.itemName || "").localeCompare(String(b.itemName || ""), "ar"));
-    setNotice(
-      "success",
-      `✓ تم حفظ السعر بنجاح: ${itemName} = ${formatMoney(unit2Price)} ${unit2Name}`
-    );
+    setNotice("success", `✓ تم حفظ السعر: ${itemName} = ${savedLabel}`);
     render();
     return true;
   } catch (error) {
@@ -2531,14 +2532,21 @@ function ameenBrowser(items) {
   `;
 }
 
+function itemSypUnit2(item) {
+  const syp = item && item.approvedPrice && item.approvedPrice.pricePayload && item.approvedPrice.pricePayload.syp;
+  return Number((syp && syp.unit2Price) || 0);
+}
+
 function pricingRow(item) {
   const qty = itemQty(item);
-  const price = Number(item.salePrice || 0);
-  const unit2Price = itemUnit2Price(item);
   const unit1Name = itemUnit1Name(item);
   const unit2Name = itemUnit2Name(item);
   const unit2Factor = itemUnit2Factor(item);
-  const rowState = item.hasApprovedPrice ? "active" : item.status;
+  const cur = state.priceCurrency === "SYP" ? "SYP" : "USD";
+  const sym = cur === "SYP" ? "ل.س" : "$";
+  const shown = cur === "SYP" ? itemSypUnit2(item) : itemUnit2Price(item);
+  const priced = shown > 0;
+  const rowState = priced ? "active" : item.status;
   return `
     <div class="pricing-card inventory-row-${escapeHtml(rowState)}">
       <div class="pricing-card-head">
@@ -2546,12 +2554,12 @@ function pricingRow(item) {
         <span>${escapeHtml(qty)}</span>
       </div>
       <small>${escapeHtml(unit2Name)} / ${escapeHtml(unit2Factor)} ${escapeHtml(unit1Name)}</small>
-      <b>${escapeHtml(unit2Price > 0 ? formatMoney(unit2Price) : "غير مسعر")}</b>
-      <span>${escapeHtml(item.hasApprovedPrice ? "معتمد" : statusLabel(item.status))}</span>
+      <b>${priced ? escapeHtml(formatMoney(shown)) + " " + escapeHtml(sym) : "غير مسعر"}</b>
+      <span>${escapeHtml(priced ? "معتمد" : statusLabel(item.status))}</span>
       <form class="pricing-editor" data-form="pricing-item" data-item-key="${escapeHtml(item.key)}" data-item-name="${escapeHtml(item.name || "")}" data-stock-qty="${escapeHtml(qty)}" data-stock-status="${escapeHtml(item.status || "")}" data-unit1-name="${escapeHtml(unit1Name)}" data-unit2-name="${escapeHtml(unit2Name)}" data-unit2-factor="${escapeHtml(unit2Factor)}">
         <label>
-          <span>سعر ${escapeHtml(unit2Name)}</span>
-          <input name="salePrice" type="text" inputmode="decimal" dir="ltr" value="${escapeHtml(unit2Price > 0 ? unit2Price : "")}" placeholder="0">
+          <span>سعر ${escapeHtml(unit2Name)} (${escapeHtml(sym)})</span>
+          <input name="salePrice" type="text" inputmode="decimal" dir="ltr" value="${escapeHtml(priced ? shown : "")}" placeholder="0">
         </label>
         <button class="button secondary mini-button" type="submit">حفظ السعر</button>
       </form>
@@ -2595,6 +2603,10 @@ function pricing() {
         ${inventoryMetric("بحاجة تسعير", waiting, "لا يوجد لها سعر معتمد")}
         ${inventoryMetric("أسعار المحاسبة", state.approvedPriceItems.length, "جاهزة للسحب الآلي")}
         ${inventoryMetric("تسجيل الدخول", state.session ? "نعم" : "لا", state.session?.email || "لن يتم الحفظ قبل الدخول")}
+      </div>
+      <div class="currency-toggle" role="group">
+        <button type="button" class="ctgl ${state.priceCurrency === "SYP" ? "" : "active"}" data-currency="USD">💵 تسعير بالدولار</button>
+        <button type="button" class="ctgl ${state.priceCurrency === "SYP" ? "active" : ""}" data-currency="SYP">🇸🇾 تسعير بالليرة السورية</button>
       </div>
       <div class="inventory-controls">
         <label>
@@ -4388,6 +4400,14 @@ function render() {
   app.querySelector("[data-pricing-search]")?.addEventListener("input", (event) => {
     state.pricingSearch = event.currentTarget.value;
     updatePricingResults();
+  });
+
+  app.querySelectorAll("[data-currency]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      state.priceCurrency = btn.dataset.currency === "SYP" ? "SYP" : "USD";
+      writeJson("price-currency", state.priceCurrency);
+      render();
+    });
   });
 
   app.querySelectorAll("[data-ameen-filter]").forEach((button) => {
