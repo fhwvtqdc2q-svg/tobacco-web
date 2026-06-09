@@ -2604,6 +2604,7 @@ function pricing() {
       <div class="button-row report-actions">
         <button class="button secondary" type="button" data-action="refresh-ameen">تحديث الجرد</button>
         <button class="button secondary" type="button" data-action="download-daily-pricing" ${items.length ? "" : "disabled"}>تنزيل قائمة تسعير اليوم</button>
+        <button class="button primary" type="button" data-action="report-inventory">📦 تقرير المخزون PDF</button>
         <button class="button secondary" type="button" data-action="download-price-template" ${allAvailable.length ? "" : "disabled"}>تنزيل قالب Excel</button>
         <button class="button primary" type="button" data-action="download-customer-price-pdf" ${customerPriceListItems().length ? "" : "disabled"}>نشرة الدولار</button>
         <button class="button primary" type="button" data-action="download-customer-price-syria" ${customerPriceListItems().length ? "" : "disabled"}>نشرة السوري</button>
@@ -2689,6 +2690,10 @@ const REPORT_STYLE = `<style>
 .ozk-rpt tr{page-break-inside:avoid}
 .ozk-rpt tr:nth-child(even) td{background:#faf6ec}
 .ozk-rpt .deb{color:#c0271f;font-weight:700}.ozk-rpt .cred{color:#16794f;font-weight:700}
+.ozk-rpt .cards{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:12px}
+.ozk-rpt .rcard{background:#ece6d4;border:1px solid #c8b890;border-radius:8px;padding:10px 12px;text-align:center}
+.ozk-rpt .rcard .v{font-size:21px;font-weight:900}.ozk-rpt .rcard .l{font-size:10.5px;color:#6b5535}
+.ozk-rpt .rcard .v.gold{color:#b8892a}.ozk-rpt .rcard .v.red{color:#c0271f}
 </style>`;
 
 async function exportReportPdf(bodyHtml, filename) {
@@ -2763,6 +2768,82 @@ async function exportCustomerStatementPdf() {
   const safe = String(item.name || "customer").replace(/[^\p{L}\p{N}]+/gu, "_").slice(0, 40);
   await exportReportPdf(customerStatementPdfMarkup(item), `كشف-حساب-${safe}-${todayIsoDate()}.pdf`);
   setNotice("success", "تم تجهيز كشف الحساب PDF.");
+  render();
+}
+
+function receivablesPdfMarkup() {
+  const items = latestCustomerBalanceItems();
+  const debtors = items.filter((i) => customerBalance(i) > 0).sort((a, b) => customerBalance(b) - customerBalance(a));
+  const totals = customerBalanceTotals(items);
+  const maxBal = debtors.length ? customerBalance(debtors[0]) : 0;
+  const top = debtors.slice(0, 40);
+  const rows = top.length
+    ? top.map((it, idx) => {
+        const ld = customerLastPaymentDate(it);
+        return `<tr><td>${idx + 1}</td><td>${escapeHtml(it.name || "")}</td><td class="deb">${escapeHtml(formatMoney(customerBalance(it)))}</td><td>${ld ? escapeHtml(String(ld).slice(0, 10)) : "—"}</td></tr>`;
+      }).join("")
+    : `<tr><td colspan="4" class="muted">لا يوجد زبائن مدينون</td></tr>`;
+  return `${REPORT_STYLE}<div class="ozk-rpt">
+    <div class="rhead"><div class="brand">OZK TOBACCO<small>تقرير الذمم الإجمالي</small></div>
+      <div class="rtitle"><h2>الذمم</h2><span>بتاريخ ${escapeHtml(todayIsoDate())}</span></div></div>
+    <div class="cards">
+      <div class="rcard"><div class="v gold">${escapeHtml(formatMoney(totals.totalDebitBalance))}</div><div class="l">إجمالي المستحق على الزبائن</div></div>
+      <div class="rcard"><div class="v">${escapeHtml(totals.debitCustomers)}</div><div class="l">زبون مدين (من أصل ${escapeHtml(items.length)})</div></div>
+      <div class="rcard"><div class="v red">${escapeHtml(formatMoney(maxBal))}</div><div class="l">أعلى رصيد فردي</div></div>
+    </div>
+    <div class="sec">أعلى الزبائن مديونية</div>
+    <table><tr><th>#</th><th>الزبون</th><th>الرصيد</th><th>آخر دفعة</th></tr>${rows}</table>
+  </div>`;
+}
+
+async function exportReceivablesPdf() {
+  const items = latestCustomerBalanceItems();
+  if (!items.length) {
+    setNotice("error", "لا توجد أرصدة زبائن لإنشاء التقرير.");
+    render();
+    return;
+  }
+  await exportReportPdf(receivablesPdfMarkup(), `تقرير-الذمم-${todayIsoDate()}.pdf`);
+  setNotice("success", "تم تجهيز تقرير الذمم PDF.");
+  render();
+}
+
+function inventoryReportPdfMarkup() {
+  const priced = pricingWorklistItems().filter((i) => i.hasApprovedPrice);
+  const out = priced.filter((i) => itemQty(i) <= 0);
+  const low = priced.filter((i) => itemQty(i) > 0 && itemQty(i) < 10).sort((a, b) => itemQty(a) - itemQty(b));
+  const list = [...out, ...low].slice(0, 60);
+  const rows = list.length
+    ? list.map((it) => {
+        const q = itemQty(it);
+        const st = q <= 0
+          ? '<span class="deb">نافد</span>'
+          : (q < 5 ? '<span class="deb">شبه نافد</span>' : '<span style="color:#8a5a00;font-weight:700">منخفض</span>');
+        return `<tr><td>${escapeHtml(it.name || "")}</td><td>${escapeHtml(formatMoney(q))} ${escapeHtml(itemUnit2Name(it))}</td><td>${it.unit2Price > 0 ? escapeHtml(formatMoney(it.unit2Price)) : "—"}</td><td>${st}</td></tr>`;
+      }).join("")
+    : `<tr><td colspan="4" class="muted">لا توجد مواد منخفضة أو نافدة</td></tr>`;
+  return `${REPORT_STYLE}<div class="ozk-rpt">
+    <div class="rhead"><div class="brand">OZK TOBACCO<small>تقرير المخزون</small></div>
+      <div class="rtitle"><h2>المخزون</h2><span>بتاريخ ${escapeHtml(todayIsoDate())}</span></div></div>
+    <div class="cards">
+      <div class="rcard"><div class="v gold">${escapeHtml(priced.length)}</div><div class="l">صنف مسعّر</div></div>
+      <div class="rcard"><div class="v red">${escapeHtml(low.length)}</div><div class="l">قارب على النفاد (أقل من 10)</div></div>
+      <div class="rcard"><div class="v red">${escapeHtml(out.length)}</div><div class="l">نافد</div></div>
+    </div>
+    <div class="sec">مواد قاربت على النفاد أو نافدة</div>
+    <table><tr><th>الصنف</th><th>المتبقّي</th><th>السعر</th><th>الحالة</th></tr>${rows}</table>
+  </div>`;
+}
+
+async function exportInventoryReportPdf() {
+  const items = pricingWorklistItems();
+  if (!items.length) {
+    setNotice("error", "لا توجد مواد لإنشاء تقرير المخزون.");
+    render();
+    return;
+  }
+  await exportReportPdf(inventoryReportPdfMarkup(), `تقرير-المخزون-${todayIsoDate()}.pdf`);
+  setNotice("success", "تم تجهيز تقرير المخزون PDF.");
   render();
 }
 
@@ -2974,6 +3055,7 @@ function customerBalanceSection(report) {
       </div>
       <div class="button-row report-actions">
         <button class="button secondary" type="button" data-action="download-customer-balances" ${filtered.length ? "" : "disabled"}>تصدير أرصدة الزبائن</button>
+        <button class="button primary" type="button" data-action="report-receivables" ${items.length ? "" : "disabled"}>📊 تقرير الذمم PDF</button>
       </div>
       ${customerDetailsPanel(detailItem)}
       <div class="inventory-list inventory-list-dense customer-results" data-customer-results>
@@ -4201,6 +4283,8 @@ function render() {
   });
 
   app.querySelector("[data-action='export-statement']")?.addEventListener("click", exportCustomerStatementPdf);
+  app.querySelector("[data-action='report-receivables']")?.addEventListener("click", exportReceivablesPdf);
+  app.querySelector("[data-action='report-inventory']")?.addEventListener("click", exportInventoryReportPdf);
 
   app.querySelector("[data-action='print-overdue']")?.addEventListener("click", printOverdueReport);
 
