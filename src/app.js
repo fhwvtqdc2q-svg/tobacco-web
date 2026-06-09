@@ -1315,8 +1315,8 @@ function pricePdfItem(item) {
 
 function pricePdfItemUnits(item) {
   const nameLength = String(item.name || "").length;
-  const hasTwoPrices = item.unit2Price > 0 && item.unit1Price > 0;
-  return 1 + (nameLength > 42 ? 0.35 : 0) + (hasTwoPrices ? 0.15 : 0);
+  // الارتفاع الحقيقي ثابت تقريبًا لكل صنف؛ الإضافة فقط عند التفاف الاسم الطويل لسطرين
+  return 1 + (nameLength > 42 ? 0.45 : 0);
 }
 
 function pricePdfRow(row) {
@@ -1327,7 +1327,7 @@ function pricePdfRow(row) {
 }
 
 function pricePdfPages(groups) {
-  const maxUnits = 40;
+  const maxUnits = 39;
   const groupUnits = 1.4;
   const pages = [{ columns: [[], [], []] }];
   let pageIndex = 0;
