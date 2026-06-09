@@ -220,6 +220,7 @@ const state = {
   syriaCurrency: "USD",
   syriaExchangeRate: readJson("syria-exchange-rate", 1),
   syriaRateConfirmed: false,
+  openSections: {},
   showExchangeModal: false,
   pricePreview: null
 };
@@ -2523,9 +2524,9 @@ function ameenBrowser(items) {
         <button class="button secondary" type="button" data-action="download-filtered-inventory" ${filtered.length ? "" : "disabled"}>تصدير المعروض</button>
       </div>
       <div class="inventory-list inventory-list-dense" data-ameen-results>
-        ${filtered.length ? filtered.slice(0, 80).map(inventoryRow).join("") : '<p class="muted">لا توجد مواد تطابق البحث والفلتر الحالي.</p>'}
+        ${filtered.length ? groupedAccordion("ameen", filtered, { groupOf: (i) => i.groupName, rowOf: inventoryRow, query: state.ameenSearch }) : '<p class="muted">لا توجد مواد تطابق البحث والفلتر الحالي.</p>'}
       </div>
-      ${filtered.length > 80 ? '<p class="muted">تم عرض أول 80 مادة فقط. استخدم البحث أو الفلاتر لتضييق القائمة.</p>' : ""}
+      
     </section>
   `;
 }
@@ -2620,7 +2621,7 @@ function pricing() {
         <button class="button primary" type="submit" ${allAvailable.length ? "" : "disabled"}>اعتماد ملف الأسعار</button>
       </form>
       <div class="inventory-list inventory-list-dense pricing-list" data-pricing-results>
-        ${items.length ? items.map(pricingRow).join("") : `<p class="muted">${escapeHtml(emptyText)}</p>`}
+        ${items.length ? groupedAccordion("pricing", items, { groupOf: (i) => i.groupName, rowOf: pricingRow, query: state.pricingSearch }) : `<p class="muted">${escapeHtml(emptyText)}</p>`}
       </div>
     </section>
   `);
@@ -3059,9 +3060,9 @@ function customerBalanceSection(report) {
       </div>
       ${customerDetailsPanel(detailItem)}
       <div class="inventory-list inventory-list-dense customer-results" data-customer-results>
-        ${filtered.length ? filtered.slice(0, 80).map(customerBalanceRow).join("") : '<p class="muted">لا توجد زبائن تطابق البحث والفلتر الحالي.</p>'}
+        ${filtered.length ? groupedAccordion("balances", filtered, { groupOf: (i) => customerBalance(i) > 0 ? "زبائن مدينون" : (customerBalance(i) < 0 ? "زبائن دائنون (لهم)" : "متوازنون"), rowOf: customerBalanceRow, query: state.customerSearch }) : '<p class="muted">لا توجد زبائن تطابق البحث والفلتر الحالي.</p>'}
       </div>
-      ${filtered.length > 80 ? '<p class="muted">تم عرض أول 80 زبون فقط. استخدم البحث لتضييق القائمة.</p>' : ""}
+      
     </section>
   `;
 }
@@ -3937,8 +3938,9 @@ function updateAmeenBrowserResults() {
 
   if (results) {
     results.innerHTML = filtered.length
-      ? filtered.slice(0, 80).map(inventoryRow).join("")
+      ? groupedAccordion("ameen", filtered, { groupOf: (i) => i.groupName, rowOf: inventoryRow, query: state.ameenSearch })
       : '<p class="muted">لا توجد مواد تطابق البحث والفلتر الحالي.</p>';
+    bindAccordions(results);
   }
 
   if (count) {
@@ -3964,8 +3966,9 @@ function updateCustomerBalanceResults() {
 
   if (results) {
     results.innerHTML = filtered.length
-      ? filtered.slice(0, 80).map(customerBalanceRow).join("")
+      ? groupedAccordion("balances", filtered, { groupOf: (i) => customerBalance(i) > 0 ? "زبائن مدينون" : (customerBalance(i) < 0 ? "زبائن دائنون (لهم)" : "متوازنون"), rowOf: customerBalanceRow, query: state.customerSearch })
       : '<p class="muted">لا توجد زبائن تطابق البحث والفلتر الحالي.</p>';
+    bindAccordions(results);
     bindCustomerLimitForms(results);
     bindCustomerDetailButtons(results);
   }
@@ -4022,6 +4025,12 @@ function bindPricingForms(root = app) {
         const nextForm = [...app.querySelectorAll("[data-form='pricing-item']")].find((f) => f.dataset.itemKey === nextKey);
         const nextInput = nextForm?.querySelector("input[name='salePrice']");
         if (nextInput) {
+          const det = nextForm.closest("details.acc-group");
+          if (det && !det.open) {
+            det.open = true;
+            const set = state.openSections.pricing || (state.openSections.pricing = new Set());
+            set.add(det.dataset.accKey);
+          }
           nextInput.focus();
           nextInput.select?.();
           nextForm.scrollIntoView({ block: "center", behavior: "smooth" });
@@ -4037,9 +4046,45 @@ function updatePricingResults() {
   const results = app.querySelector("[data-pricing-results]");
   if (!results) return;
   results.innerHTML = items.length
-    ? items.map(pricingRow).join("")
+    ? groupedAccordion("pricing", items, { groupOf: (i) => i.groupName, rowOf: pricingRow, query: state.pricingSearch })
     : '<p class="muted">لا توجد مواد تطابق البحث الحالي.</p>';
+  bindAccordions(results);
   bindPricingForms(results);
+}
+
+// أكورديون: تجميع القوائم الطويلة بعناوين مطوية
+function groupedAccordion(pageKey, items, opts) {
+  const groupOf = opts.groupOf, rowOf = opts.rowOf;
+  const hasQuery = Boolean(opts.query && String(opts.query).trim());
+  const openSet = state.openSections[pageKey] || (state.openSections[pageKey] = new Set());
+  const groups = new Map();
+  items.forEach((it) => {
+    const g = String(groupOf(it) || "أخرى");
+    if (!groups.has(g)) groups.set(g, []);
+    groups.get(g).push(it);
+  });
+  const entries = [...groups.entries()].sort((a, b) => a[0].localeCompare(b[0], "ar"));
+  return entries
+    .map(([g, arr]) => {
+      const open = hasQuery || openSet.has(g);
+      return `<details class="acc-group" data-acc="${escapeHtml(pageKey)}" data-acc-key="${escapeHtml(g)}"${open ? " open" : ""}>
+        <summary class="acc-summary"><span class="acc-title">${escapeHtml(g)}</span><span class="acc-count">${arr.length}</span></summary>
+        <div class="acc-body">${arr.map(rowOf).join("")}</div>
+      </details>`;
+    })
+    .join("");
+}
+
+function bindAccordions(root = app) {
+  root.querySelectorAll("details.acc-group").forEach((d) => {
+    if (d.dataset.accBound === "true") return;
+    d.dataset.accBound = "true";
+    d.addEventListener("toggle", () => {
+      const pg = d.dataset.acc, key = d.dataset.accKey;
+      const set = state.openSections[pg] || (state.openSections[pg] = new Set());
+      if (d.open) set.add(key); else set.delete(key);
+    });
+  });
 }
 
 function render() {
@@ -4372,6 +4417,7 @@ function render() {
   bindCustomerLimitForms();
   bindCustomerDetailButtons();
   bindPricingForms();
+  bindAccordions();
 
   app.querySelector("[data-form='login']")?.addEventListener("submit", (event) => {
     event.preventDefault();
