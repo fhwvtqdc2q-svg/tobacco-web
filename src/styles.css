@@ -630,7 +630,7 @@ code {
   border: 1px solid var(--line);
   border-radius: 7px;
   padding: 10px 12px;
-  background: #0d0a06;
+  background: var(--surface);
   color: var(--ink);
   font: inherit;
 }
@@ -1044,7 +1044,7 @@ code {
   border: 1px solid var(--line);
   border-radius: 7px;
   padding: 8px 10px;
-  background: #0d0a06;
+  background: var(--surface);
   color: var(--ink);
   font: inherit;
 }
@@ -1098,7 +1098,7 @@ code {
   padding: 10px;
   border: 1px solid #332716;
   border-radius: 7px;
-  background: #0d0a06;
+  background: var(--surface);
 }
 
 .detail-row span,
