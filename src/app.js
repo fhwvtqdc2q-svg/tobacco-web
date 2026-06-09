@@ -1458,19 +1458,12 @@ function orderPriorityGroups(groups) {
 }
 
 function bulletinDisplayGroups(items, useSyria = false) {
-  const displayItems = useSyria
-    ? items.map((item) =>
-        item.unit1Price > 0
-          ? { ...item, unit2Price: item.unit1Price, unit2Name: item.unit1Name || "علبة", unit1Price: 0, unit1Name: "" }
-          : item
-      )
-    : items;
-  return orderPriorityGroups(groupCustomerPriceItems(displayItems));
+  return orderPriorityGroups(groupCustomerPriceItems(items));
 }
 
 function customerPricePdfMarkup(items, latest, useSyria = false) {
   const groups = bulletinDisplayGroups(items, useSyria);
-  const pdfTitle = useSyria ? `نشرة الأسعار بالليرة السورية — صرف ${state.syriaExchangeRate}` : "قائمة أسعار OZK TOBACCO";
+  const pdfTitle = useSyria ? `نشرة المفرّق (بالليرة السورية) — صرف ${state.syriaExchangeRate}` : "نشرة الجملة (بالدولار)";
   return `
     <div class="price-pdf-book" dir="rtl" style="background:#fff;color:#000">
       ${pricePdfBook(groups, pdfTitle)}
@@ -1529,11 +1522,24 @@ function prepareBulletinItems(useSyria = false) {
   let items = customerPriceListItems();
 
   if (useSyria) {
-    items = items.map((item) => ({
-      ...item,
-      unit1Price: item.unit1Price > 0 ? Math.round(item.unit1Price * state.syriaExchangeRate) : 0,
-      unit2Price: item.unit2Price > 0 ? Math.round(item.unit2Price * state.syriaExchangeRate) : 0
-    }));
+    // نشرة المفرّق: سعر الكروز (الوحدة الأولى) بالليرة = سعر الدولار × سعر الصرف
+    const rate = Number(state.syriaExchangeRate) || 1;
+    items = items
+      .map((item) => {
+        const retail = item.unit1Price > 0 ? item.unit1Price : item.unit2Price;
+        const retailName = item.unit1Price > 0 ? (item.unit1Name || "كروز") : (item.unit2Name || "وحدة");
+        return { ...item, unit2Price: Math.round(retail * rate), unit2Name: retailName, unit2Factor: 1, unit1Price: 0, unit1Name: "" };
+      })
+      .filter((item) => item.unit2Price > 0);
+  } else {
+    // نشرة الجملة: سعر الكرتونة (الوحدة الثانية) بالدولار
+    items = items
+      .map((item) => {
+        const whole = item.unit2Price > 0 ? item.unit2Price : item.unit1Price;
+        const wholeName = item.unit2Price > 0 ? (item.unit2Name || "كرتونة") : (item.unit1Name || "وحدة");
+        return { ...item, unit2Price: whole, unit2Name: wholeName, unit2Factor: 1, unit1Price: 0, unit1Name: "" };
+      })
+      .filter((item) => item.unit2Price > 0);
   }
 
   if (!latest || !items.length) {
@@ -1581,7 +1587,7 @@ async function exportBulletinPdf(items, latest, useSyria = false) {
     await window
       .html2pdf()
       .set({
-        filename: `ozk-${useSyria ? "prices-syria" : "customer-prices"}-${todayIsoDate()}.pdf`,
+        filename: `ozk-${useSyria ? "mufrak-syp" : "jumla-usd"}-${todayIsoDate()}.pdf`,
         margin: [4, 4, 4, 4],
         image: { type: "png", quality: 0.98 },
         html2canvas: { scale: 2, useCORS: true, backgroundColor: "#ffffff", allowTaint: true },
@@ -1590,7 +1596,7 @@ async function exportBulletinPdf(items, latest, useSyria = false) {
       })
       .from(container)
       .save();
-    setNotice("success", `تم تجهيز ${useSyria ? "نشرة السعر بالليرة السورية" : "نشرة PDF"}: ${items.length} صنف.`);
+    setNotice("success", `تم تجهيز ${useSyria ? "نشرة المفرّق (ليرة)" : "نشرة الجملة (دولار)"}: ${items.length} صنف.`);
   } catch (error) {
     setNotice("error", error.message || "تعذر إنشاء ملف PDF.");
   } finally {
@@ -2607,8 +2613,8 @@ function pricing() {
         <button class="button secondary" type="button" data-action="download-daily-pricing" ${items.length ? "" : "disabled"}>تنزيل قائمة تسعير اليوم</button>
         <button class="button primary" type="button" data-action="report-inventory">📦 تقرير المخزون PDF</button>
         <button class="button secondary" type="button" data-action="download-price-template" ${allAvailable.length ? "" : "disabled"}>تنزيل قالب Excel</button>
-        <button class="button primary" type="button" data-action="download-customer-price-pdf" ${customerPriceListItems().length ? "" : "disabled"}>نشرة الدولار</button>
-        <button class="button primary" type="button" data-action="download-customer-price-syria" ${customerPriceListItems().length ? "" : "disabled"}>نشرة السوري</button>
+        <button class="button primary" type="button" data-action="download-customer-price-pdf" ${customerPriceListItems().length ? "" : "disabled"}>🧾 نشرة جملة (دولار)</button>
+        <button class="button primary" type="button" data-action="download-customer-price-syria" ${customerPriceListItems().length ? "" : "disabled"}>🛒 نشرة مفرق (سوري)</button>
         <button class="button secondary" type="button" data-action="download-approved-prices" ${state.approvedPriceItems.length ? "" : "disabled"}>تصدير أسعار المحاسبة</button>
         <button class="button success" type="button" data-action="publish-bulletin" ${state.session ? "" : "disabled"} title="ينشر النشرتين على رابط الزبائن">🚀 نشر النشرة للزبائن</button>
       </div>
@@ -4130,7 +4136,7 @@ function render() {
           <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap">
             <div>
               <h2 style="margin:0">👁 معاينة النشرة قبل التصدير</h2>
-              <p class="muted" style="margin:4px 0 0;font-size:0.8rem">${escapeHtml(items.length)} صنف — ${escapeHtml(pageCount)} صفحة${useSyria ? " — بالليرة السورية" : ""}</p>
+              <p class="muted" style="margin:4px 0 0;font-size:0.8rem">${escapeHtml(items.length)} صنف — ${escapeHtml(pageCount)} صفحة${useSyria ? " — مفرّق بالليرة" : " — جملة بالدولار"}</p>
             </div>
             <div style="display:flex;gap:8px">
               <button class="button success" type="button" data-action="export-price-preview">⬇ تصدير PDF</button>
