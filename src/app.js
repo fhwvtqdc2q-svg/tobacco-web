@@ -1197,13 +1197,37 @@ function customerPriceListItems() {
         String(a.groupName || "").localeCompare(String(b.groupName || ""), "ar") ||
         String(a.name || "").localeCompare(String(b.name || ""), "ar")
     );
-  return mergeOstoraPriceItems(mergeMazayaPriceItems(items));
+  return mergeBulletinNamedGroups(mergeOstoraPriceItems(mergeMazayaPriceItems(items)));
 }
 
 function isMazayaPriceItem(item) {
   const groupName = normalizeItemName(item.groupName || "");
   const itemName = normalizeItemName(item.name || item.itemName || "");
   return groupName.includes("مزايا") || itemName.includes("مزايا");
+}
+
+// دمج أصناف متشابهة في النشرة بسطر واحد (طلب الإدارة) — أضف الاسم القانوني هنا لدمج أي صنف يبدأ به
+const BULLETIN_MERGE_NAMES = ["ماستر طويل ورق", "ماستر قصير أزرق", "اليغانس طويل فضي"];
+
+function mergeBulletinNamedGroups(items) {
+  let result = [...items];
+  BULLETIN_MERGE_NAMES.forEach((display) => {
+    const baseN = normalizeItemName(display);
+    const matches = result.filter((it) => {
+      const n = normalizeItemName(it.name || it.itemName || "");
+      return n === baseN || n.startsWith(baseN + " ");
+    });
+    if (matches.length < 2) return;
+    const rep = matches.find((it) => normalizeItemName(it.name || it.itemName || "") === baseN) || matches[0];
+    const merged = { ...rep, name: display, itemName: display };
+    result = result.filter((it) => !matches.includes(it));
+    result.push(merged);
+  });
+  return result.sort(
+    (a, b) =>
+      String(a.groupName || "").localeCompare(String(b.groupName || ""), "ar") ||
+      String(a.name || "").localeCompare(String(b.name || ""), "ar")
+  );
 }
 
 // أسعار سطري المزايا في النشرة (طلب الإدارة) — عدّلهما هنا عند تغيّر السعر
