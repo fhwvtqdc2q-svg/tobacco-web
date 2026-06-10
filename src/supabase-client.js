@@ -423,7 +423,7 @@
 
     async listInventoryReports() {
       if (!client) {
-        return readJson(INVENTORY_REPORTS_KEY, []).filter((report) => report.source !== "ameen_customer_balances");
+        return readJson(INVENTORY_REPORTS_KEY, []).filter((report) => report.source !== "ameen_customer_balances" && report.source !== "ameen_customer_movements");
       }
 
       const session = await getSupabaseSession();
@@ -432,12 +432,32 @@
       const { data, error } = await client
         .from(inventoryReportsTable)
         .select("id, report_date, source, summary, items, created_at")
-        .neq("source", "ameen_customer_balances")
+        .not("source", "in", '("ameen_customer_balances","ameen_customer_movements")')
         .order("created_at", { ascending: false })
         .limit(12);
 
       if (error) throw new Error(translateDbError(error.message));
       return data || [];
+    },
+
+    async getCustomerMovementsReport() {
+      if (!client) {
+        const local = readJson(INVENTORY_REPORTS_KEY, []).filter((report) => report.source === "ameen_customer_movements");
+        return local[0] || null;
+      }
+
+      const session = await getSupabaseSession();
+      if (!session) return null;
+
+      const { data, error } = await client
+        .from(inventoryReportsTable)
+        .select("id, report_date, source, summary, items, created_at")
+        .eq("source", "ameen_customer_movements")
+        .order("created_at", { ascending: false })
+        .limit(1);
+
+      if (error) throw new Error(translateDbError(error.message));
+      return (data && data[0]) || null;
     },
 
     async listCustomerBalanceReports() {

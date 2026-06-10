@@ -190,6 +190,7 @@ const state = {
   requests: [],
   inventoryReports: [],
   customerBalanceReports: [],
+  customerMovementsReport: null,
   customerCreditLimits: [],
   customerLimitError: null,
   approvedPriceItems: [],
@@ -385,6 +386,13 @@ async function loadCustomerBalanceReports() {
   } catch {
     state.customerBalanceReports = [];
   }
+  try {
+    state.customerMovementsReport = dataStore.getCustomerMovementsReport
+      ? await dataStore.getCustomerMovementsReport()
+      : null;
+  } catch {
+    state.customerMovementsReport = null;
+  }
 }
 
 async function loadCustomerCreditLimits() {
@@ -542,6 +550,7 @@ async function logout() {
     state.session = null;
     state.inventoryReports = [];
     state.customerBalanceReports = [];
+    state.customerMovementsReport = null;
     state.customerCreditLimits = [];
     state.customerLimitError = null;
     state.approvedPriceItems = [];
@@ -2728,6 +2737,9 @@ const REPORT_STYLE = `<style>
 .ozk-rpt .rcard{background:#ece6d4;border:1px solid #c8b890;border-radius:8px;padding:10px 12px;text-align:center}
 .ozk-rpt .rcard .v{font-size:21px;font-weight:900}.ozk-rpt .rcard .l{font-size:10.5px;color:#6b5535}
 .ozk-rpt .rcard .v.gold{color:#b8892a}.ozk-rpt .rcard .v.red{color:#c0271f}
+.ozk-rpt .rlogo{height:46px;width:auto}
+.ozk-rpt tr.open td{background:#ece6d4;font-weight:800}
+.ozk-rpt .rfoot{margin-top:16px;border-top:1.5px solid #b8892a;padding-top:7px;font-size:10px;color:#6b5535;display:flex;justify-content:space-between}
 </style>`;
 
 async function exportReportPdf(bodyHtml, filename) {
@@ -2761,15 +2773,76 @@ async function exportReportPdf(bodyHtml, filename) {
   }
 }
 
+// يجلب حركات الزبون الكاملة (من تقرير ameen_customer_movements) بمطابقة الاسم
+function customerFullMovements(item) {
+  const report = state.customerMovementsReport;
+  const items = Array.isArray(report?.items) ? report.items : [];
+  const name = String(item?.name || "").trim();
+  if (!name) return null;
+  return items.find((x) => String(x.name || "").trim() === name) || null;
+}
+
+// الكشف الرسمي الكامل: رصيد أول المدة + كل حركات الفترة برصيد متحرك + الرصيد النهائي
 function customerStatementPdfMarkup(item) {
   const key = customerKey(item);
   const profile = customerProfile(key);
+  const phone = profile?.phone ? ` — هاتف: ${escapeHtml(profile.phone)}` : "";
+  const lastD = customerLastPaymentDate(item);
+  const full = customerFullMovements(item);
+  const report = state.customerMovementsReport;
+
+  const header = `
+    <div class="rhead">
+      <div style="display:flex;align-items:center;gap:10px">
+        <img src="public/icons/ozk-logo.png" class="rlogo" alt="OZK">
+        <div class="brand">OZK TOBACCO<small>كشف حساب زبون رسمي</small></div>
+      </div>
+      <div class="rtitle"><h2>كشف حساب</h2><span>تاريخ الإصدار: ${escapeHtml(todayIsoDate())}</span></div>
+    </div>
+    <div class="balbox"><div><div class="nm">${escapeHtml(item.name || "")}</div>
+      <div class="muted">آخر دفعة: ${lastD ? escapeHtml(String(lastD).slice(0, 10)) : "لا يوجد"}${phone}</div></div>
+      <div style="text-align:left"><div class="muted">الرصيد المستحق</div><div class="big">${escapeHtml(formatMoney(customerBalance(item)))}</div></div></div>`;
+
+  const footer = `
+    <div class="rfoot">
+      <span>هذا الكشف صادر آليًا عن نظام OZK TOBACCO</span>
+      <span dir="ltr">0985000771 — 0984000662</span>
+    </div>`;
+
+  if (full && Array.isArray(full.movements)) {
+    const fromDate = report?.summary?.fromDate || "";
+    const rows = [];
+    let running = Number(full.openingBalance || 0);
+    rows.push(`<tr class="open"><td>${escapeHtml(fromDate || "—")}</td><td colspan="2">رصيد أول المدة</td><td></td><td>${escapeHtml(formatMoney(running))}</td></tr>`);
+    full.movements.forEach((m) => {
+      const d = Number(m.debit || 0), c = Number(m.credit || 0);
+      running += d - c;
+      rows.push(`<tr><td>${m.date ? escapeHtml(String(m.date).slice(0, 10)) : "—"}</td><td class="deb">${d > 0 ? escapeHtml(formatMoney(d)) : "—"}</td><td class="cred">${c > 0 ? escapeHtml(formatMoney(c)) : "—"}</td><td>${escapeHtml(m.notes || "—")}</td><td>${escapeHtml(formatMoney(running))}</td></tr>`);
+    });
+    const closing = Number(full.closingBalance || running);
+    const truncNote = full.truncated ? `<p class="muted">ملاحظة: الكشف يعرض آخر الحركات ضمن الفترة لكثرتها.</p>` : "";
+    const liveBalance = customerBalance(item);
+    const liveNote = Math.abs(liveBalance - closing) > 0.01
+      ? `<p class="muted">الرصيد الحالي بعد آخر مزامنة: ${escapeHtml(formatMoney(liveBalance))}</p>`
+      : "";
+    return `${REPORT_STYLE}<div class="ozk-rpt">
+      ${header}
+      <div class="sec">حركة الحساب من ${escapeHtml(fromDate || "بداية الفترة")} حتى ${escapeHtml(todayIsoDate())}</div>
+      <table>
+        <tr><th>التاريخ</th><th>مدين (بضاعة)</th><th>دائن (دفع)</th><th>البيان</th><th>الرصيد</th></tr>
+        ${rows.join("")}
+        <tr class="open"><td></td><td colspan="2">الرصيد في نهاية الفترة</td><td></td><td><b>${escapeHtml(formatMoney(closing))}</b></td></tr>
+      </table>
+      ${truncNote}${liveNote}
+      ${footer}
+    </div>`;
+  }
+
+  // احتياط: النسخة المختصرة (آخر الحركات والدفعات فقط) إذا لم يتوفر تقرير الحركات الكاملة
   const ameenP = (Array.isArray(item.recentPayments) ? item.recentPayments : []).map((p) => ({ amount: p.amount, date: p.date || "", notes: p.notes }));
   const manualP = ((state.paymentRecords && state.paymentRecords[key]) || []).map((p) => ({ amount: p.amount, date: p.paymentDate || "", notes: p.notes }));
   const payments = [...ameenP, ...manualP].sort((a, b) => new Date(b.date || 0) - new Date(a.date || 0)).slice(0, 25);
   const movements = (Array.isArray(item.recentMovements) ? [...item.recentMovements] : []).sort((a, b) => new Date(b.date || 0) - new Date(a.date || 0)).slice(0, 25);
-  const lastD = customerLastPaymentDate(item);
-  const phone = profile?.phone ? ` — هاتف: ${escapeHtml(profile.phone)}` : "";
   const pr = payments.length
     ? payments.map((p) => `<tr><td>${p.date ? escapeHtml(String(p.date).slice(0, 10)) : "—"}</td><td class="cred">${escapeHtml(formatMoney(p.amount || 0))}</td><td>${escapeHtml(p.notes || "—")}</td></tr>`).join("")
     : `<tr><td colspan="3" class="muted">لا توجد دفعات مسجّلة</td></tr>`;
@@ -2780,15 +2853,12 @@ function customerStatementPdfMarkup(item) {
       }).join("")
     : `<tr><td colspan="4" class="muted">لا توجد حركة مسجّلة</td></tr>`;
   return `${REPORT_STYLE}<div class="ozk-rpt">
-    <div class="rhead"><div class="brand">OZK TOBACCO<small>كشف حساب زبون</small></div>
-      <div class="rtitle"><h2>كشف حساب</h2><span>بتاريخ ${escapeHtml(todayIsoDate())}</span></div></div>
-    <div class="balbox"><div><div class="nm">${escapeHtml(item.name || "")}</div>
-      <div class="muted">آخر دفعة: ${lastD ? escapeHtml(String(lastD).slice(0, 10)) : "لا يوجد"}${phone}</div></div>
-      <div style="text-align:left"><div class="muted">الرصيد المستحق</div><div class="big">${escapeHtml(formatMoney(customerBalance(item)))}</div></div></div>
-    <div class="sec">سجل الدفعات</div>
+    ${header}
+    <div class="sec">سجل الدفعات (الأحدث)</div>
     <table><tr><th>التاريخ</th><th>المبلغ</th><th>ملاحظات</th></tr>${pr}</table>
-    <div class="sec">كشف الحركة</div>
+    <div class="sec">كشف الحركة (الأحدث)</div>
     <table><tr><th>التاريخ</th><th>مدين (بضاعة)</th><th>دائن (دفع)</th><th>ملاحظات</th></tr>${mv}</table>
+    ${footer}
   </div>`;
 }
 
