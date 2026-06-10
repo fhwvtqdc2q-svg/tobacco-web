@@ -70,9 +70,7 @@ WHERE en.Date < @fromDate
   AND (cu.bHide IS NULL OR cu.bHide = 0)
 GROUP BY LTRIM(RTRIM(cu.CustomerName))
 "@
-    $p = New-Object System.Data.SqlClient.SqlParameter("@fromDate", [System.Data.SqlDbType]::DateTime)
-    $p.Value = $fromDate
-    $cmd.Parameters.Add($p) | Out-Null
+    $cmd.Parameters.AddWithValue("@fromDate", $fromDate) | Out-Null
     $r = $cmd.ExecuteReader()
     while ($r.Read()) { $openings[[string]$r.GetValue(0)] = [double]$r.GetValue(1) }
     $r.Close()
@@ -94,9 +92,7 @@ WHERE en.Date >= @fromDate
   AND (cu.bHide IS NULL OR cu.bHide = 0)
 ORDER BY LTRIM(RTRIM(cu.CustomerName)), en.Date, en.Number
 "@
-    $p = New-Object System.Data.SqlClient.SqlParameter("@fromDate", [System.Data.SqlDbType]::DateTime)
-    $p.Value = $fromDate
-    $cmd.Parameters.Add($p) | Out-Null
+    $cmd.Parameters.AddWithValue("@fromDate", $fromDate) | Out-Null
     $r = $cmd.ExecuteReader()
     while ($r.Read()) {
         $name = [string]$r.GetValue(0)
@@ -180,6 +176,8 @@ ORDER BY LTRIM(RTRIM(cu.CustomerName)), en.Date, en.Number
 
     exit 0
 } catch {
-    Write-Log "خطأ: $($_.Exception.Message)"
+    Write-Log "خطأ (سطر $($_.InvocationInfo.ScriptLineNumber)): $($_.Exception.Message)"
+    if ($_.ScriptStackTrace) { Write-Log $_.ScriptStackTrace }
+    if ($_.Exception.InnerException) { Write-Log ("تفصيل: " + $_.Exception.InnerException.Message) }
     exit 1
 }
