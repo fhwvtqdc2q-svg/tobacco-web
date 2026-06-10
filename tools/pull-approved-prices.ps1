@@ -1,4 +1,4 @@
-# ============================================================
+﻿# ============================================================
 # pull-approved-prices.ps1
 # يسحب الأسعار المعتمدة من Supabase ويحفظها في CSV
 # ============================================================
@@ -38,7 +38,7 @@ try {
         "Accept-Profile"  = "public"
     }
 
-    $url = "$supabaseUrl/rest/v1/approved_price_items?select=item_key,item_name,sale_price,unit1_price,unit1_name,unit2_name,unit2_factor,unit2_price,stock_qty,stock_status,updated_at&order=item_name.asc&limit=5000"
+    $url = "$supabaseUrl/rest/v1/approved_price_items?select=item_key,item_name,sale_price,unit1_price,unit1_name,unit2_name,unit2_factor,unit2_price,stock_qty,stock_status,price_payload,updated_at&order=item_name.asc&limit=5000"
 
     $response = Invoke-RestMethod -Uri $url -Headers $headers -Method GET -ErrorAction Stop
 
@@ -53,9 +53,38 @@ try {
     $csvDir = Split-Path $OutputCsv -Parent
     if (-not (Test-Path $csvDir)) { New-Item -ItemType Directory -Path $csvDir -Force | Out-Null }
 
+    # سعر المفرق اليدوي: مخزون في price_payload.retail.price بسعر الكرتونة بالدولار
+    # نحسب منه سعر الكروز (الوحدة الأولى) = سعر الكرتونة ÷ عدد الكروز
+    $rows = $response | ForEach-Object {
+        $retailCarton = 0.0
+        if ($_.price_payload -and $_.price_payload.retail -and $_.price_payload.retail.price) {
+            $retailCarton = [double]$_.price_payload.retail.price
+        }
+        $factor = [double]($_.unit2_factor)
+        if (-not ($factor -gt 0)) { $factor = 1 }
+        $retailUnit1 = if ($retailCarton -gt 0) { [math]::Round($retailCarton / $factor, 2) } else { 0 }
+        [PSCustomObject]@{
+            item_key          = $_.item_key
+            item_name         = $_.item_name
+            sale_price        = $_.sale_price
+            unit1_price       = $_.unit1_price
+            unit1_name        = $_.unit1_name
+            unit2_name        = $_.unit2_name
+            unit2_factor      = $_.unit2_factor
+            unit2_price       = $_.unit2_price
+            retail_carton_usd = $retailCarton
+            retail_unit1_usd  = $retailUnit1
+            stock_qty         = $_.stock_qty
+            stock_status      = $_.stock_status
+            updated_at        = $_.updated_at
+        }
+    }
+
     # حفظ CSV
-    $response | Select-Object item_key, item_name, sale_price, unit1_price, unit1_name, unit2_name, unit2_factor, unit2_price, stock_qty, stock_status, updated_at |
-        Export-Csv -Path $OutputCsv -NoTypeInformation -Encoding UTF8
+    $rows | Export-Csv -Path $OutputCsv -NoTypeInformation -Encoding UTF8
+
+    $retailCount = @($rows | Where-Object { [double]$_.retail_unit1_usd -gt 0 }).Count
+    Write-Host "منها $retailCount صنف له سعر مفرق يدوي" -ForegroundColor Cyan
 
     Write-Host "تم الحفظ في: $OutputCsv" -ForegroundColor Green
 
