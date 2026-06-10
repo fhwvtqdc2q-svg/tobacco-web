@@ -1523,13 +1523,13 @@ function prepareBulletinItems(useSyria = false) {
   let items = customerPriceListItems();
 
   if (useSyria) {
-    // نشرة المفرّق: سعر المفرق (يدوي) بالليرة = سعر المفرق بالدولار × سعر الصرف
+    // نشرة المفرّق: سعر المفرق يُدخل بسعر الكرتونة بالدولار → يقسم على عدد الكروز ثم × سعر الصرف
     const rate = Number(state.syriaExchangeRate) || 1;
     items = items
       .map((item) => {
-        const r = item.approvedPrice && item.approvedPrice.pricePayload && item.approvedPrice.pricePayload.retail;
-        const retail = Number((r && r.price) || 0);
-        return { ...item, unit2Price: Math.round(retail * rate), unit2Name: item.unit1Name || "كروز", unit2Factor: 1, unit1Price: 0, unit1Name: "" };
+        const retail = itemRetailPrice(item);
+        const factor = itemUnit2Factor(item);
+        return { ...item, unit2Price: Math.round((retail / factor) * rate), unit2Name: item.unit1Name || "كروز", unit2Factor: 1, unit1Price: 0, unit1Name: "" };
       })
       .filter((item) => item.unit2Price > 0);
   } else {
@@ -1727,7 +1727,7 @@ async function savePricingItem(form) {
       if (unit2Price <= 0) throw new Error("سعّر الجملة أولاً، ثم بدّل لوضع المفرق وأضف سعره.");
       salePrice = Number((existing && existing.salePrice) || roundPrice(unit2Price / unit2Factor));
       payloadObj = { ...basePayload, retail: { price: entered }, source: "phone_pricing_page", pricedDate: todayIsoDate() };
-      savedLabel = `سعر المفرق ${formatMoney(entered)}$`;
+      savedLabel = `سعر المفرق ${formatMoney(entered)}$ لل${unit2Name || "كرتونة"} (≈ ${formatMoney(roundPrice(entered / unit2Factor))}$ لل${unit1Name || "كروز"})`;
     } else {
       unit2Price = entered;
       salePrice = roundPrice(entered / unit2Factor);
@@ -2561,9 +2561,11 @@ function pricingRow(item) {
   const wholesale = itemUnit2Price(item);
   const retail = itemRetailPrice(item);
   const shown = mode === "mufrak" ? retail : wholesale;
-  const unitLabel = mode === "mufrak" ? (unit1Name || "كروز") : (unit2Name || "كرتونة");
+  const unitLabel = unit2Name || "كرتونة";
   const modeLabel = mode === "mufrak" ? "سعر المفرق" : "سعر الجملة";
   const priced = shown > 0;
+  const retailPerUnit1 = retail > 0 ? roundPrice(retail / unit2Factor) : 0;
+  const retailHint = mode === "mufrak" && retailPerUnit1 > 0 ? `<small class="muted">≈ ${escapeHtml(formatMoney(retailPerUnit1))} $ لكل ${escapeHtml(unit1Name || "كروز")}</small>` : "";
   const rowState = (wholesale > 0 || retail > 0) ? "active" : item.status;
   return `
     <div class="pricing-card inventory-row-${escapeHtml(rowState)}">
@@ -2573,6 +2575,7 @@ function pricingRow(item) {
       </div>
       <small>${escapeHtml(unit2Name)} / ${escapeHtml(unit2Factor)} ${escapeHtml(unit1Name)}</small>
       <b>${priced ? escapeHtml(formatMoney(shown)) + " $" : "غير مسعر"}</b>
+      ${retailHint}
       <span>${escapeHtml(priced ? (mode === "mufrak" ? "مفرق ✓" : "جملة ✓") : statusLabel(item.status))}</span>
       <form class="pricing-editor" data-form="pricing-item" data-item-key="${escapeHtml(item.key)}" data-item-name="${escapeHtml(item.name || "")}" data-stock-qty="${escapeHtml(qty)}" data-stock-status="${escapeHtml(item.status || "")}" data-unit1-name="${escapeHtml(unit1Name)}" data-unit2-name="${escapeHtml(unit2Name)}" data-unit2-factor="${escapeHtml(unit2Factor)}">
         <label>
