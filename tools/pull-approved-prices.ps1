@@ -21,11 +21,10 @@ if (Test-Path $envPath) {
 $supabaseUrl = $env:SUPABASE_URL
 if (-not $supabaseUrl) { $supabaseUrl = "https://dyxbirfpxeocqffnfdeb.supabase.co" }
 
-# استخدام المفتاح المتاح — service key أو publishable key
+# القراءة عبر نافذة approved_price_sync_feed (أسعار فقط، بدون مخزون) — يكفي المفتاح العام
 $apiKey = $env:SUPABASE_SERVICE_KEY
 if (-not $apiKey) {
     $apiKey = "sb_publishable_RkM_QDWxk8Yekqz9KBKXBw_Yl14zhSH"
-    Write-Host "تحذير: يستخدم publishable key. للأمان أضف SUPABASE_SERVICE_KEY في .env" -ForegroundColor Yellow
 }
 
 $timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
@@ -38,7 +37,7 @@ try {
         "Accept-Profile"  = "public"
     }
 
-    $url = "$supabaseUrl/rest/v1/approved_price_items?select=item_key,item_name,sale_price,unit1_price,unit1_name,unit2_name,unit2_factor,unit2_price,stock_qty,stock_status,price_payload,updated_at&order=item_name.asc&limit=5000"
+    $url = "$supabaseUrl/rest/v1/approved_price_sync_feed?select=item_key,item_name,sale_price,unit1_price,unit1_name,unit2_name,unit2_factor,unit2_price,retail_carton_usd,updated_at&order=item_name.asc&limit=5000"
 
     $response = Invoke-RestMethod -Uri $url -Headers $headers -Method GET -ErrorAction Stop
 
@@ -53,13 +52,11 @@ try {
     $csvDir = Split-Path $OutputCsv -Parent
     if (-not (Test-Path $csvDir)) { New-Item -ItemType Directory -Path $csvDir -Force | Out-Null }
 
-    # سعر المفرق اليدوي: مخزون في price_payload.retail.price بسعر الكرتونة بالدولار
+    # سعر المفرق اليدوي يأتي بسعر الكرتونة بالدولار (retail_carton_usd)
     # نحسب منه سعر الكروز (الوحدة الأولى) = سعر الكرتونة ÷ عدد الكروز
     $rows = $response | ForEach-Object {
         $retailCarton = 0.0
-        if ($_.price_payload -and $_.price_payload.retail -and $_.price_payload.retail.price) {
-            $retailCarton = [double]$_.price_payload.retail.price
-        }
+        if ($_.retail_carton_usd) { $retailCarton = [double]$_.retail_carton_usd }
         $factor = [double]($_.unit2_factor)
         if (-not ($factor -gt 0)) { $factor = 1 }
         $retailUnit1 = if ($retailCarton -gt 0) { [math]::Round($retailCarton / $factor, 2) } else { 0 }
@@ -74,8 +71,6 @@ try {
             unit2_price       = $_.unit2_price
             retail_carton_usd = $retailCarton
             retail_unit1_usd  = $retailUnit1
-            stock_qty         = $_.stock_qty
-            stock_status      = $_.stock_status
             updated_at        = $_.updated_at
         }
     }
