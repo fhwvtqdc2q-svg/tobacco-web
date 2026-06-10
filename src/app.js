@@ -3189,42 +3189,6 @@ function ameen() {
   return shell(`
     <section class="content-grid request-layout">
       <article class="panel">
-        <h3>رفع تقرير الأمين</h3>
-        ${authHint}
-        <p class="muted">اختر ملف الجرد التجميعي من الأمين، ثم اختر لائحة الأسعار اليومية. سأحفظ الملخص وأجهز نسخة أسعار تحتوي فقط المواد الموجودة في المستودع.</p>
-        <form class="form-card compact" data-form="ameen-import">
-          <label>
-            ملف جرد الأمين
-            <input name="stock" type="file" accept=".xlsx,.xls" required>
-          </label>
-          <label>
-            ملف لائحة الأسعار اليومية
-            <input name="price" type="file" accept=".xlsx,.xls">
-          </label>
-          <label>
-            حد تنبيه قرب النفاد
-            <input name="lowThreshold" type="text" inputmode="numeric" dir="ltr" value="${escapeHtml(summary.threshold || 50)}">
-          </label>
-          <div class="button-row">
-            <button class="button primary" type="submit">تحليل وحفظ التقرير</button>
-            <button class="button secondary" type="button" data-action="download-prices" ${state.priceExport ? "" : "disabled"}>تنزيل أسعار المتوفر فقط</button>
-          </div>
-        </form>
-        <form class="form-card compact" data-form="live-price-import">
-          <label>
-            ملف الأسعار بعد التسعير
-            <input name="livePrice" type="file" accept=".xlsx,.xls">
-          </label>
-          ${state.approvedPriceError ? `<p class="muted">تنبيه الأسعار: ${escapeHtml(state.approvedPriceError)}</p>` : ""}
-          <div class="button-row">
-            <button class="button secondary" type="button" data-action="download-price-template" ${liveReport && summary.availableItems ? "" : "disabled"}>تنزيل قالب تسعير من الموقع</button>
-            <button class="button primary" type="submit" ${liveReport && summary.availableItems ? "" : "disabled"}>استيراد الأسعار وحذف غير الموجود</button>
-            <button class="button secondary" type="button" data-action="download-approved-prices" ${approvedPrices.length ? "" : "disabled"}>تصدير أسعار المحاسبة</button>
-          </div>
-        </form>
-      </article>
-
-      <article class="panel">
         <div class="panel-title-row">
           <h3>ملخص الهاتف</h3>
           <button class="button secondary compact-button" type="button" data-action="refresh-ameen">تحديث</button>
