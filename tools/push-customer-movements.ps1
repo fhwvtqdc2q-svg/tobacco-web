@@ -146,9 +146,11 @@ ORDER BY LTRIM(RTRIM(cu.CustomerName)), en.Date, en.Number
         -Body ([System.Text.Encoding]::UTF8.GetBytes($loginBody))
 
     $authHeaders = @{
-        apikey        = $apiKey
-        Authorization = "Bearer $($session.access_token)"
-        Prefer        = "return=minimal"
+        apikey            = $apiKey
+        Authorization     = "Bearer $($session.access_token)"
+        Prefer            = "return=minimal"
+        "Accept-Profile"  = "public"
+        "Content-Profile" = "public"
     }
 
     # (5) رفع التقرير
