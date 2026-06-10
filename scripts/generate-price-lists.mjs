@@ -20,7 +20,44 @@ const issueDate = today.toLocaleDateString("en-GB", { day:"2-digit", month:"long
 const isoDate   = today.toISOString().slice(0, 10);
 
 // ── بيانات ────────────────────────────────────────────────────────────────────
-const items = JSON.parse(readFileSync(resolve(root, "scripts/price-data.json"), "utf8"));
+// المصدر الأساسي: أسعار الموقع الحية من Supabase (جملة + مفرق يدوي).
+// price-data.json يبقى مرجعًا لأسماء المجموعات وكاحتياط إذا تعذّر الاتصال.
+const jsonItems = JSON.parse(readFileSync(resolve(root, "scripts/price-data.json"), "utf8"));
+const groupByName = new Map(jsonItems.map(i => [String(i.name).trim(), i.group]));
+
+const SUPABASE_URL = "https://dyxbirfpxeocqffnfdeb.supabase.co";
+const SUPABASE_KEY = "sb_publishable_RkM_QDWxk8Yekqz9KBKXBw_Yl14zhSH";
+let feed = [];
+try {
+  const res = await fetch(
+    `${SUPABASE_URL}/rest/v1/approved_price_sync_feed?select=item_name,unit1_name,unit2_name,unit2_factor,unit2_price,retail_carton_usd&order=item_name.asc&limit=5000`,
+    { headers: { apikey: SUPABASE_KEY, Authorization: `Bearer ${SUPABASE_KEY}`, "Accept-Profile": "public" } }
+  );
+  if (res.ok) feed = await res.json();
+} catch { /* نستخدم الاحتياط المحلي */ }
+
+let usdItems, sypItems;
+if (feed.length) {
+  const all = feed.map(r => {
+    const name = String(r.item_name || "").trim();
+    return {
+      name,
+      group: groupByName.get(name) ?? name.split(" ")[0],
+      unit: r.unit2_name || "كرتونة",
+      unit1: r.unit1_name || "",
+      unitFactor: Number(r.unit2_factor) > 0 ? Number(r.unit2_factor) : 10,
+      usd: Number(r.unit2_price || 0),
+      retailCarton: Number(r.retail_carton_usd || 0),
+    };
+  });
+  usdItems = all.filter(i => i.usd > 0);
+  sypItems = all.filter(i => i.retailCarton > 0); // المفرق: فقط ما له سعر مفرق يدوي
+  console.log(`أسعار حية من Supabase: ${usdItems.length} جملة، ${sypItems.length} مفرق`);
+} else {
+  usdItems = jsonItems;
+  sypItems = jsonItems.map(i => ({ ...i, retailCarton: 0 })); // احتياط: مشتق من الجملة
+  console.log("تحذير: تعذّر جلب الأسعار الحية — استخدام price-data.json المحلي");
+}
 
 // ── شعار ─────────────────────────────────────────────────────────────────────
 const logoB64 = readFileSync(resolve(root, "public/icons/ozk-logo.png")).toString("base64");
@@ -30,17 +67,19 @@ const logoSrc = `data:image/png;base64,${logoB64}`;
 const FIRST = ["ماستر", "غلواز"];
 const LAST  = ["أردن","برو","كينت","بزنس","MT","سلفان","قداحات","ورق","كورسير"];
 
-const groupMap = new Map();
-for (const item of items) {
-  const g = item.group ?? item.name.split(" ")[0];
-  if (!groupMap.has(g)) groupMap.set(g, []);
-  groupMap.get(g).push(item);
-}
-const all    = [...groupMap.entries()];
-const first  = FIRST.map(n => all.find(([g]) => g===n)).filter(Boolean);
-const last   = LAST .map(n => all.find(([g]) => g===n)).filter(Boolean);
-const middle = all.filter(([g]) => !FIRST.includes(g) && !LAST.includes(g));
-const groups = [...first, ...middle, ...last];
+const buildGroups = (list) => {
+  const groupMap = new Map();
+  for (const item of list) {
+    const g = item.group ?? item.name.split(" ")[0];
+    if (!groupMap.has(g)) groupMap.set(g, []);
+    groupMap.get(g).push(item);
+  }
+  const all    = [...groupMap.entries()];
+  const first  = FIRST.map(n => all.find(([g]) => g===n)).filter(Boolean);
+  const last   = LAST .map(n => all.find(([g]) => g===n)).filter(Boolean);
+  const middle = all.filter(([g]) => !FIRST.includes(g) && !LAST.includes(g));
+  return [...first, ...middle, ...last];
+};
 
 // ── CSS ───────────────────────────────────────────────────────────────────────
 const CSS = `
@@ -212,7 +251,7 @@ const renderGroup = ([name, its], priceFormatter, unitFormatter = (item) => item
 </div>`;
 
 // ── بناء HTML ─────────────────────────────────────────────────────────────────
-const buildHtml = ({ titleSuffix, badgeClass, badgeLabel, unitLabel, priceFormatter, unitFormatter = (item) => item.unit }) => `<!DOCTYPE html>
+const buildHtml = ({ pageItems, titleSuffix, badgeClass, badgeLabel, unitLabel, priceFormatter, unitFormatter = (item) => item.unit }) => `<!DOCTYPE html>
 <html dir="rtl" lang="ar">
 <head>
 <meta charset="UTF-8">
@@ -232,7 +271,7 @@ const buildHtml = ({ titleSuffix, badgeClass, badgeLabel, unitLabel, priceFormat
     <span class="currency-badge ${badgeClass}">${badgeLabel}</span>
   </div>
   <div class="header-right">
-    <div class="item-count-num">${items.length}</div>
+    <div class="item-count-num">${pageItems.length}</div>
     <div class="item-count-lbl">مادة</div>
   </div>
 </div>
@@ -247,35 +286,38 @@ const buildHtml = ({ titleSuffix, badgeClass, badgeLabel, unitLabel, priceFormat
 </div>
 
 <div class="columns">
-  ${groups.map(g => renderGroup(g, priceFormatter, unitFormatter)).join("\n")}
+  ${buildGroups(pageItems).map(g => renderGroup(g, priceFormatter, unitFormatter)).join("\n")}
 </div>
 
 </body>
 </html>`;
 
-// ── نشرة الدولار ──────────────────────────────────────────────────────────────
+// ── نشرة الدولار (جملة — سعر الكرتونة) ───────────────────────────────────────
 writeFileSync(
   resolve(root, "public/downloads/price-list-usd.html"),
   buildHtml({
+    pageItems: usdItems,
     titleSuffix: "دولار",
     badgeClass: "badge-usd",
-    badgeLabel: "💵 دولار أمريكي",
-    unitLabel: "سعر الكرتونة",
+    badgeLabel: "💵 دولار أمريكي — جملة",
+    unitLabel: "سعر الكرتونة (جملة)",
     priceFormatter: (item) => `${item.usd.toFixed(2)} $`,
   })
 );
 console.log("✓ price-list-usd.html");
 
-// ── نشرة الليرة ───────────────────────────────────────────────────────────────
+// ── نشرة الليرة (مفرق — سعر المفرق اليدوي للكرتونة ÷ عدد الكروز × الصرف) ─────
 writeFileSync(
   resolve(root, `public/downloads/price-list-syp-${SYP_RATE}.html`),
   buildHtml({
+    pageItems: sypItems,
     titleSuffix: "سوري",
     badgeClass: "badge-syp",
-    badgeLabel: `🇸🇾 ليرة — صرف ${SYP_RATE.toLocaleString()}`,
-    unitLabel: "سعر الوحدة",
+    badgeLabel: `🇸🇾 ليرة — مفرق — صرف ${SYP_RATE.toLocaleString()}`,
+    unitLabel: "سعر المفرق للوحدة",
     priceFormatter: (item) => {
-      const p = Math.round((item.usd * SYP_RATE) / (item.unitFactor ?? 10));
+      const cartonUsd = item.retailCarton > 0 ? item.retailCarton : item.usd;
+      const p = Math.round((cartonUsd * SYP_RATE) / (item.unitFactor ?? 10));
       return `${p.toLocaleString("ar-SY")} ل.س`;
     },
     unitFormatter: (item) => item.unit1 || (item.unit === 'كرتونة' ? 'علبة' : item.unit),
@@ -322,14 +364,14 @@ const indexHtml = `<!DOCTYPE html>
 <div class="cards">
   <a class="card" href="price-list-syp-${SYP_RATE}.html" target="_blank">
     <div class="card-icon">🇸🇾</div>
-    <div class="card-title">نشرة السوري</div>
-    <div class="card-unit">سعر الوحدة الواحدة</div>
+    <div class="card-title">نشرة السوري — مفرق</div>
+    <div class="card-unit">سعر المفرق للوحدة الواحدة</div>
     <div class="card-desc">بالليرة السورية<br>صرف ${SYP_RATE.toLocaleString()} ل.س/دولار</div>
     <div class="card-btn">عرض وطباعة</div>
   </a>
   <a class="card" href="price-list-usd.html" target="_blank">
     <div class="card-icon">💵</div>
-    <div class="card-title">نشرة الدولار</div>
+    <div class="card-title">نشرة الدولار — جملة</div>
     <div class="card-unit">سعر الكرتونة الكاملة</div>
     <div class="card-desc">بالدولار الأمريكي</div>
     <div class="card-btn">عرض وطباعة</div>
@@ -340,4 +382,4 @@ const indexHtml = `<!DOCTYPE html>
 </html>`;
 writeFileSync(resolve(root, "public/downloads/index.html"), indexHtml);
 console.log("✓ index.html");
-console.log(`\nاكتمل — ${items.length} مادة | ${groups.length} مجموعة`);
+console.log(`\nاكتمل — جملة: ${usdItems.length} مادة | مفرق: ${sypItems.length} مادة`);
