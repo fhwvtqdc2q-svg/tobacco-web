@@ -108,12 +108,16 @@ ORDER BY LTRIM(RTRIM(cu.CustomerName)), en.Date, en.Number
     $conn.Close()
 
     # (3) بناء عناصر التقرير
-    $allNames = @($openings.Keys) + @($movements.Keys) | Select-Object -Unique
+    # ملاحظة PowerShell 5.1: لا تغلّف List بـ @() — ترمي "Argument types do not match".
+    # استخدم .ToArray() بدلًا منها.
+    $nameSet = @{}
+    foreach ($k in @($openings.Keys)) { $nameSet[$k] = $true }
+    foreach ($k in @($movements.Keys)) { $nameSet[$k] = $true }
     $items = New-Object System.Collections.Generic.List[object]
-    foreach ($name in $allNames) {
+    foreach ($name in @($nameSet.Keys)) {
         $opening = 0.0
         if ($openings.ContainsKey($name)) { $opening = $openings[$name] }
-        $list = if ($movements.ContainsKey($name)) { @($movements[$name]) } else { @() }
+        $list = if ($movements.ContainsKey($name)) { $movements[$name].ToArray() } else { @() }
         if ($opening -eq 0 -and $list.Count -eq 0) { continue }
 
         $truncated = $false
