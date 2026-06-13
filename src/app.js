@@ -2799,35 +2799,31 @@ const REPORT_STYLE = `<style>
 .ozk-rpt .rfoot{margin-top:16px;border-top:1.5px solid #b8892a;padding-top:7px;font-size:10px;color:#6b5535;display:flex;justify-content:space-between}
 </style>`;
 
+// نستعمل طباعة المتصفح الأصلية (حفظ بصيغة PDF) بدل html2canvas —
+// المحرّك القديم صار يطلّع صفحات بيضا بعد تحديثات كروم. الطباعة الأصلية
+// ترسم التقرير مثل الشاشة تماماً (عربي وألوان مظبوطة) ومستحيل تطلع فاضية.
 async function exportReportPdf(bodyHtml, filename) {
-  if (!window.html2pdf) {
-    setNotice("error", "مكتبة PDF لم تتحمل. حدّث الصفحة وجرّب مجددًا.");
+  const title = String(filename || "تقرير").replace(/\.pdf$/i, "");
+  const win = window.open("", "_blank");
+  if (!win) {
+    setNotice("error", "المتصفح منع فتح نافذة الطباعة. اسمح بالنوافذ المنبثقة لهذا الموقع ثم جرّب مجددًا.");
     render();
     return;
   }
-  const container = document.createElement("div");
-  container.style.width = "780px";
-  container.style.backgroundColor = "#fff";
-  container.innerHTML = bodyHtml;
-  document.body.appendChild(container);
-  try {
-    await window
-      .html2pdf()
-      .set({
-        filename,
-        margin: [8, 8, 8, 8],
-        image: { type: "png", quality: 0.98 },
-        html2canvas: { scale: 2, useCORS: true, foreignObjectRendering: true, backgroundColor: "#ffffff", logging: false },
-        jsPDF: { unit: "mm", format: "a4", orientation: "portrait" },
-        pagebreak: { mode: ["css", "legacy"] }
-      })
-      .from(container)
-      .save();
-  } catch (error) {
-    setNotice("error", error.message || "تعذر إنشاء ملف PDF.");
-  } finally {
-    container.remove();
-  }
+  const doc =
+    '<!doctype html><html lang="ar" dir="rtl"><head><meta charset="utf-8">' +
+    '<title>' + title + '</title>' +
+    '<style>@page{size:A4 portrait;margin:10mm}' +
+    'html,body{margin:0;padding:0;background:#fff;-webkit-print-color-adjust:exact;print-color-adjust:exact}' +
+    '@media print{.ozk-rpt{padding:0}}</style>' +
+    '</head><body>' + bodyHtml +
+    '<scr' + 'ipt>window.onload=function(){setTimeout(function(){window.focus();window.print();},450);};</scr' + 'ipt>' +
+    '</body></html>';
+  win.document.open();
+  win.document.write(doc);
+  win.document.close();
+  setNotice("success", "افتح نافذة الطباعة واختر «حفظ بصيغة PDF».");
+  render();
 }
 
 // يجلب حركات الزبون الكاملة (من تقرير ameen_customer_movements) بمطابقة الاسم
