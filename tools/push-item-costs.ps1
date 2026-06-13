@@ -1,14 +1,16 @@
 # ============================================================
 # push-item-costs.ps1
-# يقرأ "متوسط التكلفة" لكل مادة من قاعدة الأمين (MaterialCard000)
+# يقرأ "متوسط التكلفة" (AvgPrice) لكل مادة من قاعدة الأمين
 # ويرفعها إلى Supabase (جدول item_costs المحمي — يقرأه المدير فقط).
 # يطابقها الموقع داخل بطاقة كل مادة في صفحة التسعير (للمدير فقط).
 # ============================================================
 # تجربة بدون رفع:  .\tools\push-item-costs.ps1 -DryRun
 # تشغيل فعلي:      .\tools\push-item-costs.ps1
+# مصدر بديل:       .\tools\push-item-costs.ps1 -SourceView vwMtPrices
 # ============================================================
 param(
     [switch]$DryRun,
+    [string]$SourceView = "vwMaterials",
     [string]$EnvFile = "$PSScriptRoot\.env",
     [string]$LogFile = "$PSScriptRoot\logs\item-costs-push.log"
 )
@@ -56,54 +58,42 @@ try {
     $conn = New-Object System.Data.SqlClient.SqlConnection($connStr)
     $conn.Open()
 
-    # discover cost + guid columns in MaterialCard000
+    # discover columns of the chosen materials view
     $discover = $conn.CreateCommand()
-    $discover.CommandText = @"
-SELECT COLUMN_NAME
-FROM INFORMATION_SCHEMA.COLUMNS
-WHERE TABLE_NAME = 'MaterialCard000'
-  AND (COLUMN_NAME LIKE '%cost%' OR COLUMN_NAME LIKE '%Cost%'
-       OR COLUMN_NAME LIKE '%guid%' OR COLUMN_NAME LIKE '%GUID%')
-"@
+    $discover.CommandText = "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME = '$SourceView'"
     $dr = $discover.ExecuteReader()
     $cols = @()
     while ($dr.Read()) { $cols += [string]$dr["COLUMN_NAME"] }
     $dr.Close()
-    Write-Log ("a3mda mrshha: " + ($cols -join ", "))
+    if ($cols.Count -eq 0) { Write-Log "khata: al-view '$SourceView' ghyr mwjwd."; $conn.Close(); exit 1 }
 
-    $costCandidates = @(
-        "AvgCost","AverageCost","AvgCostPrice","MeanCost","WeightedAvgCost","WACost",
-        "Cost","CostPrice","AvgPrice","LastCost","LastPurchasePrice","AvgPurchasePrice"
-    )
-    $costCol = $costCandidates | Where-Object { $cols -contains $_ } | Select-Object -First 1
+    function Pick($cands) { $cands | Where-Object { $cols -contains $_ } | Select-Object -First 1 }
+    $avgCol  = Pick @("AvgPrice","mtAvgPrice","AverageCost","AvgCost","AvgCostPrice")
+    $nameCol = Pick @("Name","MaterialName","MatName","ArabicName","Name1")
+    $codeCol = Pick @("Code","MaterialCode","ItemCode","Barcode")
+    $guidCol = Pick @("GUID","MaterialGUID","mtGUID","MatGUID","ItemGUID")
 
-    $guidCandidates = @(
-        "MaterialGUID","MaterialCardGUID","CardGUID","ItemGUID","RecordGUID","RowGUID","GUID"
-    )
-    $guidCol = $guidCandidates | Where-Object { $cols -contains $_ } | Select-Object -First 1
-
-    if (-not $costCol) {
-        Write-Log "khata: lm ajid 3mwd tklfa fi MaterialCard000. al-a3mda: $($cols -join ', ')"
-        Write-Log "afta7 al-script wa-adif ism al-3mwd al-sa7i7 ila qaymat costCandidates."
-        $conn.Close(); exit 1
-    }
-    Write-Log "3mwd al-tklfa: $costCol | 3mwd GUID: $(if ($guidCol) { $guidCol } else { '(la ywjd - mtabaqa bil-ism)' })"
+    if (-not $avgCol)  { Write-Log "khata: la ywjd 3mwd AvgPrice fi $SourceView. al-a3mda: $($cols -join ', ')"; $conn.Close(); exit 1 }
+    if (-not $nameCol) { Write-Log "khata: la ywjd 3mwd Name fi $SourceView. al-a3mda: $($cols -join ', ')"; $conn.Close(); exit 1 }
+    Write-Log "al-masdar: $SourceView | tklfa=$avgCol | ism=$nameCol | code=$(if($codeCol){$codeCol}else{'-'}) | guid=$(if($guidCol){$guidCol}else{'-'})"
 
     $guidExpr = if ($guidCol) { "CONVERT(varchar(36), m.$guidCol)" } else { "NULL" }
+    $codeExpr = if ($codeCol) { "LTRIM(RTRIM(CAST(m.$codeCol AS nvarchar(80))))" } else { "''" }
 
     $query = @"
 SELECT
-    $guidExpr                         AS item_guid,
-    LTRIM(RTRIM(m.Name))              AS item_name,
-    LTRIM(RTRIM(m.Code))              AS item_code,
-    CAST(COALESCE(m.$costCol, 0) AS decimal(18,3)) AS avg_cost
-FROM MaterialCard000 m
-WHERE LTRIM(RTRIM(COALESCE(m.Name,''))) <> ''
+    $guidExpr                                       AS item_guid,
+    LTRIM(RTRIM(m.$nameCol))                        AS item_name,
+    $codeExpr                                       AS item_code,
+    CAST(COALESCE(m.$avgCol, 0) AS decimal(18,3))   AS avg_cost
+FROM $SourceView m
+WHERE LTRIM(RTRIM(COALESCE(m.$nameCol,''))) <> ''
 "@
     $cmd = $conn.CreateCommand()
     $cmd.CommandText = $query
     $cmd.CommandTimeout = 60
 
+    $seen = @{}
     $rows = New-Object System.Collections.Generic.List[object]
     $reader = $cmd.ExecuteReader()
     while ($reader.Read()) {
@@ -113,6 +103,8 @@ WHERE LTRIM(RTRIM(COALESCE(m.Name,''))) <> ''
         $cost = [double]$reader["avg_cost"]
         $key = if ($guid) { $guid } elseif ($code) { $code } else { $name }
         if (-not $key) { continue }
+        if ($seen.ContainsKey($key)) { continue }   # mfta7 farid wa7id likl mada
+        $seen[$key] = $true
         $rows.Add(@{
             item_guid  = $key
             item_name  = $name
@@ -124,12 +116,12 @@ WHERE LTRIM(RTRIM(COALESCE(m.Name,''))) <> ''
     $reader.Close()
     $conn.Close()
 
-    Write-Log "thm tjhyz tklfa $($rows.Count) mada."
-    $rows | Select-Object -First 8 | ForEach-Object {
+    Write-Log "thm tjhyz tklfa $($rows.Count) mada. 3yna:"
+    $rows | Where-Object { $_.avg_cost -gt 0 } | Select-Object -First 10 | ForEach-Object {
         Write-Host ("  {0,-34} = {1}" -f $_.item_name, $_.avg_cost)
     }
 
-    if ($DryRun) { Write-Log "wad3 al-tjruba (DryRun): lm ytm al-raf3."; exit 0 }
+    if ($DryRun) { Write-Log "wad3 al-tjruba (DryRun): lm ytm al-raf3." ; exit 0 }
     if ($rows.Count -eq 0) { Write-Log "la twjd byanat lil-raf3."; exit 0 }
 
     # login to Supabase as owner
