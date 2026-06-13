@@ -115,12 +115,26 @@
           "</div>"
         );
       }
-      (function () {
-        var d = decode();
+      var SB_URL = "https://dyxbirfpxeocqffnfdeb.supabase.co";
+      var SB_KEY = "sb_publishable_RkM_QDWxk8Yekqz9KBKXBw_Yl14zhSH";
+      function render(d) {
         var el = document.getElementById("doc");
         if (!d) { el.innerHTML = '<div class="err">الرابط غير صالح أو منتهي.</div>'; return; }
         document.title = "OZK TOBACCO | " + (d.t === "invoice" ? "فاتورة" : "وصل استلام") + (d.no ? " " + d.no : "");
         el.innerHTML = d.t === "invoice" ? renderInvoice(d) : renderReceipt(d);
+      }
+      (function () {
+        var id = new URLSearchParams(location.search).get("id");
+        if (id) {
+          fetch(SB_URL + "/rest/v1/shared_documents?id=eq." + encodeURIComponent(id) + "&select=doc", {
+            headers: { apikey: SB_KEY, "Accept-Profile": "public" }
+          })
+            .then(function (r) { return r.json(); })
+            .then(function (rows) { render(rows && rows[0] ? rows[0].doc : null); })
+            .catch(function () { render(null); });
+        } else {
+          render(decode());
+        }
       })();
     </script>
   </body>
