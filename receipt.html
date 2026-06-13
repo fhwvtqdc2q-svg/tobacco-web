@@ -32,6 +32,13 @@
       .row { display: flex; justify-content: space-between; padding: 9px 4px; border-bottom: 1px dashed var(--line); font-size: 14px; }
       .row b { direction: ltr; }
       .foot { margin-top: 16px; border-top: 1px solid var(--line); padding-top: 10px; display: flex; justify-content: space-between; font-size: 11px; color: var(--muted); flex-wrap: wrap; gap: 6px; }
+      .stamp-wrap { margin-top: 16px; display: flex; justify-content: flex-start; }
+      .seal { border: 2.5px solid #16357a; outline: 1.5px solid #16357a; outline-offset: 3px; border-radius: 12px; color: #16357a; padding: 9px 20px; text-align: center; transform: rotate(-5deg); opacity: .9; line-height: 1.45; }
+      .seal .s-name { font-size: 15px; font-weight: 900; }
+      .seal .s-sub { font-size: 12px; font-weight: 700; }
+      .seal .s-logo { font-size: 18px; font-weight: 900; letter-spacing: 1px; margin: 2px 0; }
+      .seal .s-info { font-size: 10.5px; font-weight: 700; }
+      .seal .s-addr { font-size: 11px; font-weight: 700; border-top: 1px solid #16357a; margin-top: 4px; padding-top: 3px; }
       .btns { max-width: 720px; margin: 10px auto 30px; display: flex; gap: 10px; padding: 0 14px; }
       .btn { flex: 1; padding: 12px; border: none; border-radius: 10px; font-size: 15px; font-weight: 800; cursor: pointer; font-family: inherit; }
       .btn.print { background: var(--gold); color: #fff; }
@@ -69,14 +76,25 @@
           '<div class="head">' +
             '<div style="display:flex;align-items:center;gap:10px">' +
               '<img src="public/icons/ozk-logo.png" class="logo" alt="OZK" onerror="this.style.display=\'none\'">' +
-              '<div class="brand">OZK TOBACCO<small>' + esc(d.sub || "تجارة التبغ — جملة ومفرق") + "</small></div>" +
+              '<div class="brand">OZK TOBACCO<small>' + esc(d.sub || "مركز أبو زياد — لتجارة الدخان") + "</small></div>" +
             "</div>" +
             '<div class="title"><h1>' + titleAr + "</h1><span>رقم: " + esc(d.no || "—") + " · " + esc(d.date || "") + "</span></div>" +
           "</div>"
         );
       }
       function foot() {
-        return '<div class="foot"><span>صادر آليًا عن نظام OZK TOBACCO</span><span dir="ltr">0985000771 — 0984000662</span></div>';
+        return '<div class="foot"><span>صادر آليًا عن نظام OZK TOBACCO · رقم المركز: 0994092038</span><span dir="ltr">0985000771 — 0984000662</span></div>';
+      }
+      function stampHtml() {
+        return (
+          '<div class="stamp-wrap"><div class="seal">' +
+            '<div class="s-name">مركز أبو زياد</div>' +
+            '<div class="s-sub">لتجارة الدخان</div>' +
+            '<div class="s-logo">OZK TOBACCO</div>' +
+            '<div class="s-info" dir="ltr">0985000771 - 0984000662 · رقم المركز: 0994092038</div>' +
+            '<div class="s-addr">دوما - ساحة الغنم</div>' +
+          "</div></div>"
+        );
       }
       function renderReceipt(d) {
         return (
@@ -92,6 +110,7 @@
               (d.balance != null ? '<div class="row"><span>الرصيد بعد الدفعة</span><b>' + money(d.balance) + " " + esc(d.cur || "ل.س") + "</b></div>" : "") +
             "</div>" +
             '<p style="font-size:12px;color:var(--muted);margin:6px 0 0">شكراً لتعاملكم مع OZK TOBACCO. هذا وصل رسمي بالمبلغ المستلم.</p>' +
+            stampHtml() +
             foot() +
           "</div>"
         );
@@ -111,6 +130,7 @@
             "<table><tr><th>#</th><th>الصنف</th><th>الكمية</th><th>السعر</th><th>الإجمالي</th></tr>" + rows +
               '<tr class="totrow"><td colspan="4">الإجمالي</td><td>' + money(d.total) + "</td></tr></table>" +
             (d.balance != null ? '<div class="rows"><div class="row"><span>الرصيد الحالي</span><b>' + money(d.balance) + " " + esc(d.cur || "ل.س") + "</b></div></div>" : "") +
+            stampHtml() +
             foot() +
           "</div>"
         );
