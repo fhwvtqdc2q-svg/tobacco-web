@@ -2624,8 +2624,11 @@ function pricingRow(item) {
   const retailHint = mode === "mufrak" && retailPerUnit1 > 0 ? `<small class="muted">≈ ${escapeHtml(formatMoney(retailPerUnit1))} $ لكل ${escapeHtml(unit1Name || "كروز")}</small>` : "";
   const rowState = (wholesale > 0 || retail > 0) ? "active" : item.status;
   const costRow = itemCostFor(item);
-  const costLine = costRow && Number(costRow.avg_cost) > 0
-    ? `<div class="cost-line" title="سعر التكلفة — يظهر لك أنت فقط (المدير)">🔒 التكلفة: <b>${escapeHtml(formatMoney(costRow.avg_cost))}</b> ${escapeHtml(costRow.currency || "ل.س")}</div>`
+  // التكلفة في الأمين لكل كروز — نضربها بعدد الكروزات بالكرتونة لتطابق تسعير الكرتونة
+  const cartonFactor = unit2Factor > 0 ? unit2Factor : 1;
+  const costPerCarton = costRow && Number(costRow.avg_cost) > 0 ? Number(costRow.avg_cost) * cartonFactor : 0;
+  const costLine = costPerCarton > 0
+    ? `<div class="cost-line" title="متوسط تكلفة ${escapeHtml(unitLabel)} (التكلفة لكل ${escapeHtml(unit1Name || "كروز")} × ${escapeHtml(unit2Factor)}) — يظهر لك أنت فقط (المدير)">🔒 تكلفة ${escapeHtml(unitLabel)}: <b>${escapeHtml(formatMoney(costPerCarton))}</b> $</div>`
     : "";
   return `
     <div class="pricing-card inventory-row-${escapeHtml(rowState)}">
