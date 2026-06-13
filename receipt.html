@@ -1,0 +1,127 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>OZK TOBACCO | مستند رسمي</title>
+    <style>
+      :root { --gold:#b8892a; --ink:#221808; --muted:#6b5535; --line:#c8b890; --cream:#faf6ec; --card:#ece6d4; --red:#c0271f; --green:#16794f; }
+      * { box-sizing: border-box; }
+      html, body { margin: 0; padding: 0; background: #efe7d6; color: var(--ink); font-family: Tahoma, Arial, sans-serif; }
+      .wrap { max-width: 720px; margin: 0 auto; padding: 14px; }
+      .doc { background: #fff; border: 1px solid var(--line); border-radius: 12px; padding: 22px 22px 16px; box-shadow: 0 6px 24px rgba(0,0,0,.08); }
+      .head { display: flex; justify-content: space-between; align-items: center; border-bottom: 2px solid var(--gold); padding-bottom: 12px; margin-bottom: 16px; gap: 10px; }
+      .brand { font-weight: 900; font-size: 20px; }
+      .brand small { display: block; font-weight: 400; font-size: 11px; color: var(--muted); }
+      .logo { height: 56px; width: auto; }
+      .title { text-align: left; }
+      .title h1 { margin: 0; font-size: 19px; color: var(--gold); white-space: nowrap; }
+      .title span { font-size: 11px; color: var(--muted); }
+      .cust { background: var(--cream); border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; display: flex; justify-content: space-between; align-items: center; gap: 10px; margin-bottom: 14px; flex-wrap: wrap; }
+      .cust .nm { font-weight: 900; font-size: 16px; }
+      .cust .meta { font-size: 12px; color: var(--muted); }
+      .amount-box { text-align: left; }
+      .amount-box .lbl { font-size: 12px; color: var(--muted); }
+      .amount-box .big { font-size: 26px; font-weight: 900; color: var(--green); direction: ltr; }
+      table { width: 100%; border-collapse: collapse; font-size: 13px; margin: 8px 0; }
+      th { background: var(--card); padding: 8px; text-align: right; border: 1px solid var(--line); font-size: 12px; }
+      td { padding: 7px 8px; border: 1px solid var(--line); }
+      tr:nth-child(even) td { background: var(--cream); }
+      .totrow td { background: var(--card); font-weight: 900; }
+      .rows { margin: 10px 0; }
+      .row { display: flex; justify-content: space-between; padding: 9px 4px; border-bottom: 1px dashed var(--line); font-size: 14px; }
+      .row b { direction: ltr; }
+      .foot { margin-top: 16px; border-top: 1px solid var(--line); padding-top: 10px; display: flex; justify-content: space-between; font-size: 11px; color: var(--muted); flex-wrap: wrap; gap: 6px; }
+      .btns { max-width: 720px; margin: 10px auto 30px; display: flex; gap: 10px; padding: 0 14px; }
+      .btn { flex: 1; padding: 12px; border: none; border-radius: 10px; font-size: 15px; font-weight: 800; cursor: pointer; font-family: inherit; }
+      .btn.print { background: var(--gold); color: #fff; }
+      .err { background:#fff; border:1px solid var(--line); border-radius:12px; padding:30px; text-align:center; color:var(--muted); }
+      @media print {
+        body { background: #fff; }
+        .btns { display: none; }
+        .doc { border: none; box-shadow: none; border-radius: 0; }
+        @page { size: A4 portrait; margin: 12mm; }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="wrap"><div id="doc"></div></div>
+    <div class="btns"><button class="btn print" onclick="window.print()">📄 حفظ بصيغة PDF / طباعة</button></div>
+    <script>
+      function money(n) {
+        var x = Number(n || 0);
+        return x.toLocaleString("en-US", { maximumFractionDigits: 3 });
+      }
+      function esc(s) {
+        return String(s == null ? "" : s).replace(/[&<>"]/g, function (c) {
+          return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c];
+        });
+      }
+      function decode() {
+        try {
+          var p = new URLSearchParams(location.search).get("d");
+          if (!p) return null;
+          return JSON.parse(decodeURIComponent(escape(atob(p.replace(/-/g, "+").replace(/_/g, "/")))));
+        } catch (e) { return null; }
+      }
+      function header(d, titleAr) {
+        return (
+          '<div class="head">' +
+            '<div style="display:flex;align-items:center;gap:10px">' +
+              '<img src="public/icons/ozk-logo.png" class="logo" alt="OZK" onerror="this.style.display=\'none\'">' +
+              '<div class="brand">OZK TOBACCO<small>' + esc(d.sub || "تجارة التبغ — جملة ومفرق") + "</small></div>" +
+            "</div>" +
+            '<div class="title"><h1>' + titleAr + "</h1><span>رقم: " + esc(d.no || "—") + " · " + esc(d.date || "") + "</span></div>" +
+          "</div>"
+        );
+      }
+      function foot() {
+        return '<div class="foot"><span>صادر آليًا عن نظام OZK TOBACCO</span><span dir="ltr">0985000771 — 0984000662</span></div>';
+      }
+      function renderReceipt(d) {
+        return (
+          '<div class="doc">' +
+            header(d, "وصل استلام مبلغ") +
+            '<div class="cust">' +
+              '<div><div class="nm">' + esc(d.name || "") + '</div><div class="meta">' + (d.phone ? "هاتف: " + esc(d.phone) : "") + "</div></div>" +
+              '<div class="amount-box"><div class="lbl">المبلغ المستلم</div><div class="big">' + money(d.amount) + " " + esc(d.cur || "ل.س") + "</div></div>" +
+            "</div>" +
+            '<div class="rows">' +
+              '<div class="row"><span>التاريخ</span><b>' + esc(d.date || "") + "</b></div>" +
+              (d.notes ? '<div class="row"><span>ملاحظة</span><b style="direction:rtl">' + esc(d.notes) + "</b></div>" : "") +
+              (d.balance != null ? '<div class="row"><span>الرصيد بعد الدفعة</span><b>' + money(d.balance) + " " + esc(d.cur || "ل.س") + "</b></div>" : "") +
+            "</div>" +
+            '<p style="font-size:12px;color:var(--muted);margin:6px 0 0">شكراً لتعاملكم مع OZK TOBACCO. هذا وصل رسمي بالمبلغ المستلم.</p>' +
+            foot() +
+          "</div>"
+        );
+      }
+      function renderInvoice(d) {
+        var items = Array.isArray(d.items) ? d.items : [];
+        var rows = items.length
+          ? items.map(function (it, i) {
+              return "<tr><td>" + (i + 1) + "</td><td>" + esc(it.name) + "</td><td>" + money(it.qty) + " " + esc(it.unit || "") + "</td><td>" + money(it.price) + "</td><td>" + money(it.total != null ? it.total : Number(it.qty || 0) * Number(it.price || 0)) + "</td></tr>";
+            }).join("")
+          : '<tr><td colspan="5" style="color:var(--muted)">لا توجد أصناف</td></tr>';
+        return (
+          '<div class="doc">' +
+            header(d, "فاتورة") +
+            '<div class="cust"><div><div class="nm">' + esc(d.name || "") + '</div><div class="meta">' + (d.phone ? "هاتف: " + esc(d.phone) : "") + "</div></div>" +
+              '<div class="amount-box"><div class="lbl">إجمالي الفاتورة</div><div class="big" style="color:var(--red)">' + money(d.total) + " " + esc(d.cur || "ل.س") + "</div></div></div>" +
+            "<table><tr><th>#</th><th>الصنف</th><th>الكمية</th><th>السعر</th><th>الإجمالي</th></tr>" + rows +
+              '<tr class="totrow"><td colspan="4">الإجمالي</td><td>' + money(d.total) + "</td></tr></table>" +
+            (d.balance != null ? '<div class="rows"><div class="row"><span>الرصيد الحالي</span><b>' + money(d.balance) + " " + esc(d.cur || "ل.س") + "</b></div></div>" : "") +
+            foot() +
+          "</div>"
+        );
+      }
+      (function () {
+        var d = decode();
+        var el = document.getElementById("doc");
+        if (!d) { el.innerHTML = '<div class="err">الرابط غير صالح أو منتهي.</div>'; return; }
+        document.title = "OZK TOBACCO | " + (d.t === "invoice" ? "فاتورة" : "وصل استلام") + (d.no ? " " + d.no : "");
+        el.innerHTML = d.t === "invoice" ? renderInvoice(d) : renderReceipt(d);
+      })();
+    </script>
+  </body>
+</html>
