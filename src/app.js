@@ -4135,6 +4135,10 @@ function bindCustomerDetailButtons(root = app) {
       state.paymentError = null;
       render();
       loadPaymentRecords(key);
+      // البطاقة تُرسم أعلى القائمة — ننزل إليها تلقائياً حتى يراها المستخدم
+      requestAnimationFrame(() => {
+        app.querySelector("[data-customer-detail-panel]")?.scrollIntoView({ behavior: "smooth", block: "center" });
+      });
     });
   });
 }
