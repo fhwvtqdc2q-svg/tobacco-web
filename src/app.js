@@ -2972,28 +2972,34 @@ function pdfAr(s) {
 }
 
 function inventoryReportPdfMarkup() {
-  const priced = pricingWorklistItems().filter((i) => i.hasApprovedPrice);
-  const out = priced.filter((i) => itemQty(i) <= 0);
-  const low = priced.filter((i) => itemQty(i) > 0 && itemQty(i) < 10).sort((a, b) => itemQty(a) - itemQty(b));
-  const list = [...out, ...low].slice(0, 60);
+  const all = pricingWorklistItems();
+  const out = all.filter((i) => itemQty(i) <= 0);
+  const low = all.filter((i) => itemQty(i) > 0 && itemQty(i) < 10);
+  // تقرير شامل لكل أصناف المخزون، مرتّب حسب المجموعة ثم الاسم
+  const list = all.slice().sort((a, b) =>
+    String(a.groupName || "").localeCompare(String(b.groupName || ""), "ar") ||
+    String(a.name || "").localeCompare(String(b.name || ""), "ar")
+  );
   const rows = list.length
     ? list.map((it) => {
         const q = itemQty(it);
         const st = q <= 0
           ? '<span class="deb">نافد</span>'
-          : (q < 5 ? '<span class="deb">شبه نافد</span>' : '<span style="color:#8a5a00;font-weight:700">منخفض</span>');
+          : (q < 5 ? '<span class="deb">شبه نافد</span>'
+          : (q < 10 ? '<span style="color:#8a5a00;font-weight:700">منخفض</span>'
+          : '<span style="color:#16794f;font-weight:700">متوفّر</span>'));
         return `<tr><td>${escapeHtml(pdfAr(it.name || ""))}</td><td>${escapeHtml(pdfAr(`${formatMoney(q)} ${itemUnit2Name(it)}`))}</td><td>${it.unit2Price > 0 ? escapeHtml(formatMoney(it.unit2Price)) : "—"}</td><td>${st}</td></tr>`;
       }).join("")
-    : `<tr><td colspan="4" class="muted">لا توجد مواد منخفضة أو نافدة</td></tr>`;
+    : `<tr><td colspan="4" class="muted">لا توجد مواد</td></tr>`;
   return `${REPORT_STYLE}<div class="ozk-rpt">
     <div class="rhead"><div class="brand">OZK TOBACCO<small>تقرير المخزون</small></div>
       <div class="rtitle"><h2>المخزون</h2><span>بتاريخ ${escapeHtml(todayIsoDate())}</span></div></div>
     <div class="cards">
-      <div class="rcard"><div class="v gold">${escapeHtml(priced.length)}</div><div class="l">صنف مسعّر</div></div>
+      <div class="rcard"><div class="v gold">${escapeHtml(all.length)}</div><div class="l">إجمالي الأصناف</div></div>
       <div class="rcard"><div class="v red">${escapeHtml(low.length)}</div><div class="l">قارب على النفاد (أقل من 10)</div></div>
       <div class="rcard"><div class="v red">${escapeHtml(out.length)}</div><div class="l">نافد</div></div>
     </div>
-    <div class="sec">مواد قاربت على النفاد أو نافدة</div>
+    <div class="sec">كل أصناف المخزون (${escapeHtml(list.length)} صنف)</div>
     <table><tr><th>الصنف</th><th>المتبقّي</th><th>السعر</th><th>الحالة</th></tr>${rows}</table>
   </div>`;
 }
