@@ -195,6 +195,7 @@ const state = {
   customerLimitError: null,
   approvedPriceItems: [],
   approvedPriceError: null,
+  itemCosts: [],
   lastInventoryRefresh: null,
   priceExport: null,
   ameenSearch: "",
@@ -365,13 +366,59 @@ async function loadInventoryReports() {
     if (dataStore.isConfigured() && !state.session) {
       state.inventoryReports = [];
       state.lastInventoryRefresh = null;
+      state.itemCosts = [];
       return;
     }
     state.inventoryReports = await dataStore.listInventoryReports();
     state.lastInventoryRefresh = new Date().toISOString();
+    await loadItemCosts();
   } catch {
     state.inventoryReports = [];
   }
+}
+
+// التكلفة للمدير فقط — تُجلب من جدول item_costs المحمي (RLS = is_owner)
+const OWNER_EMAILS = ["ozk.kh@outlook.com", "ozkkhalouf@gmail.com"];
+function isOwner() {
+  const email = String(state.session?.email || "").trim().toLowerCase();
+  return OWNER_EMAILS.includes(email);
+}
+
+async function loadItemCosts() {
+  try {
+    if (!isOwner() || !dataStore.listItemCosts) {
+      state.itemCosts = [];
+      return;
+    }
+    state.itemCosts = await dataStore.listItemCosts();
+  } catch {
+    state.itemCosts = [];
+  }
+}
+
+let _costIndexRef = null;
+let _costIndex = new Map();
+function itemCostIndex() {
+  if (_costIndexRef === state.itemCosts) return _costIndex;
+  const map = new Map();
+  (state.itemCosts || []).forEach((row) => {
+    if (!row) return;
+    if (row.item_guid) map.set("g:" + String(row.item_guid).toUpperCase(), row);
+    if (row.item_name) map.set("n:" + normalizeItemName(row.item_name), row);
+  });
+  _costIndexRef = state.itemCosts;
+  _costIndex = map;
+  return map;
+}
+function itemCostFor(item) {
+  if (!isOwner() || !item) return null;
+  const idx = itemCostIndex();
+  if (item.itemGuid) {
+    const byGuid = idx.get("g:" + String(item.itemGuid).toUpperCase());
+    if (byGuid) return byGuid;
+  }
+  const byName = idx.get("n:" + normalizeItemName(item.name || item.key || ""));
+  return byName || null;
 }
 
 async function loadCustomerBalanceReports() {
@@ -2576,6 +2623,10 @@ function pricingRow(item) {
   const retailPerUnit1 = retail > 0 ? roundPrice(retail / unit2Factor) : 0;
   const retailHint = mode === "mufrak" && retailPerUnit1 > 0 ? `<small class="muted">≈ ${escapeHtml(formatMoney(retailPerUnit1))} $ لكل ${escapeHtml(unit1Name || "كروز")}</small>` : "";
   const rowState = (wholesale > 0 || retail > 0) ? "active" : item.status;
+  const costRow = itemCostFor(item);
+  const costLine = costRow && Number(costRow.avg_cost) > 0
+    ? `<div class="cost-line" title="سعر التكلفة — يظهر لك أنت فقط (المدير)">🔒 التكلفة: <b>${escapeHtml(formatMoney(costRow.avg_cost))}</b> ${escapeHtml(costRow.currency || "ل.س")}</div>`
+    : "";
   return `
     <div class="pricing-card inventory-row-${escapeHtml(rowState)}">
       <div class="pricing-card-head">
@@ -2584,6 +2635,7 @@ function pricingRow(item) {
       </div>
       <small>${escapeHtml(unit2Name)} / ${escapeHtml(unit2Factor)} ${escapeHtml(unit1Name)}</small>
       <b>${priced ? escapeHtml(formatMoney(shown)) + " $" : "غير مسعر"}</b>
+      ${costLine}
       ${retailHint}
       <span>${escapeHtml(priced ? (mode === "mufrak" ? "مفرق ✓" : "جملة ✓") : statusLabel(item.status))}</span>
       <form class="pricing-editor" data-form="pricing-item" data-item-key="${escapeHtml(item.key)}" data-item-name="${escapeHtml(item.name || "")}" data-stock-qty="${escapeHtml(qty)}" data-stock-status="${escapeHtml(item.status || "")}" data-unit1-name="${escapeHtml(unit1Name)}" data-unit2-name="${escapeHtml(unit2Name)}" data-unit2-factor="${escapeHtml(unit2Factor)}">

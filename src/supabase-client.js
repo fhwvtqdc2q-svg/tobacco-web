@@ -81,6 +81,7 @@
   const approvedPricesTable = config.approvedPricesTable || "approved_price_items";
   const paymentRecordsTable = config.paymentRecordsTable || "payment_records";
   const customerProfilesTable = config.customerProfilesTable || "customer_profiles";
+  const itemCostsTable = config.itemCostsTable || "item_costs";
   const client =
     hasConfig && hasLibrary
       ? window.supabase.createClient(config.url, config.publishableKey, {
@@ -438,6 +439,22 @@
 
       if (error) throw new Error(translateDbError(error.message));
       return data || [];
+    },
+
+    async listItemCosts() {
+      // التكلفة محمية على مستوى القاعدة (RLS = is_owner). غير المدير يرجع له [] دائماً.
+      if (!client) return [];
+      const session = await getSupabaseSession();
+      if (!session) return [];
+      try {
+        const { data, error } = await client
+          .from(itemCostsTable)
+          .select("item_guid, item_name, avg_cost, currency, updated_at");
+        if (error) return [];
+        return data || [];
+      } catch {
+        return [];
+      }
     },
 
     async getCustomerMovementsReport() {

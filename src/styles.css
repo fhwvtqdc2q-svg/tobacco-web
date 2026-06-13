@@ -933,6 +933,31 @@ code {
   border-color: #c8b890;
 }
 
+.cost-line {
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: #5a4a00;
+  background: #fff3c4;
+  border: 1px dashed #d8b84a;
+  border-radius: 6px;
+  padding: 2px 7px;
+  width: fit-content;
+}
+
+.cost-line b {
+  color: #3f3400;
+}
+
+[data-theme="dark"] .cost-line {
+  color: #ffe08a;
+  background: #2a2210;
+  border-color: #6b551d;
+}
+
+[data-theme="dark"] .cost-line b {
+  color: #fff0b8;
+}
+
 .pricing-card-head {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
