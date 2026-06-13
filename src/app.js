@@ -196,6 +196,8 @@ const state = {
   approvedPriceItems: [],
   approvedPriceError: null,
   itemCosts: [],
+  paymentRecords: {},
+  paymentError: null,
   lastInventoryRefresh: null,
   priceExport: null,
   ameenSearch: "",
@@ -3025,7 +3027,7 @@ function customerDetailsPanel(item) {
   const profile = customerProfile(key);
   const ameenPayments = (Array.isArray(item.recentPayments) ? item.recentPayments : [])
     .map((p) => ({ amount: p.amount, date: p.date || "", notes: p.notes, source: "ameen" }));
-  const manualPayments = (state.paymentRecords[key] || [])
+  const manualPayments = ((state.paymentRecords && state.paymentRecords[key]) || [])
     .map((p) => ({ amount: p.amount, date: p.paymentDate || "", notes: p.notes, source: "manual" }));
   const allPayments = [...ameenPayments, ...manualPayments]
     .sort((a, b) => new Date(b.date || 0) - new Date(a.date || 0));
