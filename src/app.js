@@ -2817,7 +2817,7 @@ async function exportReportPdf(bodyHtml, filename) {
         filename,
         margin: [8, 8, 8, 8],
         image: { type: "png", quality: 0.98 },
-        html2canvas: { scale: 2, useCORS: true, backgroundColor: "#ffffff" },
+        html2canvas: { scale: 2, useCORS: false, allowTaint: true, backgroundColor: "#ffffff", imageTimeout: 4000, logging: false },
         jsPDF: { unit: "mm", format: "a4", orientation: "portrait" },
         pagebreak: { mode: ["css", "legacy"] }
       })

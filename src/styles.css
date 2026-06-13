@@ -2330,6 +2330,7 @@ code {
   color: var(--ink);
   direction: ltr;
   display: inline-block;
+  align-self: flex-start;
 }
 
 .payment-date {
@@ -2353,6 +2354,7 @@ code {
   border-radius: 4px;
   font-weight: 600;
   display: inline-block;
+  align-self: flex-start;
 }
 
 .badge-ameen {
