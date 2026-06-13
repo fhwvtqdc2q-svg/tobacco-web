@@ -109,7 +109,7 @@ WHERE LTRIM(RTRIM(COALESCE(m.$nameCol,''))) <> ''
             item_guid  = $key
             item_name  = $name
             avg_cost   = [math]::Round($cost, 3)
-            currency   = "SYP"
+            currency   = "$"
             updated_at = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ss.fffZ")
         })
     }
