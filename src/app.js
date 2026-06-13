@@ -2777,7 +2777,7 @@ const REPORT_STYLE = `<style>
 .ozk-rpt{font-family:Tahoma,Arial,sans-serif;color:#221808;background:#fff;direction:rtl;padding:6px 10px}
 .ozk-rpt .rhead{display:flex;justify-content:space-between;align-items:flex-start;border-bottom:2px solid #b8892a;padding-bottom:8px;margin-bottom:12px}
 .ozk-rpt .brand{font-weight:900;font-size:19px}.ozk-rpt .brand small{display:block;font-weight:400;font-size:10px;color:#6b5535}
-.ozk-rpt .rtitle{text-align:left;white-space:nowrap}.ozk-rpt .rtitle h2{margin:0;font-size:16px;color:#b8892a;white-space:nowrap}.ozk-rpt .rtitle span{font-size:10px;color:#6b5535;white-space:nowrap}
+.ozk-rpt .rtitle{flex:1;text-align:right;white-space:nowrap;padding-right:14px}.ozk-rpt .rtitle h2{margin:0;font-size:16px;color:#b8892a;white-space:nowrap}.ozk-rpt .rtitle span{font-size:10px;color:#6b5535;white-space:nowrap}
 .ozk-rpt .balbox{background:#f6ead0;border:1px solid #b8892a;border-radius:8px;padding:10px 14px;display:flex;justify-content:space-between;align-items:center;margin-bottom:8px}
 .ozk-rpt .balbox .nm{font-weight:900;font-size:15px}.ozk-rpt .balbox .big{font-size:24px;font-weight:900;color:#c0271f}
 .ozk-rpt .muted{color:#6b5535;font-size:10.5px}
