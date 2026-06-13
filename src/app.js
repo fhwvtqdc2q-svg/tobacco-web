@@ -2777,7 +2777,7 @@ const REPORT_STYLE = `<style>
 .ozk-rpt{font-family:Tahoma,Arial,sans-serif;color:#221808;background:#fff;direction:rtl;padding:6px 10px}
 .ozk-rpt .rhead{display:flex;justify-content:space-between;align-items:flex-start;border-bottom:2px solid #b8892a;padding-bottom:8px;margin-bottom:12px}
 .ozk-rpt .brand{font-weight:900;font-size:19px}.ozk-rpt .brand small{display:block;font-weight:400;font-size:10px;color:#6b5535}
-.ozk-rpt .rtitle{text-align:left}.ozk-rpt .rtitle h2{margin:0;font-size:16px;color:#b8892a}.ozk-rpt .rtitle span{font-size:10px;color:#6b5535}
+.ozk-rpt .rtitle{text-align:left;white-space:nowrap}.ozk-rpt .rtitle h2{margin:0;font-size:16px;color:#b8892a;white-space:nowrap}.ozk-rpt .rtitle span{font-size:10px;color:#6b5535;white-space:nowrap}
 .ozk-rpt .balbox{background:#f6ead0;border:1px solid #b8892a;border-radius:8px;padding:10px 14px;display:flex;justify-content:space-between;align-items:center;margin-bottom:8px}
 .ozk-rpt .balbox .nm{font-weight:900;font-size:15px}.ozk-rpt .balbox .big{font-size:24px;font-weight:900;color:#c0271f}
 .ozk-rpt .muted{color:#6b5535;font-size:10.5px}
@@ -2967,6 +2967,12 @@ async function exportReceivablesPdf() {
   render();
 }
 
+// محرّك تحويل PDF (html2canvas) يسقط المسافات بين الكلمات العربية أحياناً —
+// نحوّل المسافات العادية لمسافات ثابتة (nbsp) لتبقى ظاهرة في التقرير.
+function pdfAr(s) {
+  return String(s == null ? "" : s).replace(/ /g, " ");
+}
+
 function inventoryReportPdfMarkup() {
   const priced = pricingWorklistItems().filter((i) => i.hasApprovedPrice);
   const out = priced.filter((i) => itemQty(i) <= 0);
@@ -2978,7 +2984,7 @@ function inventoryReportPdfMarkup() {
         const st = q <= 0
           ? '<span class="deb">نافد</span>'
           : (q < 5 ? '<span class="deb">شبه نافد</span>' : '<span style="color:#8a5a00;font-weight:700">منخفض</span>');
-        return `<tr><td>${escapeHtml(it.name || "")}</td><td>${escapeHtml(formatMoney(q))} ${escapeHtml(itemUnit2Name(it))}</td><td>${it.unit2Price > 0 ? escapeHtml(formatMoney(it.unit2Price)) : "—"}</td><td>${st}</td></tr>`;
+        return `<tr><td>${escapeHtml(pdfAr(it.name || ""))}</td><td>${escapeHtml(pdfAr(`${formatMoney(q)} ${itemUnit2Name(it)}`))}</td><td>${it.unit2Price > 0 ? escapeHtml(formatMoney(it.unit2Price)) : "—"}</td><td>${st}</td></tr>`;
       }).join("")
     : `<tr><td colspan="4" class="muted">لا توجد مواد منخفضة أو نافدة</td></tr>`;
   return `${REPORT_STYLE}<div class="ozk-rpt">
