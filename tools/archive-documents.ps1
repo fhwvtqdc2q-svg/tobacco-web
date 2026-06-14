@@ -1,4 +1,4 @@
-# ============================================================
+﻿# ============================================================
 # archive-documents.ps1  (يعمل على اللابتوب)
 # يراقب مستندات الموقع (shared_documents) ويحفظ كل وصل/فاتورة
 # كملف PDF على سطح المكتب بمجلدين:
@@ -53,6 +53,7 @@ foreach ($p in @(
     "${env:ProgramFiles(x86)}\Microsoft\Edge\Application\msedge.exe"
 )) { if (Test-Path $p) { $chrome = $p; break } }
 if (-not $chrome) { Write-Log "khata: lm ajid Chrome aw Edge."; exit 1 }
+$chromeProfile = Join-Path $env:TEMP "ozk-chrome-prof"
 Write-Log "browser: $chrome"
 
 # --- مجلدات السطح ---
@@ -92,8 +93,12 @@ foreach ($d in $docs) {
     $i = 2
     while (Test-Path $out) { $out = Join-Path $folder ("$base ($i).pdf"); $i++ }
     $url = $SITE + $d.id
-    & $chrome --headless=new --disable-gpu --no-margins --virtual-time-budget=9000 "--print-to-pdf=$out" --print-to-pdf-no-header $url 2>$null
+    $prof = Join-Path $env:TEMP ("ozk-prof-" + $d.id)
+    $cargs = @("--headless", "--disable-gpu", "--no-sandbox", "--user-data-dir=`"$prof`"",
+        "--no-margins", "--virtual-time-budget=15000", "--print-to-pdf=`"$out`"", "--print-to-pdf-no-header", "`"$url`"")
+    Start-Process -FilePath $chrome -ArgumentList $cargs -NoNewWindow -PassThru -Wait | Out-Null
     Start-Sleep -Milliseconds 400
+    try { Remove-Item -Recurse -Force $prof -ErrorAction SilentlyContinue } catch {}
     if (Test-Path $out) {
         Add-Content -LiteralPath $StateFile -Value $d.id -Encoding UTF8
         $done[$d.id] = $true
