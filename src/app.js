@@ -1936,9 +1936,8 @@ function shell(content) {
         </a>
         <nav>
           ${navButton("overview", "🏠 الرئيسية")}
-          ${state.session ? navButton("dashboard", "📊 الإحصائيات") : ""}
+          ${state.session ? navButton("dashboard", "📑 التقارير") : ""}
           ${navButton("login", "🔑 تسجيل الدخول")}
-          ${navButton("requests", "📋 طلبات العملاء")}
           ${navButton("ameen", "📦 الأمين")}
           ${navButton("pricing", "💰 التسعير")}
           ${state.session ? navButton("invoice", "📄 الفواتير") : ""}
@@ -2006,7 +2005,7 @@ function pageTitle() {
     payments: "الدفع",
     ai: "المساعد الذكي",
     invoice: "الفواتير بالدولار",
-    dashboard: "الإحصائيات والتحليلات",
+    dashboard: "التقارير",
     staff: "إدارة الموظفين",
     search: `نتائج: ${escapeHtml(state.globalSearch)}`
   }[state.route];
@@ -3317,125 +3316,70 @@ function remote() {
   `);
 }
 
-function dashboardStats() {
-  const requests = state.requests || [];
-  const total = requests.length;
-  const open = requests.filter((r) => r.status !== "مغلق").length;
-
-  const channelCounts = {};
-  for (const r of requests) channelCounts[r.channel] = (channelCounts[r.channel] || 0) + 1;
-  const topChannel = Object.entries(channelCounts).sort((a, b) => b[1] - a[1])[0] || ["—", 0];
-  const allChannels = ["واتساب", "هاتف", "ويب", "زيارة فرع"].map((ch) => ({ label: ch, count: channelCounts[ch] || 0 }));
-
-  const typeCounts = {};
-  for (const r of requests) typeCounts[r.type] = (typeCounts[r.type] || 0) + 1;
-  const allTypes = ["استفسار", "شكوى", "متابعة", "طلب خدمة"].map((t) => ({ label: t, count: typeCounts[t] || 0 }));
-
-  const invItems = Array.isArray(state.inventoryReports[0]?.items) ? state.inventoryReports[0].items : [];
-  const inventoryAlerts = invItems.filter((i) => i.status === "low" || i.status === "out").length;
-
-  const balItems = Array.isArray(state.customerBalanceReports?.[0]?.items) ? state.customerBalanceReports[0].items : [];
-  const debitCustomers = balItems.filter((i) => Number(i.balance || 0) > 0).length;
-
-  const today = new Date();
-  const trend = Array.from({ length: 7 }, (_, i) => {
-    const d = new Date(today);
-    d.setDate(today.getDate() - (6 - i));
-    const iso = d.toISOString().slice(0, 10);
-    const day = requests.filter((r) => { try { return new Date(r.createdAt).toISOString().slice(0, 10) === iso; } catch { return false; } });
-    return { date: iso, open: day.filter((r) => r.status !== "مغلق").length, closed: day.filter((r) => r.status === "مغلق").length };
-  });
-
-  const custCounts = {};
-  for (const r of requests) if (r.customer) custCounts[r.customer] = (custCounts[r.customer] || 0) + 1;
-  const topCustomers = Object.entries(custCounts).sort((a, b) => b[1] - a[1]).slice(0, 5).map(([name, count]) => ({ name, count }));
-
-  return { total, open, topChannel, allChannels, allTypes, inventoryAlerts, debitCustomers, trend, topCustomers };
-}
-
-function dashboard() {
-  const s = dashboardStats();
-  const maxCh = Math.max(...s.allChannels.map((c) => c.count), 1);
-  const maxTy = Math.max(...s.allTypes.map((t) => t.count), 1);
-  const maxCust = Math.max(...s.topCustomers.map((c) => c.count), 1);
-  const maxTrend = Math.max(...s.trend.map((d) => d.open + d.closed), 1);
-
-  function bar(items, max, cls = "") {
-    return items.map((item) => {
-      const pct = Math.round((item.count / max) * 100);
-      return `<div class="dash-bar-row">
-        <span class="dash-bar-label">${escapeHtml(item.label)}</span>
-        <div class="dash-bar-track"><div class="dash-bar-fill ${cls}" style="width:${pct}%"></div></div>
-        <span class="dash-bar-val">${item.count}</span>
-      </div>`;
-    }).join("");
+function reportsPage() {
+  if (!state.session) {
+    return shell(`<section class="panel"><p class="muted">سجّل الدخول للوصول إلى التقارير.</p></section>`);
   }
-
-  const trendRows = s.trend.map((d) => {
-    let lbl = d.date.slice(5);
-    try { lbl = new Intl.DateTimeFormat("ar-SA-u-nu-latn", { weekday: "short", day: "numeric", month: "numeric" }).format(new Date(d.date)); } catch {}
-    const op = Math.round((d.open / maxTrend) * 100);
-    const cl = Math.round((d.closed / maxTrend) * 100);
-    return `<div class="dash-trend-row">
-      <span class="dash-bar-label" style="width:80px">${escapeHtml(lbl)}</span>
-      <div class="dash-bar-track" style="flex:1"><div class="dash-bar-fill dash-bar-open" style="width:${op}%"></div><div class="dash-bar-fill dash-bar-closed" style="width:${cl}%"></div></div>
-      <span class="dash-bar-val"><span style="color:var(--primary)">${d.open}</span>/<span style="color:var(--muted)">${d.closed}</span></span>
-    </div>`;
-  }).join("");
-
-  const custRows = s.topCustomers.length
-    ? bar(s.topCustomers.map((c) => ({ label: c.name, count: c.count })), maxCust, "dash-bar-cust")
-    : '<p class="muted">لا يوجد طلبات بعد.</p>';
+  const balItems = latestCustomerBalanceItems();
+  const customerOptions = balItems
+    .slice()
+    .sort((a, b) => String(a.name || "").localeCompare(String(b.name || ""), "ar"))
+    .map((it) => {
+      const k = customerKey(it);
+      return `<option value="${escapeHtml(k)}"${k === state.selectedCustomerKey ? " selected" : ""}>${escapeHtml(it.name || "")}</option>`;
+    })
+    .join("");
 
   return shell(`
-    <div class="status-board full">
-      <article class="status-card">
-        <span>إجمالي الطلبات</span>
-        <strong>${s.total}</strong>
-        <small>${s.open} مفتوحة / ${s.total - s.open} مغلقة</small>
-      </article>
-      <article class="status-card">
-        <span>القناة الأكثر</span>
-        <strong>${escapeHtml(s.topChannel[0])}</strong>
-        <small>${s.topChannel[1]} طلب</small>
-      </article>
-      <article class="status-card" style="${s.inventoryAlerts > 0 ? "border-color:var(--danger)" : ""}">
-        <span>تنبيهات المخزون</span>
-        <strong style="${s.inventoryAlerts > 0 ? "color:var(--danger)" : ""}">${s.inventoryAlerts}</strong>
-        <small>مادة منخفضة أو نافدة</small>
-      </article>
-      <article class="status-card">
-        <span>زبائن برصيد مدين</span>
-        <strong>${s.debitCustomers}</strong>
-        <small>رصيد موجب</small>
-      </article>
-    </div>
+    <section class="panel wide reports-page">
+      <p class="muted" style="margin:0 0 16px">كل التقارير في مكان واحد. اضغط على عنوان أي تقرير ليفتح للأسفل.</p>
 
-    <div class="content-grid" style="margin-top:20px">
-      <article class="panel">
-        <h3>الطلبات حسب القناة</h3>
-        <div class="dash-chart">${bar(s.allChannels, maxCh)}</div>
-      </article>
-      <article class="panel">
-        <h3>الطلبات حسب النوع</h3>
-        <div class="dash-chart">${bar(s.allTypes, maxTy)}</div>
-      </article>
-    </div>
-
-    <div class="content-grid">
-      <article class="panel">
-        <h3>نشاط آخر 7 أيام</h3>
-        <div class="dash-legend">
-          <span class="dash-legend-dot" style="background:var(--primary)"></span><span style="font-size:.82rem;color:var(--muted)">مفتوح</span>
-          <span class="dash-legend-dot" style="background:var(--line)"></span><span style="font-size:.82rem;color:var(--muted)">مغلق</span>
+      <details class="acc-group" open>
+        <summary class="acc-summary"><span class="acc-title">📊 ملخص الحركة اليومية</span><span class="acc-count">جديد</span></summary>
+        <div class="acc-body report-card">
+          <p class="muted">يعرض مبيعات اليوم بالكميات (كم كرتونة / كم طرد / كم شرحة) إضافةً إلى حركة صندوق الدولار: الدفعات اليومية بأسماء الزبائن، والمبيعات النقدية باسم «زبون الكاش»، لمطابقة حركة الصندوق.</p>
+          <label class="report-field">التاريخ
+            <input type="date" data-report-date value="${todayIsoDate()}">
+          </label>
+          <div class="report-status">⏳ قيد الربط مع برنامج الأمين — يتفعّل بعد رفع بيانات المبيعات اليومية من الأمين إلى القاعدة.</div>
         </div>
-        <div class="dash-chart">${trendRows}</div>
-      </article>
-      <article class="panel">
-        <h3>أكثر 5 عملاء طلباً</h3>
-        <div class="dash-chart">${custRows}</div>
-      </article>
-    </div>
+      </details>
+
+      <details class="acc-group">
+        <summary class="acc-summary"><span class="acc-title">📊 تقرير الذمم (أرصدة الزبائن)</span><span class="acc-count">PDF</span></summary>
+        <div class="acc-body report-card">
+          <p class="muted">إجمالي المبالغ المستحقة على الزبائن مع أعلى ٤٠ زبوناً مديناً.</p>
+          <button class="button primary" type="button" data-action="report-receivables"${balItems.length ? "" : " disabled"}>📊 تنزيل تقرير الذمم PDF</button>
+        </div>
+      </details>
+
+      <details class="acc-group">
+        <summary class="acc-summary"><span class="acc-title">📄 كشف حساب زبون</span><span class="acc-count">PDF</span></summary>
+        <div class="acc-body report-card">
+          <p class="muted">كشف حساب رسمي لزبون محدّد: الرصيد الافتتاحي، كل الحركات، والرصيد الختامي.</p>
+          <label class="report-field">الزبون
+            <select data-report-customer>${customerOptions || '<option value="">لا يوجد زبائن</option>'}</select>
+          </label>
+          <button class="button primary" type="button" data-action="report-statement"${balItems.length ? "" : " disabled"}>📄 تنزيل كشف الحساب PDF</button>
+        </div>
+      </details>
+
+      <details class="acc-group">
+        <summary class="acc-summary"><span class="acc-title">📦 تقرير المخزون</span><span class="acc-count">PDF</span></summary>
+        <div class="acc-body report-card">
+          <p class="muted">المواد النافدة وشبه النافدة والمنخفضة في المخزون.</p>
+          <button class="button primary" type="button" data-action="report-inventory">📦 تنزيل تقرير المخزون PDF</button>
+        </div>
+      </details>
+
+      <details class="acc-group">
+        <summary class="acc-summary"><span class="acc-title">📥 التقرير الشهري للطلبات</span><span class="acc-count">Excel</span></summary>
+        <div class="acc-body report-card">
+          <p class="muted">ملف Excel بكل طلبات الشهر الحالي وملخّص بحالاتها.</p>
+          <button class="button secondary" type="button" data-action="export-monthly">📥 تنزيل Excel الشهري</button>
+        </div>
+      </details>
+    </section>
   `);
 }
 
@@ -3474,9 +3418,9 @@ function staffPage() {
   }
   const isOwner = state.session.email === appConfig.ai.ownerEmail;
   const roles = [
-    { name: "الإدارة", desc: "صلاحيات كاملة لجميع الصفحات", pages: ["الطلبات", "الأمين", "التسعير", "الإحصائيات", "الفواتير", "المراقبة", "الدفع"] },
+    { name: "الإدارة", desc: "صلاحيات كاملة لجميع الصفحات", pages: ["الطلبات", "الأمين", "التسعير", "التقارير", "الفواتير", "المراقبة", "الدفع"] },
     { name: "خدمة العملاء", desc: "إدارة الطلبات والتواصل مع العملاء", pages: ["الطلبات", "المراقبة"] },
-    { name: "المراقبة", desc: "عرض التقارير والإحصائيات فقط", pages: ["الإحصائيات", "المراقبة", "الأمين"] },
+    { name: "المراقبة", desc: "عرض التقارير فقط", pages: ["التقارير", "المراقبة", "الأمين"] },
     { name: "الدعم الفني", desc: "إدارة المخزون والتسعير", pages: ["الأمين", "التسعير", "الطلبات"] }
   ];
   const rolesHtml = roles.map((r) => `
@@ -4294,7 +4238,7 @@ function render() {
     monitoring,
     payments,
     invoice,
-    dashboard,
+    dashboard: reportsPage,
     staff: staffPage,
     search: searchPage,
     ai: aiAssistant
@@ -4466,6 +4410,14 @@ function render() {
   app.querySelector("[data-action='export-statement']")?.addEventListener("click", exportCustomerStatementPdf);
   app.querySelector("[data-action='report-receivables']")?.addEventListener("click", exportReceivablesPdf);
   app.querySelector("[data-action='report-inventory']")?.addEventListener("click", exportInventoryReportPdf);
+  app.querySelector("[data-report-customer]")?.addEventListener("change", (event) => {
+    state.selectedCustomerKey = event.target.value;
+  });
+  app.querySelector("[data-action='report-statement']")?.addEventListener("click", () => {
+    const sel = app.querySelector("[data-report-customer]");
+    if (sel) state.selectedCustomerKey = sel.value;
+    exportCustomerStatementPdf();
+  });
 
   app.querySelector("[data-action='print-overdue']")?.addEventListener("click", printOverdueReport);
 
