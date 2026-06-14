@@ -209,6 +209,11 @@ const state = {
   customerFilter: "debit_balance",
   customerSort: "balanceDesc",
   selectedCustomerKey: "",
+  dailyMovement: null,
+  dailyMovementDate: "",
+  dailyMovementLoading: false,
+  dailyMovementError: null,
+  dmFetchedFor: null,
   loading: true,
   notice: null,
   aiMessages: [],
@@ -376,6 +381,26 @@ async function loadInventoryReports() {
     await loadItemCosts();
   } catch {
     state.inventoryReports = [];
+  }
+}
+
+async function loadDailyMovement(date) {
+  const target = date || state.dailyMovementDate || todayIsoDate();
+  state.dailyMovementDate = target;
+  state.dailyMovementLoading = true;
+  state.dailyMovementError = null;
+  state.dmFetchedFor = target;
+  render();
+  try {
+    state.dailyMovement = dataStore.getDailyMovementReport
+      ? await dataStore.getDailyMovementReport(target)
+      : null;
+  } catch (error) {
+    state.dailyMovement = null;
+    state.dailyMovementError = safeErrorMessage(error);
+  } finally {
+    state.dailyMovementLoading = false;
+    render();
   }
 }
 
@@ -3316,6 +3341,60 @@ function remote() {
   `);
 }
 
+function dailyMovementSection() {
+  const date = state.dailyMovementDate || todayIsoDate();
+  const head = `
+    <div class="dm-controls">
+      <label class="report-field">التاريخ
+        <input type="date" data-daily-date value="${escapeHtml(date)}" max="${escapeHtml(todayIsoDate())}">
+      </label>
+      <button class="button secondary" type="button" data-action="daily-refresh">🔄 تحديث</button>
+    </div>`;
+  if (state.dailyMovementLoading) return head + `<p class="muted">جاري تحميل تقرير اليوم…</p>`;
+  if (state.dailyMovementError) return head + `<div class="report-status">تعذّر التحميل: ${escapeHtml(state.dailyMovementError)}</div>`;
+
+  const rep = state.dailyMovement;
+  if (!rep || !rep.payload) {
+    return head + `<div class="report-status">لا يوجد تقرير لهذا اليوم بعد. يُنشأ تلقائياً من «الأمين»، أو شغّل الوكيل على لابتوب الأمين.</div>`;
+  }
+
+  const p = rep.payload;
+  const sales = Array.isArray(p.sales) ? p.sales : [];
+  const UNITS = ["كرتونة", "طرد", "شرحة"];
+  const fmt = (n) => (Math.round(Number(n || 0) * 100) / 100).toLocaleString("en-US");
+  const net = (unit) => sales.reduce((a, r) => a + (r.unit === unit ? (Number(r.billClass) === 3 ? -1 : 1) * Number(r.units || 0) : 0), 0);
+  const cards = UNITS.map((u) => `<div class="dm-card"><div class="dm-v">${escapeHtml(fmt(net(u)))}</div><div class="dm-l">${u}</div></div>`).join("");
+
+  const types = [...new Set(sales.map((r) => r.billType))];
+  const breakdown = types.length
+    ? types.map((t) => {
+        const cells = UNITS.map((u) => {
+          const v = sales.filter((r) => r.billType === t && r.unit === u).reduce((a, r) => a + Number(r.units || 0), 0);
+          return `<td>${v ? escapeHtml(fmt(v)) : "—"}</td>`;
+        }).join("");
+        return `<tr><td>${escapeHtml(t)}</td>${cells}</tr>`;
+      }).join("")
+    : `<tr><td colspan="4" class="muted">لا مبيعات في هذا اليوم</td></tr>`;
+
+  const pays = Array.isArray(p.usdPayments) ? p.usdPayments : [];
+  const cash = p.usdCash || { total: 0, bills: 0 };
+  const payRows = pays.map((x) => `<tr><td>${escapeHtml(x.customer || "")}</td><td class="dm-cred">$${escapeHtml(fmt(x.paid))}</td></tr>`).join("");
+  const cashRow = (Number(cash.total) || Number(cash.bills))
+    ? `<tr><td>زبون الكاش (بدون اسم) — ${escapeHtml(cash.bills || 0)} فاتورة</td><td class="dm-cred">$${escapeHtml(fmt(cash.total))}</td></tr>`
+    : "";
+  const boxTotal = pays.reduce((a, x) => a + Number(x.paid || 0), 0) + Number(cash.total || 0);
+  const emptyBox = (!payRows && !cashRow) ? '<tr><td colspan="2" class="muted">لا دفعات دولار في هذا اليوم</td></tr>' : "";
+
+  return head + `
+    <div class="dm-cards">${cards}</div>
+    <div class="dm-sec">تفصيل المبيعات حسب نوع الفاتورة</div>
+    <table class="dm-table"><thead><tr><th>نوع الفاتورة</th><th>كرتونة</th><th>طرد</th><th>شرحة</th></tr></thead><tbody>${breakdown}</tbody></table>
+    <div class="dm-sec">حركة صندوق الدولار 💵 — الدفعات الواردة</div>
+    <table class="dm-table"><thead><tr><th>الزبون</th><th>المبلغ</th></tr></thead><tbody>${payRows}${cashRow}${emptyBox}<tr class="dm-total"><td>الإجمالي</td><td class="dm-cred">$${escapeHtml(fmt(boxTotal))}</td></tr></tbody></table>
+    <p class="muted" style="font-size:.74rem;margin-top:8px">آخر تحديث: ${escapeHtml(String(p.generatedAt || rep.created_at || "").slice(0, 16))} — الكميات = الكمية ÷ معامل الوحدة (مبيعات ناقص مرتجعات).</p>
+  `;
+}
+
 function reportsPage() {
   if (!state.session) {
     return shell(`<section class="panel"><p class="muted">سجّل الدخول للوصول إلى التقارير.</p></section>`);
@@ -3337,11 +3416,8 @@ function reportsPage() {
       <details class="acc-group" open>
         <summary class="acc-summary"><span class="acc-title">📊 ملخص الحركة اليومية</span><span class="acc-count">جديد</span></summary>
         <div class="acc-body report-card">
-          <p class="muted">يعرض مبيعات اليوم بالكميات (كم كرتونة / كم طرد / كم شرحة) إضافةً إلى حركة صندوق الدولار: الدفعات اليومية بأسماء الزبائن، والمبيعات النقدية باسم «زبون الكاش»، لمطابقة حركة الصندوق.</p>
-          <label class="report-field">التاريخ
-            <input type="date" data-report-date value="${todayIsoDate()}">
-          </label>
-          <div class="report-status">⏳ قيد الربط مع برنامج الأمين — يتفعّل بعد رفع بيانات المبيعات اليومية من الأمين إلى القاعدة.</div>
+          <p class="muted">مبيعات اليوم بالكميات (كم كرتونة / طرد / شرحة) + حركة صندوق الدولار: الدفعات الواردة بأسماء الزبائن، والكاش (فواتير بدون اسم) باسم «زبون الكاش».</p>
+          ${dailyMovementSection()}
         </div>
       </details>
 
@@ -4418,6 +4494,18 @@ function render() {
     if (sel) state.selectedCustomerKey = sel.value;
     exportCustomerStatementPdf();
   });
+  app.querySelector("[data-daily-date]")?.addEventListener("change", (event) => {
+    loadDailyMovement(event.target.value || todayIsoDate());
+  });
+  app.querySelector("[data-action='daily-refresh']")?.addEventListener("click", () => {
+    loadDailyMovement(state.dailyMovementDate || todayIsoDate());
+  });
+
+  // تحميل تقرير الحركة اليومية تلقائياً عند فتح صفحة التقارير
+  if (state.route === "dashboard" && state.session && !state.dailyMovementLoading) {
+    const want = state.dailyMovementDate || todayIsoDate();
+    if (state.dmFetchedFor !== want) loadDailyMovement(want);
+  }
 
   app.querySelector("[data-action='print-overdue']")?.addEventListener("click", printOverdueReport);
 

@@ -82,6 +82,7 @@
   const paymentRecordsTable = config.paymentRecordsTable || "payment_records";
   const customerProfilesTable = config.customerProfilesTable || "customer_profiles";
   const itemCostsTable = config.itemCostsTable || "item_costs";
+  const dailyMovementTable = config.dailyMovementTable || "daily_movement_reports";
   const client =
     hasConfig && hasLibrary
       ? window.supabase.createClient(config.url, config.publishableKey, {
@@ -473,6 +474,25 @@
         .order("created_at", { ascending: false })
         .limit(1);
 
+      if (error) throw new Error(translateDbError(error.message));
+      return (data && data[0]) || null;
+    },
+
+    async getDailyMovementReport(date) {
+      // تقرير ملخص الحركة اليومية ليوم محدد (أحدث نسخة لذلك اليوم). يحتاج جلسة.
+      if (!client) return null;
+      const session = await getSupabaseSession();
+      if (!session) return null;
+
+      let query = client
+        .from(dailyMovementTable)
+        .select("id, report_date, payload, created_at")
+        .order("report_date", { ascending: false })
+        .order("created_at", { ascending: false })
+        .limit(1);
+      if (date) query = query.eq("report_date", date);
+
+      const { data, error } = await query;
       if (error) throw new Error(translateDbError(error.message));
       return (data && data[0]) || null;
     },

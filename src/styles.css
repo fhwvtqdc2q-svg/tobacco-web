@@ -2463,6 +2463,18 @@ details[open]>.acc-summary::after{transform:rotate(180deg)}
 .report-card .button{width:fit-content}
 .report-status{background:var(--surface-soft);border:1px dashed var(--line);border-radius:8px;padding:10px 12px;font-size:0.82rem;color:var(--muted);line-height:1.7}
 
+.dm-controls{display:flex;align-items:flex-end;gap:10px;flex-wrap:wrap;margin-bottom:10px}
+.dm-cards{display:flex;gap:10px;flex-wrap:wrap;margin:4px 0 8px}
+.dm-card{flex:1;min-width:90px;border:1px solid var(--line);border-radius:10px;background:var(--surface-soft);padding:12px 10px;text-align:center}
+.dm-v{font-size:1.7rem;font-weight:800;color:var(--primary,#b8892a);direction:ltr}
+.dm-l{font-size:0.82rem;color:var(--muted);margin-top:2px}
+.dm-sec{font-weight:800;margin:12px 0 5px;color:var(--ink)}
+.dm-table{width:100%;border-collapse:collapse;font-size:0.86rem}
+.dm-table th,.dm-table td{border-bottom:1px solid var(--line);padding:7px 9px;text-align:right}
+.dm-table th{color:var(--muted);font-weight:700;font-size:0.8rem}
+.dm-cred{color:#1f9d57;font-weight:700;direction:ltr;text-align:right}
+.dm-total td{font-weight:800;border-top:2px solid var(--line);border-bottom:0}
+
 .currency-toggle{display:flex;margin:10px 0 6px;border:1px solid var(--line);border-radius:9px;overflow:hidden;width:fit-content}
 .currency-toggle .ctgl{padding:9px 18px;border:0;background:var(--surface);color:var(--ink);cursor:pointer;font-weight:800;font-size:0.85rem}
 .currency-toggle .ctgl.active{background:var(--primary,#b8892a);color:#fff}
