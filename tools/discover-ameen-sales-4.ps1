@@ -1,9 +1,9 @@
 # ============================================================
 # discover-ameen-sales-4.ps1  (READ-ONLY; uploads to Supabase)
 # Pin down per-line quantity semantics (Qty vs Qty2 vs factor)
-# for a retail (مبيعات مركز) and a wholesale (طلبيات) bill, plus
-# a sample of today's USD payments for the cash-box section.
-# ASCII-only code. Run on the Ameen laptop.
+# for retail (Markaz cc1097b1) and wholesale (Talabiat 4a827bee)
+# bills, plus a sample of recent USD payments for the cash-box.
+# ASCII-only code: filters by TypeGUID, not by Arabic names.
 # ============================================================
 param([string]$EnvFile = "$PSScriptRoot\.env")
 $ErrorActionPreference = "Stop"
@@ -33,32 +33,33 @@ function Dump($title,$sql,$maxRows=40){
     }catch{Line ("  ERROR: "+$_.Exception.Message)}
 }
 
-# 1) per-line detail of recent مبيعات مركز bills (retail)
-Dump "retail (مبيعات مركز) per-line, last 4 days" @"
+$MARKAZ = "cc1097b1-662d-4d80-8e4e-3b493249591c"   # retail center sales
+$TALAB  = "4a827bee-6ae1-4474-802b-970068872fcc"   # wholesale orders
+
+# 1) per-line detail of recent retail-center bills
+Dump "retail center per-line (last 4 days)" @"
 SELECT TOP 25 u.Number AS bill_no, m.Name AS mat, m.Unity AS u1, m.Unit2 AS u2, m.Unit2Fact AS f2,
        bi.Qty, bi.Qty2, bi.Qty3, bi.Price
 FROM bu000 u
 JOIN bi000 bi ON bi.ParentGUID = u.GUID
 JOIN mt000 m  ON m.GUID = bi.MatGUID
-JOIN bt000 bt ON bt.GUID = u.TypeGUID
-WHERE bt.Name = N'مبيعات مركز' AND u.Date >= DATEADD(day,-4,CAST(GETDATE() AS date))
+WHERE u.TypeGUID = '$MARKAZ' AND u.Date >= DATEADD(day,-4,CAST(GETDATE() AS date))
 ORDER BY u.Number DESC
 "@ 25
 
-# 2) per-line detail of recent طلبيات bills (wholesale)
-Dump "wholesale (طلبيات) per-line, last 4 days" @"
+# 2) per-line detail of recent wholesale-order bills
+Dump "wholesale orders per-line (last 4 days)" @"
 SELECT TOP 25 u.Number AS bill_no, m.Name AS mat, m.Unity AS u1, m.Unit2 AS u2, m.Unit2Fact AS f2,
        bi.Qty, bi.Qty2, bi.Qty3, bi.Price
 FROM bu000 u
 JOIN bi000 bi ON bi.ParentGUID = u.GUID
 JOIN mt000 m  ON m.GUID = bi.MatGUID
-JOIN bt000 bt ON bt.GUID = u.TypeGUID
-WHERE bt.Name = N'طلبيات' AND u.Date >= DATEADD(day,-4,CAST(GETDATE() AS date))
+WHERE u.TypeGUID = '$TALAB' AND u.Date >= DATEADD(day,-4,CAST(GETDATE() AS date))
 ORDER BY u.Number DESC
 "@ 25
 
-# 3) today's USD-currency payments (credits) by customer (for the dollar cash-box section)
-Dump "USD credits (payments) last 3 days, by entry" @"
+# 3) recent USD payments (credits) by customer, for the dollar cash-box section
+Dump "USD credits (payments) last 3 days" @"
 SELECT TOP 30 CAST(en.Date AS date) AS d, c.CustomerName, en.Debit, en.Credit, en.Notes
 FROM en000 en
 LEFT JOIN my000 cur ON cur.GUID = en.CurrencyGUID
