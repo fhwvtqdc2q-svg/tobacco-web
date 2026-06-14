@@ -517,11 +517,40 @@ async function sendReceiptWhatsapp(item, amount, date, notes) {
     "📄 الوصل الرسمي: " + link + "\n" +
     "شكراً لتعاملكم مع OZK TOBACCO.";
   if (w && w.phone_number) {
-    window.open("https://wa.me/" + w.phone_number + "?text=" + encodeURIComponent(msg), "_blank");
+    window.open("https://web.whatsapp.com/send?phone=" + encodeURIComponent(w.phone_number) + "&text=" + encodeURIComponent(msg), "_blank");
     setNotice("success", "تم تجهيز الوصل ورسالة الواتساب — اضغط إرسال داخل واتساب ✓");
   } else {
     window.open(link, "_blank");
     setNotice("success", "تم تجهيز الوصل، لكن لا يوجد رقم واتساب لهذا الزبون. الرابط مفتوح لنسخه.");
+  }
+}
+
+async function sendInvoiceWhatsapp(customer, rows, notes, total, invNum) {
+  const nm = normalizeItemName(customer || "");
+  const w = (state.customerWhatsapp || []).find((c) => normalizeItemName(c.customer_name || "") === nm);
+  const items = (rows || []).map((r) => ({ name: r.name, qty: toNumber(r.qty), price: toNumber(r.price), total: toNumber(r.qty) * toNumber(r.price) }));
+  const doc = { t: "invoice", no: invNum || docNumber("INV"), date: todayIsoDate(), name: customer || "", phone: w ? w.phone_number : "", items: items, total: total, cur: "$", notes: notes || "" };
+  let link;
+  try {
+    const id = await dataStore.createSharedDocument(doc);
+    link = SITE_BASE + "/receipt.html?id=" + id;
+  } catch (e) {
+    setNotice("error", "تعذّر تجهيز الفاتورة للإرسال: " + (e.message || ""));
+    return;
+  }
+  const msg =
+    "السلام عليكم " + (customer || "") + " 🌿\n" +
+    "فاتورة من OZK TOBACCO:\n" +
+    "🧾 رقم الفاتورة: " + doc.no + "\n" +
+    "💵 الإجمالي: " + formatMoney(total) + " $\n" +
+    "📅 التاريخ: " + doc.date + "\n" +
+    "📄 الفاتورة الرسمية: " + link + "\n" +
+    "شكراً لتعاملكم مع OZK TOBACCO.";
+  if (w && w.phone_number) {
+    window.open("https://web.whatsapp.com/send?phone=" + encodeURIComponent(w.phone_number) + "&text=" + encodeURIComponent(msg), "_blank");
+    setNotice("success", "تم تجهيز الفاتورة ورسالة الواتساب للزبون ✓");
+  } else {
+    setNotice("success", "تم تجهيز الفاتورة (محفوظة بالنظام والأرشيف). لا يوجد رقم واتساب مطابق لاسم «" + (customer || "") + "».");
   }
 }
 
@@ -4141,6 +4170,8 @@ ${notes ? `<div class="notes"><strong>ملاحظة:</strong> ${escapeHtml(notes)
     setNotice("error", "يرجى السماح بالنوافذ المنبثقة لطباعة الفاتورة.");
     render();
   }
+  // حفظ الفاتورة بالنظام (للأرشفة على اللابتوب) + إرسالها واتساب للزبون
+  sendInvoiceWhatsapp(customer, rows, notes, grandTotal, invNum);
 }
 
 function statusCard(item) {
@@ -4732,7 +4763,7 @@ function render() {
     btn.addEventListener("click", () => {
       const phone = btn.dataset.bcSend;
       const msg = state.broadcastText || "";
-      window.open("https://wa.me/" + phone + (msg ? "?text=" + encodeURIComponent(msg) : ""), "_blank");
+      window.open("https://web.whatsapp.com/send?phone=" + encodeURIComponent(phone) + (msg ? "&text=" + encodeURIComponent(msg) : ""), "_blank");
     });
   });
 
