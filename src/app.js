@@ -476,8 +476,9 @@ function whatsappFor(item) {
 
 function customerCurrency(item) {
   const w = whatsappFor(item);
-  const c = (w && w.currency) || "";
-  return c === "USD" || c === "$" ? "$" : "ل.س";
+  const c = String((w && w.currency) || "").trim().toLowerCase();
+  if (c.includes("usd") || c.includes("$") || c.includes("دولار") || c.includes("dollar")) return "$";
+  return "ل.س";
 }
 
 function docNumber(prefix) {

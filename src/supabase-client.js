@@ -522,7 +522,7 @@
       if (!session) return [];
       const { data, error } = await client
         .from("customer_whatsapp")
-        .select("customer_guid, customer_name, phone_number, region, customer_type");
+        .select("customer_guid, customer_name, phone_number, region, customer_type, currency");
       if (error) return [];
       return data || [];
     },
