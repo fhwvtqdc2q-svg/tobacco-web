@@ -496,6 +496,30 @@
       return data || [];
     },
 
+    async listCustomerWhatsapp() {
+      if (!client) return [];
+      const session = await getSupabaseSession();
+      if (!session) return [];
+      const { data, error } = await client
+        .from("customer_whatsapp")
+        .select("customer_guid, customer_name, phone_number, region, customer_type");
+      if (error) return [];
+      return data || [];
+    },
+
+    async createSharedDocument(doc) {
+      if (!client) throw new Error("غير متصل بقاعدة البيانات.");
+      const session = await getSupabaseSession();
+      if (!session) throw new Error(missingSessionMessage());
+      const { data, error } = await client
+        .from("shared_documents")
+        .insert({ doc })
+        .select("id")
+        .single();
+      if (error) throw new Error(translateDbError(error.message));
+      return data.id;
+    },
+
     async listCustomerCreditLimits() {
       if (!client) return readJson(CUSTOMER_LIMITS_KEY, []);
 

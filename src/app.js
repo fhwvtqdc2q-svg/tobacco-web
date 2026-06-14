@@ -191,6 +191,7 @@ const state = {
   inventoryReports: [],
   customerBalanceReports: [],
   customerMovementsReport: null,
+  customerWhatsapp: [],
   customerCreditLimits: [],
   customerLimitError: null,
   approvedPriceItems: [],
@@ -423,6 +424,80 @@ function itemCostFor(item) {
   return byName || null;
 }
 
+// ===== واتساب: إرسال وصل/فاتورة رسمية للزبون =====
+const SITE_BASE = "https://fhwvtqdc2q-svg.github.io/tobacco-web";
+
+async function loadCustomerWhatsapp() {
+  try {
+    state.customerWhatsapp = dataStore.listCustomerWhatsapp ? await dataStore.listCustomerWhatsapp() : [];
+  } catch {
+    state.customerWhatsapp = [];
+  }
+}
+
+function whatsappFor(item) {
+  if (!item) return null;
+  const list = state.customerWhatsapp || [];
+  const guid = item.customerGuid || item.customerAccountGuid;
+  let row = guid ? list.find((c) => c.customer_guid === guid) : null;
+  if (!row) {
+    const nm = normalizeItemName(item.name || "");
+    row = list.find((c) => normalizeItemName(c.customer_name || "") === nm);
+  }
+  return row || null;
+}
+
+function customerCurrency(item) {
+  const w = whatsappFor(item);
+  const c = (w && w.currency) || "";
+  return c === "USD" || c === "$" ? "$" : "ل.س";
+}
+
+function docNumber(prefix) {
+  return prefix + "-" + todayIsoDate().replace(/-/g, "") + "-" + String(Math.floor(1000 + Math.random() * 9000));
+}
+
+async function sendReceiptWhatsapp(item, amount, date, notes) {
+  const w = whatsappFor(item);
+  const cur = customerCurrency(item);
+  const amt = Number(amount) || 0;
+  const balanceAfter = customerBalance(item) - amt;
+  const doc = {
+    t: "receipt",
+    no: docNumber("R"),
+    date: date || todayIsoDate(),
+    name: item.name || "",
+    phone: w ? w.phone_number : "",
+    amount: amt,
+    balance: balanceAfter,
+    cur: cur,
+    notes: notes || ""
+  };
+  let link;
+  try {
+    const id = await dataStore.createSharedDocument(doc);
+    link = SITE_BASE + "/receipt.html?id=" + id;
+  } catch (e) {
+    setNotice("error", "تعذّر تجهيز الوصل: " + (e.message || ""));
+    return;
+  }
+  const msg =
+    "السلام عليكم " + (item.name || "") + " 🌿\n" +
+    "وصل استلام مبلغ من OZK TOBACCO:\n" +
+    "💵 المبلغ المستلم: " + formatMoney(amt) + " " + cur + "\n" +
+    "📅 التاريخ: " + doc.date + "\n" +
+    "🧾 الرصيد بعد الدفعة: " + formatMoney(balanceAfter) + " " + cur + "\n" +
+    "📄 الوصل الرسمي: " + link + "\n" +
+    "شكراً لتعاملكم مع OZK TOBACCO.";
+  if (w && w.phone_number) {
+    window.open("https://wa.me/" + w.phone_number + "?text=" + encodeURIComponent(msg), "_blank");
+    setNotice("success", "تم تجهيز الوصل ورسالة الواتساب — اضغط إرسال داخل واتساب ✓");
+  } else {
+    window.open(link, "_blank");
+    setNotice("success", "تم تجهيز الوصل، لكن لا يوجد رقم واتساب لهذا الزبون. الرابط مفتوح لنسخه.");
+  }
+}
+
 async function loadCustomerBalanceReports() {
   try {
     if (dataStore.isConfigured() && !state.session) {
@@ -442,6 +517,7 @@ async function loadCustomerBalanceReports() {
   } catch {
     state.customerMovementsReport = null;
   }
+  await loadCustomerWhatsapp();
 }
 
 async function loadCustomerCreditLimits() {
@@ -4486,6 +4562,13 @@ function render() {
         form.querySelector("[name='date']").value = new Date().toISOString().slice(0, 10);
         setNotice("success", "تم تسجيل الدفعة بنجاح ✓");
         await loadPaymentRecords(key);
+        try {
+          const custItem = latestCustomerBalanceItems().find((i) => customerKey(i) === key)
+            || { name: name, customerGuid: null, balance: 0 };
+          await sendReceiptWhatsapp(custItem, amount, date, notes);
+        } catch (waErr) {
+          setNotice("error", "تم تسجيل الدفعة، لكن تعذّر تجهيز رسالة الواتساب: " + (waErr.message || ""));
+        }
       } catch (error) {
         state.paymentLoading = false;
         state.paymentError = error.message;
