@@ -192,6 +192,8 @@ const state = {
   customerBalanceReports: [],
   customerMovementsReport: null,
   customerWhatsapp: [],
+  broadcastType: "",
+  broadcastText: "",
   customerCreditLimits: [],
   customerLimitError: null,
   approvedPriceItems: [],
@@ -521,6 +523,37 @@ async function sendReceiptWhatsapp(item, amount, date, notes) {
     window.open(link, "_blank");
     setNotice("success", "تم تجهيز الوصل، لكن لا يوجد رقم واتساب لهذا الزبون. الرابط مفتوح لنسخه.");
   }
+}
+
+// لوحة الإرسال الجماعي حسب التصنيف
+function whatsappBroadcastPanel() {
+  const list = state.customerWhatsapp || [];
+  const types = [...new Set(list.map((c) => (c.customer_type || "").trim()).filter(Boolean))].sort((a, b) => a.localeCompare(b, "ar"));
+  if (!types.length) return "";
+  const sel = state.broadcastType || "";
+  const inGroup = sel ? list.filter((c) => (c.customer_type || "").trim() === sel && c.phone_number) : [];
+  const rowStyle = "display:flex;justify-content:space-between;align-items:center;gap:10px;padding:7px 4px;border-bottom:1px solid var(--line)";
+  const rows = inGroup
+    .map((c) => `<div style="${rowStyle}"><span>${escapeHtml(c.customer_name || "")}</span><span class="muted" dir="ltr" style="font-size:.8rem">${escapeHtml(c.phone_number)}</span><button class="button secondary mini-button" type="button" data-bc-send="${escapeHtml(c.phone_number)}">📲 إرسال</button></div>`)
+    .join("");
+  return `
+    <details class="panel" style="margin:12px 0" ${sel ? "open" : ""}>
+      <summary style="cursor:pointer;font-weight:800">📲 إرسال جماعي للزبائن حسب التصنيف</summary>
+      <div style="margin-top:10px;display:grid;gap:10px">
+        <label>التصنيف
+          <select data-bc-type>
+            <option value="">— اختر تصنيف —</option>
+            ${types.map((t) => `<option value="${escapeHtml(t)}" ${t === sel ? "selected" : ""}>${escapeHtml(t)}</option>`).join("")}
+          </select>
+        </label>
+        <label>نص الرسالة
+          <textarea data-bc-text rows="3" placeholder="اكتب الرسالة (مثلاً: رابط نشرة الأسعار، أو تنبيه)...">${escapeHtml(state.broadcastText || "")}</textarea>
+        </label>
+        ${sel
+          ? `<p class="muted">${inGroup.length} زبون بتصنيف «${escapeHtml(sel)}». اضغط «إرسال» جنب كل زبون — بيفتح واتساب جاهز بالرسالة.</p>${rows || '<p class="muted">لا يوجد زبائن بأرقام في هذا التصنيف.</p>'}`
+          : '<p class="muted">اختر تصنيف لعرض زبائنه.</p>'}
+      </div>
+    </details>`;
 }
 
 async function loadCustomerBalanceReports() {
@@ -3326,6 +3359,7 @@ function customerBalanceSection(report) {
         <button class="button secondary" type="button" data-action="download-customer-balances" ${filtered.length ? "" : "disabled"}>تصدير أرصدة الزبائن</button>
         <button class="button primary" type="button" data-action="report-receivables" ${items.length ? "" : "disabled"}>📊 تقرير الذمم PDF</button>
       </div>
+      ${whatsappBroadcastPanel()}
       ${customerDetailsPanel(detailItem)}
       <div class="inventory-list inventory-list-dense customer-results" data-customer-results>
         ${filtered.length ? groupedAccordion("balances", filtered, { groupOf: (i) => customerBalance(i) > 0 ? "زبائن مدينون" : (customerBalance(i) < 0 ? "زبائن دائنون (لهم)" : "متوازنون"), rowOf: customerBalanceRow, query: state.customerSearch }) : '<p class="muted">لا توجد زبائن تطابق البحث والفلتر الحالي.</p>'}
@@ -4685,6 +4719,22 @@ function render() {
   bindCustomerDetailButtons();
   bindPricingForms();
   bindAccordions();
+
+  // الإرسال الجماعي حسب التصنيف
+  app.querySelector("[data-bc-type]")?.addEventListener("change", (event) => {
+    state.broadcastType = event.currentTarget.value;
+    render();
+  });
+  app.querySelector("[data-bc-text]")?.addEventListener("input", (event) => {
+    state.broadcastText = event.currentTarget.value;
+  });
+  app.querySelectorAll("[data-bc-send]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const phone = btn.dataset.bcSend;
+      const msg = state.broadcastText || "";
+      window.open("https://wa.me/" + phone + (msg ? "?text=" + encodeURIComponent(msg) : ""), "_blank");
+    });
+  });
 
   app.querySelector("[data-form='login']")?.addEventListener("submit", (event) => {
     event.preventDefault();
