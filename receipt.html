@@ -135,13 +135,46 @@
           "</div>"
         );
       }
+      function renderDailyReport(d) {
+        var ds = "font-weight:800;font-size:14px;color:var(--gold);margin:16px 0 6px;border-bottom:1px solid var(--line);padding-bottom:4px";
+        var bal = Array.isArray(d.balances) ? d.balances : [];
+        var debt = bal.filter(function (x) { return Number(x.balance) > 0; }).sort(function (a, b) { return Number(b.balance) - Number(a.balance); });
+        var totalDebit = debt.reduce(function (s, x) { return s + Number(x.balance || 0); }, 0);
+        var top = debt.slice(0, 40);
+        var balRows = top.length
+          ? top.map(function (x, i) { return "<tr><td>" + (i + 1) + "</td><td>" + esc(x.name) + "</td><td style='color:var(--red);font-weight:700'>" + money(x.balance) + "</td><td>" + (x.lastPaymentDate ? esc(String(x.lastPaymentDate).slice(0, 10)) : "—") + "</td></tr>"; }).join("")
+          : "<tr><td colspan='4' style='color:var(--muted)'>لا يوجد مدينون</td></tr>";
+        var inv = Array.isArray(d.inventory) ? d.inventory : [];
+        var out = inv.filter(function (x) { return Number(x.stockQty) <= 0; });
+        var low = inv.filter(function (x) { return Number(x.stockQty) > 0 && Number(x.stockQty) < 10; });
+        var alert = out.concat(low);
+        var invRows = alert.length
+          ? alert.map(function (x) { var q = Number(x.stockQty || 0); var st = q <= 0 ? "<span style='color:#c0271f;font-weight:700'>نافد</span>" : "<span style='color:#8a5a00;font-weight:700'>منخفض</span>"; return "<tr><td>" + esc(x.name) + "</td><td>" + money(q) + " " + esc(x.unit2Name || "") + "</td><td>" + st + "</td></tr>"; }).join("")
+          : "<tr><td colspan='3' style='color:var(--muted)'>لا يوجد نواقص</td></tr>";
+        var dailyHtml = "";
+        if (d.daily && d.daily.summary && typeof d.daily.summary === "object") {
+          var s = d.daily.summary;
+          var dr = Object.keys(s).map(function (k) { return "<div class='row'><span>" + esc(k) + "</span><b>" + esc(s[k]) + "</b></div>"; }).join("");
+          dailyHtml = "<div style='" + ds + "'>حركة اليوم</div><div class='rows'>" + dr + "</div>";
+        }
+        return '<div class="doc">' +
+          header(d, d.period === "evening" ? "تقرير المساء" : "تقرير الصباح") +
+          "<div style='" + ds + "'>ذمم الزبائن — إجمالي المستحق: " + money(totalDebit) + " ل.س · عدد المدينين: " + debt.length + "</div>" +
+          "<table><tr><th>#</th><th>الزبون</th><th>الرصيد</th><th>آخر دفعة</th></tr>" + balRows + "</table>" +
+          "<div style='" + ds + "'>المخزون — الأصناف: " + inv.length + " · نافد: " + out.length + " · قارب على النفاد: " + low.length + "</div>" +
+          "<table><tr><th>الصنف</th><th>المتبقّي</th><th>الحالة</th></tr>" + invRows + "</table>" +
+          dailyHtml +
+          stampHtml() + foot() +
+          "</div>";
+      }
       var SB_URL = "https://dyxbirfpxeocqffnfdeb.supabase.co";
       var SB_KEY = "sb_publishable_RkM_QDWxk8Yekqz9KBKXBw_Yl14zhSH";
       function render(d) {
         var el = document.getElementById("doc");
         if (!d) { el.innerHTML = '<div class="err">الرابط غير صالح أو منتهي.</div>'; return; }
-        document.title = "OZK TOBACCO | " + (d.t === "invoice" ? "فاتورة" : "وصل استلام") + (d.no ? " " + d.no : "");
-        el.innerHTML = d.t === "invoice" ? renderInvoice(d) : renderReceipt(d);
+        var t = d.t === "invoice" ? "فاتورة" : (d.t === "daily" ? "تقرير يومي" : "وصل استلام");
+        document.title = "OZK TOBACCO | " + t + (d.no ? " " + d.no : "");
+        el.innerHTML = d.t === "daily" ? renderDailyReport(d) : (d.t === "invoice" ? renderInvoice(d) : renderReceipt(d));
       }
       (function () {
         var id = new URLSearchParams(location.search).get("id");
