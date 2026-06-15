@@ -3151,7 +3151,7 @@ function inventoryReportPdfMarkup() {
           : (q < 5 ? '<span class="deb">شبه نافد</span>'
           : (q < 10 ? '<span style="color:#8a5a00;font-weight:700">منخفض</span>'
           : '<span style="color:#16794f;font-weight:700">متوفّر</span>'));
-        return `<tr><td>${escapeHtml(pdfAr(it.name || ""))}</td><td>${escapeHtml(pdfAr(`${formatMoney(q)} ${itemUnit2Name(it)}`))}</td><td>${it.unit2Price > 0 ? escapeHtml(formatMoney(it.unit2Price)) : "—"}</td><td>${st}</td></tr>`;
+        return `<tr><td>${escapeHtml(pdfAr(it.name || ""))}</td><td>${escapeHtml(pdfAr(`${formatMoney(q)} ${itemUnit1Name(it)}`))}</td><td>${it.unit2Price > 0 ? escapeHtml(formatMoney(it.unit2Price)) : "—"}</td><td>${st}</td></tr>`;
       }).join("")
     : `<tr><td colspan="4" class="muted">لا توجد مواد</td></tr>`;
   return `${REPORT_STYLE}<div class="ozk-rpt">
