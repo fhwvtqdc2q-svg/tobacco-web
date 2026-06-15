@@ -89,14 +89,23 @@ try {
     $numSel = if ($numCol) { "u.[$numCol]" } else { "CAST(u.GUID AS varchar(40))" }
     Write-Log "اكتشاف: نوع الفاتورة = u.$typeCol | رقم الفاتورة = $(if($numCol){$numCol}else{'(GUID)'})"
 
+    # اكتشاف أعمدة السعر/الإجمالي على bi000 (تختلف بين نسخ الأمين)
+    $biCols = Get-Columns "bi000"
+    $priceCol = Pick $biCols @("Price", "UnitPrice", "SellPrice", "PriceUnit") $null
+    $totalCol = Pick $biCols @("TotalPrice", "Total", "Net", "NetTotal", "NetValue", "Value", "Amount", "SubTotal", "LineTotal") $null
+    $priceSel = if ($priceCol) { "COALESCE(bi.[$priceCol],0)" } else { "0" }
+    $totalSel = if ($totalCol) { "COALESCE(bi.[$totalCol],0)" } elseif ($priceCol) { "(COALESCE(bi.Qty,0)*COALESCE(bi.[$priceCol],0))" } else { "0" }
+    Write-Log "اكتشاف: السعر = $(if($priceCol){$priceCol}else{'(غير موجود)'}) | إجمالي السطر = $(if($totalCol){$totalCol}else{'محسوب (كمية×سعر)'})"
+
     if ($Discover) {
         Write-Log "=== وضع الاكتشاف: عيّنة أحدث فاتورة مع محتوياتها ==="
+        Write-Log ("أعمدة bi000: " + (($biCols.Keys | Sort-Object) -join ", "))
         $c = $conn.CreateCommand()
         $c.CommandText = @"
 SELECT TOP 15 $numSel AS bill_number, u.Date AS bill_date,
        LTRIM(RTRIM(COALESCE(u.Cust_Name,''))) AS customer,
        LTRIM(RTRIM(COALESCE(m.Name,''))) AS material,
-       bi.Qty AS qty, bi.Price AS price, bi.TotalPrice AS line_total,
+       bi.Qty AS qty, $priceSel AS price, $totalSel AS line_total,
        bt.Name AS bill_type, bt.BillType AS bill_class
 FROM bu000 u
 JOIN bt000 bt ON bt.GUID = u.$typeCol
@@ -130,8 +139,8 @@ SELECT CAST(u.GUID AS varchar(40)) AS bill_guid,
        LTRIM(RTRIM(COALESCE(m.Name,''))) AS material,
        CAST(COALESCE(bi.Qty,0)  AS decimal(18,3)) AS qty,
        CAST(COALESCE(bi.Qty2,0) AS decimal(18,3)) AS qty2,
-       CAST(COALESCE(bi.Price,0) AS decimal(18,3)) AS price,
-       CAST(COALESCE(bi.TotalPrice,0) AS decimal(18,3)) AS line_total,
+       CAST($priceSel AS decimal(18,3)) AS price,
+       CAST($totalSel AS decimal(18,3)) AS line_total,
        LTRIM(RTRIM(COALESCE(m.Unity,''))) AS unit1,
        LTRIM(RTRIM(COALESCE(m.Unit2,''))) AS unit2,
        CAST(COALESCE(m.Unit2Fact,0) AS decimal(18,3)) AS unit2_fact
