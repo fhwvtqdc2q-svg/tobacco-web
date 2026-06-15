@@ -2106,7 +2106,7 @@ function shell(content) {
           ${navButton("pricing", "💰 التسعير")}
           ${state.session ? navButton("invoice", "📄 الفواتير") : ""}
           ${state.session ? navButton("staff", "👥 الموظفون") : ""}
-          ${state.session?.email === appConfig.ai.ownerEmail ? navButton("ai", "🤖 المساعد الذكي") : ""}
+          ${state.session ? navButton("ai", "🤖 المساعد الذكي") : ""}
         </nav>
         <div style="margin-top:auto;padding-top:20px;border-top:1px solid #2f2415">
           <a href="privacy-policy.html" style="display:block;font-size:0.78rem;color:#7a6040;text-align:center;text-decoration:none;padding:6px 0;" target="_blank">سياسة الخصوصية</a>
@@ -3864,12 +3864,11 @@ async function sendAiMessage(input) {
 }
 
 function aiAssistant() {
-  const ownerEmail = appConfig.ai?.ownerEmail;
-  if (state.session?.email !== ownerEmail) {
+  if (!state.session) {
     return shell(`
       <section class="panel">
         <h2>غير مصرح</h2>
-        <p class="muted">المساعد الذكي متاح فقط لحساب مسؤول النظام. سجّل الدخول بالحساب الرئيسي للوصول.</p>
+        <p class="muted">المساعد الذكي متاح للموظفين بعد تسجيل الدخول. سجّل الدخول للوصول.</p>
       </section>
     `);
   }
