@@ -265,7 +265,14 @@ ORDER BY u.Date DESC, u.GUID
     exit 0
 } catch {
     Write-Log "خطأ (سطر $($_.InvocationInfo.ScriptLineNumber)): $($_.Exception.Message)"
-    if ($_.ScriptStackTrace) { Write-Log $_.ScriptStackTrace }
+    try {
+        $resp = $_.Exception.Response
+        if ($resp) {
+            $reader = New-Object System.IO.StreamReader($resp.GetResponseStream())
+            $bodyText = $reader.ReadToEnd()
+            if ($bodyText) { Write-Log ("رد الخادم: " + $bodyText) }
+        }
+    } catch {}
     if ($_.Exception.InnerException) { Write-Log ("تفصيل: " + $_.Exception.InnerException.Message) }
     exit 1
 }
