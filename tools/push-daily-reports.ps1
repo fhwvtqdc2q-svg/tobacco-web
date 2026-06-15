@@ -44,24 +44,28 @@ $invItems = GetLatestItems "ameen_sql_agent"
 Write-Log "balances=$($balItems.Count) inventory=$($invItems.Count)"
 
 # قائمة الأصناف المسعّرة فعلاً (لائحة أسعارك الحالية) — لاستبعاد الأصناف الميتة
-$aprSet = @{}
-try {
-    $apr = Invoke-RestMethod -Method Get -Uri "$SB/rest/v1/approved_price_items?select=item_name" -Headers $g
-    foreach ($a in $apr) { $n = "$($a.item_name)".Trim(); if ($n) { $aprSet[$n] = $true } }
-} catch { Write-Log "tanbih: tazaffur jalb al-as3ar al-mu3tamada (lan yatm al-filtr)." }
-Write-Log "as3ar mu3tamada=$($aprSet.Count)"
+$bal = @($balItems | ForEach-Object { @{ name = $_.name; balance = $_.balance; lastPaymentDate = $_.lastPaymentDate } })
+
+# النواقص حسب «حد الطلب» (OrderLimit) من بطاقة المادة بالأمين مباشرة
+$inv = @()
+$cs = GS "AMEEN_SQL_CONNECTION_STRING"
+if ($cs) {
+    try {
+        Add-Type -AssemblyName "System.Data"
+        $cn = New-Object System.Data.SqlClient.SqlConnection($cs); $cn.Open()
+        $cmd = $cn.CreateCommand()
+        $cmd.CommandText = "SELECT Name, CASE WHEN ISNULL(Unit2Fact,0)>0 THEN CAST(Qty/Unit2Fact AS decimal(18,2)) ELSE CAST(Qty AS decimal(18,2)) END AS qty2, CASE WHEN ISNULL(Unit2Fact,0)>0 THEN CAST(OrderLimit/Unit2Fact AS decimal(18,2)) ELSE CAST(OrderLimit AS decimal(18,2)) END AS lim2, CASE WHEN ISNULL(NULLIF(Unit2,N''),N'')=N'' THEN Unity ELSE Unit2 END AS unit2 FROM vwMaterials WHERE OrderLimit > 0 AND Qty < OrderLimit AND ISNULL(bHide,0)=0 ORDER BY (OrderLimit - Qty) DESC"
+        $cmd.CommandTimeout = 60
+        $rd = $cmd.ExecuteReader()
+        while ($rd.Read()) { $inv += @{ name = "$($rd['Name'])".Trim(); stockQty = [double]$rd['qty2']; unit2Name = "$($rd['unit2'])".Trim(); orderLimit = [double]$rd['lim2'] } }
+        $rd.Close(); $cn.Close()
+        Write-Log "nawaqis hasab OrderLimit=$($inv.Count)"
+    } catch { Write-Log ("tanbih: fashl jalb al-makhzun min al-ameen: " + $_.Exception.Message) }
+} else { Write-Log "tanbih: AMEEN_SQL_CONNECTION_STRING nawaqis - lan tazhar al-nawaqis." }
 
 # صنف ميت = ما إلو سعر معتمد + كميتو صفر أو أقل (وجوده وعدمه واحد) => يُستبعد من النواقص
-$invKept = @($invItems | Where-Object {
-        $nm = "$($_.name)".Trim()
-        $q = 0.0; [double]::TryParse("$($_.stockQty)", [ref]$q) | Out-Null
-        ($aprSet.Count -eq 0) -or $aprSet.ContainsKey($nm) -or ($q -gt 0)
-    })
-Write-Log "inventory ba3d istib3ad al-maytat=$($invKept.Count) (kan $($invItems.Count))"
 
 # تقليص الحقول
-$bal = @($balItems | ForEach-Object { @{ name = $_.name; balance = $_.balance; lastPaymentDate = $_.lastPaymentDate } })
-$inv = @($invKept | ForEach-Object { @{ name = $_.name; stockQty = $_.stockQty; unit2Name = $_.unit2Name } })
 
 $daily = $null
 if ($Period -eq "evening") {

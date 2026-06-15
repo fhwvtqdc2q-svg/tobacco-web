@@ -146,11 +146,14 @@
           : "<tr><td colspan='4' style='color:var(--muted)'>لا يوجد مدينون</td></tr>";
         var inv = Array.isArray(d.inventory) ? d.inventory : [];
         var out = inv.filter(function (x) { return Number(x.stockQty) <= 0; });
-        var low = inv.filter(function (x) { return Number(x.stockQty) > 0 && Number(x.stockQty) < 10; });
-        var alert = out.concat(low);
-        var invRows = alert.length
-          ? alert.map(function (x) { var q = Number(x.stockQty || 0); var st = q <= 0 ? "<span style='color:#c0271f;font-weight:700'>نافد</span>" : "<span style='color:#8a5a00;font-weight:700'>منخفض</span>"; return "<tr><td>" + esc(x.name) + "</td><td>" + money(q) + " " + esc(x.unit2Name || "") + "</td><td>" + st + "</td></tr>"; }).join("")
-          : "<tr><td colspan='3' style='color:var(--muted)'>لا يوجد نواقص</td></tr>";
+        var invRows = inv.length
+          ? inv.map(function (x) {
+              var q = Number(x.stockQty || 0);
+              var st = q <= 0 ? "<span style='color:#c0271f;font-weight:700'>نافد</span>" : "<span style='color:#8a5a00;font-weight:700'>ناقص</span>";
+              var lim = (x.orderLimit != null && x.orderLimit !== "") ? money(x.orderLimit) + " " + esc(x.unit2Name || "") : "—";
+              return "<tr><td>" + esc(x.name) + "</td><td>" + money(q) + " " + esc(x.unit2Name || "") + "</td><td>" + lim + "</td><td>" + st + "</td></tr>";
+            }).join("")
+          : "<tr><td colspan='4' style='color:var(--muted)'>لا يوجد نواقص تحت حد الطلب</td></tr>";
         var dailyHtml = "";
         if (d.daily && d.daily.summary && typeof d.daily.summary === "object") {
           var s = d.daily.summary;
@@ -161,8 +164,8 @@
           header(d, d.period === "evening" ? "تقرير المساء" : "تقرير الصباح") +
           "<div style='" + ds + "'>ذمم الزبائن — إجمالي المستحق: " + money(totalDebit) + " ل.س · عدد المدينين: " + debt.length + "</div>" +
           "<table><tr><th>#</th><th>الزبون</th><th>الرصيد</th><th>آخر دفعة</th></tr>" + balRows + "</table>" +
-          "<div style='" + ds + "'>المخزون — الأصناف: " + inv.length + " · نافد: " + out.length + " · قارب على النفاد: " + low.length + "</div>" +
-          "<table><tr><th>الصنف</th><th>المتبقّي</th><th>الحالة</th></tr>" + invRows + "</table>" +
+          "<div style='" + ds + "'>النواقص (تحت حد الطلب) — العدد: " + inv.length + " · نافد: " + out.length + "</div>" +
+          "<table><tr><th>الصنف</th><th>المتبقّي</th><th>حد الطلب</th><th>الحالة</th></tr>" + invRows + "</table>" +
           dailyHtml +
           stampHtml() + foot() +
           "</div>";
