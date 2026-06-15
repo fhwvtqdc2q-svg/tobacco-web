@@ -191,6 +191,7 @@ const state = {
   inventoryReports: [],
   customerBalanceReports: [],
   customerMovementsReport: null,
+  customerInvoicesReport: null,
   customerWhatsapp: [],
   broadcastType: "",
   broadcastText: "",
@@ -623,7 +624,22 @@ async function loadCustomerBalanceReports() {
   } catch {
     state.customerMovementsReport = null;
   }
+  try {
+    state.customerInvoicesReport = dataStore.getCustomerInvoicesReport
+      ? await dataStore.getCustomerInvoicesReport()
+      : null;
+  } catch {
+    state.customerInvoicesReport = null;
+  }
   await loadCustomerWhatsapp();
+}
+
+// فواتير زبون محدّد مع محتوياتها (من تقرير ameen_customer_invoices، بمطابقة ذكية للاسم)
+function customerInvoicesFor(name) {
+  const report = state.customerInvoicesReport;
+  const items = report && Array.isArray(report.items) ? report.items : [];
+  const match = smartNameMatch(items, (it) => it.name, name);
+  return match && Array.isArray(match.invoices) ? match.invoices : [];
 }
 
 async function loadCustomerCreditLimits() {
@@ -3568,6 +3584,27 @@ function reportsPage() {
     return m ? (m.name || "") : "";
   })();
 
+  const selInvoices = selectedCustomerName ? customerInvoicesFor(selectedCustomerName) : [];
+  const invoicesMarkup = !selectedCustomerName
+    ? '<p class="muted" style="margin-top:10px">اختر زبوناً (أو اكتب اسمه) لعرض فواتيره ومحتوياتها.</p>'
+    : !selInvoices.length
+      ? `<p class="muted" style="margin-top:10px">لا توجد فواتير لهذا الزبون${state.customerInvoicesReport ? " خلال آخر فترة مزامنة" : " — لم تصل مزامنة الفواتير بعد"}.</p>`
+      : `<div style="margin-top:12px">
+          <div class="sec">📋 فواتير «${escapeHtml(selectedCustomerName)}» (${selInvoices.length}) — اضغط فاتورة لرؤية محتوياتها</div>
+          ${selInvoices.map((inv) => `
+            <details class="acc-group" style="margin:6px 0">
+              <summary class="acc-summary"><span class="acc-title">🧾 فاتورة ${escapeHtml(inv.number || "")} — ${escapeHtml(inv.date || "")}</span><span class="acc-count">${escapeHtml(formatMoney(inv.total || 0))} $</span></summary>
+              <div class="acc-body">
+                <table class="dm-table" style="width:100%">
+                  <thead><tr><th>المادة</th><th>الكمية</th><th>السعر</th><th>الإجمالي</th></tr></thead>
+                  <tbody>
+                    ${(inv.lines || []).map((l) => `<tr><td>${escapeHtml(l.material || "")}</td><td>${escapeHtml(l.qty)} ${escapeHtml(l.unit1 || "")}</td><td>${escapeHtml(formatMoney(l.price || 0))}</td><td>${escapeHtml(formatMoney(l.lineTotal || 0))}</td></tr>`).join("")}
+                  </tbody>
+                </table>
+              </div>
+            </details>`).join("")}
+        </div>`;
+
   return shell(`
     <section class="panel wide reports-page">
       <p class="muted" style="margin:0 0 16px">كل التقارير في مكان واحد. اضغط على عنوان أي تقرير ليفتح للأسفل.</p>
@@ -3597,6 +3634,7 @@ function reportsPage() {
             <datalist id="report-customer-list">${customerOptions}</datalist>
           </label>
           <button class="button primary" type="button" data-action="report-statement"${balItems.length ? "" : " disabled"}>📄 تنزيل كشف الحساب PDF</button>
+          ${invoicesMarkup}
     </div>
       </details>
 
@@ -4649,7 +4687,7 @@ function render() {
   app.querySelector("[data-action='report-inventory']")?.addEventListener("click", exportInventoryReportPdf);
   app.querySelector("[data-report-customer]")?.addEventListener("change", (event) => {
     const m = findBalanceCustomerByText(event.target.value);
-    if (m) state.selectedCustomerKey = customerKey(m);
+    if (m) { state.selectedCustomerKey = customerKey(m); render(); }
   });
   app.querySelector("[data-action='report-statement']")?.addEventListener("click", () => {
     const sel = app.querySelector("[data-report-customer]");

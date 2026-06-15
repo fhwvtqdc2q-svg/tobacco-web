@@ -478,6 +478,27 @@
       return (data && data[0]) || null;
     },
 
+    async getCustomerInvoicesReport() {
+      // فواتير المبيعات لكل زبون مع محتوياتها (يكتبها push-customer-invoices.ps1). للموظفين فقط.
+      if (!client) {
+        const local = readJson(INVENTORY_REPORTS_KEY, []).filter((report) => report.source === "ameen_customer_invoices");
+        return local[0] || null;
+      }
+
+      const session = await getSupabaseSession();
+      if (!session) return null;
+
+      const { data, error } = await client
+        .from(inventoryReportsTable)
+        .select("id, report_date, source, summary, items, created_at")
+        .eq("source", "ameen_customer_invoices")
+        .order("created_at", { ascending: false })
+        .limit(1);
+
+      if (error) throw new Error(translateDbError(error.message));
+      return (data && data[0]) || null;
+    },
+
     async getDailyMovementReport(date) {
       // تقرير ملخص الحركة اليومية ليوم محدد (أحدث نسخة لذلك اليوم). يحتاج جلسة.
       if (!client) return null;
