@@ -101,6 +101,7 @@ try {
         Write-Log "=== وضع الاكتشاف: عيّنة أحدث فاتورة مع محتوياتها ==="
         Write-Log ("أعمدة bi000: " + (($biCols.Keys | Sort-Object) -join ", "))
         $c = $conn.CreateCommand()
+        $c.CommandTimeout = 180
         $c.CommandText = @"
 SELECT TOP 15 $numSel AS bill_number, u.Date AS bill_date,
        LTRIM(RTRIM(COALESCE(u.Cust_Name,''))) AS customer,
@@ -130,6 +131,7 @@ ORDER BY u.Date DESC
 
     # --- جلب كل أسطر فواتير المبيعات للفترة ---
     $cmd = $conn.CreateCommand()
+    $cmd.CommandTimeout = 300
     $cmd.CommandText = @"
 SELECT CAST(u.GUID AS varchar(40)) AS bill_guid,
        $numSel AS bill_number,
