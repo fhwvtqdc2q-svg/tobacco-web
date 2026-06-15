@@ -1,7 +1,7 @@
 ﻿# ============================================================
 # discover-order-limit.ps1  (يعمل على اللابتوب - قراءة فقط)
-# يكتشف جدول المواد وعمود «حد الطلب» في الأمين (لا يغيّر أي شيء)
-# الاستخدام:  .\tools\discover-order-limit.ps1
+# معاينة قائمة النواقص حسب «حد الطلب» (OrderLimit) الحقيقي من الأمين
+# لا يغيّر أي شيء. الاستخدام:  .\tools\discover-order-limit.ps1
 # ============================================================
 param([string]$EnvFile = "$PSScriptRoot\.env")
 $ErrorActionPreference = "Stop"
@@ -14,30 +14,30 @@ Add-Type -AssemblyName "System.Data"
 $conn = New-Object System.Data.SqlClient.SqlConnection($cs); $conn.Open()
 function Q($sql) { $c = $conn.CreateCommand(); $c.CommandText = $sql; $r = $c.ExecuteReader(); $o = @(); while ($r.Read()) { $row = [ordered]@{}; for ($i = 0; $i -lt $r.FieldCount; $i++) { $row[$r.GetName($i)] = "$($r[$i])" }; $o += [pscustomobject]$row }; $r.Close(); return $o }
 
-Write-Host "===== (1) material-like tables/views ====="
+Write-Host "===== counts ====="
 Q @"
-SELECT TABLE_TYPE, TABLE_NAME FROM INFORMATION_SCHEMA.TABLES
-WHERE TABLE_NAME LIKE '%aterial%' OR TABLE_NAME LIKE 'mt0%' OR TABLE_NAME LIKE '%Item%'
-   OR TABLE_NAME LIKE 'vwMat%' OR TABLE_NAME LIKE '%Stock%' OR TABLE_NAME LIKE '%Goods%'
-ORDER BY TABLE_NAME
+SELECT
+  COUNT(*) AS total_materials,
+  SUM(CASE WHEN OrderLimit > 0 THEN 1 ELSE 0 END) AS have_orderlimit,
+  SUM(CASE WHEN OrderLimit > 0 AND Qty < OrderLimit AND ISNULL(bHide,0)=0 THEN 1 ELSE 0 END) AS below_limit_visible
+FROM vwMaterials
 "@ | Format-Table -AutoSize | Out-String | Write-Host
 
-Write-Host "===== (2) LIMIT-like columns across material/stock tables ====="
-Q @"
-SELECT TABLE_NAME, COLUMN_NAME, DATA_TYPE FROM INFORMATION_SCHEMA.COLUMNS
-WHERE (COLUMN_NAME LIKE '%imit%' OR COLUMN_NAME LIKE '%rder%' OR COLUMN_NAME LIKE '%afe%'
-  OR COLUMN_NAME LIKE '%Min%' OR COLUMN_NAME LIKE '%Max%' OR COLUMN_NAME LIKE '%Point%'
-  OR COLUMN_NAME LIKE '%Reorder%' OR COLUMN_NAME LIKE '%Req%' OR COLUMN_NAME LIKE '%Level%' OR COLUMN_NAME LIKE '%Hd%')
-AND (TABLE_NAME LIKE '%aterial%' OR TABLE_NAME LIKE 'mt0%' OR TABLE_NAME LIKE '%Item%'
-  OR TABLE_NAME LIKE 'vwMat%' OR TABLE_NAME LIKE '%Stock%' OR TABLE_NAME LIKE '%Goods%')
-ORDER BY TABLE_NAME, COLUMN_NAME
-"@ | Format-Table -AutoSize | Out-String | Write-Host
-
-Write-Host "===== (3) columns of vwMaterials (known view) ====="
-((Q "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME='vwMaterials' ORDER BY ORDINAL_POSITION") | ForEach-Object { $_.COLUMN_NAME }) -join ", " | Write-Host
-
-Write-Host "`n===== (4) one sample row from vwMaterials (all columns) ====="
-Q "SELECT TOP 1 * FROM vwMaterials WHERE Name LIKE N'%غلواز قصير أحمر%'" | Format-List | Out-String | Write-Host
+Write-Host "===== proposed shortage list (Qty < OrderLimit), in cartons ====="
+$rows = Q @"
+SELECT TOP 80
+  Name,
+  CAST(Qty AS decimal(18,2)) AS qty_unit1,
+  Unit2,
+  CASE WHEN ISNULL(Unit2Fact,0) > 0 THEN CAST(Qty / Unit2Fact AS decimal(18,2)) ELSE NULL END AS qty_cartons,
+  CAST(OrderLimit AS decimal(18,2)) AS limit_unit1,
+  CASE WHEN ISNULL(Unit2Fact,0) > 0 THEN CAST(OrderLimit / Unit2Fact AS decimal(18,2)) ELSE NULL END AS limit_cartons
+FROM vwMaterials
+WHERE OrderLimit > 0 AND Qty < OrderLimit AND ISNULL(bHide,0)=0
+ORDER BY (OrderLimit - Qty) DESC
+"@
+$rows | Format-Table -AutoSize | Out-String | Write-Host
+Write-Host "(عدد المعروض: $($rows.Count))"
 
 $conn.Close()
-Write-Host "===== done. انسخ كل المخرجات وابعتها ====="
+Write-Host "===== done. انسخ المخرجات وابعتها ====="
