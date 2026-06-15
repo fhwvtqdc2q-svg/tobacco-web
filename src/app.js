@@ -462,15 +462,34 @@ async function loadCustomerWhatsapp() {
   }
 }
 
+// مطابقة ذكية لاسم الزبون: تطابق تام أولاً، ثم "اسم بداية الآخر"، ثم "يحتوي".
+// تحلّ مشكلة اختلاف الاسم المختصر عن الاسم الكامل (مثل «مركز الحرية» مقابل «مركز الحرية / حي تشرين»).
+function smartNameMatch(list, getName, name) {
+  const nm = normalizeItemName(name || "");
+  if (!nm || !Array.isArray(list)) return null;
+  const norm = (x) => normalizeItemName(getName(x) || "");
+  let row = list.find((x) => norm(x) === nm);
+  if (row) return row;
+  const pref = list.filter((x) => { const n = norm(x); return n && (n.startsWith(nm) || nm.startsWith(n)); });
+  if (pref.length) return pref[0];
+  const cont = list.filter((x) => { const n = norm(x); return n && (n.includes(nm) || nm.includes(n)); });
+  return cont.length ? cont[0] : null;
+}
+
+function findWhatsappByName(name) {
+  return smartNameMatch(state.customerWhatsapp || [], (c) => c.customer_name, name);
+}
+
+function findBalanceCustomerByText(text) {
+  return smartNameMatch(latestCustomerBalanceItems() || [], (it) => it.name, text);
+}
+
 function whatsappFor(item) {
   if (!item) return null;
   const list = state.customerWhatsapp || [];
   const guid = item.customerGuid || item.customerAccountGuid;
   let row = guid ? list.find((c) => c.customer_guid === guid) : null;
-  if (!row) {
-    const nm = normalizeItemName(item.name || "");
-    row = list.find((c) => normalizeItemName(c.customer_name || "") === nm);
-  }
+  if (!row) row = findWhatsappByName(item.name);
   return row || null;
 }
 
@@ -527,8 +546,7 @@ async function sendReceiptWhatsapp(item, amount, date, notes) {
 }
 
 async function sendInvoiceWhatsapp(customer, rows, notes, total, invNum) {
-  const nm = normalizeItemName(customer || "");
-  const w = (state.customerWhatsapp || []).find((c) => normalizeItemName(c.customer_name || "") === nm);
+  const w = findWhatsappByName(customer);
   const items = (rows || []).map((r) => ({ name: r.name, qty: toNumber(r.qty), price: toNumber(r.price), total: toNumber(r.qty) * toNumber(r.price) }));
   const doc = { t: "invoice", no: invNum || docNumber("INV"), date: todayIsoDate(), name: customer || "", phone: w ? w.phone_number : "", items: items, total: total, cur: "$", notes: notes || "" };
   let link;
@@ -3543,11 +3561,12 @@ function reportsPage() {
   const customerOptions = balItems
     .slice()
     .sort((a, b) => String(a.name || "").localeCompare(String(b.name || ""), "ar"))
-    .map((it) => {
-      const k = customerKey(it);
-      return `<option value="${escapeHtml(k)}"${k === state.selectedCustomerKey ? " selected" : ""}>${escapeHtml(it.name || "")}</option>`;
-    })
+    .map((it) => `<option value="${escapeHtml(it.name || "")}"></option>`)
     .join("");
+  const selectedCustomerName = (() => {
+    const m = balItems.find((it) => customerKey(it) === state.selectedCustomerKey);
+    return m ? (m.name || "") : "";
+  })();
 
   return shell(`
     <section class="panel wide reports-page">
@@ -3574,7 +3593,8 @@ function reportsPage() {
         <div class="acc-body report-card">
           <p class="muted">كشف حساب رسمي لزبون محدّد: الرصيد الافتتاحي، كل الحركات، والرصيد الختامي.</p>
           <label class="report-field">الزبون
-            <select data-report-customer>${customerOptions || '<option value="">لا يوجد زبائن</option>'}</select>
+            <input type="text" list="report-customer-list" data-report-customer placeholder="اكتب اسم الزبون أو اختَر من القائمة…" value="${escapeHtml(selectedCustomerName)}" autocomplete="off" dir="auto">
+            <datalist id="report-customer-list">${customerOptions}</datalist>
           </label>
           <button class="button primary" type="button" data-action="report-statement"${balItems.length ? "" : " disabled"}>📄 تنزيل كشف الحساب PDF</button>
     </div>
@@ -4628,11 +4648,18 @@ function render() {
   app.querySelector("[data-action='report-receivables']")?.addEventListener("click", exportReceivablesPdf);
   app.querySelector("[data-action='report-inventory']")?.addEventListener("click", exportInventoryReportPdf);
   app.querySelector("[data-report-customer]")?.addEventListener("change", (event) => {
-    state.selectedCustomerKey = event.target.value;
+    const m = findBalanceCustomerByText(event.target.value);
+    if (m) state.selectedCustomerKey = customerKey(m);
   });
   app.querySelector("[data-action='report-statement']")?.addEventListener("click", () => {
     const sel = app.querySelector("[data-report-customer]");
-    if (sel) state.selectedCustomerKey = sel.value;
+    const m = sel ? findBalanceCustomerByText(sel.value) : null;
+    if (!m) {
+      setNotice("error", "اكتب اسم زبون موجود بالقائمة ثم اضغط تنزيل.");
+      render();
+      return;
+    }
+    state.selectedCustomerKey = customerKey(m);
     exportCustomerStatementPdf();
   });
   app.querySelector("[data-daily-date]")?.addEventListener("change", (event) => {
