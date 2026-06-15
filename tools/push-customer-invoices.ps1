@@ -239,6 +239,7 @@ ORDER BY u.Date DESC, u.GUID
     $payload = @{
         source      = "ameen_customer_invoices"
         report_date = (Get-Date).ToString("yyyy-MM-dd")
+        created_by  = $session.user.id
         summary     = @{
             periodDays = $PeriodDays
             fromDate   = $fromIso
