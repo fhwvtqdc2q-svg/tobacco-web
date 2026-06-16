@@ -642,6 +642,22 @@ function customerInvoicesFor(name) {
   return match && Array.isArray(match.invoices) ? match.invoices : [];
 }
 
+// كمية سطر الفاتورة بشكل مقروء (نفضّل الوحدة الأكبر إن وُجدت).
+// لا نعرض سعر/إجمالي السطر لأن أرقام الأسطر المفردة بمصدر الأمين غير دقيقة
+// (مجموعها لا يطابق إجمالي الفاتورة)؛ الموثوق هو إجمالي الفاتورة فقط.
+function invoiceLineQty(line) {
+  const u1 = String(line?.unit1 || "").trim();
+  const u2 = String(line?.unit2 || "").trim();
+  const qty = Number(line?.qty || 0);
+  const qtyUnits = Number(line?.qtyUnits || 0);
+  if (qtyUnits > 0 && u2) {
+    const detail = qty > 0 && u1 && (qty !== qtyUnits || u1 !== u2) ? ` (${formatMoney(qty)} ${u1})` : "";
+    return `${formatMoney(qtyUnits)} ${u2}${detail}`;
+  }
+  if (qty > 0) return `${formatMoney(qty)} ${u1}`.trim();
+  return "—";
+}
+
 async function loadCustomerCreditLimits() {
   try {
     state.customerLimitError = null;
@@ -3596,11 +3612,12 @@ function reportsPage() {
               <summary class="acc-summary"><span class="acc-title">🧾 فاتورة ${escapeHtml(inv.number || "")} — ${escapeHtml(inv.date || "")}</span><span class="acc-count">${escapeHtml(formatMoney(inv.total || 0))} $</span></summary>
               <div class="acc-body">
                 <table class="dm-table" style="width:100%">
-                  <thead><tr><th>المادة</th><th>الكمية</th><th>السعر</th><th>الإجمالي</th></tr></thead>
+                  <thead><tr><th>المادة</th><th>الكمية</th></tr></thead>
                   <tbody>
-                    ${(inv.lines || []).map((l) => `<tr><td>${escapeHtml(l.material || "")}</td><td>${escapeHtml(l.qty)} ${escapeHtml(l.unit1 || "")}</td><td>${escapeHtml(formatMoney(l.price || 0))}</td><td>${escapeHtml(formatMoney(l.lineTotal || 0))}</td></tr>`).join("")}
+                    ${(inv.lines || []).map((l) => `<tr><td>${escapeHtml(l.material || "")}</td><td>${escapeHtml(invoiceLineQty(l))}</td></tr>`).join("")}
                   </tbody>
                 </table>
+                <p class="muted" style="margin:6px 2px 0">إجمالي الفاتورة: <b>${escapeHtml(formatMoney(inv.total || 0))} $</b></p>
               </div>
             </details>`).join("")}
         </div>`;
