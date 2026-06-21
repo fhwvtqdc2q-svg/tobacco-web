@@ -521,61 +521,34 @@ async function sendReceiptWhatsapp(item, amount, date, notes) {
     cur: cur,
     notes: notes || ""
   };
-  let link;
   try {
-    const id = await dataStore.createSharedDocument(doc);
-    link = SITE_BASE + "/receipt.html?id=" + id;
+    await dataStore.createSharedDocument(doc);
   } catch (e) {
-    setNotice("error", "تعذّر تجهيز الوصل: " + (e.message || ""));
+    setNotice("error", "تعذّر حفظ الوصل: " + (e.message || ""));
     return;
   }
-  const msg =
-    "السلام عليكم " + (item.name || "") + " 🌿\n" +
-    "وصل استلام مبلغ من OZK TOBACCO:\n" +
-    "💵 المبلغ المستلم: " + formatMoney(amt) + " " + cur + "\n" +
-    "📅 التاريخ: " + doc.date + "\n" +
-    "🧾 الرصيد بعد الدفعة: " + formatMoney(balanceAfter) + " " + cur + "\n" +
-    "📄 الوصل الرسمي: " + link + "\n" +
-    "شكراً لتعاملكم مع OZK TOBACCO.";
-  if (w && w.phone_number) {
-    window.open("https://web.whatsapp.com/send?phone=" + encodeURIComponent(w.phone_number) + "&text=" + encodeURIComponent(msg), "_blank");
-    setNotice("success", "تم تجهيز الوصل ورسالة الواتساب — اضغط إرسال داخل واتساب ✓");
-  } else {
-    window.open(link, "_blank");
-    setNotice("success", "تم تجهيز الوصل، لكن لا يوجد رقم واتساب لهذا الزبون. الرابط مفتوح لنسخه.");
-  }
+  // واتساب أُلغي — الوصل يُحفظ بالنظام/الأرشيف (أساس الرفع التلقائي إلى Google Drive لاحقاً)
+  setNotice("success", "تم حفظ الوصل بالنظام والأرشيف ✓");
 }
 
 async function sendInvoiceWhatsapp(customer, rows, notes, total, invNum) {
   const w = findWhatsappByName(customer);
   const items = (rows || []).map((r) => ({ name: r.name, qty: toNumber(r.qty), price: toNumber(r.price), total: toNumber(r.qty) * toNumber(r.price) }));
   const doc = { t: "invoice", no: invNum || docNumber("INV"), date: todayIsoDate(), name: customer || "", phone: w ? w.phone_number : "", items: items, total: total, cur: "$", notes: notes || "" };
-  let link;
   try {
-    const id = await dataStore.createSharedDocument(doc);
-    link = SITE_BASE + "/receipt.html?id=" + id;
+    await dataStore.createSharedDocument(doc);
   } catch (e) {
-    setNotice("error", "تعذّر تجهيز الفاتورة للإرسال: " + (e.message || ""));
+    setNotice("error", "تعذّر حفظ الفاتورة: " + (e.message || ""));
     return;
   }
-  const msg =
-    "السلام عليكم " + (customer || "") + " 🌿\n" +
-    "فاتورة من OZK TOBACCO:\n" +
-    "🧾 رقم الفاتورة: " + doc.no + "\n" +
-    "💵 الإجمالي: " + formatMoney(total) + " $\n" +
-    "📅 التاريخ: " + doc.date + "\n" +
-    "📄 الفاتورة الرسمية: " + link + "\n" +
-    "شكراً لتعاملكم مع OZK TOBACCO.";
-  if (w && w.phone_number) {
-    window.open("https://web.whatsapp.com/send?phone=" + encodeURIComponent(w.phone_number) + "&text=" + encodeURIComponent(msg), "_blank");
-    setNotice("success", "تم تجهيز الفاتورة ورسالة الواتساب للزبون ✓");
-  } else {
-    setNotice("success", "تم تجهيز الفاتورة (محفوظة بالنظام والأرشيف). لا يوجد رقم واتساب مطابق لاسم «" + (customer || "") + "».");
-  }
+  // واتساب أُلغي — الفاتورة تُحفظ بالنظام/الأرشيف (أساس الرفع التلقائي إلى Google Drive لاحقاً)
+  setNotice("success", "تم حفظ الفاتورة بالنظام والأرشيف ✓");
 }
 
 // لوحة الإرسال الجماعي حسب التصنيف
 function whatsappBroadcastPanel() {
+  // واتساب أُلغي بالكامل — لوحة الإرسال الجماعي معطّلة (التحويل إلى Google Drive)
+  return "";
   const list = state.customerWhatsapp || [];
   const types = [...new Set(list.map((c) => (c.customer_type || "").trim()).filter(Boolean))].sort((a, b) => a.localeCompare(b, "ar"));
   if (!types.length) return "";
@@ -4850,21 +4823,7 @@ function render() {
   bindPricingForms();
   bindAccordions();
 
-  // الإرسال الجماعي حسب التصنيف
-  app.querySelector("[data-bc-type]")?.addEventListener("change", (event) => {
-    state.broadcastType = event.currentTarget.value;
-    render();
-  });
-  app.querySelector("[data-bc-text]")?.addEventListener("input", (event) => {
-    state.broadcastText = event.currentTarget.value;
-  });
-  app.querySelectorAll("[data-bc-send]").forEach((btn) => {
-    btn.addEventListener("click", () => {
-      const phone = btn.dataset.bcSend;
-      const msg = state.broadcastText || "";
-      window.open("https://web.whatsapp.com/send?phone=" + encodeURIComponent(phone) + (msg ? "&text=" + encodeURIComponent(msg) : ""), "_blank");
-    });
-  });
+  // واتساب أُلغي — أُزيلت معالجات الإرسال الجماعي (التحويل إلى Google Drive)
 
   app.querySelector("[data-form='login']")?.addEventListener("submit", (event) => {
     event.preventDefault();
