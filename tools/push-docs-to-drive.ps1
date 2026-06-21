@@ -92,8 +92,10 @@ foreach ($r in @($rows)) {
     $no = Clean-Name ([string]$doc.no)
     $name = Clean-Name ([string]$doc.name)
     $date = Clean-Name ([string]$doc.date)
-    $fname = (("{0} {1} - {2} - {3}" -f $prefix, $no, $name, $date).Trim() + ".pdf")
-    if ($fname.Length -gt 180) { $fname = $fname.Substring(0,176) + ".pdf" }
+    $shortId = if ($id.Length -ge 8) { $id.Substring(0,8) } else { $id }
+    $base = ("{0} {1} - {2} - {3}" -f $prefix, $no, $name, $date).Trim()
+    if ($base.Length -gt 150) { $base = $base.Substring(0,150).Trim() }
+    $fname = "$base [$shortId].pdf"   # [id] يضمن اسم فريد لكل مستند (يتفادى الكتابة فوق بعضها)
 
     $url = "$SiteBase/receipt.html?id=$id"
     $pdf = Join-Path $env:TEMP ("ozkdoc-" + $id + ".pdf")
