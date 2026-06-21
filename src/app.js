@@ -1519,13 +1519,16 @@ function mergeMazayaPriceItems(items) {
   const bahrainiItems = mazayaItems.filter(isBahrainiItem);
   const mixItems = mazayaItems.filter((it) => !isBahrainiItem(it));
 
-  // يبني سطر المزايا من صنف مصدر حقيقي — نرث منه عدد الكروز بالشرحة (unit2Factor)
-  // وسعر المفرق (pricePayload.retail) حتى تنقسم نشرة المفرق على الكروز بشكل صحيح.
-  // السعر (الجملة) تلقائي من أول صنف مُسعّر، والقيمة الثابتة احتياط فقط.
+  // السعر (الجملة) تلقائي من أول صنف مُسعّر؛ والقيمة الثابتة احتياط فقط.
+  // نختار صنف المصدر الذي يملك سعر مفرق (retail) حتى يظهر السطر في نشرة المفرق،
+  // ونثبّت عدد الكروز بالشرحة = 12 لتُقسم نشرة المفرق على الكروز.
+  const base = mazayaItems[0];
+  const hasRetailPrice = (it) =>
+    Number(it && it.approvedPrice && it.approvedPrice.pricePayload && it.approvedPrice.pricePayload.retail && it.approvedPrice.pricePayload.retail.price) > 0;
   const makeMazayaLine = (name, key, srcItems, fallbackPrice) => {
     const priced = srcItems.find((it) => Number(it.unit2Price) > 0);
-    const src = priced || srcItems[0] || mazayaItems[0];
     const price = priced ? Number(priced.unit2Price) : fallbackPrice;
+    const src = srcItems.find(hasRetailPrice) || priced || srcItems[0] || base;
     return {
       ...src,
       key,
