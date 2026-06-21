@@ -1480,6 +1480,11 @@ function isMazayaPriceItem(item) {
   return groupName.includes("مزايا") || itemName.includes("مزايا");
 }
 
+// المزايا 100غ مستبعدة من النشرة (طلب الإدارة): لا تظهر ولا تؤثّر على سعر المزايا
+function isMazaya100g(item) {
+  return String(item.name || item.itemName || "").includes("100");
+}
+
 // دمج أصناف متشابهة في النشرة بسطر واحد (طلب الإدارة) — أضف الاسم القانوني هنا لدمج أي صنف يبدأ به
 const BULLETIN_MERGE_NAMES = ["ماستر طويل ورق", "ماستر قصير أزرق", "اليغانس طويل فضي"];
 
@@ -1511,8 +1516,10 @@ const MAZAYA_BAHRAINI_PRICE = 135;  // مزايا بحريني (شرحة) — ا
 const MAZAYA_UNIT2_FACTOR = 12;     // عدد الكروز في شرحة المزايا (لقسمة سعر المفرق على الكروز)
 
 function mergeMazayaPriceItems(items) {
-  const mazayaItems = items.filter(isMazayaPriceItem);
-  if (!mazayaItems.length) return items;
+  const allMazaya = items.filter(isMazayaPriceItem);
+  if (!allMazaya.length) return items;
+  // نستبعد المزايا 100غ نهائيًا من النشرة (لا تظهر ولا تؤثّر على السعر)
+  const mazayaItems = allMazaya.filter((it) => !isMazaya100g(it));
 
   // مزايا مشكل = كل النكهات (أي صنف مزايا ليس بحرينيًا)
   const isBahrainiItem = (it) => normalizeItemName(it.name || it.itemName || "").includes("بحريني");
@@ -1544,10 +1551,9 @@ function mergeMazayaPriceItems(items) {
     };
   };
 
-  const mazayaLines = [
-    makeMazayaLine("مزايا مشكل", "mazaya-mix", mixItems, MAZAYA_MIX_PRICE),
-    makeMazayaLine("مزايا بحريني", "mazaya-bahraini", bahrainiItems, MAZAYA_BAHRAINI_PRICE)
-  ];
+  const mazayaLines = [];
+  if (mixItems.length) mazayaLines.push(makeMazayaLine("مزايا مشكل", "mazaya-mix", mixItems, MAZAYA_MIX_PRICE));
+  if (bahrainiItems.length) mazayaLines.push(makeMazayaLine("مزايا بحريني", "mazaya-bahraini", bahrainiItems, MAZAYA_BAHRAINI_PRICE));
 
   return [...items.filter((item) => !isMazayaPriceItem(item)), ...mazayaLines].sort(
     (a, b) =>
