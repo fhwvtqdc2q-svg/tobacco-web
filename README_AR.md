@@ -71,3 +71,7 @@ https://fhwvtqdc2q-svg.github.io/
 ```powershell
 npm run check
 ```
+
+## الترخيص
+
+هذا المشروع مرخّص تحت [MIT License](LICENSE).
