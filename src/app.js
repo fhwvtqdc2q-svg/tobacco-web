@@ -1504,13 +1504,25 @@ function mergeBulletinNamedGroups(items) {
   );
 }
 
-// أسعار سطري المزايا في النشرة (طلب الإدارة) — عدّلهما هنا عند تغيّر السعر
-const MAZAYA_MIX_PRICE = 145;       // مزايا مشكل (شرحة)
-const MAZAYA_BAHRAINI_PRICE = 150;  // مزايا بحريني (شرحة)
+// أسعار سطري المزايا: تُؤخذ تلقائيًا من النظام (صفحة الأسعار).
+// القيمتان التاليتان احتياطيتان فقط — تُستعمل إذا لم يوجد سعر مُدخَل في النظام.
+const MAZAYA_MIX_PRICE = 132;       // مزايا مشكل (شرحة) — احتياطي عند غياب السعر
+const MAZAYA_BAHRAINI_PRICE = 135;  // مزايا بحريني (شرحة) — احتياطي عند غياب السعر
 
 function mergeMazayaPriceItems(items) {
   const mazayaItems = items.filter(isMazayaPriceItem);
   if (!mazayaItems.length) return items;
+
+  // مزايا مشكل = كل النكهات (أي صنف مزايا ليس بحرينيًا)
+  const isBahrainiItem = (it) => normalizeItemName(it.name || it.itemName || "").includes("بحريني");
+  const bahrainiItems = mazayaItems.filter(isBahrainiItem);
+  const mixItems = mazayaItems.filter((it) => !isBahrainiItem(it));
+
+  // السعر يُؤخذ تلقائيًا من أول صنف مُسعّر؛ والقيمة الثابتة احتياط فقط
+  const autoPrice = (arr, fallback) => {
+    const priced = arr.find((it) => Number(it.unit2Price) > 0);
+    return priced ? Number(priced.unit2Price) : fallback;
+  };
 
   const base = mazayaItems[0];
   const makeMazayaLine = (name, key, price) => ({
@@ -1528,8 +1540,8 @@ function mergeMazayaPriceItems(items) {
   });
 
   const mazayaLines = [
-    makeMazayaLine("مزايا مشكل", "mazaya-mix", MAZAYA_MIX_PRICE),
-    makeMazayaLine("مزايا بحريني", "mazaya-bahraini", MAZAYA_BAHRAINI_PRICE)
+    makeMazayaLine("مزايا مشكل", "mazaya-mix", autoPrice(mixItems, MAZAYA_MIX_PRICE)),
+    makeMazayaLine("مزايا بحريني", "mazaya-bahraini", autoPrice(bahrainiItems, MAZAYA_BAHRAINI_PRICE))
   ];
 
   return [...items.filter((item) => !isMazayaPriceItem(item)), ...mazayaLines].sort(
