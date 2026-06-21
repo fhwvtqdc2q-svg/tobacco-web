@@ -1518,30 +1518,29 @@ function mergeMazayaPriceItems(items) {
   const bahrainiItems = mazayaItems.filter(isBahrainiItem);
   const mixItems = mazayaItems.filter((it) => !isBahrainiItem(it));
 
-  // السعر يُؤخذ تلقائيًا من أول صنف مُسعّر؛ والقيمة الثابتة احتياط فقط
-  const autoPrice = (arr, fallback) => {
-    const priced = arr.find((it) => Number(it.unit2Price) > 0);
-    return priced ? Number(priced.unit2Price) : fallback;
+  // يبني سطر المزايا من صنف مصدر حقيقي — نرث منه عدد الكروز بالشرحة (unit2Factor)
+  // وسعر المفرق (pricePayload.retail) حتى تنقسم نشرة المفرق على الكروز بشكل صحيح.
+  // السعر (الجملة) تلقائي من أول صنف مُسعّر، والقيمة الثابتة احتياط فقط.
+  const makeMazayaLine = (name, key, srcItems, fallbackPrice) => {
+    const priced = srcItems.find((it) => Number(it.unit2Price) > 0);
+    const src = priced || srcItems[0] || mazayaItems[0];
+    const price = priced ? Number(priced.unit2Price) : fallbackPrice;
+    return {
+      ...src,
+      key,
+      name,
+      itemName: name,
+      groupName: "مزايا",
+      unit1Price: 0,
+      unit2Name: "شرحة",
+      unit2Price: price,
+      salePrice: price
+    };
   };
 
-  const base = mazayaItems[0];
-  const makeMazayaLine = (name, key, price) => ({
-    ...base,
-    key,
-    name,
-    itemName: name,
-    groupName: "مزايا",
-    unit1Name: "",
-    unit1Price: 0,
-    unit2Name: "شرحة",
-    unit2Factor: 1,
-    unit2Price: price,
-    salePrice: price
-  });
-
   const mazayaLines = [
-    makeMazayaLine("مزايا مشكل", "mazaya-mix", autoPrice(mixItems, MAZAYA_MIX_PRICE)),
-    makeMazayaLine("مزايا بحريني", "mazaya-bahraini", autoPrice(bahrainiItems, MAZAYA_BAHRAINI_PRICE))
+    makeMazayaLine("مزايا مشكل", "mazaya-mix", mixItems, MAZAYA_MIX_PRICE),
+    makeMazayaLine("مزايا بحريني", "mazaya-bahraini", bahrainiItems, MAZAYA_BAHRAINI_PRICE)
   ];
 
   return [...items.filter((item) => !isMazayaPriceItem(item)), ...mazayaLines].sort(
