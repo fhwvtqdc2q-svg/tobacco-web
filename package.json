@@ -2,6 +2,7 @@
   "name": "cross-platform-web-workspace",
   "version": "0.1.0",
   "private": true,
+  "license": "MIT",
   "type": "module",
   "scripts": {
     "dev": "node scripts/serve.mjs",
