@@ -1508,6 +1508,7 @@ function mergeBulletinNamedGroups(items) {
 // القيمتان التاليتان احتياطيتان فقط — تُستعمل إذا لم يوجد سعر مُدخَل في النظام.
 const MAZAYA_MIX_PRICE = 132;       // مزايا مشكل (شرحة) — احتياطي عند غياب السعر
 const MAZAYA_BAHRAINI_PRICE = 135;  // مزايا بحريني (شرحة) — احتياطي عند غياب السعر
+const MAZAYA_UNIT2_FACTOR = 12;     // عدد الكروز في شرحة المزايا (لقسمة سعر المفرق على الكروز)
 
 function mergeMazayaPriceItems(items) {
   const mazayaItems = items.filter(isMazayaPriceItem);
@@ -1531,8 +1532,10 @@ function mergeMazayaPriceItems(items) {
       name,
       itemName: name,
       groupName: "مزايا",
+      unit1Name: "كروز",
       unit1Price: 0,
       unit2Name: "شرحة",
+      unit2Factor: MAZAYA_UNIT2_FACTOR,
       unit2Price: price,
       salePrice: price
     };
