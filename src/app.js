@@ -3656,7 +3656,7 @@ function reportsPage() {
         </div>
       </details>
 
-      <details class="acc-group">
+      <details class="acc-group"${selectedCustomerName ? " open" : ""}>
         <summary class="acc-summary"><span class="acc-title">📄 كشف حساب زبون</span><span class="acc-count">PDF</span></summary>
         <div class="acc-body report-card">
           <p class="muted">كشف حساب رسمي لزبون محدّد: الرصيد الافتتاحي، كل الحركات، والرصيد الختامي.</p>
