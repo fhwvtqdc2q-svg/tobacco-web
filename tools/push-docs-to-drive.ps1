@@ -79,8 +79,21 @@ function Clean-Name($s) {
     return $s.Trim()
 }
 
+# إزالة التكرار: نحتفظ بأحدث نسخة لكل (نوع|رقم|تاريخ)؛ والمستندات بلا رقم تُميَّز بالـ id
+$seen = @{}
+$picked = New-Object System.Collections.Generic.List[object]
+foreach ($r in (@($rows) | Sort-Object -Property created_at -Descending)) {
+    $d = $r.doc; $t = [string]$d.t
+    $kno = ([string]$d.no).Trim(); $kdate = ([string]$d.date).Trim()
+    $key = if ($kno) { "$t|$kno|$kdate" } else { "id|" + [string]$r.id }
+    if ($seen.ContainsKey($key)) { continue }
+    $seen[$key] = $true
+    [void]$picked.Add($r)
+}
+Write-Log ("ba3d izalat al-tikrar: {0} mustanad farid (min {1})." -f $picked.Count, @($rows).Count)
+
 $uploaded = 0; $failed = 0
-foreach ($r in @($rows)) {
+foreach ($r in $picked) {
     $id = [string]$r.id
     if ($done.ContainsKey($id)) { continue }
     $doc = $r.doc
@@ -92,10 +105,16 @@ foreach ($r in @($rows)) {
     $no = Clean-Name ([string]$doc.no)
     $name = Clean-Name ([string]$doc.name)
     $date = Clean-Name ([string]$doc.date)
-    $shortId = if ($id.Length -ge 8) { $id.Substring(0,8) } else { $id }
-    $base = ("{0} {1} - {2} - {3}" -f $prefix, $no, $name, $date).Trim()
-    if ($base.Length -gt 150) { $base = $base.Substring(0,150).Trim() }
-    $fname = "$base [$shortId].pdf"   # [id] يضمن اسم فريد لكل مستند (يتفادى الكتابة فوق بعضها)
+    if ($no) {
+        $base = ("{0} {1} - {2} - {3}" -f $prefix, $no, $name, $date).Trim()
+        if ($base.Length -gt 150) { $base = $base.Substring(0,150).Trim() }
+        $fname = "$base.pdf"   # الاسم برقم الفاتورة الفريد — نفس الفاتورة تكتب فوق نفسها فلا تتكرر
+    } else {
+        $shortId = if ($id.Length -ge 8) { $id.Substring(0,8) } else { $id }
+        $base = ("{0} - {1} - {2}" -f $prefix, $name, $date).Trim()
+        if ($base.Length -gt 150) { $base = $base.Substring(0,150).Trim() }
+        $fname = "$base [$shortId].pdf"   # مستند بلا رقم (مفرق نقدي) — نميّزه بالـ id
+    }
 
     $url = "$SiteBase/receipt.html?id=$id"
     $pdf = Join-Path $env:TEMP ("ozkdoc-" + $id + ".pdf")
