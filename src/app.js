@@ -631,6 +631,19 @@ function invoiceLineQty(line) {
   return "—";
 }
 
+// سعر وحدة المادة المباعة كما هو من الأمين (موثوق كسعر وحدة، بعكس إجمالي السطر).
+// الأمين يسجّل السعر بوحدة البيع: للوحدة الكبرى (كرتونة/شرحة) عند بيع وحدات كاملة،
+// وللكروز عند البيع المفرّق؛ نعرضه مع وحدته الصحيحة لتفادي اللبس.
+function invoiceLinePrice(line) {
+  const price = Number(line?.price || 0);
+  if (!(price > 0)) return "—";
+  const u1 = String(line?.unit1 || "").trim();
+  const u2 = String(line?.unit2 || "").trim();
+  const qtyUnits = Number(line?.qtyUnits || 0);
+  const unit = qtyUnits >= 1 && u2 ? u2 : u1;
+  return `${formatMoney(price)} $${unit ? " / " + unit : ""}`;
+}
+
 async function loadCustomerCreditLimits() {
   try {
     state.customerLimitError = null;
@@ -3608,9 +3621,9 @@ function reportsPage() {
               <summary class="acc-summary"><span class="acc-title">🧾 فاتورة ${escapeHtml(inv.number || "")} — ${escapeHtml(inv.date || "")}</span><span class="acc-count">${escapeHtml(formatMoney(inv.total || 0))} $</span></summary>
               <div class="acc-body">
                 <table class="dm-table" style="width:100%">
-                  <thead><tr><th>المادة</th><th>الكمية</th></tr></thead>
+                  <thead><tr><th>المادة</th><th>الكمية</th><th>سعر الوحدة</th></tr></thead>
                   <tbody>
-                    ${(inv.lines || []).map((l) => `<tr><td>${escapeHtml(l.material || "")}</td><td>${escapeHtml(invoiceLineQty(l))}</td></tr>`).join("")}
+                    ${(inv.lines || []).map((l) => `<tr><td>${escapeHtml(l.material || "")}</td><td>${escapeHtml(invoiceLineQty(l))}</td><td>${escapeHtml(invoiceLinePrice(l))}</td></tr>`).join("")}
                   </tbody>
                 </table>
                 <p class="muted" style="margin:6px 2px 0">إجمالي الفاتورة: <b>${escapeHtml(formatMoney(inv.total || 0))} $</b></p>
