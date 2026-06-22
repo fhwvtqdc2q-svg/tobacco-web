@@ -39,7 +39,7 @@ try {
 
     $url = "$supabaseUrl/rest/v1/approved_price_sync_feed?select=item_key,item_name,sale_price,unit1_price,unit1_name,unit2_name,unit2_factor,unit2_price,retail_carton_usd,updated_at&order=item_name.asc&limit=5000"
 
-    $response = Invoke-RestMethod -Uri $url -Headers $headers -Method GET -ErrorAction Stop
+    $response = Invoke-RestMethod -Uri $url -Headers $headers -Method GET -TimeoutSec 30 -ErrorAction Stop
 
     if (-not $response -or $response.Count -eq 0) {
         Write-Host "لا توجد أسعار في Supabase!" -ForegroundColor Red
