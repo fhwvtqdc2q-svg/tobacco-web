@@ -6,6 +6,9 @@ on:
     paths:
       - 'scripts/price-data.json'
   workflow_dispatch:
+  schedule:
+    # يتجدّد تلقائياً من الأسعار الحيّة في Supabase كل 3 ساعات (بدون لابتوب)
+    - cron: '0 */3 * * *'
 
 permissions:
   contents: write
