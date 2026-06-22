@@ -127,7 +127,7 @@ WHERE LTRIM(RTRIM(COALESCE(m.$nameCol,''))) <> ''
     # login to Supabase as owner
     $loginBody = (@{ email = $syncEmail; password = $syncPassword } | ConvertTo-Json -Compress)
     $session = Invoke-RestMethod -Method Post -Uri "$supabaseUrl/auth/v1/token?grant_type=password" `
-        -Headers @{ apikey = $apiKey } -ContentType "application/json; charset=utf-8" `
+        -Headers @{ apikey = $apiKey } -ContentType "application/json; charset=utf-8" -TimeoutSec 30 `
         -Body ([System.Text.Encoding]::UTF8.GetBytes($loginBody))
 
     $authHeaders = @{
@@ -141,7 +141,7 @@ WHERE LTRIM(RTRIM(COALESCE(m.$nameCol,''))) <> ''
     # upsert in one batch on item_guid
     $json = $rows.ToArray() | ConvertTo-Json -Depth 4 -Compress
     Invoke-RestMethod -Method Post -Uri "$supabaseUrl/rest/v1/item_costs?on_conflict=item_guid" `
-        -Headers $authHeaders -ContentType "application/json; charset=utf-8" `
+        -Headers $authHeaders -ContentType "application/json; charset=utf-8" -TimeoutSec 60 `
         -Body ([System.Text.Encoding]::UTF8.GetBytes($json)) | Out-Null
 
     Write-Log "thm raf3 al-tklfa bnja7 ($($rows.Count) mada)"
