@@ -5072,7 +5072,11 @@ function render() {
 boot();
 
 setInterval(() => {
-  if ((state.route === "ameen" || state.route === "pricing") && (!dataStore.isConfigured() || state.session)) {
+  // لا نقاطع المستخدم أثناء الكتابة في نموذج
+  const active = document.activeElement;
+  if (active && (active.tagName === "INPUT" || active.tagName === "TEXTAREA" || active.tagName === "SELECT")) return;
+  const autoRefreshRoutes = ["ameen", "pricing", "dashboard", "payments"];
+  if (autoRefreshRoutes.includes(state.route) && (!dataStore.isConfigured() || state.session)) {
     Promise.all([loadInventoryReports(), loadCustomerBalanceReports(), loadCustomerCreditLimits(), loadApprovedPriceItems()])
       .then(() => render())
       .catch(() => {});
