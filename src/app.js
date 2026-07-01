@@ -3366,6 +3366,8 @@ function customerDetailsPanel(item) {
     : (Array.isArray(item.recentMovements)
         ? [...item.recentMovements].sort((a, b) => new Date(b.date || 0) - new Date(a.date || 0))
         : []);
+  const invoiceMoves = movements.filter((m) => Number(m?.debit || 0) > 0);
+  const paymentMoves = movements.filter((m) => Number(m?.credit || 0) > 0);
 
   return `
     <section class="customer-detail-panel" data-customer-detail-panel>
@@ -3418,43 +3420,42 @@ function customerDetailsPanel(item) {
       <div class="customer-detail-grid">
         <article>
           <div class="detail-section-head">
-            <h4>سجل الدفعات</h4>
-            <span class="status-chip">${allPayments.length} دفعة</span>
+            <h4>🧾 الفواتير</h4>
+            <span class="status-chip">${invoiceMoves.length} فاتورة</span>
           </div>
           <div class="detail-list payment-timeline">
-            ${allPayments.length
-              ? allPayments.map((p) => `
+            ${invoiceMoves.length
+              ? invoiceMoves.map((m) => `
                 <div class="payment-entry">
-                  <div class="payment-entry-dot ${p.source === "manual" ? "manual-dot" : ""}"></div>
+                  <div class="payment-entry-dot movement-dot"></div>
                   <div class="payment-entry-body">
-                    <strong class="payment-amount">${escapeHtml(formatMoney(p.amount || 0))}</strong>
-                    <span class="payment-date">${escapeHtml(p.date ? formatDate(p.date) : "بلا تاريخ")}</span>
-                    <span class="payment-source-badge ${p.source === "manual" ? "badge-manual" : "badge-ameen"}">${p.source === "manual" ? "يدوي" : "الأمين"}</span>
-                    ${p.notes ? `<small class="payment-note">${escapeHtml(p.notes)}</small>` : ""}
-                    <button class="button secondary mini-button" type="button" data-action="gen-receipt" data-amt="${escapeHtml(String(p.amount || 0))}" data-date="${escapeHtml(p.date || "")}" data-notes="${escapeHtml(p.notes || "")}" style="margin-top:6px">📄 سند قبض PDF</button>
+                    <strong class="payment-amount">فاتورة: ${escapeHtml(formatMoney(Number(m?.debit || 0)))}</strong>
+                    <span class="payment-date">${escapeHtml(m?.date ? formatDate(m.date) : "بلا تاريخ")}</span>
+                    ${m?.notes ? `<small class="payment-note">${escapeHtml(m.notes)}</small>` : ""}
+                    <button class="button secondary mini-button" type="button" data-action="gen-movement-doc" data-debit="${escapeHtml(String(m?.debit || 0))}" data-credit="0" data-date="${escapeHtml(m?.date || "")}" data-notes="${escapeHtml(m?.notes || "")}" style="margin-top:6px">📄 فاتورة PDF</button>
                   </div>
                 </div>`).join("")
-              : `<p class="muted" style="padding:12px 0">${state.paymentLoading ? "جاري التحميل..." : "لا توجد دفعات مسجلة."}</p>`}
+              : '<p class="muted" style="padding:12px 0">لا توجد فواتير مسجلة.</p>'}
           </div>
         </article>
         <article>
           <div class="detail-section-head">
-            <h4>كشف الحركة</h4>
-            <span class="status-chip">${movements.length} حركة</span>
+            <h4>💵 سندات القبض</h4>
+            <span class="status-chip">${paymentMoves.length} دفعة</span>
           </div>
           <div class="detail-list payment-timeline">
-            ${movements.length
-              ? movements.map((m) => `
+            ${paymentMoves.length
+              ? paymentMoves.map((m) => `
                 <div class="payment-entry">
-                  <div class="payment-entry-dot movement-dot"></div>
+                  <div class="payment-entry-dot"></div>
                   <div class="payment-entry-body">
-                    <strong class="payment-amount">${escapeHtml(movementLabel(m))}: ${escapeHtml(formatMoney(movementAmount(m)))}</strong>
+                    <strong class="payment-amount">دفعة: ${escapeHtml(formatMoney(Number(m?.credit || 0)))}</strong>
                     <span class="payment-date">${escapeHtml(m?.date ? formatDate(m.date) : "بلا تاريخ")}</span>
                     ${m?.notes ? `<small class="payment-note">${escapeHtml(m.notes)}</small>` : ""}
-                    <button class="button secondary mini-button" type="button" data-action="gen-movement-doc" data-debit="${escapeHtml(String(m?.debit || 0))}" data-credit="${escapeHtml(String(m?.credit || 0))}" data-date="${escapeHtml(m?.date || "")}" data-notes="${escapeHtml(m?.notes || "")}" style="margin-top:6px">📄 ${Number(m?.debit || 0) > 0 ? "فاتورة" : "سند قبض"} PDF</button>
+                    <button class="button secondary mini-button" type="button" data-action="gen-movement-doc" data-debit="0" data-credit="${escapeHtml(String(m?.credit || 0))}" data-date="${escapeHtml(m?.date || "")}" data-notes="${escapeHtml(m?.notes || "")}" style="margin-top:6px">📄 سند قبض PDF</button>
                   </div>
                 </div>`).join("")
-              : '<p class="muted" style="padding:12px 0">لا توجد حركة مسجلة.</p>'}
+              : '<p class="muted" style="padding:12px 0">لا توجد دفعات مسجلة.</p>'}
           </div>
         </article>
       </div>
