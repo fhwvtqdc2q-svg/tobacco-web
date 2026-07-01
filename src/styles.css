@@ -41,6 +41,35 @@
   --nav-hover-border: #b09060;
 }
 
+/* ===== توحيد الثيم الصباحي: منع بقاء عناصر بألوان مسائية غامقة ===== */
+[data-theme="light"] code,
+[data-theme="light"] .progress-pill,
+[data-theme="light"] .task-item,
+[data-theme="light"] .deploy-grid article,
+[data-theme="light"] .request-card,
+[data-theme="light"] .audit-note,
+[data-theme="light"] .inventory-row,
+[data-theme="light"] .filter-pill,
+[data-theme="light"] .customer-detail-panel,
+[data-theme="light"] .customer-detail-grid article {
+  background: var(--surface);
+}
+[data-theme="light"] .task-action,
+[data-theme="light"] .status-chip,
+[data-theme="light"] .filter-pill:hover {
+  background: var(--surface-soft);
+}
+[data-theme="light"] .inventory-row-out { background: #f4ecdd; }
+[data-theme="light"] .inventory-row-negative { background: #f8e6e3; }
+[data-theme="light"] .notice-panel { background: var(--surface-soft); }
+[data-theme="light"] .notice-panel.success,
+[data-theme="light"] .sync-chip.success { background: #e7f1e6; color: #2e6b3f; }
+[data-theme="light"] .notice-panel.warning,
+[data-theme="light"] .inline-warning,
+[data-theme="light"] .sync-chip.warning { background: #f7edd6; color: #8a5a00; }
+[data-theme="light"] .message-panel.success { background: #e7f1e6; }
+[data-theme="light"] .message-panel.error { background: #f8e5e2; }
+
 * {
   box-sizing: border-box;
 }
