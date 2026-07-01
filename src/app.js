@@ -2998,7 +2998,7 @@ function customerMovementRow(movement) {
 
 // ====== تقارير PDF (محرّك مشترك) ======
 const REPORT_STYLE = `<style>
-.ozk-rpt{font-family:Tahoma,Arial,sans-serif;color:#221808;background:#fff;direction:rtl;padding:6px 10px}
+.ozk-rpt{font-family:Tahoma,Arial,sans-serif;color:#221808;background:#fff;direction:rtl;padding:6px 10px;-webkit-print-color-adjust:exact;print-color-adjust:exact}
 .ozk-rpt .rhead{display:flex;justify-content:space-between;align-items:flex-start;border-bottom:2px solid #b8892a;padding-bottom:8px;margin-bottom:12px}
 .ozk-rpt .brand{font-weight:900;font-size:19px}.ozk-rpt .brand small{display:block;font-weight:400;font-size:10px;color:#6b5535}
 .ozk-rpt .rtitle{flex:1;text-align:right;white-space:nowrap;padding-right:14px}.ozk-rpt .rtitle h2{margin:0;font-size:16px;color:#b8892a;white-space:nowrap}.ozk-rpt .rtitle span{font-size:10px;color:#6b5535;white-space:nowrap}
@@ -3009,7 +3009,7 @@ const REPORT_STYLE = `<style>
 .ozk-rpt table{width:100%;border-collapse:collapse;font-size:12px}
 .ozk-rpt th{background:#ece6d4;padding:6px 8px;text-align:right;border:1px solid #c8b890;font-size:11px}
 .ozk-rpt td{padding:5px 8px;border:1px solid #c8b890}
-.ozk-rpt tr{page-break-inside:avoid}
+.ozk-rpt table{page-break-inside:auto}.ozk-rpt thead{display:table-header-group}.ozk-rpt tfoot{display:table-footer-group}.ozk-rpt tr{page-break-inside:avoid}.ozk-rpt .rhead,.ozk-rpt .balbox,.ozk-rpt .cards{page-break-inside:avoid}.ozk-rpt tr.closing td{background:#f6ead0;font-weight:800;border-top:2px solid #b8892a}
 .ozk-rpt tr:nth-child(even) td{background:#faf6ec}
 .ozk-rpt .deb{color:#c0271f;font-weight:700}.ozk-rpt .cred{color:#16794f;font-weight:700}
 .ozk-rpt .cards{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:12px}
@@ -3034,9 +3034,11 @@ async function exportReportPdf(bodyHtml, filename) {
   }
   const doc =
     '<!doctype html><html lang="ar" dir="rtl"><head><meta charset="utf-8">' +
+    '<base href="' + window.location.href + '">' +
     '<title>' + title + '</title>' +
     '<style>@page{size:A4 portrait;margin:10mm}' +
     'html,body{margin:0;padding:0;background:#fff;-webkit-print-color-adjust:exact;print-color-adjust:exact}' +
+    'img{max-width:100%}table{page-break-inside:auto}tr{page-break-inside:avoid}thead{display:table-header-group}tfoot{display:table-footer-group}' +
     '@media print{.ozk-rpt{padding:0}}</style>' +
     '</head><body>' + bodyHtml +
     '<scr' + 'ipt>window.onload=function(){setTimeout(function(){window.focus();window.print();},450);};</scr' + 'ipt>' +
@@ -3104,9 +3106,11 @@ function customerStatementPdfMarkup(item) {
       ${header}
       <div class="sec">حركة الحساب من ${escapeHtml(fromDate || "بداية الفترة")} حتى ${escapeHtml(todayIsoDate())}</div>
       <table>
-        <tr><th>التاريخ</th><th>مدين (بضاعة)</th><th>دائن (دفع)</th><th>البيان</th><th>الرصيد</th></tr>
+        <thead><tr><th>التاريخ</th><th>مدين (بضاعة)</th><th>دائن (دفع)</th><th>البيان</th><th>الرصيد</th></tr></thead>
+        <tbody>
         ${rows.join("")}
-        <tr class="open"><td></td><td colspan="2">الرصيد في نهاية الفترة</td><td></td><td><b>${escapeHtml(formatMoney(closing))}</b></td></tr>
+        <tr class="open closing"><td></td><td colspan="2">الرصيد في نهاية الفترة</td><td></td><td><b>${escapeHtml(formatMoney(closing))}</b></td></tr>
+        </tbody>
       </table>
       ${truncNote}${liveNote}
       ${footer}
@@ -3130,9 +3134,9 @@ function customerStatementPdfMarkup(item) {
   return `${REPORT_STYLE}<div class="ozk-rpt">
     ${header}
     <div class="sec">سجل الدفعات (الأحدث)</div>
-    <table><tr><th>التاريخ</th><th>المبلغ</th><th>ملاحظات</th></tr>${pr}</table>
+    <table><thead><tr><th>التاريخ</th><th>المبلغ</th><th>ملاحظات</th></tr></thead><tbody>${pr}</tbody></table>
     <div class="sec">كشف الحركة (الأحدث)</div>
-    <table><tr><th>التاريخ</th><th>مدين (بضاعة)</th><th>دائن (دفع)</th><th>ملاحظات</th></tr>${mv}</table>
+    <table><thead><tr><th>التاريخ</th><th>مدين (بضاعة)</th><th>دائن (دفع)</th><th>ملاحظات</th></tr></thead><tbody>${mv}</tbody></table>
     ${footer}
   </div>`;
 }
