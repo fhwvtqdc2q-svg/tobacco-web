@@ -1,7 +1,7 @@
 // Tweak.x — مثال تعليمي بسيط لمكتبة iOS (تُبنى إلى .dylib عبر Theos)
 //
 // يطبع رسالة في سجل الجهاز عند إقلاع أي تطبيق حُقنت فيه هذه المكتبة،
-// ويعترض دالة UIApplication ليُظهر متى أصبح التطبيق نشطاً.
+// ويراقب إشعار تنشيط التطبيق ليُظهر متى أصبح التطبيق نشطاً.
 //
 // هذا للتعلّم فقط — طبّقه على تطبيقك الخاص أو تطبيق مفتوح المصدر.
 
@@ -14,12 +14,26 @@ static void tweakInit(void) {
           [[NSProcessInfo processInfo] processName]);
 }
 
-// (2) اعتراض (Hook) لدالة في UIApplication — أسلوب Logos الخاص بـ Theos
-%hook UIApplicationDelegate
+@interface MyTweakObserver : NSObject
+@end
 
-- (void)applicationDidBecomeActive:(UIApplication *)application {
-    %orig;  // نستدعي الأصل أولاً حتى لا نكسر سلوك التطبيق
+@implementation MyTweakObserver
+
+- (void)applicationDidBecomeActive:(NSNotification *)notification {
+    (void)notification;
     NSLog(@"[MyTweak] التطبيق أصبح نشطاً الآن ✅");
 }
 
-%end
+@end
+
+static MyTweakObserver *gObserver;
+
+// (2) نراقب إشعار دخول التطبيق للحالة النشطة بدل hook على بروتوكول.
+__attribute__((constructor))
+static void registerLifecycleObserver(void) {
+    gObserver = [MyTweakObserver new];
+    [[NSNotificationCenter defaultCenter] addObserver:gObserver
+                                             selector:@selector(applicationDidBecomeActive:)
+                                                 name:UIApplicationDidBecomeActiveNotification
+                                               object:nil];
+}

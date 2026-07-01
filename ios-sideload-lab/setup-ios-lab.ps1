@@ -86,7 +86,7 @@ if ($python) {
 # ---------------------------------------------------------------------------
 Write-Step 3 "إحضار سكريبت inject_dylib.py"
 $injectPath = Join-Path $lab 'inject_dylib.py'
-$rawUrl = 'https://raw.githubusercontent.com/fhwvtqdc2q-svg/tobacco-web/claude/ios-sideload-windows-1V1fF/ios-sideload-lab/inject_dylib.py'
+$rawUrl = 'https://raw.githubusercontent.com/fhwvtqdc2q-svg/tobacco-web/main/ios-sideload-lab/inject_dylib.py'
 
 # أولاً: إن كان السكريبت بجانب هذا الملف، انسخه مباشرة (بلا إنترنت)
 $localCopy = Join-Path $PSScriptRoot 'inject_dylib.py'
