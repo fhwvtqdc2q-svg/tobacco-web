@@ -513,8 +513,8 @@ function customerCurrency(item) {
   if (ov) return ov;
   const w = whatsappFor(item);
   const c = String((w && w.currency) || "").trim().toLowerCase();
-  if (c.includes("usd") || c.includes("$") || c.includes("دولار") || c.includes("dollar")) return "$";
-  return "ل.س";
+  if (c.includes("ليرة") || c.includes("ل.س") || c.includes("syp") || c.includes("pound")) return "ل.س";
+  return "$";
 }
 
 function docNumber(prefix) {
@@ -3354,9 +3354,12 @@ function customerDetailsPanel(item) {
     .map((p) => ({ amount: p.amount, date: p.paymentDate || "", notes: p.notes, source: "manual" }));
   const allPayments = [...ameenPayments, ...manualPayments]
     .sort((a, b) => new Date(b.date || 0) - new Date(a.date || 0));
-  const movements = Array.isArray(item.recentMovements)
-    ? [...item.recentMovements].sort((a, b) => new Date(b.date || 0) - new Date(a.date || 0))
-    : [];
+  const fullMv = customerFullMovements(item);
+  const movements = (fullMv && Array.isArray(fullMv.movements) && fullMv.movements.length)
+    ? [...fullMv.movements].sort((a, b) => new Date(b.date || 0) - new Date(a.date || 0))
+    : (Array.isArray(item.recentMovements)
+        ? [...item.recentMovements].sort((a, b) => new Date(b.date || 0) - new Date(a.date || 0))
+        : []);
 
   return `
     <section class="customer-detail-panel" data-customer-detail-panel>
@@ -3436,13 +3439,13 @@ function customerDetailsPanel(item) {
           <div class="detail-list payment-timeline">
             ${movements.length
               ? movements.map((m) => `
-                <div class="payment-entry payment-clickable" data-action="gen-movement-doc" data-debit="${escapeHtml(String(m?.debit || 0))}" data-credit="${escapeHtml(String(m?.credit || 0))}" data-date="${escapeHtml(m?.date || "")}" data-notes="${escapeHtml(m?.notes || "")}" role="button" tabindex="0" title="اضغط لتصدير هذه الفاتورة/السند PDF" style="cursor:pointer">
+                <div class="payment-entry">
                   <div class="payment-entry-dot movement-dot"></div>
                   <div class="payment-entry-body">
                     <strong class="payment-amount">${escapeHtml(movementLabel(m))}: ${escapeHtml(formatMoney(movementAmount(m)))}</strong>
                     <span class="payment-date">${escapeHtml(m?.date ? formatDate(m.date) : "بلا تاريخ")}</span>
-                    <span class="payment-source-badge badge-ameen">📄 تصدير مفرد</span>
                     ${m?.notes ? `<small class="payment-note">${escapeHtml(m.notes)}</small>` : ""}
+                    <button class="button secondary mini-button" type="button" data-action="gen-movement-doc" data-debit="${escapeHtml(String(m?.debit || 0))}" data-credit="${escapeHtml(String(m?.credit || 0))}" data-date="${escapeHtml(m?.date || "")}" data-notes="${escapeHtml(m?.notes || "")}" style="margin-top:6px">📄 ${Number(m?.debit || 0) > 0 ? "فاتورة" : "سند قبض"} PDF</button>
                   </div>
                 </div>`).join("")
               : '<p class="muted" style="padding:12px 0">لا توجد حركة مسجلة.</p>'}
