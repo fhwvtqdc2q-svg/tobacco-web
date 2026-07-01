@@ -494,7 +494,23 @@ function whatsappFor(item) {
   return row || null;
 }
 
+function customerCurrencyOverride(item) {
+  if (!item) return "";
+  const map = readJson("customer-currency-overrides", {});
+  const val = map ? map[customerKey(item)] : "";
+  return val === "$" || val === "ل.س" ? val : "";
+}
+
+function setCustomerCurrencyOverride(item, cur) {
+  if (!item) return;
+  const map = readJson("customer-currency-overrides", {}) || {};
+  map[customerKey(item)] = cur;
+  writeJson("customer-currency-overrides", map);
+}
+
 function customerCurrency(item) {
+  const ov = customerCurrencyOverride(item);
+  if (ov) return ov;
   const w = whatsappFor(item);
   const c = String((w && w.currency) || "").trim().toLowerCase();
   if (c.includes("usd") || c.includes("$") || c.includes("دولار") || c.includes("dollar")) return "$";
@@ -3176,18 +3192,24 @@ async function exportCustomerStatementPdf() {
 // سند رسمي (قبض/صرف) بالتصميم المبرَند مع الختم الأزرق
 function voucherPdfMarkup(v) {
   const isPay = v.type === "payment";
-  const title = isPay ? "سند صرف" : "سند قبض";
+  const isInv = v.type === "invoice";
+  const title = isInv ? "فاتورة" : (isPay ? "سند صرف" : "سند قبض");
   const cur = v.cur || "ل.س";
-  const amtColor = isPay ? "#c0271f" : "#16794f";
-  const noteLine = isPay
-    ? "هذا سند رسمي بالمبلغ المصروف من صندوق OZK TOBACCO."
-    : "شكراً لتعاملكم مع OZK TOBACCO. هذا سند رسمي بالمبلغ المستلم.";
+  const amtColor = (isPay || isInv) ? "#c0271f" : "#16794f";
+  const amtLabel = isInv ? "قيمة الفاتورة" : (isPay ? "المبلغ المصروف" : "المبلغ المستلم");
+  const dstr = String(v.date || todayIsoDate()).slice(0, 10);
+  const noteLine = isInv
+    ? "هذه فاتورة صادرة عن OZK TOBACCO."
+    : (isPay
+      ? "هذا سند رسمي بالمبلغ المصروف من صندوق OZK TOBACCO."
+      : "شكراً لتعاملكم مع OZK TOBACCO. هذا سند رسمي بالمبلغ المستلم.");
+  const balLabel = isInv ? "الرصيد الحالي" : (isPay ? "الرصيد بعد الصرف" : "الرصيد بعد الدفعة");
   const rows = [];
-  rows.push(`<tr><th style="width:130px">التاريخ</th><td>${escapeHtml(v.date || todayIsoDate())}</td></tr>`);
+  rows.push(`<tr><th style="width:130px">التاريخ</th><td>${escapeHtml(dstr)}</td></tr>`);
   if (v.method) rows.push(`<tr><th>طريقة الدفع</th><td>${escapeHtml(v.method)}</td></tr>`);
   if (v.notes) rows.push(`<tr><th>البيان</th><td>${escapeHtml(v.notes)}</td></tr>`);
   if (v.balance !== undefined && v.balance !== null && v.balance !== "")
-    rows.push(`<tr><th>${isPay ? "الرصيد بعد الصرف" : "الرصيد بعد الدفعة"}</th><td>${escapeHtml(formatMoney(v.balance))} ${escapeHtml(cur)}</td></tr>`);
+    rows.push(`<tr><th>${balLabel}</th><td>${escapeHtml(formatMoney(v.balance))} ${escapeHtml(cur)}</td></tr>`);
   const stamp = `
     <div class="stamp-wrap"><div class="seal">
       <div class="s-name">مركز أبو زياد</div>
@@ -3202,12 +3224,12 @@ function voucherPdfMarkup(v) {
         <img src="public/icons/ozk-logo.png" class="rlogo" alt="OZK" onerror="this.style.display='none'">
         <div class="brand">OZK TOBACCO<small>مركز أبو زياد — لتجارة الدخان</small></div>
       </div>
-      <div class="rtitle"><h2>${title}</h2><span>رقم: ${escapeHtml(v.no || docNumber(isPay ? "PV" : "R"))} · ${escapeHtml(v.date || todayIsoDate())}</span></div>
+      <div class="rtitle"><h2>${title}</h2><span>رقم: ${escapeHtml(v.no || docNumber(isInv ? "INV" : (isPay ? "PV" : "R")))} · ${escapeHtml(dstr)}</span></div>
     </div>
     <div class="balbox">
       <div><div class="nm">${escapeHtml(v.name || "")}</div>
         <div class="muted">${isPay ? "جهة الصرف / المستفيد" : (v.phone ? "هاتف: " + escapeHtml(v.phone) : "")}</div></div>
-      <div style="text-align:left"><div class="muted">${isPay ? "المبلغ المصروف" : "المبلغ المستلم"}</div>
+      <div style="text-align:left"><div class="muted">${amtLabel}</div>
         <div class="big" style="color:${amtColor}">${escapeHtml(formatMoney(v.amount || 0))} ${escapeHtml(cur)}</div></div>
     </div>
     <table>${rows.join("")}</table>
@@ -3219,10 +3241,11 @@ function voucherPdfMarkup(v) {
 
 async function exportVoucherPdf(v) {
   const isPay = v.type === "payment";
-  const safe = String(v.name || (isPay ? "صرف" : "قبض")).replace(/[^\p{L}\p{N}]+/gu, "_").slice(0, 40);
-  const prefix = isPay ? "سند-صرف" : "سند-قبض";
+  const isInv = v.type === "invoice";
+  const safe = String(v.name || (isInv ? "فاتورة" : (isPay ? "صرف" : "قبض"))).replace(/[^\p{L}\p{N}]+/gu, "_").slice(0, 40);
+  const prefix = isInv ? "فاتورة" : (isPay ? "سند-صرف" : "سند-قبض");
   await exportReportPdf(voucherPdfMarkup(v), `${prefix}-${safe}-${todayIsoDate()}.pdf`);
-  setNotice("success", isPay ? "تم تجهيز سند الصرف PDF." : "تم تجهيز سند القبض PDF.");
+  setNotice("success", isInv ? "تم تجهيز الفاتورة PDF." : (isPay ? "تم تجهيز سند الصرف PDF." : "تم تجهيز سند القبض PDF."));
   render();
 }
 
@@ -3343,6 +3366,7 @@ function customerDetailsPanel(item) {
           <p class="muted">الرصيد، تسجيل الدفعات، معلومات التواصل.</p>
         </div>
         <div style="display:flex;gap:8px">
+          <button class="button secondary compact-button" type="button" data-action="toggle-currency" title="تبديل عملة الزبون بين الدولار والليرة (يُحفظ)">💱 العملة: ${escapeHtml(customerCurrency(item))}</button>
           <button class="button primary compact-button" type="button" data-action="export-statement">📄 كشف حساب PDF</button>
           <button class="button secondary compact-button" type="button" data-action="clear-customer-details">✕ إغلاق</button>
         </div>
@@ -3412,11 +3436,12 @@ function customerDetailsPanel(item) {
           <div class="detail-list payment-timeline">
             ${movements.length
               ? movements.map((m) => `
-                <div class="payment-entry">
+                <div class="payment-entry payment-clickable" data-action="gen-movement-doc" data-debit="${escapeHtml(String(m?.debit || 0))}" data-credit="${escapeHtml(String(m?.credit || 0))}" data-date="${escapeHtml(m?.date || "")}" data-notes="${escapeHtml(m?.notes || "")}" role="button" tabindex="0" title="اضغط لتصدير هذه الفاتورة/السند PDF" style="cursor:pointer">
                   <div class="payment-entry-dot movement-dot"></div>
                   <div class="payment-entry-body">
                     <strong class="payment-amount">${escapeHtml(movementLabel(m))}: ${escapeHtml(formatMoney(movementAmount(m)))}</strong>
                     <span class="payment-date">${escapeHtml(m?.date ? formatDate(m.date) : "بلا تاريخ")}</span>
+                    <span class="payment-source-badge badge-ameen">📄 تصدير مفرد</span>
                     ${m?.notes ? `<small class="payment-note">${escapeHtml(m.notes)}</small>` : ""}
                   </div>
                 </div>`).join("")
@@ -4820,6 +4845,38 @@ function render() {
         cur: customerCurrency(item),
         no: docNumber("R")
       });
+    });
+  });
+  app.querySelector("[data-action='toggle-currency']")?.addEventListener("click", () => {
+    const item = selectedCustomer(latestCustomerBalanceItems());
+    if (!item) { setNotice("error", "اختر زبونًا أولاً."); render(); return; }
+    const next = customerCurrency(item) === "$" ? "ل.س" : "$";
+    setCustomerCurrencyOverride(item, next);
+    setNotice("success", `عملة الزبون الآن: ${next}`);
+    render();
+  });
+  app.querySelectorAll("[data-action='gen-movement-doc']").forEach((el) => {
+    el.addEventListener("click", () => {
+      const item = selectedCustomer(latestCustomerBalanceItems());
+      if (!item) { setNotice("error", "اختر زبونًا أولاً."); render(); return; }
+      const debit = Number(el.dataset.debit || 0);
+      const credit = Number(el.dataset.credit || 0);
+      const key = customerKey(item);
+      const base = {
+        name: item.name || "",
+        phone: customerProfile(key)?.phone || "",
+        date: el.dataset.date || todayIsoDate(),
+        notes: el.dataset.notes || "",
+        balance: customerBalance(item),
+        cur: customerCurrency(item)
+      };
+      if (debit > 0 && credit <= 0) {
+        exportVoucherPdf({ ...base, type: "invoice", amount: debit, no: docNumber("INV") });
+      } else if (credit > 0) {
+        exportVoucherPdf({ ...base, type: "receipt", amount: credit, no: docNumber("R") });
+      } else {
+        setNotice("error", "لا يمكن تصدير هذا القيد."); render();
+      }
     });
   });
   app.querySelector("[data-form='voucher-payment']")?.addEventListener("submit", (event) => {
