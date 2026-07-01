@@ -3472,15 +3472,15 @@ function customerBalanceSection(report) {
 
   const overdue = overdueCustomers();
   const overdueHtml = overdue.length > 0 ? `
-    <section class="panel overdue-panel" style="margin-bottom:16px">
-      <div class="overdue-header">
+    <details class="panel overdue-panel" open style="margin-bottom:16px">
+      <summary class="overdue-summary">
         <span class="overdue-icon">⚠️</span>
         <div style="flex:1">
           <strong>${overdue.length} زبون بدون دفعة منذ أكثر من 3 أيام</strong>
           <p class="muted" style="font-size:.85rem;margin:2px 0 0">هؤلاء الزبائن عليهم رصيد ولم يسجّل لهم أي دفعة خلال الفترة المحددة.</p>
         </div>
-        <button class="button secondary compact-button" type="button" data-action="print-overdue">🖨️ PDF</button>
-      </div>
+        <button class="button secondary compact-button" type="button" data-action="print-overdue" onclick="event.stopPropagation()">🖨️ PDF</button>
+      </summary>
       <div class="overdue-list">
         ${overdue.slice(0, 20).map((item) => `
           <div class="overdue-row">
@@ -3491,7 +3491,7 @@ function customerBalanceSection(report) {
             </span>
           </div>`).join("")}
       </div>
-    </section>
+    </details>
   ` : "";
 
   return `

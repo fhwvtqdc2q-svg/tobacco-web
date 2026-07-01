@@ -2131,6 +2131,41 @@ code {
   background: rgba(255, 116, 104, 0.06);
 }
 
+.overdue-panel[open] { }
+
+.overdue-summary {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  margin-bottom: 14px;
+  cursor: pointer;
+  padding: 0;
+  list-style: none;
+  user-select: none;
+}
+
+.overdue-summary::marker {
+  display: none;
+}
+
+.overdue-summary::-webkit-details-marker {
+  display: none;
+}
+
+.overdue-summary::before {
+  content: '▶';
+  font-size: 1.2rem;
+  color: var(--danger);
+  font-weight: bold;
+  margin-right: 4px;
+  transition: transform 0.2s ease;
+  flex-shrink: 0;
+}
+
+.overdue-panel[open] .overdue-summary::before {
+  transform: rotate(90deg);
+}
+
 .overdue-header {
   display: flex;
   align-items: flex-start;
