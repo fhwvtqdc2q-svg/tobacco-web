@@ -4883,12 +4883,14 @@ function render() {
       if (debit > 0 && credit <= 0) {
         const invs = customerInvoicesFor(item.name || "");
         const dOnly = String(el.dataset.date || "").slice(0, 10);
-        const match = invs.find((x) => String(x.date || "").slice(0, 10) === dOnly && Math.abs(Number(x.total || 0) - debit) < 1)
-          || invs.find((x) => String(x.date || "").slice(0, 10) === dOnly);
+        const amtMatch = (x) => Math.abs(Number(x.total || 0) - debit) < 1;
+        const dateMatch = (x) => String(x.date || "").slice(0, 10) === dOnly;
+        const match = invs.find((x) => dateMatch(x) && amtMatch(x)) || invs.find((x) => amtMatch(x)) || invs.find((x) => dateMatch(x));
         if (match) {
           exportVoucherPdf({ ...base, cur: "$", type: "invoice", amount: match.total || debit, no: match.number ? String(match.number) : docNumber("INV"), lines: match.lines || [] });
         } else {
-          exportVoucherPdf({ ...base, type: "invoice", amount: debit, no: docNumber("INV") });
+          setNotice("error", "لم أطابق فاتورة تفصيلية لهذه الحركة. افتح «التقارير» ← فواتير الزبون واضغط «📄 تصدير الفاتورة PDF (مع الأصناف)».");
+          render();
         }
       } else if (credit > 0) {
         exportVoucherPdf({ ...base, type: "receipt", amount: credit, no: docNumber("R") });
