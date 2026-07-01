@@ -3019,6 +3019,13 @@ const REPORT_STYLE = `<style>
 .ozk-rpt .rlogo{height:46px;width:auto}
 .ozk-rpt tr.open td{background:#ece6d4;font-weight:800}
 .ozk-rpt .rfoot{margin-top:16px;border-top:1.5px solid #b8892a;padding-top:7px;font-size:10px;color:#6b5535;display:flex;justify-content:space-between}
+.ozk-rpt .stamp-wrap{margin-top:16px;display:flex;justify-content:flex-start;page-break-inside:avoid}
+.ozk-rpt .seal{border:2.5px solid #16357a;outline:1.5px solid #16357a;outline-offset:3px;border-radius:12px;color:#16357a;padding:9px 20px;text-align:center;transform:rotate(-5deg);opacity:.9;line-height:1.45}
+.ozk-rpt .seal .s-name{font-size:15px;font-weight:900}
+.ozk-rpt .seal .s-sub{font-size:12px;font-weight:700}
+.ozk-rpt .seal .s-logo{font-size:18px;font-weight:900;letter-spacing:1px;margin:2px 0}
+.ozk-rpt .seal .s-info{font-size:10.5px;font-weight:700}
+.ozk-rpt .seal .s-addr{font-size:11px;font-weight:700;border-top:1px solid #16357a;margin-top:4px;padding-top:3px}
 </style>`;
 
 // نستعمل طباعة المتصفح الأصلية (حفظ بصيغة PDF) بدل html2canvas —
@@ -3067,14 +3074,15 @@ function customerStatementPdfMarkup(item) {
   const lastD = customerLastPaymentDate(item);
   const full = customerFullMovements(item);
   const report = state.customerMovementsReport;
+  const stmtNo = docNumber("ST");
 
   const header = `
     <div class="rhead">
       <div style="display:flex;align-items:center;gap:10px">
-        <img src="public/icons/ozk-logo.png" class="rlogo" alt="OZK">
-        <div class="brand">OZK TOBACCO<small>كشف حساب زبون رسمي</small></div>
+        <img src="public/icons/ozk-logo.png" class="rlogo" alt="OZK" onerror="this.style.display='none'">
+        <div class="brand">OZK TOBACCO<small>مركز أبو زياد — لتجارة الدخان</small></div>
       </div>
-      <div class="rtitle"><h2>كشف حساب</h2><span>تاريخ الإصدار: ${escapeHtml(todayIsoDate())}</span></div>
+      <div class="rtitle"><h2>كشف حساب</h2><span>رقم: ${escapeHtml(stmtNo)} · ${escapeHtml(todayIsoDate())}</span></div>
     </div>
     <div class="balbox"><div><div class="nm">${escapeHtml(item.name || "")}</div>
       <div class="muted">آخر دفعة: ${lastD ? escapeHtml(String(lastD).slice(0, 10)) : "لا يوجد"}${phone}</div></div>
@@ -3085,6 +3093,15 @@ function customerStatementPdfMarkup(item) {
       <span>هذا الكشف صادر آليًا عن نظام OZK TOBACCO</span>
       <span dir="ltr">0985000771 — 0984000662</span>
     </div>`;
+
+  const stamp = `
+    <div class="stamp-wrap"><div class="seal">
+      <div class="s-name">مركز أبو زياد</div>
+      <div class="s-sub">لتجارة الدخان</div>
+      <div class="s-logo">OZK TOBACCO</div>
+      <div class="s-info" dir="ltr">0985000771 - 0984000662 · رقم المركز: 0994092038</div>
+      <div class="s-addr">دوما - ساحة الغنم</div>
+    </div></div>`;
 
   if (full && Array.isArray(full.movements)) {
     const fromDate = report?.summary?.fromDate || "";
@@ -3113,6 +3130,7 @@ function customerStatementPdfMarkup(item) {
         </tbody>
       </table>
       ${truncNote}${liveNote}
+      ${stamp}
       ${footer}
     </div>`;
   }
@@ -3137,6 +3155,7 @@ function customerStatementPdfMarkup(item) {
     <table><thead><tr><th>التاريخ</th><th>المبلغ</th><th>ملاحظات</th></tr></thead><tbody>${pr}</tbody></table>
     <div class="sec">كشف الحركة (الأحدث)</div>
     <table><thead><tr><th>التاريخ</th><th>مدين (بضاعة)</th><th>دائن (دفع)</th><th>ملاحظات</th></tr></thead><tbody>${mv}</tbody></table>
+    ${stamp}
     ${footer}
   </div>`;
 }
