@@ -3232,6 +3232,12 @@ function voucherPdfMarkup(v) {
       <div style="text-align:left"><div class="muted">${amtLabel}</div>
         <div class="big" style="color:${amtColor}">${escapeHtml(formatMoney(v.amount || 0))} ${escapeHtml(cur)}</div></div>
     </div>
+    ${(isInv && Array.isArray(v.lines) && v.lines.length) ? `
+    <div class="sec">أصناف الفاتورة</div>
+    <table>
+      <thead><tr><th>المادة</th><th>الكمية</th><th>سعر الوحدة</th></tr></thead>
+      <tbody>${v.lines.map((l) => `<tr><td>${escapeHtml(l.material || "")}</td><td>${escapeHtml(invoiceLineQty(l))}</td><td>${escapeHtml(invoiceLinePrice(l))}</td></tr>`).join("")}</tbody>
+    </table>` : ""}
     <table>${rows.join("")}</table>
     <p class="muted" style="margin:8px 0 0">${noteLine}</p>
     ${stamp}
@@ -3732,6 +3738,7 @@ function reportsPage() {
                   </tbody>
                 </table>
                 <p class="muted" style="margin:6px 2px 0">إجمالي الفاتورة: <b>${escapeHtml(formatMoney(inv.total || 0))} $</b></p>
+                <button class="button secondary mini-button" type="button" data-action="gen-invoice-doc" data-inv-number="${escapeHtml(String(inv.number || ""))}" data-inv-date="${escapeHtml(String(inv.date || ""))}" data-customer="${escapeHtml(selectedCustomerName)}" style="margin-top:8px">📄 تصدير الفاتورة PDF (مع الأصناف)</button>
               </div>
             </details>`).join("")}
         </div>`;
@@ -4874,12 +4881,38 @@ function render() {
         cur: customerCurrency(item)
       };
       if (debit > 0 && credit <= 0) {
-        exportVoucherPdf({ ...base, type: "invoice", amount: debit, no: docNumber("INV") });
+        const invs = customerInvoicesFor(item.name || "");
+        const dOnly = String(el.dataset.date || "").slice(0, 10);
+        const match = invs.find((x) => String(x.date || "").slice(0, 10) === dOnly && Math.abs(Number(x.total || 0) - debit) < 1)
+          || invs.find((x) => String(x.date || "").slice(0, 10) === dOnly);
+        if (match) {
+          exportVoucherPdf({ ...base, cur: "$", type: "invoice", amount: match.total || debit, no: match.number ? String(match.number) : docNumber("INV"), lines: match.lines || [] });
+        } else {
+          exportVoucherPdf({ ...base, type: "invoice", amount: debit, no: docNumber("INV") });
+        }
       } else if (credit > 0) {
         exportVoucherPdf({ ...base, type: "receipt", amount: credit, no: docNumber("R") });
       } else {
         setNotice("error", "لا يمكن تصدير هذا القيد."); render();
       }
+    });
+  });
+  app.querySelectorAll("[data-action='gen-invoice-doc']").forEach((el) => {
+    el.addEventListener("click", () => {
+      const cust = el.dataset.customer || "";
+      const invs = customerInvoicesFor(cust);
+      const inv = invs.find((x) => String(x.number || "") === el.dataset.invNumber && String(x.date || "") === el.dataset.invDate)
+        || invs.find((x) => String(x.number || "") === el.dataset.invNumber);
+      if (!inv) { setNotice("error", "تعذّر إيجاد الفاتورة."); render(); return; }
+      exportVoucherPdf({
+        type: "invoice",
+        name: cust,
+        amount: inv.total || 0,
+        cur: "$",
+        date: inv.date || todayIsoDate(),
+        no: inv.number ? String(inv.number) : docNumber("INV"),
+        lines: inv.lines || []
+      });
     });
   });
   app.querySelector("[data-form='voucher-payment']")?.addEventListener("submit", (event) => {
