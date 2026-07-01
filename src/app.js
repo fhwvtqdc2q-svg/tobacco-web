@@ -3173,6 +3173,59 @@ async function exportCustomerStatementPdf() {
   render();
 }
 
+// سند رسمي (قبض/صرف) بالتصميم المبرَند مع الختم الأزرق
+function voucherPdfMarkup(v) {
+  const isPay = v.type === "payment";
+  const title = isPay ? "سند صرف" : "سند قبض";
+  const cur = v.cur || "ل.س";
+  const amtColor = isPay ? "#c0271f" : "#16794f";
+  const noteLine = isPay
+    ? "هذا سند رسمي بالمبلغ المصروف من صندوق OZK TOBACCO."
+    : "شكراً لتعاملكم مع OZK TOBACCO. هذا سند رسمي بالمبلغ المستلم.";
+  const rows = [];
+  rows.push(`<tr><th style="width:130px">التاريخ</th><td>${escapeHtml(v.date || todayIsoDate())}</td></tr>`);
+  if (v.method) rows.push(`<tr><th>طريقة الدفع</th><td>${escapeHtml(v.method)}</td></tr>`);
+  if (v.notes) rows.push(`<tr><th>البيان</th><td>${escapeHtml(v.notes)}</td></tr>`);
+  if (v.balance !== undefined && v.balance !== null && v.balance !== "")
+    rows.push(`<tr><th>${isPay ? "الرصيد بعد الصرف" : "الرصيد بعد الدفعة"}</th><td>${escapeHtml(formatMoney(v.balance))} ${escapeHtml(cur)}</td></tr>`);
+  const stamp = `
+    <div class="stamp-wrap"><div class="seal">
+      <div class="s-name">مركز أبو زياد</div>
+      <div class="s-sub">لتجارة الدخان</div>
+      <div class="s-logo">OZK TOBACCO</div>
+      <div class="s-info" dir="ltr">0985000771 - 0984000662 · رقم المركز: 0994092038</div>
+      <div class="s-addr">دوما - ساحة الغنم</div>
+    </div></div>`;
+  return `${REPORT_STYLE}<div class="ozk-rpt">
+    <div class="rhead">
+      <div style="display:flex;align-items:center;gap:10px">
+        <img src="public/icons/ozk-logo.png" class="rlogo" alt="OZK" onerror="this.style.display='none'">
+        <div class="brand">OZK TOBACCO<small>مركز أبو زياد — لتجارة الدخان</small></div>
+      </div>
+      <div class="rtitle"><h2>${title}</h2><span>رقم: ${escapeHtml(v.no || docNumber(isPay ? "PV" : "R"))} · ${escapeHtml(v.date || todayIsoDate())}</span></div>
+    </div>
+    <div class="balbox">
+      <div><div class="nm">${escapeHtml(v.name || "")}</div>
+        <div class="muted">${isPay ? "جهة الصرف / المستفيد" : (v.phone ? "هاتف: " + escapeHtml(v.phone) : "")}</div></div>
+      <div style="text-align:left"><div class="muted">${isPay ? "المبلغ المصروف" : "المبلغ المستلم"}</div>
+        <div class="big" style="color:${amtColor}">${escapeHtml(formatMoney(v.amount || 0))} ${escapeHtml(cur)}</div></div>
+    </div>
+    <table>${rows.join("")}</table>
+    <p class="muted" style="margin:8px 0 0">${noteLine}</p>
+    ${stamp}
+    <div class="rfoot"><span>صادر آليًا عن نظام OZK TOBACCO · رقم المركز: 0994092038</span><span dir="ltr">0985000771 — 0984000662</span></div>
+  </div>`;
+}
+
+async function exportVoucherPdf(v) {
+  const isPay = v.type === "payment";
+  const safe = String(v.name || (isPay ? "صرف" : "قبض")).replace(/[^\p{L}\p{N}]+/gu, "_").slice(0, 40);
+  const prefix = isPay ? "سند-صرف" : "سند-قبض";
+  await exportReportPdf(voucherPdfMarkup(v), `${prefix}-${safe}-${todayIsoDate()}.pdf`);
+  setNotice("success", isPay ? "تم تجهيز سند الصرف PDF." : "تم تجهيز سند القبض PDF.");
+  render();
+}
+
 function receivablesPdfMarkup() {
   const items = latestCustomerBalanceItems();
   const debtors = items.filter((i) => customerBalance(i) > 0).sort((a, b) => customerBalance(b) - customerBalance(a));
@@ -3338,12 +3391,13 @@ function customerDetailsPanel(item) {
           <div class="detail-list payment-timeline">
             ${allPayments.length
               ? allPayments.map((p) => `
-                <div class="payment-entry">
+                <div class="payment-entry payment-clickable" data-action="gen-receipt" data-amt="${escapeHtml(String(p.amount || 0))}" data-date="${escapeHtml(p.date || "")}" data-notes="${escapeHtml(p.notes || "")}" role="button" tabindex="0" title="اضغط لتوليد سند قبض PDF" style="cursor:pointer">
                   <div class="payment-entry-dot ${p.source === "manual" ? "manual-dot" : ""}"></div>
                   <div class="payment-entry-body">
                     <strong class="payment-amount">${escapeHtml(formatMoney(p.amount || 0))}</strong>
                     <span class="payment-date">${escapeHtml(p.date ? formatDate(p.date) : "بلا تاريخ")}</span>
                     <span class="payment-source-badge ${p.source === "manual" ? "badge-manual" : "badge-ameen"}">${p.source === "manual" ? "يدوي" : "الأمين"}</span>
+                    <span class="payment-source-badge badge-ameen">📄 سند قبض</span>
                     ${p.notes ? `<small class="payment-note">${escapeHtml(p.notes)}</small>` : ""}
                   </div>
                 </div>`).join("")
@@ -3865,6 +3919,24 @@ function payments() {
         <strong>${escapeHtml(appConfig.paymentStatus)}</strong>
         <p>المرحلة التالية: اختيار مزود دفع مناسب، ثم وضع مفاتيح الاختبار في بيئة آمنة، وليس داخل الواجهة.</p>
         <button class="button primary" type="button" disabled>الدفع غير مفعل بعد</button>
+      </div>
+
+      <div class="payment-record-section" style="margin-top:18px">
+        <h4>📄 سند صرف / دفع</h4>
+        <p class="muted" style="font-size:.85rem;margin:0 0 8px">أنشئ سند صرف رسمي (PDF) بالتصميم المعتمد للمبالغ المدفوعة: مورّد، مصروف، سلفة… إلخ.</p>
+        <form class="payment-record-form" data-form="voucher-payment">
+          <div class="payment-form-row">
+            <label>المستفيد / الجهة<input name="name" maxlength="120" placeholder="اسم المورّد أو الجهة" required></label>
+            <label>المبلغ<input name="amount" type="text" inputmode="decimal" dir="ltr" placeholder="0" required></label>
+          </div>
+          <div class="payment-form-row">
+            <label>العملة<input name="cur" value="ل.س" maxlength="10"></label>
+            <label>التاريخ<input name="date" type="date" value="${new Date().toISOString().slice(0, 10)}" required></label>
+          </div>
+          <label>طريقة الدفع<input name="method" maxlength="60" placeholder="نقداً / حوالة / شيك…"></label>
+          <label>البيان / ملاحظة<input name="notes" maxlength="300" placeholder="سبب الصرف أو بيان الدفعة"></label>
+          <button class="button primary mini-button" type="submit">📄 توليد سند صرف PDF</button>
+        </form>
       </div>
     </section>
   `);
@@ -4732,6 +4804,41 @@ function render() {
   });
 
   app.querySelector("[data-action='export-statement']")?.addEventListener("click", exportCustomerStatementPdf);
+  app.querySelectorAll("[data-action='gen-receipt']").forEach((el) => {
+    el.addEventListener("click", () => {
+      const item = selectedCustomer(latestCustomerBalanceItems());
+      if (!item) { setNotice("error", "اختر زبونًا أولاً."); render(); return; }
+      const key = customerKey(item);
+      exportVoucherPdf({
+        type: "receipt",
+        name: item.name || "",
+        phone: customerProfile(key)?.phone || "",
+        amount: Number(el.dataset.amt || 0),
+        date: el.dataset.date || todayIsoDate(),
+        notes: el.dataset.notes || "",
+        balance: customerBalance(item),
+        cur: customerCurrency(item),
+        no: docNumber("R")
+      });
+    });
+  });
+  app.querySelector("[data-form='voucher-payment']")?.addEventListener("submit", (event) => {
+    event.preventDefault();
+    const f = event.target;
+    const g = (n) => (f.querySelector(`[name='${n}']`)?.value || "").trim();
+    const amount = toNumber(g("amount"));
+    if (!g("name") || !(amount > 0)) { setNotice("error", "أدخل المستفيد والمبلغ."); render(); return; }
+    exportVoucherPdf({
+      type: "payment",
+      name: g("name"),
+      amount: amount,
+      cur: g("cur") || "ل.س",
+      date: g("date") || todayIsoDate(),
+      method: g("method"),
+      notes: g("notes"),
+      no: docNumber("PV")
+    });
+  });
   app.querySelector("[data-action='report-receivables']")?.addEventListener("click", exportReceivablesPdf);
   app.querySelector("[data-action='report-inventory']")?.addEventListener("click", exportInventoryReportPdf);
   app.querySelector("[data-report-customer]")?.addEventListener("change", (event) => {
