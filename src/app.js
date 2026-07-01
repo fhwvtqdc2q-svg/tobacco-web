@@ -655,8 +655,13 @@ function invoiceLinePrice(line) {
   if (!(price > 0)) return "—";
   const u1 = String(line?.unit1 || "").trim();
   const u2 = String(line?.unit2 || "").trim();
+  const saleFact = Number(line?.saleFact || 0);
   const qtyUnits = Number(line?.qtyUnits || 0);
-  const unit = qtyUnits >= 1 && u2 ? u2 : u1;
+  // الأمين bi.Unity = معامل وحدة البيع: 1 = الوحدة الأساسية (كروز)؛ أكبر = الوحدة الثانية (شرحة/كرتونة).
+  // إن لم تتوفر (بيانات قبل تحديث المزامنة) نرجع للتخمين القديم بحسب الكمية.
+  const unit = saleFact > 0
+    ? (saleFact > 1 && u2 ? u2 : u1)
+    : (qtyUnits >= 1 && u2 ? u2 : u1);
   return `${formatMoney(price)} $${unit ? " / " + unit : ""}`;
 }
 
