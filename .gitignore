@@ -27,3 +27,6 @@ Thumbs.db
 reports/prices/*.csv
 tools/.env
 tools/logs/
+
+# Python cache from ios-sideload lab
+ios-sideload-lab/__pycache__/
