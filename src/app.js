@@ -3424,14 +3424,14 @@ function customerDetailsPanel(item) {
           <div class="detail-list payment-timeline">
             ${allPayments.length
               ? allPayments.map((p) => `
-                <div class="payment-entry payment-clickable" data-action="gen-receipt" data-amt="${escapeHtml(String(p.amount || 0))}" data-date="${escapeHtml(p.date || "")}" data-notes="${escapeHtml(p.notes || "")}" role="button" tabindex="0" title="اضغط لتوليد سند قبض PDF" style="cursor:pointer">
+                <div class="payment-entry">
                   <div class="payment-entry-dot ${p.source === "manual" ? "manual-dot" : ""}"></div>
                   <div class="payment-entry-body">
                     <strong class="payment-amount">${escapeHtml(formatMoney(p.amount || 0))}</strong>
                     <span class="payment-date">${escapeHtml(p.date ? formatDate(p.date) : "بلا تاريخ")}</span>
                     <span class="payment-source-badge ${p.source === "manual" ? "badge-manual" : "badge-ameen"}">${p.source === "manual" ? "يدوي" : "الأمين"}</span>
-                    <span class="payment-source-badge badge-ameen">📄 سند قبض</span>
                     ${p.notes ? `<small class="payment-note">${escapeHtml(p.notes)}</small>` : ""}
+                    <button class="button secondary mini-button" type="button" data-action="gen-receipt" data-amt="${escapeHtml(String(p.amount || 0))}" data-date="${escapeHtml(p.date || "")}" data-notes="${escapeHtml(p.notes || "")}" style="margin-top:6px">📄 سند قبض PDF</button>
                   </div>
                 </div>`).join("")
               : `<p class="muted" style="padding:12px 0">${state.paymentLoading ? "جاري التحميل..." : "لا توجد دفعات مسجلة."}</p>`}
