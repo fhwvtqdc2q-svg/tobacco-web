@@ -3586,37 +3586,6 @@ function ameen() {
       : "";
 
   return shell(`
-    <section class="content-grid request-layout">
-      <article class="panel">
-        <div class="panel-title-row">
-          <h3>ملخص الهاتف</h3>
-          <button class="button secondary compact-button" type="button" data-action="refresh-ameen">تحديث</button>
-        </div>
-        ${
-          latest
-            ? `<p class="sync-chip ${escapeHtml(syncState.type)}">${escapeHtml(syncState.label)}</p>
-              <p class="muted">آخر مزامنة: ${escapeHtml(formatDateTime(syncedAt))} / ${escapeHtml(syncFreshnessLabel(syncedAt))}</p>
-              <p class="muted">المصدر: ${escapeHtml(sourceLabel(latest.source || summary.source))}${liveReport ? " / مباشر من قاعدة الأمين" : ""}</p>
-              <div class="button-row report-actions">
-                <button class="button secondary" type="button" data-action="download-inventory">تصدير الجرد الحي</button>
-              </div>
-              <div class="inventory-metrics">
-                ${inventoryMetric("مواد موجودة", summary.availableItems || 0, "من الجرد")}
-                ${inventoryMetric("قريبة من النفاد", summary.lowStockItems || 0, `حد التنبيه: ${summary.threshold || 0}`)}
-                ${inventoryMetric("غير موجودة", summary.outOfStockItems || 0, "لا تنزل في الأسعار")}
-                ${inventoryMetric("مخزون سالب", negativeItems.length, "يحتاج مراجعة محاسبية")}
-                ${inventoryMetric("مخزون صفر", zeroItems.length, "نفد من المستودع")}
-                ${inventoryMetric("راكدة", summary.staleItems || 0, "موجودة ولا تظهر في الأسعار")}
-                ${inventoryMetric("فعالة", summary.activeItems || 0, "موجودة وتظهر في الأسعار")}
-                ${inventoryMetric("استبعاد أسعار", summary.excludedPriceRows || 0, "غير موجودة في المستودع")}
-                ${inventoryMetric("بلا سعر", summary.zeroPriceRows || 0, "موجودة لكن سعرها صفر")}
-                ${inventoryMetric("أسعار الهاتف", approvedPrices.length, "محفوظة لجهاز المحاسبة")}
-              </div>`
-            : '<p class="muted">لم تحفظ تقرير جرد بعد. ارفع ملف الجرد اليومي حتى يظهر الملخص هنا وعلى الآيفون.</p>'
-        }
-      </article>
-    </section>
-
     ${
       latest
         ? `${ameenBrowser(items)}
