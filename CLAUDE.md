@@ -181,6 +181,52 @@ curl -s "https://dyxbirfpxeocqffnfdeb.supabase.co/rest/v1/" \
 
 ---
 
+## نظام إشعارات تيليغرام الشامل
+
+كل الأحداث المهمة تصل فوراً إلى تيليغرام (بوت `ozk_remind_bot`، محادثة المالك في `bot_config.owner_chat_id`).
+
+### البنية
+```
+حدث في جدول → trigger → notify_telegram() → telegram_outbox
+                                                  ↓ pg_cron كل دقيقة
+                                        dispatch_telegram_outbox() → Telegram API
+```
+- المرجع الكامل: `supabase/telegram-notifications.sql`
+- التوكن في Supabase Vault (`telegram_bot_token`) — لا يُخزَّن في الكود أبداً
+- منع التكرار: `dedupe_key` + نافذة زمنية بالدقائق
+- التعديلات الجماعية تُجمَّع برسالة واحدة (مثلاً "تغيّرت أسعار 200 مادة")
+
+### المجالات المغطاة
+| الحدث | الإشعار |
+|---|---|
+| طلب واتساب جديد (`whatsapp_orders`) | 🛒 فوري لكل طلب |
+| طلب عميل من الموقع (`customer_requests`) | 📩 فوري لكل طلب |
+| دفعة مالية (`payment_records`) | 💵 فوري لكل دفعة |
+| تغيير سعر (`approved_price_items`) | 💰 فوري، تجميع إن تغيّر > 5 |
+| مادة جديدة باللائحة | 🆕 فوري، تجميع إن أُضيف > 5 |
+| انخفاض مخزون تحت الحد (`low_stock_threshold` في `bot_config`، افتراضي 50) | ⚠️ مرة كل 6 ساعات لكل مادة |
+| نفاد مادة | ⛔ مرة كل 6 ساعات لكل مادة |
+| حد ائتمان جديد/معدَّل | 🧾 فوري |
+| ملخص المبيعات اليومية | 📊 مرة كل ساعتين كحد أقصى |
+| تقرير الحركة اليومية | 📈 مرة لكل تاريخ |
+| تقرير الجرد (أول وصول يومي) | 📦 مرة يومياً |
+| أرشفة مستندات | 📄 تجميع كل 30 دقيقة |
+| تحديث تكاليف المواد | 🧮 مرة كل 12 ساعة |
+| فشل مزامنة على Windows | 🚨 مرة كل ساعة لنفس العطل |
+
+### إرسال إشعار يدوي من Windows
+```powershell
+.\tools\send-telegram-notification.ps1 -Message "النص" -EventType "windows" -DedupeKey "مفتاح-اختياري" -DedupeMinutes 60
+```
+السكريبت best-effort: لا يرمي استثناء أبداً كي لا يكسر سكريبتات المزامنة.
+
+### إشعار من SQL مباشرة
+```sql
+select notify_telegram('event_type', 'نص الرسالة', 'dedupe-key', 60);
+```
+
+---
+
 ## تدفق مزامنة الأسعار (Pipeline)
 
 ```

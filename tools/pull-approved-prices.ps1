@@ -95,5 +95,11 @@ try {
     $errMsg = "[$timestamp] ERROR: $($_.Exception.Message)"
     Write-Host $errMsg -ForegroundColor Red
     if (Test-Path (Split-Path $LogFile -Parent)) { $errMsg | Add-Content $LogFile }
+    # إشعار تيليغرام عند الفشل (مرة كل ساعة كحد أقصى لنفس العطل)
+    try {
+        & "$PSScriptRoot\send-telegram-notification.ps1" `
+            -Message "🚨 فشل سحب الأسعار من Supabase (pull-approved-prices)`n$($_.Exception.Message)" `
+            -EventType "sync_failure" -DedupeKey "winfail:pull-approved-prices" -DedupeMinutes 60
+    } catch { }
     exit 1
 }
