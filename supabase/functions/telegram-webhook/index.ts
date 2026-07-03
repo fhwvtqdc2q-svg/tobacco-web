@@ -34,6 +34,13 @@ let lastDiag: Record<string, unknown> = {};
 let cachedSecrets: { token: string; webhook_secret: string } | null = null;
 async function getSecrets() {
   if (cachedSecrets) return cachedSecrets;
+  // أولاً: أسرار Edge Function (Deno.env) إن ضُبطت — ثم fallback لجدول app_secrets
+  const envTok = Deno.env.get("TELEGRAM_BOT_TOKEN");
+  const envSec = Deno.env.get("TELEGRAM_WEBHOOK_SECRET");
+  if (envTok && envSec) {
+    cachedSecrets = { token: envTok, webhook_secret: envSec };
+    return cachedSecrets;
+  }
   const res = await fetch(`${SUPA_URL}/rest/v1/app_secrets?select=name,value`, {
     headers: { apikey: SERVICE_KEY, Authorization: `Bearer ${SERVICE_KEY}`, "Accept-Profile": PROFILE },
   });
@@ -50,6 +57,7 @@ async function getSecrets() {
 
 async function restGet(path: string) {
   const res = await fetch(`${SUPA_URL}/rest/v1/${path}`, { headers: { apikey: SERVICE_KEY, Authorization: `Bearer ${SERVICE_KEY}`, "Accept-Profile": PROFILE } });
+  if (!res.ok) throw new Error(`rest_get_failed_${res.status}`);
   return res.json();
 }
 async function restPost(path: string, body: unknown, prefer?: string) {
@@ -63,8 +71,10 @@ async function tg(method: string, payload: unknown) {
 }
 async function getOwner(): Promise<number | null> {
   const rows = await restGet(`bot_config?key=eq.owner_chat_id&select=value`);
-  if (Array.isArray(rows) && rows.length) return Number(rows[0].value);
-  return null;
+  // فشل الاستعلام ≠ "لا يوجد مالك" — نرمي خطأ كي لا يُفتح البوت لمرسل عشوائي (fail-closed)
+  if (!Array.isArray(rows)) throw new Error("owner_lookup_failed");
+  if (rows.length) return Number(rows[0].value);
+  return null; // لا يوجد مالك فعلاً — أول محادثة تُسجَّل مالكاً (bootstrap)
 }
 async function setOwner(chatId: number) {
   await restPost(`bot_config`, { key: "owner_chat_id", value: String(chatId) }, "resolution=merge-duplicates");
@@ -328,15 +338,16 @@ function formatWhen(local: Date, lnow: Date): string {
 
 Deno.serve(async (req) => {
   const url = new URL(req.url);
-  if (url.searchParams.get("debug") === "1") {
-    try { await getSecrets(); return new Response(JSON.stringify({ ok: true, diag: lastDiag }), { headers: { "Content-Type": "application/json" } }); }
-    catch (e) { return new Response(JSON.stringify({ ok: false, diag: lastDiag, err: String(e) }), { headers: { "Content-Type": "application/json" } }); }
-  }
 
   let secrets;
   try { secrets = await getSecrets(); } catch { return new Response("err", { status: 500 }); }
   const hdr = req.headers.get("x-telegram-bot-api-secret-token");
   if (hdr !== secrets.webhook_secret) return new Response("forbidden", { status: 401 });
+
+  // وضع التشخيص متاح فقط بعد التحقق من سر الـ webhook
+  if (url.searchParams.get("debug") === "1") {
+    return new Response(JSON.stringify({ ok: true, diag: lastDiag }), { headers: { "Content-Type": "application/json" } });
+  }
 
   let update: any;
   try { update = await req.json(); } catch { return new Response("ok"); }
@@ -345,7 +356,8 @@ Deno.serve(async (req) => {
   const chatId = msg.chat.id;
   const text = (msg.text ?? "").trim();
 
-  let owner = await getOwner();
+  let owner: number | null;
+  try { owner = await getOwner(); } catch { return new Response("ok"); }
   if (owner === null) { await setOwner(chatId); owner = chatId; }
   if (chatId !== owner) { await tg("sendMessage", { chat_id: chatId, text: "🔒 هذا بوت خاص." }); return new Response("ok"); }
 

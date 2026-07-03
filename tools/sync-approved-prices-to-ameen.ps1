@@ -32,7 +32,8 @@ if ($LASTEXITCODE -ne 0) {
     try {
         & "$PSScriptRoot\send-telegram-notification.ps1" `
             -Message "🚨 فشل تطبيق الأسعار على قاعدة الأمين (sync-approved-prices-to-ameen)" `
-            -EventType "sync_failure" -DedupeKey "winfail:apply-to-ameen" -DedupeMinutes 60
+            -EventType "sync_failure" -DedupeKey "winfail:apply-to-ameen" -DedupeMinutes 60 `
+            -EnvFile $EnvFile
     } catch { }
     exit 1
 }

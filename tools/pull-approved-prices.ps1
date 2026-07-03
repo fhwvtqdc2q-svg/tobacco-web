@@ -99,7 +99,8 @@ try {
     try {
         & "$PSScriptRoot\send-telegram-notification.ps1" `
             -Message "🚨 فشل سحب الأسعار من Supabase (pull-approved-prices)`n$($_.Exception.Message)" `
-            -EventType "sync_failure" -DedupeKey "winfail:pull-approved-prices" -DedupeMinutes 60
+            -EventType "sync_failure" -DedupeKey "winfail:pull-approved-prices" -DedupeMinutes 60 `
+            -EnvFile $EnvFile
     } catch { }
     exit 1
 }

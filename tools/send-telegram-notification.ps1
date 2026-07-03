@@ -23,10 +23,13 @@ param(
 
 try {
     # قراءة الإعدادات من tools\.env
+    # (مع قص التعليقات داخل السطر "قيمة  # تعليق" وإزالة الاقتباسات)
     if (Test-Path $EnvFile) {
         Get-Content $EnvFile | Where-Object { $_ -match '^\s*[^#].+=.+' } | ForEach-Object {
             $parts = $_ -split '=', 2
-            [System.Environment]::SetEnvironmentVariable($parts[0].Trim(), $parts[1].Trim())
+            $name  = $parts[0].Trim()
+            $value = ($parts[1] -replace '\s+#.*$', '').Trim().Trim('"').Trim("'")
+            [System.Environment]::SetEnvironmentVariable($name, $value)
         }
     }
 
