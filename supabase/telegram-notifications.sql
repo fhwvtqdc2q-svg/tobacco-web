@@ -449,3 +449,91 @@ drop trigger if exists trg_notify_item_costs on public.item_costs;
 create trigger trg_notify_item_costs
 after insert or update on public.item_costs
 for each statement execute function public.tg_notify_item_costs();
+
+-- ============================================================
+-- Triggers — مجال: مخاطر حدود الائتمان (تجاوز/اقتراب 90%)
+-- يُفحص عند وصول تقرير الأرصدة من الأمين (source=ameen_customer_balances)
+-- الدالة لا ترمي استثناء أبداً كي لا تكسر إدراج تقرير المزامنة.
+-- (مطبَّقة كـ migration باسم credit_limit_risk_alerts)
+-- ============================================================
+create or replace function public.tg_notify_credit_risk()
+returns trigger language plpgsql security definer set search_path = public
+as $$
+declare
+  r record;
+  n_over int := 0;
+  n_near int := 0;
+begin
+  if new.source is distinct from 'ameen_customer_balances'
+     or jsonb_typeof(new.items) is distinct from 'array' then
+    return null;
+  end if;
+
+  select
+    count(*) filter (where bal >= lim) as c_over,
+    count(*) filter (where bal >= lim * 0.9 and bal < lim) as c_near
+  into n_over, n_near
+  from (
+    select coalesce(nullif(e->>'balance','')::numeric, 0) as bal,
+           coalesce(nullif(e->>'creditLimit','')::numeric, 0) as lim
+    from jsonb_array_elements(new.items) e
+  ) t
+  where lim > 0;
+
+  if n_over > 8 then
+    perform public.notify_telegram('credit_over',
+      '🚫 ' || n_over || ' زبون تجاوزوا حد الائتمان — راجع تقرير الأرصدة',
+      'creditover:bulk', 360);
+  elsif n_over > 0 then
+    for r in
+      select e->>'name' as name,
+             coalesce(nullif(e->>'balance','')::numeric, 0) as bal,
+             coalesce(nullif(e->>'creditLimit','')::numeric, 0) as lim
+      from jsonb_array_elements(new.items) e
+      where coalesce(nullif(e->>'creditLimit','')::numeric, 0) > 0
+        and coalesce(nullif(e->>'balance','')::numeric, 0) >= coalesce(nullif(e->>'creditLimit','')::numeric, 0)
+      limit 8
+    loop
+      perform public.notify_telegram('credit_over',
+        '🚫 تجاوز حد الائتمان' || chr(10)
+        || 'الزبون: ' || coalesce(r.name, 'غير معروف') || chr(10)
+        || 'الرصيد: ' || to_char(r.bal, 'FM999,999,999,990.##')
+        || ' / الحد: ' || to_char(r.lim, 'FM999,999,999,990.##'),
+        'creditover:' || coalesce(r.name, '?'), 360);
+    end loop;
+  end if;
+
+  if n_near > 8 then
+    perform public.notify_telegram('credit_near',
+      '⚠️ ' || n_near || ' زبون اقتربوا من حد الائتمان (90%+)',
+      'creditnear:bulk', 360);
+  elsif n_near > 0 then
+    for r in
+      select e->>'name' as name,
+             coalesce(nullif(e->>'balance','')::numeric, 0) as bal,
+             coalesce(nullif(e->>'creditLimit','')::numeric, 0) as lim
+      from jsonb_array_elements(new.items) e
+      where coalesce(nullif(e->>'creditLimit','')::numeric, 0) > 0
+        and coalesce(nullif(e->>'balance','')::numeric, 0) >= coalesce(nullif(e->>'creditLimit','')::numeric, 0) * 0.9
+        and coalesce(nullif(e->>'balance','')::numeric, 0) <  coalesce(nullif(e->>'creditLimit','')::numeric, 0)
+      limit 8
+    loop
+      perform public.notify_telegram('credit_near',
+        '⚠️ اقتراب من حد الائتمان' || chr(10)
+        || 'الزبون: ' || coalesce(r.name, 'غير معروف') || chr(10)
+        || 'الرصيد: ' || to_char(r.bal, 'FM999,999,999,990.##')
+        || ' / الحد: ' || to_char(r.lim, 'FM999,999,999,990.##'),
+        'creditnear:' || coalesce(r.name, '?'), 360);
+    end loop;
+  end if;
+
+  return null;
+exception when others then
+  -- لا نكسر إدراج التقرير أبداً بسبب خطأ في التنبيه
+  return null;
+end;
+$$;
+drop trigger if exists trg_notify_credit_risk on public.inventory_reports;
+create trigger trg_notify_credit_risk
+after insert on public.inventory_reports
+for each row execute function public.tg_notify_credit_risk();

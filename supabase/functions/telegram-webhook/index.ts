@@ -7,28 +7,42 @@ const PROFILE = "public"; // PostgREST default schema here is "api"; our tables 
 
 const WELCOME = `أهلاً 👋 أنا مساعدك الشخصي.
 
-🔔 التذكيرات — اكتبلي شو بدك تتذكّر وإيمتى:
-• ذكّرني دقّ لأبو أحمد الساعة 5 العصر
-• ذكّرني بعد 20 دقيقة احكي مع المورّد
-• ذكّرني بكرا الساعة 11
-
-💳 أرصدة الزبائن — اسألني مباشرة:
+💳 أرصدة الزبائن:
 • رصيد حسن عباس
 • كشف حساب حسن عباس
 
-جرّب هلأ 👇`;
+📦 اللائحة والمخزون:
+• سعر <اسم المادة>
+• شو ناقص
+• الديون
+• مبيعات اليوم
 
-const HELP_PARSE = `ما قدرت أعرف الوقت بالضبط 🤔
-اكتب الوقت بوضوح، مثلاً:
-• ... الساعة 5 العصر
-• ... الساعة 9 والنص الصبح
-• ... بعد ساعة  /  بعد 20 دقيقة
-• ... بكرا الساعة 11
+⚙️ إعدادات:
+• حد التنبيه 30
 
-ولو بدك رصيد زبون اكتب: رصيد <اسم الزبون>
-أو: كشف حساب <اسم الزبون>
+🔔 التذكيرات:
+• ذكّرني دقّ لأبو أحمد الساعة 5 العصر
+• ذكّرني بعد 20 دقيقة احكي مع المورّد
 
-جرّب كمان مرة 🙏`;
+اكتب "القائمة" أو /menu للأزرار السريعة 👇`;
+
+const HELP_PARSE = `ما قدرت أفهم الطلب 🤔
+
+للاستعلام اكتب:
+• رصيد <اسم الزبون>  /  كشف حساب <اسم الزبون>
+• سعر <اسم المادة>  /  شو ناقص  /  الديون  /  مبيعات اليوم
+
+للتذكير اكتب الوقت بوضوح:
+• ... الساعة 5 العصر  /  بعد 20 دقيقة  /  بكرا الساعة 11
+
+أو اكتب "القائمة" للأزرار السريعة 🙏`;
+
+const MENU_KEYBOARD = {
+  inline_keyboard: [
+    [{ text: "📊 مبيعات اليوم", callback_data: "sales" }, { text: "⚠️ شو ناقص", callback_data: "low" }],
+    [{ text: "💰 الديون", callback_data: "debts" }, { text: "❓ مساعدة", callback_data: "help" }],
+  ],
+};
 
 let lastDiag: Record<string, unknown> = {};
 let cachedSecrets: { token: string; webhook_secret: string } | null = null;
@@ -140,18 +154,23 @@ async function loadBalancesReport(): Promise<{ items: CustomerEntry[]; reportDat
   return { items, reportDate };
 }
 
+function fuzzyScore(q: string, qTokens: string[], name: string, extra: string): number {
+  const nName = normalizeArabic(name);
+  const n = normalizeArabic(`${name} ${extra}`);
+  if (!n) return 0;
+  if (n === q || nName === q) return 4;
+  if (nName.startsWith(q)) return 3;
+  if (n.includes(q)) return 2;
+  if (qTokens.length > 1 && qTokens.every((t) => n.includes(t))) return 1;
+  return 0;
+}
+
 function matchCustomers(items: CustomerEntry[], query: string): CustomerEntry[] {
   const q = normalizeArabic(query);
   const qTokens = q.split(" ").filter(Boolean);
   const scored: { score: number; c: CustomerEntry }[] = [];
   for (const c of items) {
-    const n = normalizeArabic(`${c.name ?? ""} ${c.key ?? ""}`);
-    if (!n) continue;
-    let score = 0;
-    if (n === q || normalizeArabic(c.name ?? "") === q) score = 4;
-    else if (normalizeArabic(c.name ?? "").startsWith(q)) score = 3;
-    else if (n.includes(q)) score = 2;
-    else if (qTokens.length > 1 && qTokens.every((t) => n.includes(t))) score = 1;
+    const score = fuzzyScore(q, qTokens, c.name ?? "", c.key ?? "");
     if (score > 0) scored.push({ score, c });
   }
   scored.sort((a, b) => b.score - a.score);
@@ -228,31 +247,182 @@ async function handleCustomerQuery(chatId: number, kind: "balance" | "statement"
     await tg("sendMessage", { chat_id: chatId, text: `ما لقيت زبون باسم «${name}» 🔍\nجرّب جزء من الاسم، مثلاً الاسم الأول أو اسم المنطقة.` });
     return;
   }
-  if (matches.length === 1 || kind === "balance") {
-    if (kind === "balance" && matches.length > 1 && matches.length <= 5) {
-      // عدة نتائج للرصيد: اعرضها كلها باختصار
-      let msg = `🔍 لقيت ${matches.length} زبائن مطابقين:\n\n`;
-      for (const c of matches) msg += `• ${c.name ?? c.key}: ${balanceLine(c.balance)}\n`;
-      msg += `\n📅 بيانات الأمين بتاريخ ${report.reportDate}`;
-      await tg("sendMessage", { chat_id: chatId, text: msg });
-      return;
-    }
-    if (matches.length > 5) {
-      let msg = `في ${matches.length} زبون مطابق لـ«${name}» — حدّد أكثر 🙏\nأقرب النتائج:\n`;
-      for (const c of matches.slice(0, 5)) msg += `• ${c.name ?? c.key}\n`;
-      await tg("sendMessage", { chat_id: chatId, text: msg });
-      return;
-    }
+  if (matches.length === 1) {
     const c = matches[0];
     const text = kind === "balance" ? buildBalanceReply(c, report.reportDate) : buildStatementReply(c, report.reportDate);
     await tg("sendMessage", { chat_id: chatId, text });
     return;
   }
-  // كشف حساب مع أكثر من نتيجة: اطلب التحديد
-  let msg = `في ${matches.length} زبون مطابق لـ«${name}» — لمين بدك الكشف؟\n`;
-  for (const c of matches.slice(0, 5)) msg += `• ${c.name ?? c.key}\n`;
-  msg += `\nاكتب: كشف حساب <الاسم الكامل>`;
+  if (kind === "balance" && matches.length <= 5) {
+    // عدة نتائج للرصيد: اعرضها كلها باختصار + أزرار لكشف الحساب
+    let msg = `🔍 لقيت ${matches.length} زبائن مطابقين:\n\n`;
+    for (const c of matches) msg += `• ${c.name ?? c.key}: ${balanceLine(c.balance)}\n`;
+    msg += `\n📅 بيانات الأمين بتاريخ ${report.reportDate}`;
+    await tg("sendMessage", { chat_id: chatId, text: msg });
+    return;
+  }
+  if (matches.length > 5) {
+    let msg = `في ${matches.length} زبون مطابق لـ«${name}» — حدّد أكثر 🙏\nأقرب النتائج:\n`;
+    for (const c of matches.slice(0, 5)) msg += `• ${c.name ?? c.key}\n`;
+    await tg("sendMessage", { chat_id: chatId, text: msg });
+    return;
+  }
+  // كشف حساب مع 2-5 نتائج: أزرار اختيار مباشرة (callback_data محدودة بـ64 بايت)
+  const kb = matches.slice(0, 5).map((c) => [{
+    text: String(c.name ?? c.key ?? "?").slice(0, 40),
+    callback_data: "s|" + String(c.name ?? c.key ?? "").slice(0, 28),
+  }]);
+  await tg("sendMessage", {
+    chat_id: chatId,
+    text: `لقيت ${matches.length} زبائن مطابقين — اختار مين بدك كشفه 👇`,
+    reply_markup: { inline_keyboard: kb },
+  });
+}
+
+// ============================================================
+// أوامر الاستعلام: مبيعات / نواقص / ديون / سعر / حد التنبيه
+// ============================================================
+async function getThreshold(): Promise<number> {
+  try {
+    const rows = await restGet(`bot_config?key=eq.low_stock_threshold&select=value`);
+    if (Array.isArray(rows) && rows.length) {
+      const n = Number(rows[0].value);
+      if (isFinite(n) && n > 0) return n;
+    }
+  } catch { /* نستخدم الافتراضي */ }
+  return 50;
+}
+
+async function sendMenu(chatId: number) {
+  await tg("sendMessage", {
+    chat_id: chatId,
+    text: `شو حابب تشوف؟ 👇
+
+وفيك تكتب مباشرة:
+• رصيد <اسم الزبون>
+• كشف حساب <اسم الزبون>
+• سعر <اسم المادة>
+• حد التنبيه <رقم>`,
+    reply_markup: MENU_KEYBOARD,
+  });
+}
+
+async function handleSales(chatId: number) {
+  const rows = await restGet(`daily_sales_summary?order=created_at.desc&limit=1&select=total_sales,total_cash,total_credit,created_at`);
+  if (!Array.isArray(rows) || !rows.length) {
+    await tg("sendMessage", { chat_id: chatId, text: "ما في ملخص مبيعات متزامن بعد 😕\nملخص المبيعات يوصل من وكيل الأمين على جهاز Windows." });
+    return;
+  }
+  const r = rows[0];
+  await tg("sendMessage", {
+    chat_id: chatId,
+    text: `📊 آخر ملخص مبيعات (${fmtDate(r.created_at)})
+المبيعات: ${fmtNum(r.total_sales)}
+النقدي: ${fmtNum(r.total_cash)}
+الآجل: ${fmtNum(r.total_credit)}`,
+  });
+}
+
+async function handleLowStock(chatId: number) {
+  const thr = await getThreshold();
+  const rows = await restGet(`approved_price_items?select=item_name,item_key,stock_qty&stock_qty=lte.${thr}&order=stock_qty.asc&limit=30`);
+  if (!Array.isArray(rows) || !rows.length) {
+    await tg("sendMessage", { chat_id: chatId, text: `✅ ولا مادة تحت حد التنبيه (${thr}) — المخزون تمام.` });
+    return;
+  }
+  const out = rows.filter((r: any) => Number(r.stock_qty ?? 0) <= 0);
+  const low = rows.filter((r: any) => Number(r.stock_qty ?? 0) > 0);
+  let msg = `⚠️ المواد الناقصة (حد التنبيه: ${thr})\n`;
+  if (out.length) {
+    msg += `\n⛔ نافد (${out.length}):\n`;
+    for (const r of out.slice(0, 15)) msg += `• ${r.item_name ?? r.item_key}\n`;
+  }
+  if (low.length) {
+    msg += `\n🔻 تحت الحد (${low.length}):\n`;
+    for (const r of low.slice(0, 15)) msg += `• ${r.item_name ?? r.item_key} — باقي ${fmtNum(r.stock_qty)}\n`;
+  }
+  if (rows.length >= 30) msg += `\n… والقائمة أطول (عرضت أول 30)`;
   await tg("sendMessage", { chat_id: chatId, text: msg });
+}
+
+async function handleDebts(chatId: number) {
+  const report = await loadBalancesReport();
+  if (!report || !report.items.length) {
+    await tg("sendMessage", { chat_id: chatId, text: "ما في بيانات أرصدة متزامنة حالياً 😕" });
+    return;
+  }
+  const debtors = report.items
+    .filter((c) => Number(c.balance ?? 0) > 0)
+    .sort((a, b) => Number(b.balance ?? 0) - Number(a.balance ?? 0));
+  if (!debtors.length) {
+    await tg("sendMessage", { chat_id: chatId, text: "✅ ما في ديون — كل الزبائن مسدّدين." });
+    return;
+  }
+  const total = debtors.reduce((s, c) => s + Number(c.balance ?? 0), 0);
+  let msg = `💰 الديون — ${debtors.length} زبون مدين\nالإجمالي: ${fmtNum(total)}\n\nأعلى 10:\n`;
+  debtors.slice(0, 10).forEach((c, i) => { msg += `${i + 1}. ${c.name ?? c.key}: ${fmtNum(c.balance)}\n`; });
+  msg += `\n📅 بيانات الأمين بتاريخ ${report.reportDate}`;
+  await tg("sendMessage", { chat_id: chatId, text: msg });
+}
+
+async function handlePriceQuery(chatId: number, name: string) {
+  const rows = await restGet(`approved_price_items?select=item_name,item_key,sale_price,unit1_name,unit1_price,unit2_name,unit2_price,stock_qty&limit=1000`);
+  if (!Array.isArray(rows) || !rows.length) {
+    await tg("sendMessage", { chat_id: chatId, text: "ما قدرت جيب لائحة الأسعار حالياً 😕" });
+    return;
+  }
+  const q = normalizeArabic(name);
+  const qTokens = q.split(" ").filter(Boolean);
+  const scored: { score: number; r: any }[] = [];
+  for (const r of rows) {
+    const score = fuzzyScore(q, qTokens, r.item_name ?? "", r.item_key ?? "");
+    if (score > 0) scored.push({ score, r });
+  }
+  scored.sort((a, b) => b.score - a.score);
+  if (!scored.length) {
+    await tg("sendMessage", { chat_id: chatId, text: `ما لقيت مادة باسم «${name}» 🔍\nجرّب جزء من الاسم.` });
+    return;
+  }
+  if (scored.length > 5) {
+    let msg = `في ${scored.length} مادة مطابقة لـ«${name}» — حدّد أكثر 🙏\nأقرب النتائج:\n`;
+    for (const s of scored.slice(0, 5)) msg += `• ${s.r.item_name ?? s.r.item_key}\n`;
+    await tg("sendMessage", { chat_id: chatId, text: msg });
+    return;
+  }
+  let msg = "";
+  for (const s of scored) {
+    const r = s.r;
+    msg += `💵 ${r.item_name ?? r.item_key}\n`;
+    if (r.sale_price != null) msg += `السعر: ${fmtNum(r.sale_price)}\n`;
+    if (r.unit1_price != null && r.unit1_name) msg += `${r.unit1_name}: ${fmtNum(r.unit1_price)}\n`;
+    if (r.unit2_price != null && r.unit2_name) msg += `${r.unit2_name}: ${fmtNum(r.unit2_price)}\n`;
+    if (r.stock_qty != null) msg += `المخزون: ${fmtNum(r.stock_qty)}\n`;
+    msg += "\n";
+  }
+  await tg("sendMessage", { chat_id: chatId, text: msg.trim() });
+}
+
+async function handleSetThreshold(chatId: number, n: number) {
+  if (!(n >= 1 && n <= 100000)) {
+    await tg("sendMessage", { chat_id: chatId, text: "الرقم لازم يكون بين 1 و 100,000 🙏" });
+    return;
+  }
+  await restPost(`bot_config`, { key: "low_stock_threshold", value: String(n) }, "resolution=merge-duplicates");
+  await tg("sendMessage", { chat_id: chatId, text: `تمام ✅ صار حد تنبيه المخزون: ${n}\nالتنبيهات التلقائية ورد «شو ناقص» رح يستخدموا هالحد.` });
+}
+
+// يعيد true إذا كانت الرسالة أمر استعلام وعُولجت
+async function handleCommand(chatId: number, text: string): Promise<boolean> {
+  const norm = normalizeArabic(text);
+  if (text === "/menu" || ["القائمه", "قائمه", "منيو", "الاوامر"].includes(norm)) { await sendMenu(chatId); return true; }
+  if (text === "/sales" || /^(المبيعات|مبيعات)( اليوم)?$/.test(norm)) { await handleSales(chatId); return true; }
+  if (text === "/low" || ["شو ناقص", "النواقص", "نواقص", "ناقص", "المخزون الناقص", "المخزون"].includes(norm)) { await handleLowStock(chatId); return true; }
+  if (text === "/debts" || ["الديون", "ديون", "المديونيات"].includes(norm)) { await handleDebts(chatId); return true; }
+  let m = norm.match(/^حد التنبيه\s+(\d+)\s*$/);
+  if (m) { await handleSetThreshold(chatId, parseInt(m[1])); return true; }
+  m = norm.match(/^سعر\s+(.+)$/);
+  if (m) { await handlePriceQuery(chatId, m[1].trim()); return true; }
+  return false;
 }
 
 // ============================================================
@@ -351,6 +521,29 @@ Deno.serve(async (req) => {
 
   let update: any;
   try { update = await req.json(); } catch { return new Response("ok"); }
+
+  // ضغطات الأزرار التفاعلية (callback queries)
+  const cq = update.callback_query;
+  if (cq) {
+    const cqChatId = cq.message?.chat?.id ?? cq.from?.id;
+    let owner: number | null;
+    try { owner = await getOwner(); } catch { return new Response("ok"); }
+    await tg("answerCallbackQuery", { callback_query_id: cq.id });
+    if (owner === null || cq.from?.id !== owner || !cqChatId) return new Response("ok");
+    const data = String(cq.data ?? "");
+    try {
+      if (data === "sales") await handleSales(cqChatId);
+      else if (data === "low") await handleLowStock(cqChatId);
+      else if (data === "debts") await handleDebts(cqChatId);
+      else if (data === "help") await tg("sendMessage", { chat_id: cqChatId, text: WELCOME });
+      else if (data.startsWith("b|")) await handleCustomerQuery(cqChatId, "balance", data.slice(2));
+      else if (data.startsWith("s|")) await handleCustomerQuery(cqChatId, "statement", data.slice(2));
+    } catch (e) {
+      await tg("sendMessage", { chat_id: cqChatId, text: `صار خطأ 😕 جرّب كمان مرة.\n(${String(e).slice(0, 80)})` });
+    }
+    return new Response("ok");
+  }
+
   const msg = update.message ?? update.edited_message;
   if (!msg || !msg.chat) return new Response("ok");
   const chatId = msg.chat.id;
@@ -361,10 +554,24 @@ Deno.serve(async (req) => {
   if (owner === null) { await setOwner(chatId); owner = chatId; }
   if (chatId !== owner) { await tg("sendMessage", { chat_id: chatId, text: "🔒 هذا بوت خاص." }); return new Response("ok"); }
 
-  if (text === "/start" || text === "/help") { await tg("sendMessage", { chat_id: chatId, text: WELCOME }); return new Response("ok"); }
-  if (!text) { await tg("sendMessage", { chat_id: chatId, text: "ابعتلي طلبك كرسالة مكتوبة 🙏\nمثال: ذكّرني دقّ لأبو أحمد الساعة 5 العصر\nأو: رصيد حسن عباس" }); return new Response("ok"); }
+  if (text === "/start" || text === "/help") {
+    await tg("sendMessage", { chat_id: chatId, text: WELCOME, reply_markup: MENU_KEYBOARD });
+    return new Response("ok");
+  }
+  if (!text) {
+    await tg("sendMessage", { chat_id: chatId, text: "ابعتلي طلبك كرسالة مكتوبة 🙏\nمثال: رصيد حسن عباس\nأو اكتب: القائمة" });
+    return new Response("ok");
+  }
 
-  // استعلامات الزبائن أولاً (رصيد / كشف حساب) — قبل محلّل التذكيرات
+  // أوامر الاستعلام السريعة (قائمة/مبيعات/نواقص/ديون/سعر/حد التنبيه)
+  try {
+    if (await handleCommand(chatId, text)) return new Response("ok");
+  } catch (e) {
+    await tg("sendMessage", { chat_id: chatId, text: `صار خطأ وأنا عم جيب البيانات 😕 جرّب كمان مرة.\n(${String(e).slice(0, 100)})` });
+    return new Response("ok");
+  }
+
+  // استعلامات الزبائن (رصيد / كشف حساب) — قبل محلّل التذكيرات
   const q = extractCustomerQuery(text);
   if (q) {
     try { await handleCustomerQuery(chatId, q.kind, q.name); }
