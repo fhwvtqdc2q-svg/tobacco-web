@@ -647,16 +647,36 @@ function invoiceLineQty(line) {
   return "—";
 }
 
-// سعر الوحدة كما سجّله الأمين هو سعر وحدة البيع نفسها (سعر الكرتونة عند بيع الكراتين،
-// وسعر الكروز عند البيع المفرّق). نعرضه كما هو ونطابق وحدته مع عمود الكمية — بلا أي
-// تحويل. (الضرب بمعامل الوحدة كان يضخّم السعر خطأً: يعرض سعر الكرتونة × عدد الكروز.)
-function invoiceLinePrice(line) {
+// الأمين يسجّل سعر السطر بحسب طريقة إدخال الفاتورة: بعض الفواتير أسعارها للكرتونة
+// وبعضها للكروز (الوحدة الأساسية) — يختلف من فاتورة لأخرى. نحسم أساس السعر لكل فاتورة
+// بمطابقة مجموع (السعر × الكمية) بكلا الأساسين مع إجمالي الفاتورة (الرقم الموثوق من الأمين):
+// الأقرب للإجمالي هو الأساس الصحيح. يرجع "unit1" (كروز) أو "unit2" (كرتونة/شرحة/طرد).
+function invoicePriceBasis(inv) {
+  const lines = Array.isArray(inv?.lines) ? inv.lines : [];
+  const total = Number(inv?.total || 0);
+  if (!(total > 0) || !lines.length) return "unit2";
+  let sumBase = 0, sumUnits = 0;
+  for (const l of lines) {
+    const p = Number(l?.price || 0);
+    sumBase += p * Number(l?.qty || 0);
+    sumUnits += p * Number(l?.qtyUnits || 0);
+  }
+  return Math.abs(sumBase - total) <= Math.abs(sumUnits - total) ? "unit1" : "unit2";
+}
+
+// سعر الوحدة معروضاً دائماً بالوحدة الكبرى (كرتونة/شرحة/طرد): إن كان أساس أسعار الفاتورة
+// الكروز نضرب بمعامل الوحدة (كمية الكروز ÷ كمية الكراتين لنفس السطر)، وإلا نعرضه كما هو.
+function invoiceLinePrice(line, inv) {
   const price = Number(line?.price || 0);
   if (!(price > 0)) return "—";
   const u1 = String(line?.unit1 || "").trim();
   const u2 = String(line?.unit2 || "").trim();
-  const qtyUnits = Number(line?.qtyUnits || 0); // الكمية بالكرتونة (الوحدة الكبرى)
-  // نطابق وحدة السعر مع عمود الكمية: كرتونة عند البيع بالكراتين، وإلا الوحدة الأساسية.
+  const qty = Number(line?.qty || 0);
+  const qtyUnits = Number(line?.qtyUnits || 0);
+  const factor = qty > 0 && qtyUnits > 0 ? qty / qtyUnits : 0;
+  if (inv && u2 && factor > 0 && invoicePriceBasis(inv) === "unit1") {
+    return `${formatMoney(roundPrice(price * factor))} $ / ${u2}`;
+  }
   const unit = qtyUnits > 0 && u2 ? u2 : u1;
   return `${formatMoney(price)} $${unit ? " / " + unit : ""}`;
 }
@@ -3309,7 +3329,7 @@ function voucherPdfMarkup(v) {
     <div class="sec">أصناف الفاتورة</div>
     <table>
       <thead><tr><th>المادة</th><th>الكمية</th><th>سعر الوحدة</th></tr></thead>
-      <tbody>${v.lines.map((l) => `<tr><td>${escapeHtml(l.material || "")}</td><td>${escapeHtml(invoiceLineQty(l))}</td><td>${escapeHtml(invoiceLinePrice(l))}</td></tr>`).join("")}</tbody>
+      <tbody>${v.lines.map((l) => `<tr><td>${escapeHtml(l.material || "")}</td><td>${escapeHtml(invoiceLineQty(l))}</td><td>${escapeHtml(invoiceLinePrice(l, { total: v.amount, lines: v.lines }))}</td></tr>`).join("")}</tbody>
     </table>` : ""}
     <table>${rows.join("")}</table>
     <p class="muted" style="margin:8px 0 0">${noteLine}</p>
@@ -3888,7 +3908,7 @@ function reportsPage() {
                 <table class="dm-table" style="width:100%">
                   <thead><tr><th>المادة</th><th>الكمية</th><th>سعر الوحدة</th></tr></thead>
                   <tbody>
-                    ${(inv.lines || []).map((l) => `<tr><td>${escapeHtml(l.material || "")}</td><td>${escapeHtml(invoiceLineQty(l))}</td><td>${escapeHtml(invoiceLinePrice(l))}</td></tr>`).join("")}
+                    ${(inv.lines || []).map((l) => `<tr><td>${escapeHtml(l.material || "")}</td><td>${escapeHtml(invoiceLineQty(l))}</td><td>${escapeHtml(invoiceLinePrice(l, inv))}</td></tr>`).join("")}
                   </tbody>
                 </table>
                 <p class="muted" style="margin:6px 2px 0">إجمالي الفاتورة: <b>${escapeHtml(formatMoney(inv.total || 0))} $</b></p>
