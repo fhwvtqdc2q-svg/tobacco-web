@@ -127,7 +127,9 @@ ORDER BY name, dt, num
     foreach ($name in @($nameSet.Keys)) {
         $opening = 0.0
         if ($openings.ContainsKey($name)) { $opening = $openings[$name] }
-        $list = if ($movements.ContainsKey($name)) { $movements[$name].ToArray() } else { @() }
+        # نجبره مصفوفة دائماً (@(...)): زبون بحركة واحدة كان يصبح كائناً مفرداً فيكسر الفهرسة والرفع.
+        $list = @()
+        if ($movements.ContainsKey($name)) { $list = @($movements[$name].ToArray()) }
         if ($opening -eq 0 -and $list.Count -eq 0) { continue }
 
         $truncated = $false
