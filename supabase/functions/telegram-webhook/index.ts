@@ -1,4 +1,7 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
+import { PDFDocument, rgb } from "npm:pdf-lib@1.17.1";
+import fontkit from "npm:@pdf-lib/fontkit@1.1.1";
+import { shapeLineForPdf, getArabicFontBytes } from "./arabic-pdf.ts";
 
 const SUPA_URL = Deno.env.get("SUPABASE_URL") ?? "";
 const SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
@@ -78,6 +81,10 @@ async function restPost(path: string, body: unknown, prefer?: string) {
   const headers: Record<string, string> = { "Content-Type": "application/json", apikey: SERVICE_KEY, Authorization: `Bearer ${SERVICE_KEY}`, "Content-Profile": PROFILE };
   if (prefer) headers["Prefer"] = prefer;
   return fetch(`${SUPA_URL}/rest/v1/${path}`, { method: "POST", headers, body: JSON.stringify(body) });
+}
+async function restPatch(path: string, body: unknown) {
+  const headers: Record<string, string> = { "Content-Type": "application/json", apikey: SERVICE_KEY, Authorization: `Bearer ${SERVICE_KEY}`, "Content-Profile": PROFILE, Prefer: "return=minimal" };
+  return fetch(`${SUPA_URL}/rest/v1/${path}`, { method: "PATCH", headers, body: JSON.stringify(body) });
 }
 async function tg(method: string, payload: unknown) {
   const { token } = await getSecrets();
@@ -280,6 +287,150 @@ async function handleCustomerQuery(chatId: number, kind: "balance" | "statement"
 }
 
 // ============================================================
+// كشف حساب كملف PDF — «كشف حساب <اسم> PDF» أو «... ملف»
+// ============================================================
+
+// تحويل حالة الرصيد لكلمة عادية بدون رموز/أقواس (آمنة لخط PDF)
+function balanceWordPdf(balance?: number): string {
+  const b = Number(balance ?? 0);
+  if (b > 0) return "مدين";
+  if (b < 0) return "دائن";
+  return "مسدد بالكامل";
+}
+
+// يبني أسطر كشف الحساب بصيغة نصية بسيطة بدون إيموجي أو أقواس
+// (الإيموجي غير مدعوم بخط PDF، والأقواس تحتاج انعكاساً اتجاهياً لا نطبّقه هنا)
+function buildStatementPdfLines(c: CustomerEntry, reportDate: string): string[] {
+  const lines: string[] = [];
+  lines.push(`الاسم: ${c.name ?? c.key ?? "غير معروف"}`);
+  lines.push(`تاريخ البيانات: ${reportDate}`);
+  lines.push(`الرصيد الحالي: ${fmtNum(Math.abs(Number(c.balance ?? 0)))} - ${balanceWordPdf(c.balance)}`);
+  if (Number(c.creditLimit ?? 0) > 0) {
+    lines.push(`حد الائتمان: ${fmtNum(c.creditLimit)}`);
+    lines.push(`المتبقي من الحد: ${fmtNum(c.remainingLimit)}`);
+  }
+  lines.push("");
+  const movs = (c.recentMovements ?? []).slice(0, 15);
+  lines.push("آخر الحركات:");
+  if (movs.length) {
+    for (const m of movs) {
+      const debit = Number(m.debit ?? 0);
+      const credit = Number(m.credit ?? 0);
+      const kind = debit > 0 ? `مدين ${fmtNum(debit)}` : credit > 0 ? `دائن ${fmtNum(credit)}` : "0";
+      let line = `${fmtDate(m.date)} - ${kind}`;
+      if (m.notes) line += ` - ${String(m.notes).slice(0, 40)}`;
+      lines.push(line);
+    }
+  } else {
+    lines.push("لا توجد حركات مسجّلة");
+  }
+  lines.push("");
+  const pays = (c.recentPayments ?? []).slice(0, 8);
+  lines.push("آخر الدفعات:");
+  if (pays.length) {
+    for (const p of pays) {
+      let line = `${fmtDate(p.date)} - ${fmtNum(p.amount)}`;
+      if (p.notes) line += ` - ${String(p.notes).slice(0, 40)}`;
+      lines.push(line);
+    }
+  } else {
+    lines.push("لا توجد دفعات مسجّلة");
+  }
+  return lines;
+}
+
+async function generateStatementPdf(c: CustomerEntry, reportDate: string): Promise<Uint8Array> {
+  const doc = await PDFDocument.create();
+  doc.registerFontkit(fontkit);
+  const fontBytes = await getArabicFontBytes();
+  const font = await doc.embedFont(fontBytes, { subset: true });
+
+  const pageWidth = 595.28; // A4
+  const pageHeight = 841.89;
+  const marginX = 50;
+  let page = doc.addPage([pageWidth, pageHeight]);
+  let y = pageHeight - 60;
+  const black = rgb(0.1, 0.1, 0.1);
+
+  const drawRightAligned = (text: string, size: number, color = black) => {
+    const shaped = shapeLineForPdf(text);
+    const width = font.widthOfTextAtSize(shaped, size);
+    page.drawText(shaped, { x: pageWidth - marginX - width, y, size, font, color });
+  };
+  const newLine = (gap = 20) => {
+    y -= gap;
+    if (y < 60) { page = doc.addPage([pageWidth, pageHeight]); y = pageHeight - 60; }
+  };
+
+  drawRightAligned("كشف حساب", 20);
+  newLine(34);
+
+  for (const line of buildStatementPdfLines(c, reportDate)) {
+    if (line === "") { newLine(10); continue; }
+    if (line === "آخر الحركات:" || line === "آخر الدفعات:") {
+      drawRightAligned(line, 14, rgb(0.05, 0.05, 0.4));
+      newLine(22);
+      continue;
+    }
+    drawRightAligned(line, 12);
+    newLine(18);
+  }
+
+  return doc.save();
+}
+
+async function sendPdfDocument(chatId: number, bytes: Uint8Array, filename: string, caption: string): Promise<void> {
+  const { token } = await getSecrets();
+  const form = new FormData();
+  form.append("chat_id", String(chatId));
+  form.append("caption", caption);
+  form.append("document", new Blob([new Uint8Array(bytes)], { type: "application/pdf" }), filename);
+  await fetch(`https://api.telegram.org/bot${token}/sendDocument`, { method: "POST", body: form });
+}
+
+async function handleStatementPdfCommand(chatId: number, name: string): Promise<void> {
+  const report = await loadBalancesReport();
+  if (!report || !report.items.length) {
+    await tg("sendMessage", { chat_id: chatId, text: "ما في بيانات أرصدة متزامنة حالياً 😕\nتأكد أن مزامنة الأمين شغّالة على جهاز Windows." });
+    return;
+  }
+  const matches = matchCustomers(report.items, name);
+  if (!matches.length) {
+    await tg("sendMessage", { chat_id: chatId, text: `ما لقيت زبون باسم «${name}» 🔍\nجرّب جزء من الاسم.` });
+    return;
+  }
+  if (matches.length > 1) {
+    let msg = `في ${matches.length} زبون مطابق لـ«${name}» — حدّد أكثر 🙏\nأقرب النتائج:\n`;
+    for (const m of matches.slice(0, 5)) msg += `• ${m.name ?? m.key}\n`;
+    await tg("sendMessage", { chat_id: chatId, text: msg });
+    return;
+  }
+  await tg("sendMessage", { chat_id: chatId, text: "عم جهّز ملف الـ PDF... ⏳" });
+  try {
+    const c = matches[0];
+    const bytes = await generateStatementPdf(c, report.reportDate);
+    await sendPdfDocument(
+      chatId,
+      bytes,
+      `kashf-hisab-${Date.now()}.pdf`,
+      `كشف حساب: ${c.name ?? c.key}`,
+    );
+  } catch (e) {
+    await tg("sendMessage", {
+      chat_id: chatId,
+      text: `صار خطأ وأنا عم سوّي ملف الـ PDF 😕\n(${String(e).slice(0, 150)})\nجرّب «كشف حساب» بدون PDF لحتى تشوف البيانات نصياً.`,
+    });
+  }
+}
+
+// يفحص وجود كلمة "PDF" أو "ملف" بآخر الرسالة، ويشيلها من النص قبل باقي التحليل
+function stripPdfTrigger(raw: string): { wantPdf: boolean; text: string } {
+  const m = raw.match(/\s+(pdf|ملف)\s*$/i);
+  if (m) return { wantPdf: true, text: raw.slice(0, m.index).trim() };
+  return { wantPdf: false, text: raw };
+}
+
+// ============================================================
 // أوامر الاستعلام: مبيعات / نواقص / ديون / سعر / حد التنبيه
 // ============================================================
 async function getThreshold(): Promise<number> {
@@ -323,9 +474,23 @@ async function handleSales(chatId: number) {
   });
 }
 
+// يحوّل كمية المخزون (بالوحدة الأولى) إلى نص بالوحدة الثانية (الكرتونة) إن أمكن
+function stockInCartons(r: any): string {
+  const qty = Number(r.stock_qty ?? 0);
+  const factor = Number(r.unit2_factor ?? 0);
+  const unit2 = r.unit2_name || "كرتونة";
+  if (factor > 0) {
+    const cartons = qty / factor;
+    return `${fmtNum(cartons)} ${unit2}`;
+  }
+  // ما في عامل تحويل معروف — نعرض الكمية الأصلية مع اسم وحدتها
+  const unit1 = r.unit1_name || "وحدة";
+  return `${fmtNum(qty)} ${unit1}`;
+}
+
 async function handleLowStock(chatId: number) {
   const thr = await getThreshold();
-  const rows = await restGet(`approved_price_items?select=item_name,item_key,stock_qty&stock_qty=lte.${thr}&order=stock_qty.asc&limit=30`);
+  const rows = await restGet(`approved_price_items?select=item_name,item_key,stock_qty,unit1_name,unit2_name,unit2_factor&stock_qty=lte.${thr}&order=stock_qty.asc&limit=30`);
   if (!Array.isArray(rows) || !rows.length) {
     await tg("sendMessage", { chat_id: chatId, text: `✅ ولا مادة تحت حد التنبيه (${thr}) — المخزون تمام.` });
     return;
@@ -339,7 +504,7 @@ async function handleLowStock(chatId: number) {
   }
   if (low.length) {
     msg += `\n🔻 تحت الحد (${low.length}):\n`;
-    for (const r of low.slice(0, 15)) msg += `• ${r.item_name ?? r.item_key} — باقي ${fmtNum(r.stock_qty)}\n`;
+    for (const r of low.slice(0, 15)) msg += `• ${r.item_name ?? r.item_key} — باقي ${stockInCartons(r)}\n`;
   }
   if (rows.length >= 30) msg += `\n… والقائمة أطول (عرضت أول 30)`;
   await tg("sendMessage", { chat_id: chatId, text: msg });
@@ -400,6 +565,37 @@ async function handlePriceQuery(chatId: number, name: string) {
     msg += "\n";
   }
   await tg("sendMessage", { chat_id: chatId, text: msg.trim() });
+}
+
+// ============================================================
+// أزرار تجهيز/رفض طلبات واتساب (callback_data: order|accept|<id> أو order|reject|<id>)
+// ============================================================
+async function handleOrderAction(chatId: number, messageId: number, originalText: string, action: "accept" | "reject", orderId: string): Promise<void> {
+  const rows = await restGet(`whatsapp_orders?id=eq.${orderId}&select=status`);
+  if (!Array.isArray(rows) || !rows.length) {
+    await tg("sendMessage", { chat_id: chatId, text: "ما لقيت هالطلب — يمكن انحذف 🤷" });
+    return;
+  }
+  const current = String(rows[0].status ?? "pending");
+  if (current !== "pending") {
+    await tg("sendMessage", { chat_id: chatId, text: `هالطلب صار عليه إجراء مسبقاً (الحالة: ${current}) ✋` });
+    return;
+  }
+  const newStatus = action === "accept" ? "processing" : "rejected";
+  const res = await restPatch(`whatsapp_orders?id=eq.${orderId}`, {
+    status: newStatus,
+    processed_at: new Date().toISOString(),
+    processed_by: "telegram",
+  });
+  if (!res.ok) { await tg("sendMessage", { chat_id: chatId, text: "صار خطأ وأنا عم حدّث الطلب 😕" }); return; }
+
+  const label = action === "accept" ? "✅ الحالة: قيد التجهيز" : "❌ الحالة: مرفوض";
+  await tg("editMessageText", {
+    chat_id: chatId,
+    message_id: messageId,
+    text: `${originalText}\n\n${label}`,
+    reply_markup: { inline_keyboard: [] },
+  });
 }
 
 async function handleSetThreshold(chatId: number, n: number) {
@@ -538,6 +734,14 @@ Deno.serve(async (req) => {
       else if (data === "help") await tg("sendMessage", { chat_id: cqChatId, text: WELCOME });
       else if (data.startsWith("b|")) await handleCustomerQuery(cqChatId, "balance", data.slice(2));
       else if (data.startsWith("s|")) await handleCustomerQuery(cqChatId, "statement", data.slice(2));
+      else if (data.startsWith("order|")) {
+        const parts = data.split("|"); // order|accept|<id> أو order|reject|<id>
+        const action = parts[1] === "accept" ? "accept" : parts[1] === "reject" ? "reject" : null;
+        const orderId = parts[2];
+        if (action && orderId && cq.message?.message_id) {
+          await handleOrderAction(cqChatId, cq.message.message_id, String(cq.message.text ?? ""), action, orderId);
+        }
+      }
     } catch (e) {
       await tg("sendMessage", { chat_id: cqChatId, text: `صار خطأ 😕 جرّب كمان مرة.\n(${String(e).slice(0, 80)})` });
     }
@@ -572,9 +776,13 @@ Deno.serve(async (req) => {
   }
 
   // استعلامات الزبائن (رصيد / كشف حساب) — قبل محلّل التذكيرات
-  const q = extractCustomerQuery(text);
+  const { wantPdf, text: textForQuery } = stripPdfTrigger(text);
+  const q = extractCustomerQuery(textForQuery);
   if (q) {
-    try { await handleCustomerQuery(chatId, q.kind, q.name); }
+    try {
+      if (q.kind === "statement" && wantPdf) await handleStatementPdfCommand(chatId, q.name);
+      else await handleCustomerQuery(chatId, q.kind, q.name);
+    }
     catch (e) { await tg("sendMessage", { chat_id: chatId, text: `صار خطأ وأنا عم جيب البيانات 😕 جرّب كمان مرة.\n(${String(e).slice(0, 100)})` }); }
     return new Response("ok");
   }
