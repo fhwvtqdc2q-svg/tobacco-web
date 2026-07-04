@@ -3202,6 +3202,13 @@ async function exportCustomerStatementPdf() {
 }
 
 // سند رسمي (قبض/صرف) بالتصميم المبرَند مع الختم الأزرق
+// صياغة الرصيد للزبون: القيمة المطلقة مع بيان الجهة (عليكم = دين عليه، لكم = رصيد له).
+function balanceText(bal, cur) {
+  const b = roundPrice(bal);
+  if (Math.abs(b) < 0.01) return "مسدّد (صفر)";
+  return `${formatMoney(Math.abs(b))} ${cur} ${b > 0 ? "(عليكم)" : "(لكم)"}`;
+}
+
 function voucherPdfMarkup(v) {
   const isPay = v.type === "payment";
   const isInv = v.type === "invoice";
@@ -3220,8 +3227,14 @@ function voucherPdfMarkup(v) {
   rows.push(`<tr><th style="width:130px">التاريخ</th><td>${escapeHtml(dstr)}</td></tr>`);
   if (v.method) rows.push(`<tr><th>طريقة الدفع</th><td>${escapeHtml(v.method)}</td></tr>`);
   if (v.notes) rows.push(`<tr><th>البيان</th><td>${escapeHtml(v.notes)}</td></tr>`);
-  if (v.balance !== undefined && v.balance !== null && v.balance !== "")
+  // للفاتورة: نعرض الرصيد السابق ثم قيمة الفاتورة ثم الرصيد الجديد ليعرف الزبون وضعه بوضوح.
+  if (isInv && v.newBalance !== undefined && v.newBalance !== null) {
+    rows.push(`<tr><th>الرصيد السابق</th><td>${escapeHtml(balanceText(v.prevBalance, cur))}</td></tr>`);
+    rows.push(`<tr><th>قيمة هذه الفاتورة</th><td>${escapeHtml(formatMoney(v.amount || 0))} ${escapeHtml(cur)}</td></tr>`);
+    rows.push(`<tr><th>الرصيد الجديد</th><td><b>${escapeHtml(balanceText(v.newBalance, cur))}</b></td></tr>`);
+  } else if (v.balance !== undefined && v.balance !== null && v.balance !== "") {
     rows.push(`<tr><th>${balLabel}</th><td>${escapeHtml(formatMoney(v.balance))} ${escapeHtml(cur)}</td></tr>`);
+  }
   const stamp = `
     <div class="stamp-wrap"><div class="seal">
       <div class="s-name">مركز أبو زياد</div>
@@ -4906,14 +4919,21 @@ function render() {
       const inv = invs.find((x) => String(x.number || "") === el.dataset.invNumber && String(x.date || "") === el.dataset.invDate)
         || invs.find((x) => String(x.number || "") === el.dataset.invNumber);
       if (!inv) { setNotice("error", "تعذّر إيجاد الفاتورة."); render(); return; }
+      const invoiceTotal = inv.total || 0;
+      // الرصيد الجديد = رصيد الزبون الحالي (يشمل هذه الفاتورة)، والسابق = الجديد − قيمة الفاتورة.
+      const custItem = smartNameMatch(latestCustomerBalanceItems(), (it) => it.name, cust);
+      const newBalance = custItem ? customerBalance(custItem) : null;
+      const prevBalance = newBalance !== null ? roundPrice(newBalance - invoiceTotal) : null;
       exportVoucherPdf({
         type: "invoice",
         name: cust,
-        amount: inv.total || 0,
+        amount: invoiceTotal,
         cur: "$",
         date: inv.date || todayIsoDate(),
         no: inv.number ? String(inv.number) : docNumber("INV"),
-        lines: inv.lines || []
+        lines: inv.lines || [],
+        prevBalance,
+        newBalance
       });
     });
   });
