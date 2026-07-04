@@ -78,19 +78,28 @@ GROUP BY LTRIM(RTRIM(cu.CustomerName))
     # (2) حركات الفترة لكل زبون
     $movements = @{}
     $cmd = $conn.CreateCommand()
+    # الرصيد المتحرك يُحسب بدالة نافذة على كل قيود الحساب (بترتيب التاريخ ثم رقم القيد)،
+    # فيشمل القيد الافتتاحي وكل ما قبل الفترة، ويطابق كشف حساب الأمين تماماً. ثم نعرض الفترة فقط.
     $cmd.CommandText = @"
-SELECT LTRIM(RTRIM(cu.CustomerName)) AS name,
-       en.Date,
-       CAST(COALESCE(en.Debit,0) AS decimal(18,3)) AS debit,
-       CAST(COALESCE(en.Credit,0) AS decimal(18,3)) AS credit,
-       LEFT(COALESCE(en.Notes,''), 70) AS notes
-FROM dbo.en000 en
-JOIN dbo.cu000 cu ON cu.AccountGUID = en.AccountGUID
-WHERE en.Date >= @fromDate
-  AND (COALESCE(en.Debit,0) > 0 OR COALESCE(en.Credit,0) > 0)
-  AND cu.CustomerName IS NOT NULL AND LTRIM(RTRIM(cu.CustomerName)) <> ''
-  AND (cu.bHide IS NULL OR cu.bHide = 0)
-ORDER BY LTRIM(RTRIM(cu.CustomerName)), en.Date, en.Number
+WITH led AS (
+    SELECT LTRIM(RTRIM(cu.CustomerName)) AS name,
+           en.Date AS dt, en.Number AS num,
+           CAST(COALESCE(en.Debit,0)  AS decimal(18,3)) AS debit,
+           CAST(COALESCE(en.Credit,0) AS decimal(18,3)) AS credit,
+           LEFT(COALESCE(en.Notes,''), 70) AS notes,
+           CAST(SUM(COALESCE(en.Debit,0) - COALESCE(en.Credit,0))
+                OVER (PARTITION BY en.AccountGUID ORDER BY en.Date, en.Number
+                      ROWS UNBOUNDED PRECEDING) AS decimal(18,3)) AS balance
+    FROM dbo.en000 en
+    JOIN dbo.cu000 cu ON cu.AccountGUID = en.AccountGUID
+    WHERE (COALESCE(en.Debit,0) > 0 OR COALESCE(en.Credit,0) > 0)
+      AND cu.CustomerName IS NOT NULL AND LTRIM(RTRIM(cu.CustomerName)) <> ''
+      AND (cu.bHide IS NULL OR cu.bHide = 0)
+)
+SELECT name, dt, debit, credit, notes, balance
+FROM led
+WHERE dt >= @fromDate
+ORDER BY name, dt, num
 "@
     $cmd.Parameters.AddWithValue("@fromDate", $fromDate) | Out-Null
     $r = $cmd.ExecuteReader()
@@ -98,10 +107,11 @@ ORDER BY LTRIM(RTRIM(cu.CustomerName)), en.Date, en.Number
         $name = [string]$r.GetValue(0)
         if (-not $movements.ContainsKey($name)) { $movements[$name] = New-Object System.Collections.Generic.List[object] }
         $movements[$name].Add(@{
-            date   = ([datetime]$r.GetValue(1)).ToString("yyyy-MM-dd")
-            debit  = [double]$r.GetValue(2)
-            credit = [double]$r.GetValue(3)
-            notes  = [string]$r.GetValue(4)
+            date    = ([datetime]$r.GetValue(1)).ToString("yyyy-MM-dd")
+            debit   = [double]$r.GetValue(2)
+            credit  = [double]$r.GetValue(3)
+            notes   = [string]$r.GetValue(4)
+            balance = [double]$r.GetValue(5)
         })
     }
     $r.Close()
@@ -127,6 +137,12 @@ ORDER BY LTRIM(RTRIM(cu.CustomerName)), en.Date, en.Number
         }
         $closing = $opening
         foreach ($m in $list) { $closing += ($m.debit - $m.credit) }
+        # الرصيد المتحرك المُخزَّن هو الأدقّ: نشتقّ منه الافتتاحي (رصيد أول المعروض) والختامي،
+        # فيصحّ حتى عند اقتطاع الحركات القديمة أو وجود قيود افتتاحية.
+        if ($list.Count -gt 0) {
+            if ($list[0].ContainsKey('balance'))  { $opening = [double]$list[0].balance - ([double]$list[0].debit - [double]$list[0].credit) }
+            if ($list[-1].ContainsKey('balance')) { $closing = [double]$list[-1].balance }
+        }
 
         $items.Add(@{
             name           = $name

@@ -3094,26 +3094,24 @@ function customerFullMovements(item) {
   return items.find((x) => String(x.name || "").trim() === name) || null;
 }
 
-// الرصيد الفعلي قبل/بعد هذه الفاتورة من حركات الزبون المُزامَنة (الرصيد المتحرك، نفس منطق
-// كشف الحساب): نبحث عن قيد الفاتورة (مدين بقيمتها وبتاريخها) ونُرجع الرصيد قبله وبعده — وهي
-// القيم التاريخية الصحيحة حتى للفواتير القديمة أو المعدّلة. يُرجع null إن لم تدخل الحركات بعد.
-function invoiceBalancesFromMovements(custName, inv) {
+// الرصيد بعد قيد الحركة كما حسبه الأمين وخزّنه (الرصيد المتحرك الدقيق، يشمل القيد الافتتاحي
+// وبترتيب الأمين). نطابق الحركة بالتاريخ والقيمة على الجهة الصحيحة (مدين للفاتورة، دائن للدفعة)
+// ونُرجع رصيدها المُخزَّن. يُرجع null إن لم يتوفّر الرصيد المُخزَّن بعد (بيانات قبل تحديث المزامنة).
+function movementBalanceAfter(custName, dateStr, debit, credit) {
   const report = state.customerMovementsReport;
   const items = report && Array.isArray(report.items) ? report.items : [];
   const match = smartNameMatch(items, (it) => it.name, custName);
-  if (!match || !Array.isArray(match.movements) || !match.movements.length) return null;
-  const total = Number(inv?.total || 0);
-  if (!(total > 0)) return null;
-  const invDate = String(inv?.date || "").slice(0, 10);
-  let running = Number(match.openingBalance || 0);
-  for (const m of match.movements) {
-    const debit = Number(m.debit || 0), credit = Number(m.credit || 0);
-    const mDate = String(m.date || "").slice(0, 10);
-    const before = running;
-    running = roundPrice(running + debit - credit);
-    if (Math.abs(debit - total) <= 0.5 && (!invDate || mDate === invDate)) {
-      return { prevBalance: roundPrice(before), newBalance: running };
-    }
+  const movements = match && Array.isArray(match.movements) ? match.movements : [];
+  const d = String(dateStr || "").slice(0, 10);
+  const wantDebit = Number(debit || 0), wantCredit = Number(credit || 0);
+  for (let i = movements.length - 1; i >= 0; i--) {
+    const m = movements[i];
+    if (m.balance === undefined || m.balance === null) continue;
+    if (d && String(m.date || "").slice(0, 10) !== d) continue;
+    const sideOk = wantDebit > 0
+      ? Math.abs(Number(m.debit || 0) - wantDebit) <= 0.5
+      : Math.abs(Number(m.credit || 0) - wantCredit) <= 0.5;
+    if (sideOk) return roundPrice(m.balance);
   }
   return null;
 }
@@ -3162,7 +3160,8 @@ function customerStatementPdfMarkup(item) {
     rows.push(`<tr class="open"><td>${escapeHtml(fromDate || "—")}</td><td colspan="2">رصيد أول المدة</td><td></td><td>${escapeHtml(formatMoney(running))}</td></tr>`);
     full.movements.forEach((m) => {
       const d = Number(m.debit || 0), c = Number(m.credit || 0);
-      running += d - c;
+      // نستعمل الرصيد المُخزَّن من الأمين إن توفّر (الأدقّ)، وإلا نحسبه تراكمياً.
+      running = (m.balance !== undefined && m.balance !== null) ? Number(m.balance) : roundPrice(running + d - c);
       rows.push(`<tr><td>${m.date ? escapeHtml(String(m.date).slice(0, 10)) : "—"}</td><td class="deb">${d > 0 ? escapeHtml(formatMoney(d)) : "—"}</td><td class="cred">${c > 0 ? escapeHtml(formatMoney(c)) : "—"}</td><td>${escapeHtml(m.notes || "—")}</td><td>${escapeHtml(formatMoney(running))}</td></tr>`);
     });
     const closing = Number(full.closingBalance || running);
@@ -3257,8 +3256,9 @@ function voucherPdfMarkup(v) {
     rows.push(`<tr><th>قيمة هذه الفاتورة</th><td>${escapeHtml(formatMoney(v.amount || 0))} ${escapeHtml(cur)}</td></tr>`);
     rows.push(`<tr><th>الرصيد الجديد</th><td><b>${escapeHtml(balanceText(v.newBalance, cur))}</b></td></tr>`);
   } else if (v.balance !== undefined && v.balance !== null && v.balance !== "") {
-    const balTxt = isInv ? balanceText(v.balance, cur) : `${formatMoney(v.balance)} ${escapeHtml(cur)}`;
-    rows.push(`<tr><th>${balLabel}</th><td>${escapeHtml(balTxt)}</td></tr>`);
+    const lbl = v.balanceLabel || balLabel;
+    const balTxt = (isInv || v.type === "receipt") ? balanceText(v.balance, cur) : `${formatMoney(v.balance)} ${cur}`;
+    rows.push(`<tr><th>${escapeHtml(lbl)}</th><td>${escapeHtml(balTxt)}</td></tr>`);
   }
   const stamp = `
     <div class="stamp-wrap"><div class="seal">
@@ -5016,7 +5016,6 @@ function render() {
         phone: customerProfile(key)?.phone || "",
         date: el.dataset.date || todayIsoDate(),
         notes: el.dataset.notes || "",
-        balance: customerBalance(item),
         cur: customerCurrency(item)
       };
       if (debit > 0 && credit <= 0) {
@@ -5026,13 +5025,22 @@ function render() {
         const dateMatch = (x) => String(x.date || "").slice(0, 10) === dOnly;
         const match = invs.find((x) => dateMatch(x) && amtMatch(x)) || invs.find((x) => amtMatch(x)) || invs.find((x) => dateMatch(x));
         if (match) {
-          exportVoucherPdf({ ...base, cur: "$", type: "invoice", amount: match.total || debit, no: match.number ? String(match.number) : docNumber("INV"), lines: match.lines || [] });
+          const total = match.total || debit;
+          const balAfter = movementBalanceAfter(item.name || "", el.dataset.date, debit, 0);
+          const opts = { ...base, cur: "$", type: "invoice", amount: total, no: match.number ? String(match.number) : docNumber("INV"), lines: match.lines || [] };
+          if (balAfter !== null) { opts.newBalance = balAfter; opts.prevBalance = roundPrice(balAfter - total); }
+          else { opts.balance = customerBalance(item); }
+          exportVoucherPdf(opts);
         } else {
           setNotice("error", "لم أطابق فاتورة تفصيلية لهذه الحركة. افتح «التقارير» ← فواتير الزبون واضغط «📄 تصدير الفاتورة PDF (مع الأصناف)».");
           render();
         }
       } else if (credit > 0) {
-        exportVoucherPdf({ ...base, type: "receipt", amount: credit, no: docNumber("R") });
+        const balAfter = movementBalanceAfter(item.name || "", el.dataset.date, 0, credit);
+        const opts = { ...base, type: "receipt", amount: credit, no: docNumber("R") };
+        if (balAfter !== null) { opts.balance = balAfter; opts.balanceLabel = "الرصيد بعد الدفعة"; }
+        else { opts.balance = customerBalance(item); opts.balanceLabel = "الرصيد الحالي"; }
+        exportVoucherPdf(opts);
       } else {
         setNotice("error", "لا يمكن تصدير هذا القيد."); render();
       }
@@ -5046,21 +5054,27 @@ function render() {
         || invs.find((x) => String(x.number || "") === el.dataset.invNumber);
       if (!inv) { setNotice("error", "تعذّر إيجاد الفاتورة."); render(); return; }
       const invoiceTotal = inv.total || 0;
-      // نعرض الرصيد الحالي الموثوق فقط (من مزامنة الأرصدة). حساب «السابق/الجديد» التاريخي
-      // من الحركات غير موثوق بعد تدوير السنة (قيد افتتاحي ناقص + ترتيب حركات نفس اليوم)،
-      // فأوقفناه مؤقتاً حتى لا يظهر رقم خاطئ للزبون. البديل الجذري: قراءته من دفتر الأمين.
       const custItem = smartNameMatch(latestCustomerBalanceItems(), (it) => it.name, cust);
       const currentBalance = custItem ? customerBalance(custItem) : null;
-      exportVoucherPdf({
+      // نفضّل الرصيد المتحرك الدقيق المُخزَّن من الأمين (صحيح لأي فاتورة). وإن لم يتوفّر بعد
+      // (قبل تحديث مزامنة الحركات) نكتفي بالرصيد الحالي الموثوق بلا «سابق/جديد» محسوبين.
+      const balAfter = movementBalanceAfter(cust, inv.date, invoiceTotal, 0);
+      const opts = {
         type: "invoice",
         name: cust,
         amount: invoiceTotal,
         cur: "$",
         date: inv.date || todayIsoDate(),
         no: inv.number ? String(inv.number) : docNumber("INV"),
-        lines: inv.lines || [],
-        balance: currentBalance
-      });
+        lines: inv.lines || []
+      };
+      if (balAfter !== null) {
+        opts.newBalance = balAfter;
+        opts.prevBalance = roundPrice(balAfter - invoiceTotal);
+      } else {
+        opts.balance = currentBalance;
+      }
+      exportVoucherPdf(opts);
     });
   });
   app.querySelector("[data-form='voucher-payment']")?.addEventListener("submit", (event) => {
