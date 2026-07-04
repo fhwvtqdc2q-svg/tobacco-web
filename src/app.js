@@ -3257,7 +3257,8 @@ function voucherPdfMarkup(v) {
     rows.push(`<tr><th>قيمة هذه الفاتورة</th><td>${escapeHtml(formatMoney(v.amount || 0))} ${escapeHtml(cur)}</td></tr>`);
     rows.push(`<tr><th>الرصيد الجديد</th><td><b>${escapeHtml(balanceText(v.newBalance, cur))}</b></td></tr>`);
   } else if (v.balance !== undefined && v.balance !== null && v.balance !== "") {
-    rows.push(`<tr><th>${balLabel}</th><td>${escapeHtml(formatMoney(v.balance))} ${escapeHtml(cur)}</td></tr>`);
+    const balTxt = isInv ? balanceText(v.balance, cur) : `${formatMoney(v.balance)} ${escapeHtml(cur)}`;
+    rows.push(`<tr><th>${balLabel}</th><td>${escapeHtml(balTxt)}</td></tr>`);
   }
   const stamp = `
     <div class="stamp-wrap"><div class="seal">
@@ -5045,19 +5046,11 @@ function render() {
         || invs.find((x) => String(x.number || "") === el.dataset.invNumber);
       if (!inv) { setNotice("error", "تعذّر إيجاد الفاتورة."); render(); return; }
       const invoiceTotal = inv.total || 0;
-      // نفضّل الرصيد التاريخي الفعلي من حركات الزبون (دقيق حتى للفواتير القديمة/المعدّلة).
-      // إن لم تدخل الفاتورة الحركات بعد (فاتورة جديدة)، فالرصيد الحالي هو السابق ونضيف الفاتورة.
+      // نعرض الرصيد الحالي الموثوق فقط (من مزامنة الأرصدة). حساب «السابق/الجديد» التاريخي
+      // من الحركات غير موثوق بعد تدوير السنة (قيد افتتاحي ناقص + ترتيب حركات نفس اليوم)،
+      // فأوقفناه مؤقتاً حتى لا يظهر رقم خاطئ للزبون. البديل الجذري: قراءته من دفتر الأمين.
       const custItem = smartNameMatch(latestCustomerBalanceItems(), (it) => it.name, cust);
       const currentBalance = custItem ? customerBalance(custItem) : null;
-      const fromMov = invoiceBalancesFromMovements(cust, inv);
-      let prevBalance = null, newBalance = null;
-      if (fromMov) {
-        prevBalance = fromMov.prevBalance;
-        newBalance = fromMov.newBalance;
-      } else if (currentBalance !== null) {
-        prevBalance = currentBalance;
-        newBalance = roundPrice(currentBalance + invoiceTotal);
-      }
       exportVoucherPdf({
         type: "invoice",
         name: cust,
@@ -5066,8 +5059,7 @@ function render() {
         date: inv.date || todayIsoDate(),
         no: inv.number ? String(inv.number) : docNumber("INV"),
         lines: inv.lines || [],
-        prevBalance,
-        newBalance
+        balance: currentBalance
       });
     });
   });
