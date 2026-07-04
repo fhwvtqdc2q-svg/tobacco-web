@@ -3044,7 +3044,7 @@ const REPORT_STYLE = `<style>
 .ozk-rpt .cards{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:12px}
 .ozk-rpt .rcard{background:#ece6d4;border:1px solid #c8b890;border-radius:8px;padding:10px 12px;text-align:center}
 .ozk-rpt .rcard .v{font-size:21px;font-weight:900}.ozk-rpt .rcard .l{font-size:10.5px;color:#6b5535}
-.ozk-rpt .rcard .v.gold{color:#b8892a}.ozk-rpt .rcard .v.red{color:#c0271f}
+.ozk-rpt .rcard .v.gold{color:#b8892a}.ozk-rpt .rcard .v.red{color:#c0271f}.ozk-rpt .rcard .v.green{color:#16794f}
 .ozk-rpt .rlogo{height:46px;width:auto}
 .ozk-rpt tr.open td{background:#ece6d4;font-weight:800}
 .ozk-rpt .rfoot{margin-top:16px;border-top:1.5px solid #b8892a;padding-top:7px;font-size:10px;color:#6b5535;display:flex;justify-content:space-between}
@@ -3270,26 +3270,41 @@ async function exportVoucherPdf(v) {
 
 function receivablesPdfMarkup() {
   const items = latestCustomerBalanceItems();
-  const debtors = items.filter((i) => customerBalance(i) > 0).sort((a, b) => customerBalance(b) - customerBalance(a));
   const totals = customerBalanceTotals(items);
-  const maxBal = debtors.length ? customerBalance(debtors[0]) : 0;
-  const top = debtors.slice(0, 40);
-  const rows = top.length
-    ? top.map((it, idx) => {
+  const totalDebit = totals.totalDebitBalance;              // مجموع المدين (موجب)
+  const totalCredit = Math.abs(totals.totalCreditBalance);  // مجموع الدائن (نعرضه موجباً)
+  const net = totalDebit - totalCredit;                     // صافي الذمم لصالحنا
+  // كل الزبائن أصحاب رصيد (مدين موجب أو دائن سالب) — بلا قصّ. المدينون أولاً ثم الدائنون.
+  const withBalance = items
+    .filter((i) => Math.abs(customerBalance(i)) > 0.009)
+    .sort((a, b) => customerBalance(b) - customerBalance(a));
+  const rows = withBalance.length
+    ? withBalance.map((it, idx) => {
+        const bal = customerBalance(it);
+        const isDebit = bal > 0;
         const ld = customerLastPaymentDate(it);
-        return `<tr><td>${idx + 1}</td><td>${escapeHtml(it.name || "")}</td><td class="deb">${escapeHtml(formatMoney(customerBalance(it)))}</td><td>${ld ? escapeHtml(String(ld).slice(0, 10)) : "—"}</td></tr>`;
+        return `<tr><td>${idx + 1}</td><td>${escapeHtml(it.name || "")}</td>`
+          + `<td class="deb">${isDebit ? escapeHtml(formatMoney(bal)) : "—"}</td>`
+          + `<td class="cred">${isDebit ? "—" : escapeHtml(formatMoney(Math.abs(bal)))}</td>`
+          + `<td>${ld ? escapeHtml(String(ld).slice(0, 10)) : "—"}</td></tr>`;
       }).join("")
-    : `<tr><td colspan="4" class="muted">لا يوجد زبائن مدينون</td></tr>`;
+      + `<tr class="closing"><td></td><td>الإجمالي (${escapeHtml(withBalance.length)} زبون)</td>`
+      + `<td class="deb">${escapeHtml(formatMoney(totalDebit))}</td>`
+      + `<td class="cred">${escapeHtml(formatMoney(totalCredit))}</td><td></td></tr>`
+    : `<tr><td colspan="5" class="muted">لا يوجد زبائن أصحاب أرصدة</td></tr>`;
   return `${REPORT_STYLE}<div class="ozk-rpt">
     <div class="rhead"><div class="brand">OZK TOBACCO<small>تقرير الذمم الإجمالي</small></div>
       <div class="rtitle"><h2>الذمم</h2><span>بتاريخ ${escapeHtml(todayIsoDate())}</span></div></div>
     <div class="cards">
-      <div class="rcard"><div class="v gold">${escapeHtml(formatMoney(totals.totalDebitBalance))}</div><div class="l">إجمالي المستحق على الزبائن</div></div>
-      <div class="rcard"><div class="v">${escapeHtml(totals.debitCustomers)}</div><div class="l">زبون مدين (من أصل ${escapeHtml(items.length)})</div></div>
-      <div class="rcard"><div class="v red">${escapeHtml(formatMoney(maxBal))}</div><div class="l">أعلى رصيد فردي</div></div>
+      <div class="rcard"><div class="v red">${escapeHtml(formatMoney(totalDebit))}</div><div class="l">إجمالي المدين — مستحق لنا (${escapeHtml(totals.debitCustomers)} زبون)</div></div>
+      <div class="rcard"><div class="v green">${escapeHtml(formatMoney(totalCredit))}</div><div class="l">إجمالي الدائن — لهم عندنا (${escapeHtml(totals.creditCustomers)} زبون)</div></div>
+      <div class="rcard"><div class="v gold">${escapeHtml(formatMoney(net))}</div><div class="l">صافي الذمم لصالحنا</div></div>
     </div>
-    <div class="sec">أعلى الزبائن مديونية</div>
-    <table><tr><th>#</th><th>الزبون</th><th>الرصيد</th><th>آخر دفعة</th></tr>${rows}</table>
+    <div class="sec">أرصدة الزبائن — المدين والدائن (${escapeHtml(withBalance.length)} زبون)</div>
+    <table>
+      <thead><tr><th>#</th><th>الزبون</th><th>مدين (عليه)</th><th>دائن (له)</th><th>آخر دفعة</th></tr></thead>
+      <tbody>${rows}</tbody>
+    </table>
   </div>`;
 }
 
