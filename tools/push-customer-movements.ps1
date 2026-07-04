@@ -78,17 +78,24 @@ GROUP BY LTRIM(RTRIM(cu.CustomerName))
     # (2) حركات الفترة لكل زبون
     $movements = @{}
     $cmd = $conn.CreateCommand()
-    # الرصيد المتحرك يُحسب بدالة نافذة على كل قيود الحساب (بترتيب التاريخ ثم رقم القيد)،
-    # فيشمل القيد الافتتاحي وكل ما قبل الفترة، ويطابق كشف حساب الأمين تماماً. ثم نعرض الفترة فقط.
+    # الرصيد المتحرك يُحسب بدالة نافذة على كل قيود الحساب. الترتيب يطابق كشف الأمين:
+    # التاريخ ← القيد الافتتاحي أولاً ← المدين (الفواتير) قبل الدائن (الدفعات) ← رقم القيد.
+    # (en.Number ليس تسلسلياً والتاريخ بلا وقت، فلا يصلحان وحدهما للترتيب.)
     $cmd.CommandText = @"
 WITH led AS (
     SELECT LTRIM(RTRIM(cu.CustomerName)) AS name,
            en.Date AS dt, en.Number AS num,
+           CASE WHEN COALESCE(en.Notes,'') LIKE N'%افتتاح%' THEN 0 ELSE 1 END AS isopen,
+           CASE WHEN COALESCE(en.Credit,0) > 0 THEN 1 ELSE 0 END AS iscredit,
            CAST(COALESCE(en.Debit,0)  AS decimal(18,3)) AS debit,
            CAST(COALESCE(en.Credit,0) AS decimal(18,3)) AS credit,
            LEFT(COALESCE(en.Notes,''), 70) AS notes,
            CAST(SUM(COALESCE(en.Debit,0) - COALESCE(en.Credit,0))
-                OVER (PARTITION BY en.AccountGUID ORDER BY en.Date, en.Number
+                OVER (PARTITION BY en.AccountGUID
+                      ORDER BY en.Date,
+                               CASE WHEN COALESCE(en.Notes,'') LIKE N'%افتتاح%' THEN 0 ELSE 1 END,
+                               CASE WHEN COALESCE(en.Credit,0) > 0 THEN 1 ELSE 0 END,
+                               en.Number
                       ROWS UNBOUNDED PRECEDING) AS decimal(18,3)) AS balance
     FROM dbo.en000 en
     JOIN dbo.cu000 cu ON cu.AccountGUID = en.AccountGUID
@@ -99,7 +106,7 @@ WITH led AS (
 SELECT name, dt, debit, credit, notes, balance
 FROM led
 WHERE dt >= @fromDate
-ORDER BY name, dt, num
+ORDER BY name, dt, isopen, iscredit, num
 "@
     $cmd.Parameters.AddWithValue("@fromDate", $fromDate) | Out-Null
     $r = $cmd.ExecuteReader()
