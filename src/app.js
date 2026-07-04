@@ -3386,6 +3386,99 @@ async function exportInventoryReportPdf() {
   render();
 }
 
+// إجمالي المبيع لكل مادة بالوحدة الأساسية (كروز) من فواتير الزبائن خلال فترة التقرير.
+function materialSalesUnit1Map() {
+  const map = new Map();
+  const report = state.customerInvoicesReport;
+  const custItems = report && Array.isArray(report.items) ? report.items : [];
+  for (const cust of custItems) {
+    const invoices = Array.isArray(cust.invoices) ? cust.invoices : [];
+    for (const inv of invoices) {
+      const lines = Array.isArray(inv.lines) ? inv.lines : [];
+      for (const l of lines) {
+        const key = normalizeItemName(l.material || "");
+        const qty = Number(l.qty || 0); // كروز
+        if (key && qty > 0) map.set(key, (map.get(key) || 0) + qty);
+      }
+    }
+  }
+  return map;
+}
+
+// تقرير المواد الراكدة: يقارن المخزون الحالي بمعدّل البيع (كم شهراً يكفي المخزون)،
+// ويرتّب المواد من الأكثر ركوداً (مخزون مرتفع + مبيع قليل) إلى الأقل.
+function stagnantMaterialsPdfMarkup() {
+  const stock = pricingWorklistItems().filter((it) => itemQty(it) > 0);
+  const sales = materialSalesUnit1Map();
+  const periodDays = Math.max(1, Number(state.customerInvoicesReport?.summary?.periodDays || 60));
+
+  const rows = stock.map((it) => {
+    const factor = itemUnit2Factor(it);
+    const stockU1 = itemQty(it);                                     // كروز
+    const soldU1 = sales.get(normalizeItemName(it.name || "")) || 0; // كروز خلال الفترة
+    const monthlyU1 = (soldU1 / periodDays) * 30;
+    const coverage = monthlyU1 > 0 ? stockU1 / monthlyU1 : Infinity; // أشهر التغطية
+    return {
+      name: it.name || "",
+      u2: itemUnit2Name(it),
+      stockU2: factor > 0 ? stockU1 / factor : stockU1,
+      soldU2: factor > 0 ? soldU1 / factor : soldU1,
+      coverage,
+      noSale: soldU1 <= 0
+    };
+  }).sort((a, b) => (b.coverage - a.coverage) || (b.stockU2 - a.stockU2));
+
+  const statusOf = (r) =>
+    r.noSale ? '<span class="deb">راكد — لا مبيع</span>'
+    : (r.coverage >= 6 ? '<span class="deb">بطيء جداً</span>'
+    : (r.coverage >= 3 ? '<span style="color:#8a5a00;font-weight:700">بطيء</span>'
+    : '<span style="color:#16794f;font-weight:700">متحرّك</span>'));
+  const covText = (r) => r.noSale ? "∞ (لا مبيع)" : `${formatMoney(roundPrice(r.coverage))} شهر`;
+
+  const body = rows.length
+    ? rows.map((r) => `<tr><td>${escapeHtml(pdfAr(r.name))}</td>`
+        + `<td>${escapeHtml(pdfAr(`${formatMoney(roundPrice(r.stockU2))} ${r.u2}`))}</td>`
+        + `<td>${escapeHtml(pdfAr(`${formatMoney(roundPrice(r.soldU2))} ${r.u2}`))}</td>`
+        + `<td>${escapeHtml(covText(r))}</td><td>${statusOf(r)}</td></tr>`).join("")
+    : `<tr><td colspan="5" class="muted">لا توجد بيانات كافية</td></tr>`;
+
+  const noSale = rows.filter((r) => r.noSale).length;
+  const slow = rows.filter((r) => !r.noSale && r.coverage >= 3).length;
+
+  return `${REPORT_STYLE}<div class="ozk-rpt">
+    <div class="rhead"><div class="brand">OZK TOBACCO<small>المواد الراكدة</small></div>
+      <div class="rtitle"><h2>المواد الراكدة</h2><span>بتاريخ ${escapeHtml(todayIsoDate())}</span></div></div>
+    <div class="cards">
+      <div class="rcard"><div class="v red">${escapeHtml(noSale)}</div><div class="l">مادة بلا أي مبيع (خلال الفترة)</div></div>
+      <div class="rcard"><div class="v red">${escapeHtml(slow)}</div><div class="l">مادة بطيئة (يكفي مخزونها ٣ أشهر فأكثر)</div></div>
+      <div class="rcard"><div class="v gold">${escapeHtml(rows.length)}</div><div class="l">إجمالي المواد ذات المخزون</div></div>
+    </div>
+    <div class="sec">من الأكثر ركوداً (مخزون مرتفع + مبيع قليل) إلى الأقل</div>
+    <table>
+      <thead><tr><th>المادة</th><th>المخزون</th><th>المبيع (${escapeHtml(periodDays)} يوم)</th><th>يكفي لـ</th><th>الحالة</th></tr></thead>
+      <tbody>${body}</tbody>
+    </table>
+    <p class="muted" style="margin-top:8px">«يكفي لـ» = كم شهراً يكفي المخزون الحالي بمعدّل البيع. المبيع محسوب من فواتير الزبائن خلال آخر ${escapeHtml(periodDays)} يوم (لا يشمل مبيعات الكاش بدون اسم).</p>
+  </div>`;
+}
+
+async function exportStagnantMaterialsPdf() {
+  const stock = pricingWorklistItems().filter((it) => itemQty(it) > 0);
+  if (!stock.length) {
+    setNotice("error", "لا توجد مواد بمخزون لإنشاء تقرير المواد الراكدة.");
+    render();
+    return;
+  }
+  if (!state.customerInvoicesReport) {
+    setNotice("error", "لم تصل بيانات مبيعات الفواتير بعد — انتظر مزامنة الفواتير ثم أعد المحاولة.");
+    render();
+    return;
+  }
+  await exportReportPdf(stagnantMaterialsPdfMarkup(), `المواد-الراكدة-${todayIsoDate()}.pdf`);
+  setNotice("success", "تم تجهيز تقرير المواد الراكدة PDF.");
+  render();
+}
+
 function customerDetailsPanel(item) {
   if (!item) {
     return `
@@ -3794,6 +3887,14 @@ function reportsPage() {
         <div class="acc-body report-card">
           <p class="muted">المواد النافدة وشبه النافدة والمنخفضة في المخزون.</p>
           <button class="button primary" type="button" data-action="report-inventory">📦 تنزيل تقرير المخزون PDF</button>
+        </div>
+      </details>
+
+      <details class="acc-group">
+        <summary class="acc-summary"><span class="acc-title">🐢 المواد الراكدة</span><span class="acc-count">PDF</span></summary>
+        <div class="acc-body report-card">
+          <p class="muted">المواد المكدّسة التي تبيع ببطء: يقارن مخزونك بمعدّل بيعك ويحسب كم شهراً يكفي المخزون — من الأكثر ركوداً للأقل.</p>
+          <button class="button primary" type="button" data-action="report-stagnant">🐢 تنزيل تقرير المواد الراكدة PDF</button>
         </div>
       </details>
 
@@ -4956,6 +5057,7 @@ function render() {
   });
   app.querySelector("[data-action='report-receivables']")?.addEventListener("click", exportReceivablesPdf);
   app.querySelector("[data-action='report-inventory']")?.addEventListener("click", exportInventoryReportPdf);
+  app.querySelector("[data-action='report-stagnant']")?.addEventListener("click", exportStagnantMaterialsPdf);
   app.querySelector("[data-report-customer]")?.addEventListener("change", (event) => {
     const m = findBalanceCustomerByText(event.target.value);
     if (m) { state.selectedCustomerKey = customerKey(m); render(); }
