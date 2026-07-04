@@ -184,6 +184,7 @@ ORDER BY name, dt, num
         items       = $items
     }
     $json = $payload | ConvertTo-Json -Depth 8 -Compress
+    Write-Log ("حجم البيانات: {0:N0} حرف" -f $json.Length)
     Invoke-RestMethod -Method Post -Uri "$supabaseUrl/rest/v1/inventory_reports" `
         -Headers $authHeaders -ContentType "application/json; charset=utf-8" `
         -Body ([System.Text.Encoding]::UTF8.GetBytes($json)) | Out-Null
@@ -201,7 +202,7 @@ ORDER BY name, dt, num
     exit 0
 } catch {
     Write-Log "خطأ (سطر $($_.InvocationInfo.ScriptLineNumber)): $($_.Exception.Message)"
-    if ($_.ScriptStackTrace) { Write-Log $_.ScriptStackTrace }
+    if ($_.ErrorDetails -and $_.ErrorDetails.Message) { Write-Log ("رد الخادم: " + $_.ErrorDetails.Message) }
     if ($_.Exception.InnerException) { Write-Log ("تفصيل: " + $_.Exception.InnerException.Message) }
     exit 1
 }
