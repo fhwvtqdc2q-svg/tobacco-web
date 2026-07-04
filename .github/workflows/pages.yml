@@ -34,7 +34,7 @@ jobs:
     needs: check
     environment:
       name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
+      url: ${{ steps.deployment.outputs.page_url || steps.deployment_retry.outputs.page_url }}
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -48,6 +48,18 @@ jobs:
         with:
           path: .
 
+      # المحاولة الأولى — لا نُفشل الوظيفة فوراً كي نعيد المحاولة عند عثرة GitHub المؤقتة
       - name: Deploy
         id: deployment
+        continue-on-error: true
+        uses: actions/deploy-pages@v4
+
+      # عند فشل مؤقّت («Deployment failed, try again later») ننتظر قليلاً ثم نعيد المحاولة مرة واحدة
+      - name: Wait before retry
+        if: steps.deployment.outcome == 'failure'
+        run: sleep 20
+
+      - name: Deploy (retry)
+        id: deployment_retry
+        if: steps.deployment.outcome == 'failure'
         uses: actions/deploy-pages@v4
