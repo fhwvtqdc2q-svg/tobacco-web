@@ -3094,22 +3094,28 @@ function customerFullMovements(item) {
   return items.find((x) => String(x.name || "").trim() === name) || null;
 }
 
-// هل هذه الفاتورة مُدرَجة أصلاً في رصيد الزبون المُزامَن؟ نتحقق بوجود قيد مدين بقيمتها
-// وبتاريخها ضمن حركاته المُزامَنة. يميّز بين فاتورة جديدة تُطبع فوراً (لم تدخل الرصيد بعد،
-// فالرصيد الحالي = السابق) وفاتورة قديمة أُعيدت طباعتها (دخلت، فالرصيد الحالي = الجديد).
-function invoiceReflectedInBalance(custName, inv) {
+// الرصيد الفعلي قبل/بعد هذه الفاتورة من حركات الزبون المُزامَنة (الرصيد المتحرك، نفس منطق
+// كشف الحساب): نبحث عن قيد الفاتورة (مدين بقيمتها وبتاريخها) ونُرجع الرصيد قبله وبعده — وهي
+// القيم التاريخية الصحيحة حتى للفواتير القديمة أو المعدّلة. يُرجع null إن لم تدخل الحركات بعد.
+function invoiceBalancesFromMovements(custName, inv) {
   const report = state.customerMovementsReport;
   const items = report && Array.isArray(report.items) ? report.items : [];
   const match = smartNameMatch(items, (it) => it.name, custName);
-  const movements = match && Array.isArray(match.movements) ? match.movements : [];
+  if (!match || !Array.isArray(match.movements) || !match.movements.length) return null;
   const total = Number(inv?.total || 0);
-  if (!(total > 0) || !movements.length) return false;
+  if (!(total > 0)) return null;
   const invDate = String(inv?.date || "").slice(0, 10);
-  return movements.some((m) => {
-    const debit = Number(m.debit || 0);
+  let running = Number(match.openingBalance || 0);
+  for (const m of match.movements) {
+    const debit = Number(m.debit || 0), credit = Number(m.credit || 0);
     const mDate = String(m.date || "").slice(0, 10);
-    return Math.abs(debit - total) <= 0.5 && (!invDate || mDate === invDate);
-  });
+    const before = running;
+    running = roundPrice(running + debit - credit);
+    if (Math.abs(debit - total) <= 0.5 && (!invDate || mDate === invDate)) {
+      return { prevBalance: roundPrice(before), newBalance: running };
+    }
+  }
+  return null;
 }
 
 // الكشف الرسمي الكامل: رصيد أول المدة + كل حركات الفترة برصيد متحرك + الرصيد النهائي
@@ -5039,19 +5045,18 @@ function render() {
         || invs.find((x) => String(x.number || "") === el.dataset.invNumber);
       if (!inv) { setNotice("error", "تعذّر إيجاد الفاتورة."); render(); return; }
       const invoiceTotal = inv.total || 0;
-      // نحدّد إن كانت الفاتورة قد دخلت رصيد الزبون المُزامَن، لنعرف أيّ رصيد هو السابق وأيّ هو الجديد
-      // (يعمل سواء طُبعت الفاتورة فور إنشائها أو أُعيدت طباعتها لاحقاً).
+      // نفضّل الرصيد التاريخي الفعلي من حركات الزبون (دقيق حتى للفواتير القديمة/المعدّلة).
+      // إن لم تدخل الفاتورة الحركات بعد (فاتورة جديدة)، فالرصيد الحالي هو السابق ونضيف الفاتورة.
       const custItem = smartNameMatch(latestCustomerBalanceItems(), (it) => it.name, cust);
       const currentBalance = custItem ? customerBalance(custItem) : null;
+      const fromMov = invoiceBalancesFromMovements(cust, inv);
       let prevBalance = null, newBalance = null;
-      if (currentBalance !== null) {
-        if (invoiceReflectedInBalance(cust, inv)) {
-          newBalance = currentBalance;                              // الرصيد الحالي يشمل الفاتورة
-          prevBalance = roundPrice(currentBalance - invoiceTotal);
-        } else {
-          prevBalance = currentBalance;                            // الفاتورة لم تدخل الرصيد بعد
-          newBalance = roundPrice(currentBalance + invoiceTotal);
-        }
+      if (fromMov) {
+        prevBalance = fromMov.prevBalance;
+        newBalance = fromMov.newBalance;
+      } else if (currentBalance !== null) {
+        prevBalance = currentBalance;
+        newBalance = roundPrice(currentBalance + invoiceTotal);
       }
       exportVoucherPdf({
         type: "invoice",
