@@ -5021,10 +5021,11 @@ function render() {
         || invs.find((x) => String(x.number || "") === el.dataset.invNumber);
       if (!inv) { setNotice("error", "تعذّر إيجاد الفاتورة."); render(); return; }
       const invoiceTotal = inv.total || 0;
-      // الرصيد الجديد = رصيد الزبون الحالي (يشمل هذه الفاتورة)، والسابق = الجديد − قيمة الفاتورة.
+      // الرصيد المُزامَن من الأمين هو رصيد الزبون قبل هذه الفاتورة، فهو «الرصيد السابق»،
+      // و«الرصيد الجديد» = السابق + قيمة الفاتورة (البضاعة تزيد الدين على الزبون).
       const custItem = smartNameMatch(latestCustomerBalanceItems(), (it) => it.name, cust);
-      const newBalance = custItem ? customerBalance(custItem) : null;
-      const prevBalance = newBalance !== null ? roundPrice(newBalance - invoiceTotal) : null;
+      const prevBalance = custItem ? customerBalance(custItem) : null;
+      const newBalance = prevBalance !== null ? roundPrice(prevBalance + invoiceTotal) : null;
       exportVoucherPdf({
         type: "invoice",
         name: cust,
