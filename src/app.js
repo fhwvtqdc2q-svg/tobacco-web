@@ -5026,21 +5026,13 @@ function render() {
         const match = invs.find((x) => dateMatch(x) && amtMatch(x)) || invs.find((x) => amtMatch(x)) || invs.find((x) => dateMatch(x));
         if (match) {
           const total = match.total || debit;
-          const balAfter = movementBalanceAfter(item.name || "", el.dataset.date, debit, 0);
-          const opts = { ...base, cur: "$", type: "invoice", amount: total, no: match.number ? String(match.number) : docNumber("INV"), lines: match.lines || [] };
-          if (balAfter !== null) { opts.newBalance = balAfter; opts.prevBalance = roundPrice(balAfter - total); }
-          else { opts.balance = customerBalance(item); }
-          exportVoucherPdf(opts);
+          exportVoucherPdf({ ...base, cur: "$", type: "invoice", amount: total, no: match.number ? String(match.number) : docNumber("INV"), lines: match.lines || [], balance: customerBalance(item) });
         } else {
           setNotice("error", "لم أطابق فاتورة تفصيلية لهذه الحركة. افتح «التقارير» ← فواتير الزبون واضغط «📄 تصدير الفاتورة PDF (مع الأصناف)».");
           render();
         }
       } else if (credit > 0) {
-        const balAfter = movementBalanceAfter(item.name || "", el.dataset.date, 0, credit);
-        const opts = { ...base, type: "receipt", amount: credit, no: docNumber("R") };
-        if (balAfter !== null) { opts.balance = balAfter; opts.balanceLabel = "الرصيد بعد الدفعة"; }
-        else { opts.balance = customerBalance(item); opts.balanceLabel = "الرصيد الحالي"; }
-        exportVoucherPdf(opts);
+        exportVoucherPdf({ ...base, type: "receipt", amount: credit, no: docNumber("R"), balance: customerBalance(item), balanceLabel: "الرصيد الحالي" });
       } else {
         setNotice("error", "لا يمكن تصدير هذا القيد."); render();
       }
@@ -5054,27 +5046,18 @@ function render() {
         || invs.find((x) => String(x.number || "") === el.dataset.invNumber);
       if (!inv) { setNotice("error", "تعذّر إيجاد الفاتورة."); render(); return; }
       const invoiceTotal = inv.total || 0;
+      // نعرض رصيد الزبون الحالي كما يحفظه الأمين (موثوق وموحّد لكل الزبائن، بلا إعادة حساب هشّة).
       const custItem = smartNameMatch(latestCustomerBalanceItems(), (it) => it.name, cust);
-      const currentBalance = custItem ? customerBalance(custItem) : null;
-      // نفضّل الرصيد المتحرك الدقيق المُخزَّن من الأمين (صحيح لأي فاتورة). وإن لم يتوفّر بعد
-      // (قبل تحديث مزامنة الحركات) نكتفي بالرصيد الحالي الموثوق بلا «سابق/جديد» محسوبين.
-      const balAfter = movementBalanceAfter(cust, inv.date, invoiceTotal, 0);
-      const opts = {
+      exportVoucherPdf({
         type: "invoice",
         name: cust,
         amount: invoiceTotal,
         cur: "$",
         date: inv.date || todayIsoDate(),
         no: inv.number ? String(inv.number) : docNumber("INV"),
-        lines: inv.lines || []
-      };
-      if (balAfter !== null) {
-        opts.newBalance = balAfter;
-        opts.prevBalance = roundPrice(balAfter - invoiceTotal);
-      } else {
-        opts.balance = currentBalance;
-      }
-      exportVoucherPdf(opts);
+        lines: inv.lines || [],
+        balance: custItem ? customerBalance(custItem) : null
+      });
     });
   });
   app.querySelector("[data-form='voucher-payment']")?.addEventListener("submit", (event) => {
