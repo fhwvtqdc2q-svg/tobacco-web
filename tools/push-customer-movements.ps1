@@ -90,6 +90,9 @@ WITH led AS (
            CAST(COALESCE(en.Debit,0)  AS decimal(18,3)) AS debit,
            CAST(COALESCE(en.Credit,0) AS decimal(18,3)) AS credit,
            LEFT(COALESCE(en.Notes,''), 70) AS notes,
+           -- معرّف الفاتورة المولِّدة للقيد: BiGUID قد يشير لرأس الفاتورة مباشرة أو لسطرها
+           -- (فنصعد للرأس عبر bi000.ParentGUID) — لربط قطعي بين القيد والفاتورة في الموقع.
+           COALESCE(LOWER(CAST(COALESCE(bib.ParentGUID, en.BiGUID) AS varchar(40))), '') AS bill_guid,
            CAST(SUM(COALESCE(en.Debit,0) - COALESCE(en.Credit,0))
                 OVER (PARTITION BY en.AccountGUID
                       ORDER BY en.Date,
@@ -99,11 +102,12 @@ WITH led AS (
                       ROWS UNBOUNDED PRECEDING) AS decimal(18,3)) AS balance
     FROM dbo.en000 en
     JOIN dbo.cu000 cu ON cu.AccountGUID = en.AccountGUID
+    LEFT JOIN dbo.bi000 bib ON bib.GUID = en.BiGUID
     WHERE (COALESCE(en.Debit,0) > 0 OR COALESCE(en.Credit,0) > 0)
       AND cu.CustomerName IS NOT NULL AND LTRIM(RTRIM(cu.CustomerName)) <> ''
       AND (cu.bHide IS NULL OR cu.bHide = 0)
 )
-SELECT name, dt, debit, credit, notes, balance
+SELECT name, dt, debit, credit, notes, bill_guid, balance
 FROM led
 WHERE dt >= @fromDate
 ORDER BY name, dt, isopen, iscredit, num
@@ -114,11 +118,12 @@ ORDER BY name, dt, isopen, iscredit, num
         $name = [string]$r.GetValue(0)
         if (-not $movements.ContainsKey($name)) { $movements[$name] = New-Object System.Collections.Generic.List[object] }
         $movements[$name].Add(@{
-            date    = ([datetime]$r.GetValue(1)).ToString("yyyy-MM-dd")
-            debit   = [double]$r.GetValue(2)
-            credit  = [double]$r.GetValue(3)
-            notes   = [string]$r.GetValue(4)
-            balance = [double]$r.GetValue(5)
+            date     = ([datetime]$r.GetValue(1)).ToString("yyyy-MM-dd")
+            debit    = [double]$r.GetValue(2)
+            credit   = [double]$r.GetValue(3)
+            notes    = [string]$r.GetValue(4)
+            billGuid = [string]$r.GetValue(5)
+            balance  = [double]$r.GetValue(6)
         })
     }
     $r.Close()

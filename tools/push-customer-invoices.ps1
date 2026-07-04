@@ -196,6 +196,7 @@ ORDER BY u.Date DESC, u.GUID
         $byCustomer[$name].Add(@{
             number = $b.number
             date   = $b.date
+            guid   = $g.ToLower()   # معرّف الفاتورة في الأمين — لربطها بقيدها في دفتر الحسابات
             total  = [math]::Round($b.total, 3)
             lines  = $b.lines.ToArray()
         })

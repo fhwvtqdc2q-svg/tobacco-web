@@ -3094,6 +3094,22 @@ function customerFullMovements(item) {
   return items.find((x) => String(x.name || "").trim() === name) || null;
 }
 
+// قيد دفتر الأمين المرتبط بفاتورة محددة عبر معرّفها (BiGUID) — مطابقة قطعية بلا تخمين
+// بالتاريخ/المبلغ، فتصحّ حتى مع الحسومات وتعدد فواتير اليوم الواحد. null إن لم تصل
+// بيانات المزامنة المحدّثة بعد (فيرجع المستدعي للعرض الآمن: الرصيد الحالي فقط).
+function movementForBill(custName, billGuid) {
+  const g = String(billGuid || "").trim().toLowerCase();
+  if (!g) return null;
+  const report = state.customerMovementsReport;
+  const items = report && Array.isArray(report.items) ? report.items : [];
+  const match = smartNameMatch(items, (it) => it.name, custName);
+  const movements = match && Array.isArray(match.movements) ? match.movements : [];
+  return movements.find((m) =>
+    String(m?.billGuid || "").trim().toLowerCase() === g
+    && m.balance !== undefined && m.balance !== null
+  ) || null;
+}
+
 // الرصيد بعد قيد الحركة كما حسبه الأمين وخزّنه (الرصيد المتحرك الدقيق، يشمل القيد الافتتاحي
 // وبترتيب الأمين). نطابق الحركة بالتاريخ والقيمة على الجهة الصحيحة (مدين للفاتورة، دائن للدفعة)
 // ونُرجع رصيدها المُخزَّن. يُرجع null إن لم يتوفّر الرصيد المُخزَّن بعد (بيانات قبل تحديث المزامنة).
@@ -3254,6 +3270,13 @@ function voucherPdfMarkup(v) {
   if (isInv && v.newBalance !== undefined && v.newBalance !== null) {
     rows.push(`<tr><th>الرصيد السابق</th><td>${escapeHtml(balanceText(v.prevBalance, cur))}</td></tr>`);
     rows.push(`<tr><th>قيمة هذه الفاتورة</th><td>${escapeHtml(formatMoney(v.amount || 0))} ${escapeHtml(cur)}</td></tr>`);
+    // إن سُجّلت الفاتورة على الحساب بمبلغ أقل/أكثر من قيمتها (حسم أو تسوية) نُظهر الفرق
+    // ليبقى الحساب شفافاً: السابق + الفاتورة − الحسم = الجديد.
+    if (Number(v.adjust || 0) > 0.009) {
+      rows.push(`<tr><th>حسم</th><td class="cred">− ${escapeHtml(formatMoney(v.adjust))} ${escapeHtml(cur)}</td></tr>`);
+    } else if (Number(v.adjust || 0) < -0.009) {
+      rows.push(`<tr><th>إضافة / تسوية</th><td class="deb">+ ${escapeHtml(formatMoney(Math.abs(v.adjust)))} ${escapeHtml(cur)}</td></tr>`);
+    }
     rows.push(`<tr><th>الرصيد الجديد</th><td><b>${escapeHtml(balanceText(v.newBalance, cur))}</b></td></tr>`);
   } else if (v.balance !== undefined && v.balance !== null && v.balance !== "") {
     const lbl = v.balanceLabel || balLabel;
@@ -3593,7 +3616,7 @@ function customerDetailsPanel(item) {
                     <strong class="payment-amount">فاتورة: ${escapeHtml(formatMoney(Number(m?.debit || 0)))}</strong>
                     <span class="payment-date">${escapeHtml(m?.date ? formatDate(m.date) : "بلا تاريخ")}</span>
                     ${m?.notes ? `<small class="payment-note">${escapeHtml(m.notes)}</small>` : ""}
-                    <button class="button secondary mini-button" type="button" data-action="gen-movement-doc" data-debit="${escapeHtml(String(m?.debit || 0))}" data-credit="0" data-date="${escapeHtml(m?.date || "")}" data-notes="${escapeHtml(m?.notes || "")}" style="margin-top:6px">📄 فاتورة PDF</button>
+                    <button class="button secondary mini-button" type="button" data-action="gen-movement-doc" data-debit="${escapeHtml(String(m?.debit || 0))}" data-credit="0" data-date="${escapeHtml(m?.date || "")}" data-notes="${escapeHtml(m?.notes || "")}" data-balance="${m?.balance !== undefined && m?.balance !== null ? escapeHtml(String(m.balance)) : ""}" data-bill-guid="${escapeHtml(String(m?.billGuid || ""))}" style="margin-top:6px">📄 فاتورة PDF</button>
                   </div>
                 </div>`).join("")
               : '<p class="muted" style="padding:12px 0">لا توجد فواتير مسجلة.</p>'}
@@ -3613,7 +3636,7 @@ function customerDetailsPanel(item) {
                     <strong class="payment-amount">دفعة: ${escapeHtml(formatMoney(Number(m?.credit || 0)))}</strong>
                     <span class="payment-date">${escapeHtml(m?.date ? formatDate(m.date) : "بلا تاريخ")}</span>
                     ${m?.notes ? `<small class="payment-note">${escapeHtml(m.notes)}</small>` : ""}
-                    <button class="button secondary mini-button" type="button" data-action="gen-movement-doc" data-debit="0" data-credit="${escapeHtml(String(m?.credit || 0))}" data-date="${escapeHtml(m?.date || "")}" data-notes="${escapeHtml(m?.notes || "")}" style="margin-top:6px">📄 سند قبض PDF</button>
+                    <button class="button secondary mini-button" type="button" data-action="gen-movement-doc" data-debit="0" data-credit="${escapeHtml(String(m?.credit || 0))}" data-date="${escapeHtml(m?.date || "")}" data-notes="${escapeHtml(m?.notes || "")}" data-balance="${m?.balance !== undefined && m?.balance !== null ? escapeHtml(String(m.balance)) : ""}" style="margin-top:6px">📄 سند قبض PDF</button>
                   </div>
                 </div>`).join("")
               : '<p class="muted" style="padding:12px 0">لا توجد دفعات مسجلة.</p>'}
@@ -5018,21 +5041,44 @@ function render() {
         notes: el.dataset.notes || "",
         cur: customerCurrency(item)
       };
+      // الرصيد المُخزَّن من دفتر الأمين لهذا القيد بالذات — ممرَّر مع الزر، بلا أي مطابقة.
+      const storedBal = el.dataset.balance !== undefined && el.dataset.balance !== ""
+        ? Number(el.dataset.balance) : null;
       if (debit > 0 && credit <= 0) {
         const invs = customerInvoicesFor(item.name || "");
+        // نطابق الفاتورة التفصيلية بمعرّف القيد (قطعي) أولاً، ثم بالتاريخ/المبلغ كاحتياط.
+        const bg = String(el.dataset.billGuid || "").trim().toLowerCase();
         const dOnly = String(el.dataset.date || "").slice(0, 10);
         const amtMatch = (x) => Math.abs(Number(x.total || 0) - debit) < 1;
         const dateMatch = (x) => String(x.date || "").slice(0, 10) === dOnly;
-        const match = invs.find((x) => dateMatch(x) && amtMatch(x)) || invs.find((x) => amtMatch(x)) || invs.find((x) => dateMatch(x));
+        const match = (bg ? invs.find((x) => String(x.guid || "").trim().toLowerCase() === bg) : null)
+          || invs.find((x) => dateMatch(x) && amtMatch(x)) || invs.find((x) => amtMatch(x)) || invs.find((x) => dateMatch(x));
         if (match) {
           const total = match.total || debit;
-          exportVoucherPdf({ ...base, cur: "$", type: "invoice", amount: total, no: match.number ? String(match.number) : docNumber("INV"), lines: match.lines || [], balance: customerBalance(item) });
+          const opts = { ...base, cur: "$", type: "invoice", amount: total, no: match.number ? String(match.number) : docNumber("INV"), lines: match.lines || [] };
+          if (storedBal !== null && Number.isFinite(storedBal)) {
+            opts.newBalance = roundPrice(storedBal);
+            opts.prevBalance = roundPrice(storedBal - debit);
+            const adjust = roundPrice(total - debit);
+            if (Math.abs(adjust) > 0.009) opts.adjust = adjust;
+          } else {
+            opts.balance = customerBalance(item);
+          }
+          exportVoucherPdf(opts);
         } else {
           setNotice("error", "لم أطابق فاتورة تفصيلية لهذه الحركة. افتح «التقارير» ← فواتير الزبون واضغط «📄 تصدير الفاتورة PDF (مع الأصناف)».");
           render();
         }
       } else if (credit > 0) {
-        exportVoucherPdf({ ...base, type: "receipt", amount: credit, no: docNumber("R"), balance: customerBalance(item), balanceLabel: "الرصيد الحالي" });
+        const opts = { ...base, type: "receipt", amount: credit, no: docNumber("R") };
+        if (storedBal !== null && Number.isFinite(storedBal)) {
+          opts.balance = roundPrice(storedBal);
+          opts.balanceLabel = "الرصيد بعد الدفعة";
+        } else {
+          opts.balance = customerBalance(item);
+          opts.balanceLabel = "الرصيد الحالي";
+        }
+        exportVoucherPdf(opts);
       } else {
         setNotice("error", "لا يمكن تصدير هذا القيد."); render();
       }
@@ -5046,18 +5092,29 @@ function render() {
         || invs.find((x) => String(x.number || "") === el.dataset.invNumber);
       if (!inv) { setNotice("error", "تعذّر إيجاد الفاتورة."); render(); return; }
       const invoiceTotal = inv.total || 0;
-      // نعرض رصيد الزبون الحالي كما يحفظه الأمين (موثوق وموحّد لكل الزبائن، بلا إعادة حساب هشّة).
+      // الرصيد قبل/بعد الفاتورة من قيدها في دفتر الأمين (مطابقة قطعية بمعرّف الفاتورة GUID).
+      // إن لم تتوفر بيانات المزامنة المحدّثة نعرض الرصيد الحالي فقط (آمن، لا تخمين).
       const custItem = smartNameMatch(latestCustomerBalanceItems(), (it) => it.name, cust);
-      exportVoucherPdf({
+      const mv = movementForBill(cust, inv.guid);
+      const opts = {
         type: "invoice",
         name: cust,
         amount: invoiceTotal,
         cur: "$",
         date: inv.date || todayIsoDate(),
         no: inv.number ? String(inv.number) : docNumber("INV"),
-        lines: inv.lines || [],
-        balance: custItem ? customerBalance(custItem) : null
-      });
+        lines: inv.lines || []
+      };
+      if (mv) {
+        const ledgerDebit = Number(mv.debit || 0);
+        opts.newBalance = roundPrice(mv.balance);
+        opts.prevBalance = roundPrice(mv.balance - ledgerDebit + Number(mv.credit || 0));
+        const adjust = roundPrice(invoiceTotal - ledgerDebit);
+        if (ledgerDebit > 0 && Math.abs(adjust) > 0.009) opts.adjust = adjust;
+      } else {
+        opts.balance = custItem ? customerBalance(custItem) : null;
+      }
+      exportVoucherPdf(opts);
     });
   });
   app.querySelector("[data-form='voucher-payment']")?.addEventListener("submit", (event) => {
