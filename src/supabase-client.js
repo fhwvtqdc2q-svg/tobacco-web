@@ -425,7 +425,7 @@
 
     async listInventoryReports() {
       if (!client) {
-        return readJson(INVENTORY_REPORTS_KEY, []).filter((report) => report.source !== "ameen_customer_balances" && report.source !== "ameen_customer_movements");
+        return readJson(INVENTORY_REPORTS_KEY, []).filter((report) => !["ameen_customer_balances", "ameen_customer_movements", "ameen_customer_invoices", "ameen_expenses"].includes(report.source));
       }
 
       const session = await getSupabaseSession();
@@ -434,7 +434,7 @@
       const { data, error } = await client
         .from(inventoryReportsTable)
         .select("id, report_date, source, summary, items, created_at")
-        .not("source", "in", '("ameen_customer_balances","ameen_customer_movements")')
+        .not("source", "in", '("ameen_customer_balances","ameen_customer_movements","ameen_customer_invoices","ameen_expenses")')
         .order("created_at", { ascending: false })
         .limit(12);
 

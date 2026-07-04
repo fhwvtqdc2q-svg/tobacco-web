@@ -1235,8 +1235,17 @@ function downloadFilteredPriceList() {
   render();
 }
 
+// أحدث تقرير جرد حقيقي: نتعرّف عليه بشكل عناصره (فيها stockQty) لا بترتيبه فقط،
+// كي لا يُزيحه تقرير آخر (فواتير/مصاريف/حركات) خُزّن بنفس جدول inventory_reports.
+function latestStockReport() {
+  const reports = Array.isArray(state.inventoryReports) ? state.inventoryReports : [];
+  return reports.find((r) => reportItems(r).some((it) => it && ("stockQty" in it || "stockQtyPositive" in it)))
+    || reports[0]
+    || null;
+}
+
 function liveAvailableItems() {
-  return reportItems(state.inventoryReports[0]).filter((item) => itemQty(item) > 0);
+  return reportItems(latestStockReport()).filter((item) => itemQty(item) > 0);
 }
 
 function writePriceExportWorkbook(priceExport, filePrefix) {
