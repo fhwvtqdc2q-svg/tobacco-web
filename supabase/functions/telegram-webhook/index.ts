@@ -16,6 +16,10 @@ const WELCOME = `أهلاً 👋 أنا مساعدك الشخصي.
 • شو ناقص
 • الديون
 • مبيعات اليوم
+• رسم المبيعات
+
+🤖 اسأل أي سؤال عن العمل:
+• اسأل مين أكثر زبون مديون؟
 
 ⚙️ إعدادات:
 • حد التنبيه 30
@@ -30,7 +34,8 @@ const HELP_PARSE = `ما قدرت أفهم الطلب 🤔
 
 للاستعلام اكتب:
 • رصيد <اسم الزبون>  /  كشف حساب <اسم الزبون>
-• سعر <اسم المادة>  /  شو ناقص  /  الديون  /  مبيعات اليوم
+• سعر <اسم المادة>  /  شو ناقص  /  الديون  /  مبيعات اليوم  /  رسم المبيعات
+• اسأل <أي سؤال عن العمل>
 
 للتذكير اكتب الوقت بوضوح:
 • ... الساعة 5 العصر  /  بعد 20 دقيقة  /  بكرا الساعة 11
@@ -40,7 +45,8 @@ const HELP_PARSE = `ما قدرت أفهم الطلب 🤔
 const MENU_KEYBOARD = {
   inline_keyboard: [
     [{ text: "📊 مبيعات اليوم", callback_data: "sales" }, { text: "⚠️ شو ناقص", callback_data: "low" }],
-    [{ text: "💰 الديون", callback_data: "debts" }, { text: "❓ مساعدة", callback_data: "help" }],
+    [{ text: "💰 الديون", callback_data: "debts" }, { text: "📈 رسم المبيعات", callback_data: "chart" }],
+    [{ text: "❓ مساعدة", callback_data: "help" }],
   ],
 };
 
@@ -367,7 +373,8 @@ async function sendMenu(chatId: number) {
 • رصيد <اسم الزبون>
 • كشف حساب <اسم الزبون>
 • سعر <اسم المادة>
-• حد التنبيه <رقم>`,
+• حد التنبيه <رقم>
+• اسأل <أي سؤال عن العمل>`,
     reply_markup: MENU_KEYBOARD,
   });
 }
@@ -482,6 +489,135 @@ async function handlePriceQuery(chatId: number, name: string) {
 }
 
 // ============================================================
+// رسم بياني نصي لاتجاه المبيعات — «رسم المبيعات»
+// (لا صورة فعلية — عرض نصي بسيط بالخانات + قائمة أرقام، أضمن وأبسط
+// من محاولة رسم صورة حقيقية بهذه البيئة)
+// ============================================================
+function buildSparkline(values: number[]): string {
+  const chars = ["▁", "▂", "▃", "▄", "▅", "▆", "▇", "█"];
+  const max = Math.max(...values, 0);
+  const min = Math.min(...values, 0);
+  const range = max - min || 1;
+  return values.map((v) => {
+    const idx = Math.round(((v - min) / range) * (chars.length - 1));
+    return chars[Math.max(0, Math.min(chars.length - 1, idx))];
+  }).join("");
+}
+
+async function handleSalesChart(chatId: number): Promise<void> {
+  const rows = await restGet(`daily_sales_summary?order=created_at.asc&limit=30&select=total_sales,created_at`);
+  if (!Array.isArray(rows) || !rows.length) {
+    await tg("sendMessage", { chat_id: chatId, text: "ما في بيانات مبيعات كفاية لعرض رسم بياني 😕\nلسه ما وصل ولا ملخص مبيعات من الأمين." });
+    return;
+  }
+  const values = rows.map((r: any) => Number(r.total_sales ?? 0));
+  const spark = buildSparkline(values);
+  let msg = `📊 اتجاه المبيعات (آخر ${rows.length} تحديث)\n\n${spark}\n\n`;
+  rows.slice(-10).forEach((r: any) => { msg += `${fmtDate(r.created_at)}: ${fmtNum(r.total_sales)}\n`; });
+  if (rows.length < 5) msg += `\n⚠️ البيانات لسه قليلة (${rows.length} فقط) — الرسم رح يصير أدق مع تراكم مزامنة أيام أكتر.`;
+  await tg("sendMessage", { chat_id: chatId, text: msg.trim() });
+}
+
+// ============================================================
+// سؤال حر بالذكاء الاصطناعي — «اسأل <سؤال>»
+// يستخدم نفس مفتاح ANTHROPIC_API_KEY المضبوط أصلاً بأسرار Supabase
+// لدالة claude-assistant (الأسرار مشتركة بين كل دوال المشروع)
+// ============================================================
+async function buildBusinessContext(): Promise<string> {
+  const lines: string[] = [];
+  lines.push(`التاريخ: ${new Date().toISOString().slice(0, 10)}`);
+
+  try {
+    const sales = await restGet(`daily_sales_summary?order=created_at.desc&limit=1&select=total_sales,total_cash,total_credit,created_at`);
+    if (Array.isArray(sales) && sales.length) {
+      const s = sales[0];
+      lines.push(`آخر ملخص مبيعات (${fmtDate(s.created_at)}): الإجمالي ${fmtNum(s.total_sales)}، نقدي ${fmtNum(s.total_cash)}، آجل ${fmtNum(s.total_credit)}.`);
+    } else {
+      lines.push("لا يوجد ملخص مبيعات متزامن بعد.");
+    }
+  } catch { lines.push("تعذّر جلب بيانات المبيعات."); }
+
+  try {
+    const report = await loadBalancesReport();
+    if (report && report.items.length) {
+      const debtors = report.items.filter((c) => Number(c.balance ?? 0) > 0).sort((a, b) => Number(b.balance ?? 0) - Number(a.balance ?? 0));
+      const totalDebt = debtors.reduce((s, c) => s + Number(c.balance ?? 0), 0);
+      lines.push(`بيانات الأرصدة (بتاريخ ${report.reportDate}): ${report.items.length} زبون إجمالاً، ${debtors.length} منهم مدين، إجمالي الديون ${fmtNum(totalDebt)}.`);
+      if (debtors.length) {
+        lines.push("أعلى المدينين:");
+        debtors.slice(0, 15).forEach((c, i) => lines.push(`${i + 1}. ${c.name ?? c.key}: ${fmtNum(c.balance)}`));
+      }
+    } else {
+      lines.push("لا يوجد بيانات أرصدة زبائن متزامنة بعد.");
+    }
+  } catch { lines.push("تعذّر جلب بيانات الأرصدة."); }
+
+  try {
+    const thr = await getThreshold();
+    const items = await restGet(`approved_price_items?select=item_name,item_key,stock_qty&order=stock_qty.asc&limit=1000`);
+    if (Array.isArray(items)) {
+      const out = items.filter((r: any) => Number(r.stock_qty ?? 0) <= 0);
+      const low = items.filter((r: any) => Number(r.stock_qty ?? 0) > 0 && Number(r.stock_qty ?? 0) <= thr);
+      lines.push(`المخزون: ${out.length} مادة نافدة، ${low.length} مادة تحت حد التنبيه (${thr}).`);
+      if (out.length) lines.push("نافد: " + out.slice(0, 10).map((r: any) => r.item_name ?? r.item_key).join("، "));
+      if (low.length) lines.push("تحت الحد: " + low.slice(0, 10).map((r: any) => r.item_name ?? r.item_key).join("، "));
+    }
+  } catch { lines.push("تعذّر جلب بيانات المخزون."); }
+
+  const todayStr = new Date().toISOString().slice(0, 10);
+  try {
+    const priceChanges = await restGet(`price_change_log?changed_at=gte.${todayStr}&select=item_name`);
+    if (Array.isArray(priceChanges)) lines.push(`مواد تغيّر سعرها اليوم: ${priceChanges.length}.`);
+  } catch { /* تجاهل */ }
+  try {
+    const reqs = await restGet(`customer_requests?created_at=gte.${todayStr}&select=id`);
+    if (Array.isArray(reqs)) lines.push(`طلبات عملاء اليوم: ${reqs.length}.`);
+  } catch { /* تجاهل */ }
+
+  return lines.join("\n");
+}
+
+async function askClaude(question: string, context: string): Promise<string> {
+  const apiKey = Deno.env.get("ANTHROPIC_API_KEY");
+  if (!apiKey) throw new Error("ANTHROPIC_API_KEY غير مضبوط بأسرار Supabase");
+
+  const system = `أنت مساعد ذكي لصاحب محل دخان (OZK TOBACCO) وبترد بالعربية العامية السورية المختصرة والمباشرة، بدون مقدمات طويلة.
+عندك بيانات حقيقية عن حالة العمل الآن — استخدمها فقط للإجابة على سؤال المستخدم، ولا تختلق أي رقم أو اسم مش موجود بالبيانات المعطاة.
+إذا السؤال بيحتاج بيانات مش متوفرة عندك بالسياق، قول هيك بوضوح بدل ما تخمّن.
+خلّي الجواب مختصر (ما يتجاوز 6 أسطر) إلا إذا السؤال بالأصل بيطلب قائمة أطول.`;
+
+  const res = await fetch("https://api.anthropic.com/v1/messages", {
+    method: "POST",
+    headers: { "x-api-key": apiKey, "anthropic-version": "2023-06-01", "content-type": "application/json" },
+    body: JSON.stringify({
+      model: "claude-haiku-4-5-20251001",
+      max_tokens: 700,
+      system,
+      messages: [{ role: "user", content: `بيانات العمل الحالية:\n${context}\n\nسؤال المالك: ${question}` }],
+    }),
+  });
+  if (!res.ok) {
+    const errText = await res.text().catch(() => "");
+    throw new Error(`anthropic_${res.status}: ${errText.slice(0, 200)}`);
+  }
+  const data = await res.json();
+  const text = data?.content?.[0]?.text;
+  if (typeof text !== "string" || !text.trim()) throw new Error("رد فارغ من Claude");
+  return text.trim();
+}
+
+async function handleAiQuestion(chatId: number, question: string): Promise<void> {
+  await tg("sendMessage", { chat_id: chatId, text: "🤔 عم فكر..." });
+  try {
+    const context = await buildBusinessContext();
+    const answer = await askClaude(question, context);
+    await tg("sendMessage", { chat_id: chatId, text: `🤖 ${answer}` });
+  } catch (e) {
+    await tg("sendMessage", { chat_id: chatId, text: `صار خطأ وأنا عم فكر بالسؤال 😕\n(${String(e).slice(0, 150)})` });
+  }
+}
+
+// ============================================================
 // أزرار تجهيز/رفض طلبات واتساب (callback_data: order|accept|<id> أو order|reject|<id>)
 // ============================================================
 async function handleOrderAction(chatId: number, messageId: number, originalText: string, action: "accept" | "reject", orderId: string): Promise<void> {
@@ -523,9 +659,14 @@ async function handleSetThreshold(chatId: number, n: number) {
 
 // يعيد true إذا كانت الرسالة أمر استعلام وعُولجت
 async function handleCommand(chatId: number, text: string): Promise<boolean> {
+  // سؤال حر بالذكاء الاصطناعي — على النص الأصلي (بدون تطبيع) للحفاظ على صياغة السؤال
+  const askMatch = text.match(/^(?:اسأل|إسأل|أسأل)\b[:\s]*(.+)$/su);
+  if (askMatch && askMatch[1].trim().length >= 2) { await handleAiQuestion(chatId, askMatch[1].trim()); return true; }
+
   const norm = normalizeArabic(text);
   if (text === "/menu" || ["القائمه", "قائمه", "منيو", "الاوامر"].includes(norm)) { await sendMenu(chatId); return true; }
   if (text === "/sales" || /^(المبيعات|مبيعات)( اليوم)?$/.test(norm)) { await handleSales(chatId); return true; }
+  if (["رسم المبيعات", "الرسم البياني", "رسم بياني", "مخطط المبيعات", "شارت المبيعات"].includes(norm)) { await handleSalesChart(chatId); return true; }
   if (text === "/low" || ["شو ناقص", "النواقص", "نواقص", "ناقص", "المخزون الناقص", "المخزون"].includes(norm)) { await handleLowStock(chatId); return true; }
   if (text === "/debts" || ["الديون", "ديون", "المديونيات"].includes(norm)) { await handleDebts(chatId); return true; }
   let m = norm.match(/^حد التنبيه\s+(\d+)\s*$/);
@@ -645,6 +786,7 @@ Deno.serve(async (req) => {
       if (data === "sales") await handleSales(cqChatId);
       else if (data === "low") await handleLowStock(cqChatId);
       else if (data === "debts") await handleDebts(cqChatId);
+      else if (data === "chart") await handleSalesChart(cqChatId);
       else if (data === "help") await tg("sendMessage", { chat_id: cqChatId, text: WELCOME });
       else if (data.startsWith("b|")) await handleCustomerQuery(cqChatId, "balance", data.slice(2));
       else if (data.startsWith("s|")) await handleCustomerQuery(cqChatId, "statement", data.slice(2));
