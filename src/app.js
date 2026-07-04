@@ -647,22 +647,30 @@ function invoiceLineQty(line) {
   return "—";
 }
 
-// سعر وحدة المادة المباعة كما هو من الأمين (موثوق كسعر وحدة، بعكس إجمالي السطر).
-// الأمين يسجّل السعر بوحدة البيع: للوحدة الكبرى (كرتونة/شرحة) عند بيع وحدات كاملة،
-// وللكروز عند البيع المفرّق؛ نعرضه مع وحدته الصحيحة لتفادي اللبس.
+// سعر الوحدة في كشف الزبون: نعرضه دائماً بوحدة البيع الكبرى (كرتونة/شرحة) لأنها
+// الوحدة المعتمدة مع الزبائن (بيع الجملة). سعر الأمين قد يكون مسجّلاً لكل كروز
+// (بيع مفرّق) أو لكل كرتونة (بيع كامل)، فنحوّله لسعر الكرتونة عند الحاجة.
 function invoiceLinePrice(line) {
   const price = Number(line?.price || 0);
   if (!(price > 0)) return "—";
   const u1 = String(line?.unit1 || "").trim();
   const u2 = String(line?.unit2 || "").trim();
-  const saleFact = Number(line?.saleFact || 0);
-  const qtyUnits = Number(line?.qtyUnits || 0);
-  // الأمين bi.Unity = معامل وحدة البيع: 1 = الوحدة الأساسية (كروز)؛ أكبر = الوحدة الثانية (شرحة/كرتونة).
-  // إن لم تتوفر (بيانات قبل تحديث المزامنة) نرجع للتخمين القديم بحسب الكمية.
-  const unit = saleFact > 0
-    ? (saleFact > 1 && u2 ? u2 : u1)
-    : (qtyUnits >= 1 && u2 ? u2 : u1);
-  return `${formatMoney(price)} $${unit ? " / " + unit : ""}`;
+  const qty = Number(line?.qty || 0);           // الكمية بالكروز (الوحدة الأساسية)
+  const qtyUnits = Number(line?.qtyUnits || 0); // الكمية بالكرتونة (الوحدة الكبرى)
+  const lineTotal = Number(line?.lineTotal || 0);
+  const factor = qty > 0 && qtyUnits > 0 ? Math.round(qty / qtyUnits) : 0; // عدد الكروز في الكرتونة
+
+  if (u2 && factor > 1) {
+    // نحدّد وحدة سعر الأمين بمطابقة إجمالي السطر: إن طابق (السعر × كمية الكروز)
+    // فالسعر لكل كروز فنضربه بعدد الكروز ليصير سعر الكرتونة؛ وإلا فهو سعر الكرتونة أصلاً.
+    const pricePerUnit1 = lineTotal > 0
+      && Math.abs(price * qty - lineTotal) <= Math.abs(price * qtyUnits - lineTotal);
+    const perCarton = pricePerUnit1 ? roundPrice(price * factor) : price;
+    return `${formatMoney(perCarton)} $ / ${u2}`;
+  }
+
+  // مادة بلا وحدة كبرى — تبقى بوحدتها الأساسية.
+  return `${formatMoney(price)} $${u1 ? " / " + u1 : ""}`;
 }
 
 async function loadCustomerCreditLimits() {
