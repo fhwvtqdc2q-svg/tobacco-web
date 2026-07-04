@@ -1,7 +1,7 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { PDFDocument, rgb } from "npm:pdf-lib@1.17.1";
 import fontkit from "npm:@pdf-lib/fontkit@1.1.1";
-import { shapeLineForPdf, getArabicFontBytes } from "./arabic-pdf.ts";
+import { getArabicFontBytes } from "./arabic-pdf.ts";
 
 const SUPA_URL = Deno.env.get("SUPABASE_URL") ?? "";
 const SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
@@ -352,10 +352,11 @@ async function generateStatementPdf(c: CustomerEntry, reportDate: string): Promi
   let y = pageHeight - 60;
   const black = rgb(0.1, 0.1, 0.1);
 
+  // نمرّر النص العربي كما هو بدون أي معالجة يدوية — pdf-lib/fontkit
+  // يتوليان تشكيل الحروف وترتيبها (انظر arabic-pdf.ts للتفاصيل)
   const drawRightAligned = (text: string, size: number, color = black) => {
-    const shaped = shapeLineForPdf(text);
-    const width = font.widthOfTextAtSize(shaped, size);
-    page.drawText(shaped, { x: pageWidth - marginX - width, y, size, font, color });
+    const width = font.widthOfTextAtSize(text, size);
+    page.drawText(text, { x: pageWidth - marginX - width, y, size, font, color });
   };
   const newLine = (gap = 20) => {
     y -= gap;
