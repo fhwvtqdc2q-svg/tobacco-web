@@ -175,6 +175,7 @@ ORDER BY name, dt, num
     $payload = @{
         source      = "ameen_customer_movements"
         report_date = (Get-Date).ToString("yyyy-MM-dd")
+        created_by  = $session.user.id
         summary     = @{
             periodDays  = $PeriodDays
             fromDate    = $fromIso
