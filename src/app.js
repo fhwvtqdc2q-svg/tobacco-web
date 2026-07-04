@@ -647,30 +647,18 @@ function invoiceLineQty(line) {
   return "—";
 }
 
-// سعر الوحدة في كشف الزبون: نعرضه دائماً بوحدة البيع الكبرى (كرتونة/شرحة) لأنها
-// الوحدة المعتمدة مع الزبائن (بيع الجملة). سعر الأمين قد يكون مسجّلاً لكل كروز
-// (بيع مفرّق) أو لكل كرتونة (بيع كامل)، فنحوّله لسعر الكرتونة عند الحاجة.
+// سعر الوحدة كما سجّله الأمين هو سعر وحدة البيع نفسها (سعر الكرتونة عند بيع الكراتين،
+// وسعر الكروز عند البيع المفرّق). نعرضه كما هو ونطابق وحدته مع عمود الكمية — بلا أي
+// تحويل. (الضرب بمعامل الوحدة كان يضخّم السعر خطأً: يعرض سعر الكرتونة × عدد الكروز.)
 function invoiceLinePrice(line) {
   const price = Number(line?.price || 0);
   if (!(price > 0)) return "—";
   const u1 = String(line?.unit1 || "").trim();
   const u2 = String(line?.unit2 || "").trim();
-  const qty = Number(line?.qty || 0);           // الكمية بالكروز (الوحدة الأساسية)
   const qtyUnits = Number(line?.qtyUnits || 0); // الكمية بالكرتونة (الوحدة الكبرى)
-  const lineTotal = Number(line?.lineTotal || 0);
-  const factor = qty > 0 && qtyUnits > 0 ? Math.round(qty / qtyUnits) : 0; // عدد الكروز في الكرتونة
-
-  if (u2 && factor > 1) {
-    // نحدّد وحدة سعر الأمين بمطابقة إجمالي السطر: إن طابق (السعر × كمية الكروز)
-    // فالسعر لكل كروز فنضربه بعدد الكروز ليصير سعر الكرتونة؛ وإلا فهو سعر الكرتونة أصلاً.
-    const pricePerUnit1 = lineTotal > 0
-      && Math.abs(price * qty - lineTotal) <= Math.abs(price * qtyUnits - lineTotal);
-    const perCarton = pricePerUnit1 ? roundPrice(price * factor) : price;
-    return `${formatMoney(perCarton)} $ / ${u2}`;
-  }
-
-  // مادة بلا وحدة كبرى — تبقى بوحدتها الأساسية.
-  return `${formatMoney(price)} $${u1 ? " / " + u1 : ""}`;
+  // نطابق وحدة السعر مع عمود الكمية: كرتونة عند البيع بالكراتين، وإلا الوحدة الأساسية.
+  const unit = qtyUnits > 0 && u2 ? u2 : u1;
+  return `${formatMoney(price)} $${unit ? " / " + unit : ""}`;
 }
 
 async function loadCustomerCreditLimits() {
