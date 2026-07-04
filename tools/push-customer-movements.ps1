@@ -163,6 +163,15 @@ ORDER BY name, dt, num
         -Headers @{ apikey = $apiKey } -ContentType "application/json; charset=utf-8" `
         -Body ([System.Text.Encoding]::UTF8.GetBytes($loginBody))
 
+    # معرّف المستخدم: من user.id إن وُجد، وإلا من حقل sub داخل توكن JWT (موثوق لأن الدخول نجح).
+    $createdBy = $null
+    if ($session.user -and $session.user.id) { $createdBy = $session.user.id }
+    if (-not $createdBy -and $session.access_token) {
+        $seg = $session.access_token.Split('.')[1].Replace('-','+').Replace('_','/')
+        switch ($seg.Length % 4) { 2 { $seg += '==' } 3 { $seg += '=' } 1 { $seg += '===' } }
+        try { $createdBy = ([System.Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($seg)) | ConvertFrom-Json).sub } catch {}
+    }
+
     $authHeaders = @{
         apikey            = $apiKey
         Authorization     = "Bearer $($session.access_token)"
@@ -175,7 +184,7 @@ ORDER BY name, dt, num
     $payload = @{
         source      = "ameen_customer_movements"
         report_date = (Get-Date).ToString("yyyy-MM-dd")
-        created_by  = $session.user.id
+        created_by  = $createdBy
         summary     = @{
             periodDays  = $PeriodDays
             fromDate    = $fromIso
