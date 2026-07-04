@@ -1,7 +1,4 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
-import { PDFDocument, rgb } from "npm:pdf-lib@1.17.1";
-import fontkit from "npm:@pdf-lib/fontkit@1.1.1";
-import { getArabicFontBytes } from "./arabic-pdf.ts";
 
 const SUPA_URL = Deno.env.get("SUPABASE_URL") ?? "";
 const SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
@@ -287,109 +284,26 @@ async function handleCustomerQuery(chatId: number, kind: "balance" | "statement"
 }
 
 // ============================================================
-// كشف حساب كملف PDF — «كشف حساب <اسم> PDF» أو «... ملف»
+// كشف حساب كملف — «كشف حساب <اسم> PDF» أو «... ملف»
+//
+// محاولتان سابقتان لتوليد PDF حقيقي بنص عربي فشلتا (تشكيل يدوي بجدول
+// Unicode Presentation Forms، ثم الاعتماد على تخطيط fontkit الداخلي)
+// — pdf-lib لا يدعم تشكيل الحروف العربية أصلاً، فطلعت النتيجة مشوّشة
+// بالحالتين. الحل الحقيقي يحتاج محرك تشكيل كامل (HarfBuzz) وهذا تعقيد
+// أكبر بكثير بدون طريقة للمعاينة البصرية هنا. بالاتفاق مع المستخدم:
+// نُرسل ملف نصي (.txt) عادي بدلاً من PDF — مضمون 100% لأنه نص خام
+// بدون أي رسم حروف يدوي، ونفس محتوى «كشف حساب» النصي العادي بالضبط.
 // ============================================================
-
-// تحويل حالة الرصيد لكلمة عادية بدون رموز/أقواس (آمنة لخط PDF)
-function balanceWordPdf(balance?: number): string {
-  const b = Number(balance ?? 0);
-  if (b > 0) return "مدين";
-  if (b < 0) return "دائن";
-  return "مسدد بالكامل";
-}
-
-// يبني أسطر كشف الحساب بصيغة نصية بسيطة بدون إيموجي أو أقواس
-// (الإيموجي غير مدعوم بخط PDF، والأقواس تحتاج انعكاساً اتجاهياً لا نطبّقه هنا)
-function buildStatementPdfLines(c: CustomerEntry, reportDate: string): string[] {
-  const lines: string[] = [];
-  lines.push(`الاسم: ${c.name ?? c.key ?? "غير معروف"}`);
-  lines.push(`تاريخ البيانات: ${reportDate}`);
-  lines.push(`الرصيد الحالي: ${fmtNum(Math.abs(Number(c.balance ?? 0)))} - ${balanceWordPdf(c.balance)}`);
-  if (Number(c.creditLimit ?? 0) > 0) {
-    lines.push(`حد الائتمان: ${fmtNum(c.creditLimit)}`);
-    lines.push(`المتبقي من الحد: ${fmtNum(c.remainingLimit)}`);
-  }
-  lines.push("");
-  const movs = (c.recentMovements ?? []).slice(0, 15);
-  lines.push("آخر الحركات:");
-  if (movs.length) {
-    for (const m of movs) {
-      const debit = Number(m.debit ?? 0);
-      const credit = Number(m.credit ?? 0);
-      const kind = debit > 0 ? `مدين ${fmtNum(debit)}` : credit > 0 ? `دائن ${fmtNum(credit)}` : "0";
-      let line = `${fmtDate(m.date)} - ${kind}`;
-      if (m.notes) line += ` - ${String(m.notes).slice(0, 40)}`;
-      lines.push(line);
-    }
-  } else {
-    lines.push("لا توجد حركات مسجّلة");
-  }
-  lines.push("");
-  const pays = (c.recentPayments ?? []).slice(0, 8);
-  lines.push("آخر الدفعات:");
-  if (pays.length) {
-    for (const p of pays) {
-      let line = `${fmtDate(p.date)} - ${fmtNum(p.amount)}`;
-      if (p.notes) line += ` - ${String(p.notes).slice(0, 40)}`;
-      lines.push(line);
-    }
-  } else {
-    lines.push("لا توجد دفعات مسجّلة");
-  }
-  return lines;
-}
-
-async function generateStatementPdf(c: CustomerEntry, reportDate: string): Promise<Uint8Array> {
-  const doc = await PDFDocument.create();
-  doc.registerFontkit(fontkit);
-  const fontBytes = await getArabicFontBytes();
-  const font = await doc.embedFont(fontBytes, { subset: true });
-
-  const pageWidth = 595.28; // A4
-  const pageHeight = 841.89;
-  const marginX = 50;
-  let page = doc.addPage([pageWidth, pageHeight]);
-  let y = pageHeight - 60;
-  const black = rgb(0.1, 0.1, 0.1);
-
-  // نمرّر النص العربي كما هو بدون أي معالجة يدوية — pdf-lib/fontkit
-  // يتوليان تشكيل الحروف وترتيبها (انظر arabic-pdf.ts للتفاصيل)
-  const drawRightAligned = (text: string, size: number, color = black) => {
-    const width = font.widthOfTextAtSize(text, size);
-    page.drawText(text, { x: pageWidth - marginX - width, y, size, font, color });
-  };
-  const newLine = (gap = 20) => {
-    y -= gap;
-    if (y < 60) { page = doc.addPage([pageWidth, pageHeight]); y = pageHeight - 60; }
-  };
-
-  drawRightAligned("كشف حساب", 20);
-  newLine(34);
-
-  for (const line of buildStatementPdfLines(c, reportDate)) {
-    if (line === "") { newLine(10); continue; }
-    if (line === "آخر الحركات:" || line === "آخر الدفعات:") {
-      drawRightAligned(line, 14, rgb(0.05, 0.05, 0.4));
-      newLine(22);
-      continue;
-    }
-    drawRightAligned(line, 12);
-    newLine(18);
-  }
-
-  return doc.save();
-}
-
-async function sendPdfDocument(chatId: number, bytes: Uint8Array, filename: string, caption: string): Promise<void> {
+async function sendTextDocument(chatId: number, content: string, filename: string, caption: string): Promise<void> {
   const { token } = await getSecrets();
   const form = new FormData();
   form.append("chat_id", String(chatId));
   form.append("caption", caption);
-  form.append("document", new Blob([new Uint8Array(bytes)], { type: "application/pdf" }), filename);
+  form.append("document", new Blob([content], { type: "text/plain; charset=utf-8" }), filename);
   await fetch(`https://api.telegram.org/bot${token}/sendDocument`, { method: "POST", body: form });
 }
 
-async function handleStatementPdfCommand(chatId: number, name: string): Promise<void> {
+async function handleStatementFileCommand(chatId: number, name: string): Promise<void> {
   const report = await loadBalancesReport();
   if (!report || !report.items.length) {
     await tg("sendMessage", { chat_id: chatId, text: "ما في بيانات أرصدة متزامنة حالياً 😕\nتأكد أن مزامنة الأمين شغّالة على جهاز Windows." });
@@ -406,20 +320,19 @@ async function handleStatementPdfCommand(chatId: number, name: string): Promise<
     await tg("sendMessage", { chat_id: chatId, text: msg });
     return;
   }
-  await tg("sendMessage", { chat_id: chatId, text: "عم جهّز ملف الـ PDF... ⏳" });
   try {
     const c = matches[0];
-    const bytes = await generateStatementPdf(c, report.reportDate);
-    await sendPdfDocument(
+    const content = buildStatementReply(c, report.reportDate);
+    await sendTextDocument(
       chatId,
-      bytes,
-      `kashf-hisab-${Date.now()}.pdf`,
+      content,
+      `kashf-hisab-${Date.now()}.txt`,
       `كشف حساب: ${c.name ?? c.key}`,
     );
   } catch (e) {
     await tg("sendMessage", {
       chat_id: chatId,
-      text: `صار خطأ وأنا عم سوّي ملف الـ PDF 😕\n(${String(e).slice(0, 150)})\nجرّب «كشف حساب» بدون PDF لحتى تشوف البيانات نصياً.`,
+      text: `صار خطأ وأنا عم سوّي الملف 😕\n(${String(e).slice(0, 150)})\nجرّب «كشف حساب» بدون ملف لحتى تشوف البيانات نصياً.`,
     });
   }
 }
@@ -781,7 +694,7 @@ Deno.serve(async (req) => {
   const q = extractCustomerQuery(textForQuery);
   if (q) {
     try {
-      if (q.kind === "statement" && wantPdf) await handleStatementPdfCommand(chatId, q.name);
+      if (q.kind === "statement" && wantPdf) await handleStatementFileCommand(chatId, q.name);
       else await handleCustomerQuery(chatId, q.kind, q.name);
     }
     catch (e) { await tg("sendMessage", { chat_id: chatId, text: `صار خطأ وأنا عم جيب البيانات 😕 جرّب كمان مرة.\n(${String(e).slice(0, 100)})` }); }
