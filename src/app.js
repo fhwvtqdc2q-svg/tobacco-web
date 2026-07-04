@@ -3094,6 +3094,24 @@ function customerFullMovements(item) {
   return items.find((x) => String(x.name || "").trim() === name) || null;
 }
 
+// هل هذه الفاتورة مُدرَجة أصلاً في رصيد الزبون المُزامَن؟ نتحقق بوجود قيد مدين بقيمتها
+// وبتاريخها ضمن حركاته المُزامَنة. يميّز بين فاتورة جديدة تُطبع فوراً (لم تدخل الرصيد بعد،
+// فالرصيد الحالي = السابق) وفاتورة قديمة أُعيدت طباعتها (دخلت، فالرصيد الحالي = الجديد).
+function invoiceReflectedInBalance(custName, inv) {
+  const report = state.customerMovementsReport;
+  const items = report && Array.isArray(report.items) ? report.items : [];
+  const match = smartNameMatch(items, (it) => it.name, custName);
+  const movements = match && Array.isArray(match.movements) ? match.movements : [];
+  const total = Number(inv?.total || 0);
+  if (!(total > 0) || !movements.length) return false;
+  const invDate = String(inv?.date || "").slice(0, 10);
+  return movements.some((m) => {
+    const debit = Number(m.debit || 0);
+    const mDate = String(m.date || "").slice(0, 10);
+    return Math.abs(debit - total) <= 0.5 && (!invDate || mDate === invDate);
+  });
+}
+
 // الكشف الرسمي الكامل: رصيد أول المدة + كل حركات الفترة برصيد متحرك + الرصيد النهائي
 function customerStatementPdfMarkup(item) {
   const key = customerKey(item);
@@ -5021,11 +5039,20 @@ function render() {
         || invs.find((x) => String(x.number || "") === el.dataset.invNumber);
       if (!inv) { setNotice("error", "تعذّر إيجاد الفاتورة."); render(); return; }
       const invoiceTotal = inv.total || 0;
-      // الرصيد المُزامَن من الأمين هو رصيد الزبون قبل هذه الفاتورة، فهو «الرصيد السابق»،
-      // و«الرصيد الجديد» = السابق + قيمة الفاتورة (البضاعة تزيد الدين على الزبون).
+      // نحدّد إن كانت الفاتورة قد دخلت رصيد الزبون المُزامَن، لنعرف أيّ رصيد هو السابق وأيّ هو الجديد
+      // (يعمل سواء طُبعت الفاتورة فور إنشائها أو أُعيدت طباعتها لاحقاً).
       const custItem = smartNameMatch(latestCustomerBalanceItems(), (it) => it.name, cust);
-      const prevBalance = custItem ? customerBalance(custItem) : null;
-      const newBalance = prevBalance !== null ? roundPrice(prevBalance + invoiceTotal) : null;
+      const currentBalance = custItem ? customerBalance(custItem) : null;
+      let prevBalance = null, newBalance = null;
+      if (currentBalance !== null) {
+        if (invoiceReflectedInBalance(cust, inv)) {
+          newBalance = currentBalance;                              // الرصيد الحالي يشمل الفاتورة
+          prevBalance = roundPrice(currentBalance - invoiceTotal);
+        } else {
+          prevBalance = currentBalance;                            // الفاتورة لم تدخل الرصيد بعد
+          newBalance = roundPrice(currentBalance + invoiceTotal);
+        }
+      }
       exportVoucherPdf({
         type: "invoice",
         name: cust,
