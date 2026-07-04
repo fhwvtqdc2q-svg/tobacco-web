@@ -411,24 +411,31 @@ function stockInCartons(r: any): string {
 
 async function handleLowStock(chatId: number) {
   const thr = await getThreshold();
-  const rows = await restGet(`approved_price_items?select=item_name,item_key,stock_qty,unit1_name,unit2_name,unit2_factor&stock_qty=lte.${thr}&order=stock_qty.asc&limit=30`);
+  const rows = await restGet(`approved_price_items?select=item_name,item_key,stock_qty,unit1_name,unit2_name,unit2_factor&stock_qty=lte.${thr}&order=stock_qty.asc&limit=1000`);
   if (!Array.isArray(rows) || !rows.length) {
     await tg("sendMessage", { chat_id: chatId, text: `✅ ولا مادة تحت حد التنبيه (${thr}) — المخزون تمام.` });
     return;
   }
   const out = rows.filter((r: any) => Number(r.stock_qty ?? 0) <= 0);
   const low = rows.filter((r: any) => Number(r.stock_qty ?? 0) > 0);
-  let msg = `⚠️ المواد الناقصة (حد التنبيه: ${thr})\n`;
-  if (out.length) {
-    msg += `\n⛔ نافد (${out.length}):\n`;
-    for (const r of out.slice(0, 15)) msg += `• ${r.item_name ?? r.item_key}\n`;
-  }
-  if (low.length) {
-    msg += `\n🔻 تحت الحد (${low.length}):\n`;
-    for (const r of low.slice(0, 15)) msg += `• ${r.item_name ?? r.item_key} — باقي ${stockInCartons(r)}\n`;
-  }
-  if (rows.length >= 30) msg += `\n… والقائمة أطول (عرضت أول 30)`;
-  await tg("sendMessage", { chat_id: chatId, text: msg });
+
+  await tg("sendMessage", {
+    chat_id: chatId,
+    text: `⚠️ المواد الناقصة (حد التنبيه: ${thr})\nنافد: ${out.length} — تحت الحد: ${low.length}`,
+  });
+
+  // نرسل القائمة كاملة، مقسّمة على عدة رسائل لتفادي حد طول رسالة تيليغرام
+  const CHUNK = 25;
+  const sendChunked = async (label: string, items: any[], lineFn: (r: any) => string) => {
+    for (let i = 0; i < items.length; i += CHUNK) {
+      const part = items.slice(i, i + CHUNK);
+      const header = i === 0 ? `${label} (${items.length}):` : `${label} — تابع (${i + 1}-${Math.min(i + CHUNK, items.length)}):`;
+      const lines = part.map(lineFn).join("\n");
+      await tg("sendMessage", { chat_id: chatId, text: `${header}\n${lines}` });
+    }
+  };
+  if (out.length) await sendChunked("⛔ نافد", out, (r) => `• ${r.item_name ?? r.item_key}`);
+  if (low.length) await sendChunked("🔻 تحت الحد", low, (r) => `• ${r.item_name ?? r.item_key} — باقي ${stockInCartons(r)}`);
 }
 
 async function handleDebts(chatId: number) {
