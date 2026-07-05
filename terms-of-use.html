@@ -29,6 +29,11 @@
         line-height: 1.95;
       }
 
+      html[lang="ar"] body {
+        direction: rtl;
+        text-align: right;
+      }
+
       /* ── شريط العنوان ── */
       header {
         background: #050403;
@@ -226,8 +231,23 @@
         direction: ltr;
         unicode-bidi: isolate;
         text-align: left;
+      }
+
+      #license .legal-ltr-block {
+        direction: ltr;
+        unicode-bidi: isolate;
+        text-align: left;
+        display: block;
+      }
+
+      #license a[href^="mailto:"],
+      #license a[href^="https://"],
+      #license a[href^="http://"] {
+        direction: ltr;
+        unicode-bidi: isolate;
         display: inline-block;
         max-width: 100%;
+        overflow-wrap: anywhere;
       }
 
       strong { color: var(--accent); }
