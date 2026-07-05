@@ -11,7 +11,7 @@
         --surface: #14100b;
         --surface-soft: #20180e;
         --ink: #fff6dd;
-        --muted: #bba779;
+        --muted: #d2c09a;
         --line: #46361f;
         --primary: #d7a83f;
         --accent: #f2cf78;
@@ -25,8 +25,8 @@
         background: linear-gradient(180deg, #0f0c08 0%, var(--bg) 52%, #050403 100%);
         color: var(--ink);
         min-height: 100vh;
-        font-size: 0.94rem;
-        line-height: 1.85;
+        font-size: 1rem;
+        line-height: 1.95;
       }
 
       /* ── شريط العنوان ── */
@@ -193,11 +193,42 @@
         font-weight: 700;
       }
 
-      p { color: var(--ink); margin-bottom: 13px; }
+      p {
+        color: #fff1d2;
+        margin-bottom: 13px;
+        line-height: 1.95;
+        overflow-wrap: break-word;
+        word-break: normal;
+      }
 
       ul, ol { padding-right: 22px; margin-bottom: 13px; }
 
-      li { color: var(--ink); margin-bottom: 8px; line-height: 1.8; }
+      li {
+        color: #fff1d2;
+        margin-bottom: 8px;
+        line-height: 1.95;
+        overflow-wrap: break-word;
+        word-break: normal;
+      }
+
+      /* Better readability for long legal content and mixed-language snippets */
+      #license {
+        padding: 30px 32px;
+      }
+
+      #license p,
+      #license li {
+        font-size: 1.01rem;
+      }
+
+      #license [lang="en"],
+      #license .legal-ltr {
+        direction: ltr;
+        unicode-bidi: isolate;
+        text-align: left;
+        display: inline-block;
+        max-width: 100%;
+      }
 
       strong { color: var(--accent); }
 
@@ -325,6 +356,9 @@
         .toc ol { columns: 1; }
         .container { padding: 24px 14px 60px; }
         section { padding: 18px 16px; }
+        #license { padding: 22px 18px; }
+        #license p,
+        #license li { font-size: 0.99rem; line-height: 2; }
         .hero { padding: 26px 16px 22px; }
         .hero h2 { font-size: 1.35rem; }
         .contact-row { flex-direction: column; gap: 3px; }
