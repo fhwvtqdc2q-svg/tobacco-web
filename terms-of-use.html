@@ -242,8 +242,14 @@
         unicode-bidi: isolate;
         text-align: left;
         font-family: "Segoe UI", Tahoma, Arial, sans-serif;
+        font-size: 1.02rem;
+        line-height: 1.9;
+        color: #f6ecd6;
         letter-spacing: normal;
         word-break: normal;
+        overflow-wrap: normal;
+        hyphens: none;
+        text-wrap: pretty;
         white-space: normal;
       }
 
@@ -254,6 +260,13 @@
         display: block;
         line-height: 1.95;
         overflow-wrap: anywhere;
+        font-family: "Segoe UI", Tahoma, Arial, sans-serif;
+        font-size: 1.02rem;
+        color: #f6ecd6;
+        letter-spacing: normal;
+        word-break: normal;
+        hyphens: none;
+        text-wrap: pretty;
       }
 
       #license a[href^="mailto:"],
@@ -396,6 +409,9 @@
         #license p,
         #license li { font-size: 1.03rem; line-height: 2.12; }
         #license h3 { font-size: 1.02rem; }
+        #license [lang="en"],
+        #license .legal-ltr,
+        #license .legal-ltr-block { font-size: 1.01rem; line-height: 1.88; }
         .hero { padding: 26px 16px 22px; }
         .hero h2 { font-size: 1.35rem; }
         .contact-row { flex-direction: column; gap: 3px; }
