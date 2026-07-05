@@ -221,6 +221,15 @@
         direction: ltr;
         unicode-bidi: isolate;
         text-align: left;
+        font-family: "Segoe UI", "Roboto", "Helvetica Neue", Arial, sans-serif;
+        font-size: 1.01rem;
+        line-height: 1.88;
+        color: #f6ecd6;
+        letter-spacing: 0.01em;
+        word-break: normal;
+        overflow-wrap: normal;
+        hyphens: none;
+        text-wrap: pretty;
       }
 
       .legal-ltr-block {
@@ -228,6 +237,15 @@
         unicode-bidi: isolate;
         text-align: left;
         display: block;
+        font-family: "Segoe UI", "Roboto", "Helvetica Neue", Arial, sans-serif;
+        font-size: 1.01rem;
+        line-height: 1.88;
+        color: #f6ecd6;
+        letter-spacing: 0.01em;
+        word-break: normal;
+        overflow-wrap: normal;
+        hyphens: none;
+        text-wrap: pretty;
       }
 
       a[href^="mailto:"],
@@ -425,9 +443,12 @@
       @media (max-width: 600px) {
         .toc ol { columns: 1; }
         .mode-grid, .rights-grid { grid-template-columns: 1fr; }
-        .container { padding: 24px 14px 60px; }
-        section { padding: 18px 16px; }
+        .container { padding: 24px 10px 56px; }
+        section { padding: 18px 12px; }
         p, li { font-size: 0.99rem; line-height: 2; }
+        [lang="en"],
+        .legal-ltr,
+        .legal-ltr-block { font-size: 1rem; line-height: 1.84; }
         .hero { padding: 26px 16px 22px; }
         .hero h2 { font-size: 1.35rem; }
         .contact-row { flex-direction: column; gap: 3px; }
