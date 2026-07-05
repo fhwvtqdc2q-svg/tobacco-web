@@ -3406,10 +3406,31 @@ function pdfAr(s) {
   return String(s == null ? "" : s).replace(/ /g, " ");
 }
 
+// كمية الصنف بالوحدة الكبرى (كرتونة/شرحة/طرد): نفضّل stockQtyUnit2 المحسوبة جاهزةً في
+// مزامنة الأمين، وإلا نقسم كمية الكروز على معامل الوحدة.
+function itemQtyUnit2(it) {
+  const direct = Number(it?.stockQtyUnit2);
+  const q = itemQty(it);
+  if (Number.isFinite(direct) && (direct > 0 || q <= 0)) return direct;
+  const f = Number(it?.unit2Factor || 0);
+  return roundPrice(f > 0 ? q / f : q);
+}
+
+// حالة الصنف كما تحسبها مزامنة الأمين (بحدود المجموعات، مثل: ماستر < 250 كروز = قارب النفاد)
+// — لا نعيد حسابها في الموقع كي لا تخالف الأمين.
+const INV_STATUS_BADGE = {
+  out: '<span class="deb">نافد</span>',
+  low: '<span style="color:#8a5a00;font-weight:700">قارب على النفاد</span>',
+  stale: '<span class="muted" style="font-weight:700">راكدة</span>',
+  active: '<span style="color:#16794f;font-weight:700">متوفّر</span>'
+};
+
 function inventoryReportPdfMarkup() {
-  const all = pricingWorklistItems();
-  const out = all.filter((i) => itemQty(i) <= 0);
-  const low = all.filter((i) => itemQty(i) > 0 && itemQty(i) < 10);
+  // كل أصناف الجرد من تقرير المزامنة مباشرة — يشمل النافدة أيضاً (كانت تُحذف سابقاً فبطاقة
+  // «نافد» تعرض صفراً دائماً وتغيب أصنافها عن التقرير).
+  const all = reportItems(latestStockReport());
+  const low = all.filter((i) => i?.status === "low");
+  const out = all.filter((i) => i?.status === "out");
   // ترتيب: المجموعات الأهم (غلواز، ماستر) أولاً — طلب الإدارة — ثم بقية المجموعات فالاسم.
   const list = all.slice().sort((a, b) =>
     priorityGroupRank(a.groupName) - priorityGroupRank(b.groupName) ||
@@ -3418,14 +3439,8 @@ function inventoryReportPdfMarkup() {
   );
   const rows = list.length
     ? list.map((it) => {
-        const q = itemQty(it);
-        const factor = itemUnit2Factor(it);                   // عدد الكروز في الكرتونة
-        const qty2 = roundPrice(factor > 0 ? q / factor : q); // الكمية بالوحدة الثانية (كرتونة)
-        const st = q <= 0
-          ? '<span class="deb">نافد</span>'
-          : (q < 5 ? '<span class="deb">شبه نافد</span>'
-          : (q < 10 ? '<span style="color:#8a5a00;font-weight:700">منخفض</span>'
-          : '<span style="color:#16794f;font-weight:700">متوفّر</span>'));
+        const qty2 = roundPrice(itemQtyUnit2(it));
+        const st = INV_STATUS_BADGE[it?.status] || INV_STATUS_BADGE.active;
         return `<tr><td>${escapeHtml(pdfAr(it.name || ""))}</td><td>${escapeHtml(pdfAr(`${formatMoney(qty2)} ${itemUnit2Name(it)}`))}</td><td>${st}</td></tr>`;
       }).join("")
     : `<tr><td colspan="3" class="muted">لا توجد مواد</td></tr>`;
@@ -3434,7 +3449,7 @@ function inventoryReportPdfMarkup() {
       <div class="rtitle"><h2>المخزون</h2><span>بتاريخ ${escapeHtml(todayIsoDate())}</span></div></div>
     <div class="cards">
       <div class="rcard"><div class="v gold">${escapeHtml(all.length)}</div><div class="l">إجمالي الأصناف</div></div>
-      <div class="rcard"><div class="v red">${escapeHtml(low.length)}</div><div class="l">قارب على النفاد</div></div>
+      <div class="rcard"><div class="v red">${escapeHtml(low.length)}</div><div class="l">قارب على النفاد (حدود الأمين)</div></div>
       <div class="rcard"><div class="v red">${escapeHtml(out.length)}</div><div class="l">نافد</div></div>
     </div>
     <div class="sec">كل أصناف المخزون (${escapeHtml(list.length)} صنف)</div>
@@ -3443,7 +3458,7 @@ function inventoryReportPdfMarkup() {
 }
 
 async function exportInventoryReportPdf() {
-  const items = pricingWorklistItems();
+  const items = reportItems(latestStockReport());
   if (!items.length) {
     setNotice("error", "لا توجد مواد لإنشاء تقرير المخزون.");
     render();
