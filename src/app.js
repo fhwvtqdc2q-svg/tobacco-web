@@ -150,7 +150,7 @@ function sourceLabel(source) {
   return (
     {
       ameen_sql_agent: "مزامنة مباشرة من الأمين",
-      ameen_excel: "ملف Excel من الأمين"
+      ameen_excel: "ملف إكسل من الأمين"
     }[source] || source || "غير معروف"
   );
 }
@@ -912,13 +912,13 @@ function exportRequestsForAmeen() {
   link.click();
   link.remove();
   URL.revokeObjectURL(url);
-  setNotice("success", "تم تصدير ملف CSV قابل للفتح في Excel وتجهيزه كخطوة أولى للتوافق مع الأمين.");
+  setNotice("success", "تم تصدير ملف CSV قابل للفتح في إكسل وتجهيزه كخطوة أولى للتوافق مع الأمين.");
   render();
 }
 
 function assertExcelSupport() {
   if (!window.XLSX) {
-    throw new Error("مكتبة قراءة Excel لم تتحمل بعد. حدث الصفحة ثم جرب مرة أخرى.");
+    throw new Error("مكتبة قراءة إكسل لم تتحمل بعد. حدث الصفحة ثم جرب مرة أخرى.");
   }
 }
 
@@ -953,7 +953,7 @@ function findHeaderRow(rows) {
       );
     })
   );
-  if (index === -1) throw new Error("لم أجد عمود اسم المادة داخل ملف Excel.");
+  if (index === -1) throw new Error("لم أجد عمود اسم المادة داخل ملف إكسل.");
   return index;
 }
 
@@ -2300,7 +2300,7 @@ function overview() {
             <span>جاهزية الميزات</span>
           </div>
           <div class="metric">
-            <strong>${dataStore.isConfigured() ? "Live" : "Demo"}</strong>
+            <strong>${dataStore.isConfigured() ? "مباشر" : "تجريبي"}</strong>
             <span>${dataStore.isConfigured() ? "قاعدة Supabase" : "حفظ محلي"}</span>
           </div>
         </div>
@@ -2396,11 +2396,11 @@ function requests() {
         <div class="panel-title-row">
           <h3>سجل الطلبات</h3>
           <div style="display:flex;gap:8px">
-            <button class="button secondary compact-button" type="button" data-action="export-monthly">📥 Excel شهري</button>
+            <button class="button secondary compact-button" type="button" data-action="export-monthly">📥 التقرير الشهري (إكسل)</button>
             <button class="button secondary compact-button" type="button" data-action="export-ameen">تصدير للأمين</button>
           </div>
         </div>
-        <p class="muted">يصدر الملف بصيغة CSV تفتح في Excel. عند معرفة قالب استيراد الأمين لديك نطابق الأعمدة معه بدقة.</p>
+        <p class="muted">يُصدر الملف بصيغة CSV قابلة للفتح في إكسل. عند معرفة قالب استيراد الأمين لديك نطابق الأعمدة معه بدقة.</p>
         <div class="request-list">
           ${state.requests.length ? state.requests.map(requestCard).join("") : loginPrompt || '<p class="muted">لا توجد طلبات بعد.</p>'}
         </div>
@@ -2975,7 +2975,7 @@ function pricing() {
         <button class="button secondary" type="button" data-action="refresh-ameen">تحديث الجرد</button>
         <button class="button secondary" type="button" data-action="download-daily-pricing" ${items.length ? "" : "disabled"}>تنزيل قائمة تسعير اليوم</button>
         <button class="button primary" type="button" data-action="report-inventory">📦 تقرير المخزون PDF</button>
-        <button class="button secondary" type="button" data-action="download-price-template" ${allAvailable.length ? "" : "disabled"}>تنزيل قالب Excel</button>
+        <button class="button secondary" type="button" data-action="download-price-template" ${allAvailable.length ? "" : "disabled"}>تنزيل قالب إكسل</button>
         <button class="button primary" type="button" data-action="download-customer-price-pdf" ${customerPriceListItems().length ? "" : "disabled"}>🧾 نشرة جملة (دولار)</button>
         <button class="button primary" type="button" data-action="download-customer-price-syria" ${customerPriceListItems().length ? "" : "disabled"}>🛒 نشرة مفرق (سوري)</button>
         <button class="button secondary" type="button" data-action="download-approved-prices" ${state.approvedPriceItems.length ? "" : "disabled"}>تصدير أسعار المحاسبة</button>
@@ -3852,7 +3852,7 @@ function remote() {
     <section class="panel wide">
       <div class="section-head">
         <div>
-          <p class="eyebrow">Remote Management</p>
+          <p class="eyebrow">الإدارة عن بعد</p>
           <h2>خدمة الإدارة عن بعد</h2>
         </div>
       </div>
@@ -4005,10 +4005,10 @@ function reportsPage() {
       </details>
 
       <details class="acc-group">
-        <summary class="acc-summary"><span class="acc-title">📥 التقرير الشهري للطلبات</span><span class="acc-count">Excel</span></summary>
+        <summary class="acc-summary"><span class="acc-title">📥 التقرير الشهري للطلبات</span><span class="acc-count">إكسل</span></summary>
         <div class="acc-body report-card">
-          <p class="muted">ملف Excel بكل طلبات الشهر الحالي وملخّص بحالاتها.</p>
-          <button class="button secondary" type="button" data-action="export-monthly">📥 تنزيل Excel الشهري</button>
+          <p class="muted">ملف إكسل بكل طلبات الشهر الحالي وملخّص بحالاتها.</p>
+          <button class="button secondary" type="button" data-action="export-monthly">📥 تنزيل التقرير الشهري (إكسل)</button>
         </div>
       </details>
     </section>
@@ -4016,7 +4016,7 @@ function reportsPage() {
 }
 
 function exportMonthlyReport() {
-  if (!window.XLSX) { setNotice("error", "مكتبة Excel غير محملة."); render(); return; }
+  if (!window.XLSX) { setNotice("error", "مكتبة إكسل غير محمّلة."); render(); return; }
   const now = new Date();
   const mo = now.getMonth();
   const yr = now.getFullYear();
@@ -4084,10 +4084,10 @@ function staffPage() {
     ${isOwner ? `
     <section class="panel" style="margin-top:16px">
       <h3>إضافة موظف جديد</h3>
-      <p class="muted" style="margin-bottom:12px">أضف حسابات الموظفين من Supabase ثم شارك بيانات الدخول معهم.</p>
+      <p class="muted" style="margin-bottom:12px">أضف حسابات الموظفين من منصة Supabase ثم شارك بيانات الدخول معهم.</p>
       <ol class="staff-steps">
-        <li>افتح <strong>Supabase Dashboard</strong> → Authentication → Users</li>
-        <li>اضغط <strong>Add User</strong> وأدخل البريد وكلمة المرور</li>
+        <li>افتح لوحة Supabase: <strong><span dir="ltr">Authentication → Users</span></strong></li>
+        <li>اضغط <strong><span dir="ltr">Add User</span></strong> ثم أدخل البريد وكلمة المرور</li>
         <li>شارك بيانات الدخول مع الموظف بشكل آمن</li>
         <li>الموظف يختار دوره عند تسجيل الدخول</li>
       </ol>
@@ -4147,7 +4147,7 @@ function monitoring() {
     <section class="panel wide">
       <div class="section-head">
         <div>
-          <p class="eyebrow">Monitoring</p>
+          <p class="eyebrow">المراقبة التشغيلية</p>
           <h2>مراقبة خدمة العملاء</h2>
         </div>
       </div>
@@ -4166,7 +4166,7 @@ function payments() {
   return shell(`
     <section class="panel wide form-layout">
       <div>
-        <p class="eyebrow">Payments</p>
+        <p class="eyebrow">المدفوعات</p>
         <h2>الدفع الإلكتروني</h2>
         <p class="muted">واجهة الدفع جاهزة كتصميم، لكن التفعيل الحقيقي يحتاج حساب مزود دفع ومراجعة شروطه لنشاط الشركة وبلد التشغيل.</p>
       </div>
@@ -4228,7 +4228,7 @@ async function sendAiMessage(input) {
   if (!providerKey) {
     state.aiMessages.push({
       role: "assistant",
-      content: `⚠️ مفتاح API غير مضاف. افتح إعدادات المساعد الذكي وأدخل مفتاح ${state.aiProvider === "claude" ? "Anthropic" : "OpenAI"}.`
+      content: `⚠️ مفتاح واجهة البرمجة (API) غير مضاف. افتح إعدادات المساعد الذكي وأدخل مفتاح ${state.aiProvider === "claude" ? "Anthropic" : "OpenAI"}.`
     });
     state.aiSettingsOpen = true;
     render();
@@ -4377,8 +4377,8 @@ function aiAssistant() {
     <section class="panel wide ai-panel">
       <div class="ai-toolbar">
         <div class="ai-provider-tabs">
-          <button class="ai-tab ${state.aiProvider === "claude" ? "active" : ""}" data-ai-provider="claude">Claude</button>
-          <button class="ai-tab ${state.aiProvider === "chatgpt" ? "active" : ""}" data-ai-provider="chatgpt">ChatGPT</button>
+          <button class="ai-tab ${state.aiProvider === "claude" ? "active" : ""}" data-ai-provider="claude">كلود (Claude)</button>
+          <button class="ai-tab ${state.aiProvider === "chatgpt" ? "active" : ""}" data-ai-provider="chatgpt">شات جي بي تي (ChatGPT)</button>
         </div>
         <div class="ai-toolbar-end">
           ${msgs.length > 0 ? `<button class="button secondary" style="font-size:0.8rem;padding:4px 12px" data-action="ai-clear">مسح</button>` : ""}
@@ -4392,7 +4392,7 @@ function aiAssistant() {
 
       ${!hasKey && !state.aiSettingsOpen ? `
         <div class="notice-panel warning" style="margin-bottom:12px;cursor:pointer" data-action="ai-settings-toggle">
-          <strong>مفتاح API مفقود.</strong>
+          <strong>مفتاح واجهة البرمجة (API) مفقود.</strong>
           <span>اضغط هنا أو على "⚙ إعدادات" لإضافة مفتاح ${state.aiProvider === "claude" ? "Anthropic" : "OpenAI"}.</span>
         </div>
       ` : ""}
@@ -4990,7 +4990,7 @@ function render() {
   });
 
   app.querySelector("[data-action='ai-keys-clear']")?.addEventListener("click", () => {
-    if (confirm("هل تريد حذف جميع مفاتيح API المحفوظة؟")) {
+    if (confirm("هل تريد حذف جميع مفاتيح واجهة البرمجة (API) المحفوظة؟")) {
       setAiKey("claude", "");
       setAiKey("chatgpt", "");
       render();

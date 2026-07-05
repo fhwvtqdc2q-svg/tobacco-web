@@ -71,22 +71,22 @@ window.roadmapItems = [
 
 window.platformChecks = [
   {
-    name: "Windows",
+    name: "ويندوز",
     status: "جاهز",
-    detail: "يعمل من Edge أو Chrome على اللابتوب."
+    detail: "يعمل من متصفح Edge أو Chrome على اللابتوب."
   },
   {
-    name: "iPhone",
+    name: "آيفون",
     status: "جاهز عبر الرابط العام",
     detail: "افتح رابط GitHub Pages من Safari ويمكن إضافته إلى الشاشة الرئيسية."
   },
   {
-    name: "Mac",
+    name: "ماك",
     status: "جاهز",
     detail: "يعمل من Safari أو Chrome بدون Xcode."
   },
   {
-    name: "Android",
+    name: "أندرويد",
     status: "مدعوم",
     detail: "يعمل من Chrome ويمكن تثبيته كتطبيق ويب."
   }

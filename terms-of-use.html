@@ -218,12 +218,22 @@
 
       /* Better readability for long legal content and mixed-language snippets */
       #license {
-        padding: 30px 32px;
+        padding: 32px 34px;
+        background: #17120d;
+        border-color: #5a4528;
       }
 
       #license p,
       #license li {
-        font-size: 1.01rem;
+        font-size: 1.04rem;
+        line-height: 2.1;
+        color: #fff4dc;
+        text-wrap: pretty;
+      }
+
+      #license h3 {
+        font-size: 1rem;
+        margin-top: 24px;
       }
 
       #license [lang="en"],
@@ -231,6 +241,10 @@
         direction: ltr;
         unicode-bidi: isolate;
         text-align: left;
+        font-family: "Segoe UI", Tahoma, Arial, sans-serif;
+        letter-spacing: normal;
+        word-break: normal;
+        white-space: normal;
       }
 
       #license .legal-ltr-block {
@@ -238,6 +252,8 @@
         unicode-bidi: isolate;
         text-align: left;
         display: block;
+        line-height: 1.95;
+        overflow-wrap: anywhere;
       }
 
       #license a[href^="mailto:"],
@@ -376,9 +392,10 @@
         .toc ol { columns: 1; }
         .container { padding: 24px 14px 60px; }
         section { padding: 18px 16px; }
-        #license { padding: 22px 18px; }
+        #license { padding: 24px 18px; }
         #license p,
-        #license li { font-size: 0.99rem; line-height: 2; }
+        #license li { font-size: 1.03rem; line-height: 2.12; }
+        #license h3 { font-size: 1.02rem; }
         .hero { padding: 26px 16px 22px; }
         .hero h2 { font-size: 1.35rem; }
         .contact-row { flex-direction: column; gap: 3px; }
