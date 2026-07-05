@@ -3439,13 +3439,19 @@ const INV_STATUS_BADGE = {
   out: '<span class="deb">نافد</span>',
   low: '<span style="color:#8a5a00;font-weight:700">قارب على النفاد</span>',
   stale: '<span class="muted" style="font-weight:700">راكدة</span>',
+  review: '<span class="deb">مراجعة جرد</span>',
   active: '<span style="color:#16794f;font-weight:700">متوفّر</span>'
 };
 
 function inventoryReportPdfMarkup() {
-  // كل أصناف الجرد من تقرير المزامنة مباشرة — يشمل النافدة أيضاً (كانت تُحذف سابقاً فبطاقة
-  // «نافد» تعرض صفراً دائماً وتغيب أصنافها عن التقرير).
-  const all = reportItems(latestStockReport());
+  // قاعدة القائمة (طلب الإدارة): تظهر المادة إن كان عندنا منها كمية، أو كانت نافدة
+  // لكن «عليها طلب» (في لائحة الأسعار المعتمدة أو بيعت خلال الفترة الأخيرة) — فتفيد
+  // لإعادة الطلب. أما النافدة التي لا طلب عليها (مواد ميتة/قديمة) فتُستبعد كلياً.
+  const allRaw = reportItems(latestStockReport());
+  const sales = materialSalesUnit1Map();
+  const hasDemand = (it) => Boolean(it?.priceListed) || sales.has(normalizeItemName(it?.name || ""));
+  const all = allRaw.filter((it) => Number(it?.stockQty || 0) > 0 || hasDemand(it));
+  const excludedCount = allRaw.length - all.length;
   const low = all.filter((i) => i?.status === "low");
   const out = all.filter((i) => i?.status === "out");
   // ترتيب: المجموعات الأهم (غلواز، ماستر) أولاً — طلب الإدارة — ثم بقية المجموعات فالاسم.
@@ -3464,12 +3470,13 @@ function inventoryReportPdfMarkup() {
     <div class="rhead"><div class="brand">OZK TOBACCO<small>تقرير المخزون</small></div>
       <div class="rtitle"><h2>المخزون</h2><span>بتاريخ ${escapeHtml(todayIsoDate())}</span></div></div>
     <div class="cards">
-      <div class="rcard"><div class="v gold">${escapeHtml(all.length)}</div><div class="l">إجمالي الأصناف</div></div>
+      <div class="rcard"><div class="v gold">${escapeHtml(all.length)}</div><div class="l">أصناف القائمة (المتداولة)</div></div>
       <div class="rcard"><div class="v red">${escapeHtml(low.length)}</div><div class="l">قارب على النفاد (حدود الأمين)</div></div>
-      <div class="rcard"><div class="v red">${escapeHtml(out.length)}</div><div class="l">نافد</div></div>
+      <div class="rcard"><div class="v red">${escapeHtml(out.length)}</div><div class="l">نافد — يلزم طلبه</div></div>
     </div>
-    <div class="sec">كل أصناف المخزون (${escapeHtml(list.length)} صنف)</div>
+    <div class="sec">أصناف المخزون المتداولة (${escapeHtml(list.length)} صنف)</div>
     <table><tr><th>الصنف</th><th>الكمية</th><th>الحالة</th></tr>${rows}</table>
+    ${excludedCount > 0 ? `<p class="muted" style="margin-top:8px">استُبعد ${escapeHtml(excludedCount)} صنفاً لا مخزون له ولا طلب عليه (مواد غير متداولة).</p>` : ""}
   </div>`;
 }
 
