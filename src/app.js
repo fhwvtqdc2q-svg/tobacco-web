@@ -3416,6 +3416,23 @@ function itemQtyUnit2(it) {
   return roundPrice(f > 0 ? q / f : q);
 }
 
+// كمية الصنف بصيغة التاجر: كراتين كاملة + الباقي كروزاً («10 كرتونة و21 كروز») بدل
+// الكسور العشرية المربكة («10.42 كرتونة»). الكميات السالبة (جرد بالسالب) تُعرض بإشارتها.
+function formatQtyCartons(it) {
+  const q = Number(it?.stockQty ?? itemQty(it)) || 0;
+  const f = Number(it?.unit2Factor || 0);
+  const u1 = String(it?.unit1Name || "").trim();
+  const u2 = String(it?.unit2Name || "").trim();
+  if (!(f > 1) || !u2) return `${formatMoney(roundPrice(q))} ${u2 || u1}`.trim();
+  const sign = q < 0 ? "−" : "";
+  const abs = Math.abs(q);
+  const whole = Math.floor((abs + 1e-9) / f);
+  const rem = roundPrice(abs - whole * f);
+  if (whole > 0 && rem > 0) return `${sign}${formatMoney(whole)} ${u2} و${formatMoney(rem)} ${u1 || ""}`.trim();
+  if (whole > 0) return `${sign}${formatMoney(whole)} ${u2}`;
+  return `${sign}${formatMoney(rem)} ${u1 || u2}`.trim();
+}
+
 // حالة الصنف كما تحسبها مزامنة الأمين (بحدود المجموعات، مثل: ماستر < 250 كروز = قارب النفاد)
 // — لا نعيد حسابها في الموقع كي لا تخالف الأمين.
 const INV_STATUS_BADGE = {
@@ -3439,9 +3456,8 @@ function inventoryReportPdfMarkup() {
   );
   const rows = list.length
     ? list.map((it) => {
-        const qty2 = roundPrice(itemQtyUnit2(it));
         const st = INV_STATUS_BADGE[it?.status] || INV_STATUS_BADGE.active;
-        return `<tr><td>${escapeHtml(pdfAr(it.name || ""))}</td><td>${escapeHtml(pdfAr(`${formatMoney(qty2)} ${itemUnit2Name(it)}`))}</td><td>${st}</td></tr>`;
+        return `<tr><td>${escapeHtml(pdfAr(it.name || ""))}</td><td>${escapeHtml(pdfAr(formatQtyCartons(it)))}</td><td>${st}</td></tr>`;
       }).join("")
     : `<tr><td colspan="3" class="muted">لا توجد مواد</td></tr>`;
   return `${REPORT_STYLE}<div class="ozk-rpt">
