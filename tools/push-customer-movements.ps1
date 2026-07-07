@@ -78,14 +78,16 @@ GROUP BY LTRIM(RTRIM(cu.CustomerName))
     # (2) حركات الفترة لكل زبون
     $movements = @{}
     $cmd = $conn.CreateCommand()
-    # الرصيد المتحرك يُحسب بدالة نافذة على كل قيود الحساب. الترتيب داخل اليوم الواحد
-    # بوقت إنشاء سند القيد الفعلي (ce000.CreateDate بالساعة والدقيقة) ثم رقم السند —
-    # وهو التسلسل الذي يعرضه كشف الأمين نفسه. (الترتيب القديم بمدين-قبل-دائن أخطأ
-    # عندما تعددت دفعات اليوم الواحد: سند 450 لحسن عباس ظهر قبل سند 2,750.)
+    # الرصيد المتحرك يُحسب بدالة نافذة على كل قيود الحساب. ترتيب كشف الأمين داخل اليوم:
+    # القيد الافتتاحي ← الفواتير (مدين) ← السندات (دائن)، وداخل كل مجموعة بوقت إنشاء
+    # سند القيد (ce000.CreateDate) ثم رقمه — تحقق على كشفَي حسن عباس وشريفة (13 رصيداً).
+    # (وقت الإنشاء وحده لا يكفي: الأمين يعرض فاتورة اليوم قبل سنداته ولو أُنشئت بعدها.)
     $cmd.CommandText = @"
 WITH led AS (
     SELECT LTRIM(RTRIM(cu.CustomerName)) AS name,
            en.Date AS dt, en.Number AS num,
+           CASE WHEN COALESCE(en.Notes,'') LIKE N'%افتتاح%' THEN 0 ELSE 1 END AS isopen,
+           CASE WHEN COALESCE(en.Credit,0) > 0 THEN 1 ELSE 0 END AS iscredit,
            COALESCE(ce.CreateDate, en.Date) AS sortdt,
            COALESCE(ce.Number, 0) AS cenum,
            CAST(COALESCE(en.Debit,0)  AS decimal(18,3)) AS debit,
@@ -97,6 +99,8 @@ WITH led AS (
            CAST(SUM(COALESCE(en.Debit,0) - COALESCE(en.Credit,0))
                 OVER (PARTITION BY en.AccountGUID
                       ORDER BY en.Date,
+                               CASE WHEN COALESCE(en.Notes,'') LIKE N'%افتتاح%' THEN 0 ELSE 1 END,
+                               CASE WHEN COALESCE(en.Credit,0) > 0 THEN 1 ELSE 0 END,
                                COALESCE(ce.CreateDate, en.Date),
                                COALESCE(ce.Number, 0),
                                en.Number
@@ -112,7 +116,7 @@ WITH led AS (
 SELECT name, dt, debit, credit, notes, bill_guid, balance
 FROM led
 WHERE dt >= @fromDate
-ORDER BY name, dt, sortdt, cenum, num
+ORDER BY name, dt, isopen, iscredit, sortdt, cenum, num
 "@
     $cmd.Parameters.AddWithValue("@fromDate", $fromDate) | Out-Null
     $r = $cmd.ExecuteReader()

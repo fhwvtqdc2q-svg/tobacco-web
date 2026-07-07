@@ -40,6 +40,8 @@ $cmd.CommandText = @"
 WITH led AS (
     SELECT LTRIM(RTRIM(cu.CustomerName)) AS name,
            en.Date AS dt,
+           CASE WHEN COALESCE(en.Notes,'') LIKE N'%افتتاح%' THEN 0 ELSE 1 END AS isopen,
+           CASE WHEN COALESCE(en.Credit,0) > 0 THEN 1 ELSE 0 END AS iscredit,
            COALESCE(ce.CreateDate, en.Date) AS sortdt,
            COALESCE(ce.Number, 0) AS cenum,
            en.Number AS num,
@@ -47,7 +49,12 @@ WITH led AS (
            CAST(COALESCE(en.Credit,0) AS decimal(18,3)) AS credit,
            CAST(SUM(COALESCE(en.Debit,0) - COALESCE(en.Credit,0))
                 OVER (PARTITION BY en.AccountGUID
-                      ORDER BY en.Date, COALESCE(ce.CreateDate, en.Date), COALESCE(ce.Number, 0), en.Number
+                      ORDER BY en.Date,
+                               CASE WHEN COALESCE(en.Notes,'') LIKE N'%افتتاح%' THEN 0 ELSE 1 END,
+                               CASE WHEN COALESCE(en.Credit,0) > 0 THEN 1 ELSE 0 END,
+                               COALESCE(ce.CreateDate, en.Date),
+                               COALESCE(ce.Number, 0),
+                               en.Number
                       ROWS UNBOUNDED PRECEDING) AS decimal(18,3)) AS balance
     FROM dbo.en000 en
     JOIN dbo.cu000 cu ON cu.AccountGUID = en.AccountGUID
@@ -57,7 +64,7 @@ WITH led AS (
 SELECT name, CONVERT(varchar(10), dt, 120) AS d, debit, credit, balance
 FROM led
 WHERE name IN (N'حسن عباس / عدرا العمالية', N'مركز شريفة / اسعد شريفة')
-ORDER BY name, dt, sortdt, cenum, num
+ORDER BY name, dt, isopen, iscredit, sortdt, cenum, num
 "@
 $rows = New-Object System.Collections.Generic.List[object]
 $rd = $cmd.ExecuteReader()
