@@ -555,19 +555,21 @@ async function handleProfitToday(chatId: number) {
 // الفعلية: تجزئة = «مبيعات المركز»، جملة = «المبيعات» (وليس «الطلبيات»).
 async function handleCartonsToday(chatId: number): Promise<void> {
   const todayStr = new Date().toISOString().slice(0, 10);
-  const rows = await restGet(`sales_line_items?sale_date=eq.${todayStr}&select=bill_type,item_name,qty,unit2_name,unit2_factor`);
+  const rows = await restGet(`sales_line_items?sale_date=eq.${todayStr}&select=bill_type,item_name,qty,line_total,unit2_name,unit2_factor`);
   if (!Array.isArray(rows) || !rows.length) {
     await tg("sendMessage", { chat_id: chatId, text: "ما في حركة مبيعات مسجّلة اليوم لهلق 😕\n(هاي الميزة بتحتاج تشغيل مزامنة حركة المبيعات من جهاز Windows)." });
     return;
   }
   type Agg = { center: number; sales: number; unit2Name?: string; unit2Factor?: number };
   const items = new Map<string, Agg>();
+  let totalRevenue = 0;
   for (const r of rows) {
     const name = String(r.item_name ?? "غير معروف");
     const cur = items.get(name) ?? { center: 0, sales: 0, unit2Name: r.unit2_name, unit2Factor: r.unit2_factor != null ? Number(r.unit2_factor) : undefined };
     const qty = Number(r.qty ?? 0);
     if (r.bill_type === "wholesale") cur.sales += qty; else cur.center += qty;
     items.set(name, cur);
+    totalRevenue += Number(r.line_total ?? 0);
   }
   const lineFor = (name: string, v: Agg) => {
     const hasFactor = v.unit2Factor && v.unit2Factor > 0;
@@ -580,10 +582,23 @@ async function handleCartonsToday(chatId: number): Promise<void> {
     return `• ${name}: ${toUnit(v.center + v.sales)} ${unit}${detail}`;
   };
   const entries = [...items.entries()].sort((a, b) => (b[1].center + b[1].sales) - (a[1].center + a[1].sales));
+
+  // إجمالي الكراتين — بيجمع بس المواد اللي إلها عامل تحويل معروف (نفس وحدة
+  // القياس، كرتونة)؛ المواد بدون عامل تحويل بتنعد لحالها وما بتنضاف للمجموع
+  // لأنها بوحدات مختلفة (ما في معنى لجمعها مع كراتين).
+  let totalCartons = 0, itemsWithoutFactor = 0;
+  for (const [, v] of entries) {
+    if (v.unit2Factor && v.unit2Factor > 0) totalCartons += (v.center + v.sales) / v.unit2Factor;
+    else itemsWithoutFactor++;
+  }
+  let summary = `📦 إجمالي مبيعات اليوم بالكرتونة\nالكراتين: ${fmtNum(totalCartons)} كرتونة (${entries.length} مادة)\nقيمة المبيعات: ${fmtNum(totalRevenue)}`;
+  if (itemsWithoutFactor > 0) summary += `\n⚠️ ${itemsWithoutFactor} مادة بدون عامل تحويل معروف — مو داخلة بمجموع الكراتين.`;
+  await tg("sendMessage", { chat_id: chatId, text: summary });
+
   const CHUNK = 25;
   for (let i = 0; i < entries.length; i += CHUNK) {
     const part = entries.slice(i, i + CHUNK);
-    const header = i === 0 ? `📦 مبيعات اليوم بالكرتونة (${entries.length} مادة):` : `📦 مبيعات اليوم بالكرتونة — تابع:`;
+    const header = i === 0 ? `تفصيل المواد (${entries.length}):` : `تفصيل المواد — تابع:`;
     const body = part.map(([name, v]) => lineFor(name, v)).join("\n");
     await tg("sendMessage", { chat_id: chatId, text: `${header}\n${body}` });
   }
