@@ -83,7 +83,9 @@ SELECT
   (bi.Qty * bi.Price)                                         AS line_total,
   bi.UnitCostPrice                                            AS unit_cost,
   bi.Netprofit                                                AS net_profit,
-  u.Cust_Name                                                 AS customer_name
+  u.Cust_Name                                                 AS customer_name,
+  m.Unit2                                                     AS unit2_name,
+  m.Unit2Fact                                                 AS unit2_factor
 FROM bu000 u
 JOIN bi000 bi ON bi.ParentGUID = u.GUID
 JOIN mt000 m  ON m.GUID = bi.MatGUID
@@ -118,6 +120,8 @@ try {
             unit_cost     = if ($reader['unit_cost'] -is [DBNull]) { $null } else { [double]$reader['unit_cost'] }
             net_profit    = if ($reader['net_profit'] -is [DBNull]) { $null } else { [double]$reader['net_profit'] }
             customer_name = "$($reader['customer_name'])"
+            unit2_name    = "$($reader['unit2_name'])"
+            unit2_factor  = if ($reader['unit2_factor'] -is [DBNull]) { $null } else { [double]$reader['unit2_factor'] }
         }
     }
     $reader.Close()

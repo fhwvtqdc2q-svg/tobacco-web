@@ -550,6 +550,44 @@ async function handleProfitToday(chatId: number) {
   await tg("sendMessage", { chat_id: chatId, text: msg });
 }
 
+// مبيعات اليوم بالكرتونة — مجمّعة حسب المادة، مقسّمة مركز (تجزئة) / جملة (طلبيات)
+async function handleCartonsToday(chatId: number): Promise<void> {
+  const todayStr = new Date().toISOString().slice(0, 10);
+  const rows = await restGet(`sales_line_items?sale_date=eq.${todayStr}&select=bill_type,item_name,qty,unit2_name,unit2_factor`);
+  if (!Array.isArray(rows) || !rows.length) {
+    await tg("sendMessage", { chat_id: chatId, text: "ما في حركة مبيعات مسجّلة اليوم لهلق 😕\n(هاي الميزة بتحتاج تشغيل مزامنة حركة المبيعات من جهاز Windows)." });
+    return;
+  }
+  type Agg = { qty: number; unit2Name?: string; unit2Factor?: number };
+  const groups: { retail: Map<string, Agg>; wholesale: Map<string, Agg> } = { retail: new Map(), wholesale: new Map() };
+  for (const r of rows) {
+    const bucket = r.bill_type === "wholesale" ? groups.wholesale : groups.retail;
+    const name = String(r.item_name ?? "غير معروف");
+    const cur = bucket.get(name) ?? { qty: 0, unit2Name: r.unit2_name, unit2Factor: r.unit2_factor != null ? Number(r.unit2_factor) : undefined };
+    cur.qty += Number(r.qty ?? 0);
+    bucket.set(name, cur);
+  }
+  const lineFor = (name: string, v: Agg) => {
+    if (v.unit2Factor && v.unit2Factor > 0) {
+      return `• ${name}: ${fmtNum(v.qty / v.unit2Factor)} ${v.unit2Name || "كرتونة"}`;
+    }
+    return `• ${name}: ${fmtNum(v.qty)} وحدة (بدون عامل تحويل معروف)`;
+  };
+  const sendGroup = async (label: string, bucket: Map<string, Agg>) => {
+    if (!bucket.size) { await tg("sendMessage", { chat_id: chatId, text: `${label}\nما في حركة اليوم.` }); return; }
+    const entries = [...bucket.entries()].sort((a, b) => b[1].qty - a[1].qty);
+    const CHUNK = 25;
+    for (let i = 0; i < entries.length; i += CHUNK) {
+      const part = entries.slice(i, i + CHUNK);
+      const header = i === 0 ? `${label} (${entries.length} مادة):` : `${label} — تابع:`;
+      const body = part.map(([name, v]) => lineFor(name, v)).join("\n");
+      await tg("sendMessage", { chat_id: chatId, text: `${header}\n${body}` });
+    }
+  };
+  await sendGroup("🏪 مبيعات المركز (تجزئة) بالكرتونة", groups.retail);
+  await sendGroup("📮 مبيعات الجملة (طلبيات) بالكرتونة", groups.wholesale);
+}
+
 // ============================================================
 // رسم بياني نصي لاتجاه المبيعات — «رسم المبيعات»
 // (لا صورة فعلية — عرض نصي بسيط بالخانات + قائمة أرقام، أضمن وأبسط
@@ -743,6 +781,8 @@ async function handleCommand(chatId: number, text: string): Promise<boolean> {
   if (text === "/low" || ["شو ناقص", "النواقص", "نواقص", "ناقص", "المخزون الناقص", "المخزون"].includes(norm)) { await handleLowStock(chatId); return true; }
   if (text === "/debts" || ["الديون", "ديون", "المديونيات"].includes(norm)) { await handleDebts(chatId); return true; }
   if (["ربح اليوم", "الربح", "شو ربحنا", "ربحنا اليوم", "صافي الربح", "قديش ربحنا", "كم ربحنا اليوم"].includes(norm)) { await handleProfitToday(chatId); return true; }
+  // أي رسالة فيها ذكر "كرتونة/كراتين" — «مبيعات اليوم بالكرتونة»، «الكراتين اليوم»، إلخ
+  if (norm.includes("كرتون") || norm.includes("كراتين")) { await handleCartonsToday(chatId); return true; }
   let m = norm.match(/^حد التنبيه\s+(\d+)\s*$/);
   if (m) { await handleSetThreshold(chatId, parseInt(m[1])); return true; }
   m = norm.match(/^سعر\s+(.+)$/);
