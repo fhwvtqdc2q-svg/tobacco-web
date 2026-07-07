@@ -879,6 +879,8 @@ declare
   line_no int;
   cnt int;
   total_amt numeric;
+  total_cartons numeric;
+  no_factor_cnt int;
 begin
   -- 1) رسالة الملخص العام
   select total_sales, total_cash, total_credit, created_at
@@ -891,6 +893,13 @@ begin
   -- حركة الفواتير التفصيلية (sales_line_items) كبديل موثوق لإجمالي اليوم
   select count(*) as cnt, coalesce(sum(line_total),0) as rev
   into line_sales
+  from public.sales_line_items
+  where sale_date = current_date;
+
+  -- إجمالي الكراتين لليوم (بس المواد اللي إلها عامل تحويل معروف)
+  select coalesce(sum(qty / nullif(unit2_factor, 0)), 0),
+         count(*) filter (where coalesce(unit2_factor, 0) <= 0)
+  into total_cartons, no_factor_cnt
   from public.sales_line_items
   where sale_date = current_date;
 
@@ -911,13 +920,19 @@ begin
     msg := msg || '📊 إجمالي مبيعات اليوم' || chr(10)
         || 'الإجمالي: ' || to_char(sales.total_sales, 'FM999,999,999,990.##') || ' ل.س'
         || ' — نقدي: ' || to_char(sales.total_cash, 'FM999,999,999,990.##') || ' ل.س'
-        || ' — آجل: ' || to_char(sales.total_credit, 'FM999,999,999,990.##') || ' ل.س' || chr(10) || chr(10);
+        || ' — آجل: ' || to_char(sales.total_credit, 'FM999,999,999,990.##') || ' ل.س' || chr(10);
   elsif line_sales.cnt > 0 then
     msg := msg || '📊 إجمالي مبيعات اليوم (من حركة الفواتير التفصيلية)' || chr(10)
         || 'المبيعات: ' || to_char(line_sales.rev, 'FM999,999,999,990.##') || ' ل.س'
-        || ' — عدد حركات البيع: ' || line_sales.cnt || chr(10) || chr(10);
+        || ' — عدد حركات البيع: ' || line_sales.cnt || chr(10);
   else
     msg := msg || '📊 لسه ما وصلت حركة مبيعات اليوم من الأمين' || chr(10) || chr(10);
+  end if;
+
+  if line_sales.cnt > 0 then
+    msg := msg || '📦 الكمية: ' || to_char(total_cartons, 'FM999,999,990.##') || ' كرتونة';
+    if no_factor_cnt > 0 then msg := msg || ' (+' || no_factor_cnt || ' حركة بدون عامل تحويل معروف)'; end if;
+    msg := msg || chr(10) || chr(10);
   end if;
 
   -- دفعات اليوم: من تقرير أرصدة الأمين (recentPayments لكل زبون) — وليس
