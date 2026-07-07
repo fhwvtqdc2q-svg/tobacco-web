@@ -85,7 +85,7 @@ GROUP BY LTRIM(RTRIM(cu.CustomerName))
     $cmd.CommandText = @"
 WITH led AS (
     SELECT LTRIM(RTRIM(cu.CustomerName)) AS name,
-           en.Date AS dt, en.Number AS num,
+           COALESCE(CASE WHEN ce.Date >= '2000-01-01' THEN ce.Date END, en.Date) AS dt, en.Number AS num,
            CASE WHEN COALESCE(en.Notes,'') LIKE N'%افتتاح%' THEN 0 ELSE 1 END AS isopen,
            CASE WHEN COALESCE(en.Credit,0) > 0 THEN 1 ELSE 0 END AS iscredit,
            COALESCE(ce.CreateDate, en.Date) AS sortdt,
@@ -98,7 +98,7 @@ WITH led AS (
            COALESCE(LOWER(CAST(COALESCE(bib.ParentGUID, en.BiGUID) AS varchar(40))), '') AS bill_guid,
            CAST(SUM(COALESCE(en.Debit,0) - COALESCE(en.Credit,0))
                 OVER (PARTITION BY en.AccountGUID
-                      ORDER BY en.Date,
+                      ORDER BY COALESCE(CASE WHEN ce.Date >= '2000-01-01' THEN ce.Date END, en.Date),
                                CASE WHEN COALESCE(en.Notes,'') LIKE N'%افتتاح%' THEN 0 ELSE 1 END,
                                CASE WHEN COALESCE(en.Credit,0) > 0 THEN 1 ELSE 0 END,
                                COALESCE(ce.CreateDate, en.Date),
