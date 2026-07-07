@@ -550,7 +550,9 @@ async function handleProfitToday(chatId: number) {
   await tg("sendMessage", { chat_id: chatId, text: msg });
 }
 
-// مبيعات اليوم بالكرتونة — مجمّعة حسب المادة، مقسّمة مركز (تجزئة) / جملة (طلبيات)
+// مبيعات اليوم بالكرتونة — قائمة واحدة مجمّعة حسب المادة، كل مادة برقم إجمالي
+// واحد + تفصيل (مركز / مبيعات) بين قوسين. تسمية القناتين حسب تبويبات الأمين
+// الفعلية: تجزئة = «مبيعات المركز»، جملة = «المبيعات» (وليس «الطلبيات»).
 async function handleCartonsToday(chatId: number): Promise<void> {
   const todayStr = new Date().toISOString().slice(0, 10);
   const rows = await restGet(`sales_line_items?sale_date=eq.${todayStr}&select=bill_type,item_name,qty,unit2_name,unit2_factor`);
@@ -558,34 +560,33 @@ async function handleCartonsToday(chatId: number): Promise<void> {
     await tg("sendMessage", { chat_id: chatId, text: "ما في حركة مبيعات مسجّلة اليوم لهلق 😕\n(هاي الميزة بتحتاج تشغيل مزامنة حركة المبيعات من جهاز Windows)." });
     return;
   }
-  type Agg = { qty: number; unit2Name?: string; unit2Factor?: number };
-  const groups: { retail: Map<string, Agg>; wholesale: Map<string, Agg> } = { retail: new Map(), wholesale: new Map() };
+  type Agg = { center: number; sales: number; unit2Name?: string; unit2Factor?: number };
+  const items = new Map<string, Agg>();
   for (const r of rows) {
-    const bucket = r.bill_type === "wholesale" ? groups.wholesale : groups.retail;
     const name = String(r.item_name ?? "غير معروف");
-    const cur = bucket.get(name) ?? { qty: 0, unit2Name: r.unit2_name, unit2Factor: r.unit2_factor != null ? Number(r.unit2_factor) : undefined };
-    cur.qty += Number(r.qty ?? 0);
-    bucket.set(name, cur);
+    const cur = items.get(name) ?? { center: 0, sales: 0, unit2Name: r.unit2_name, unit2Factor: r.unit2_factor != null ? Number(r.unit2_factor) : undefined };
+    const qty = Number(r.qty ?? 0);
+    if (r.bill_type === "wholesale") cur.sales += qty; else cur.center += qty;
+    items.set(name, cur);
   }
   const lineFor = (name: string, v: Agg) => {
-    if (v.unit2Factor && v.unit2Factor > 0) {
-      return `• ${name}: ${fmtNum(v.qty / v.unit2Factor)} ${v.unit2Name || "كرتونة"}`;
-    }
-    return `• ${name}: ${fmtNum(v.qty)} وحدة (بدون عامل تحويل معروف)`;
+    const hasFactor = v.unit2Factor && v.unit2Factor > 0;
+    const unit = hasFactor ? (v.unit2Name || "كرتونة") : "وحدة (بدون عامل تحويل معروف)";
+    const toUnit = (q: number) => fmtNum(hasFactor ? q / v.unit2Factor! : q);
+    const parts: string[] = [];
+    if (v.center > 0) parts.push(`مركز ${toUnit(v.center)}`);
+    if (v.sales > 0) parts.push(`مبيعات ${toUnit(v.sales)}`);
+    const detail = parts.length > 1 ? ` (${parts.join(" + ")})` : "";
+    return `• ${name}: ${toUnit(v.center + v.sales)} ${unit}${detail}`;
   };
-  const sendGroup = async (label: string, bucket: Map<string, Agg>) => {
-    if (!bucket.size) { await tg("sendMessage", { chat_id: chatId, text: `${label}\nما في حركة اليوم.` }); return; }
-    const entries = [...bucket.entries()].sort((a, b) => b[1].qty - a[1].qty);
-    const CHUNK = 25;
-    for (let i = 0; i < entries.length; i += CHUNK) {
-      const part = entries.slice(i, i + CHUNK);
-      const header = i === 0 ? `${label} (${entries.length} مادة):` : `${label} — تابع:`;
-      const body = part.map(([name, v]) => lineFor(name, v)).join("\n");
-      await tg("sendMessage", { chat_id: chatId, text: `${header}\n${body}` });
-    }
-  };
-  await sendGroup("🏪 مبيعات المركز (تجزئة) بالكرتونة", groups.retail);
-  await sendGroup("📮 مبيعات الجملة (طلبيات) بالكرتونة", groups.wholesale);
+  const entries = [...items.entries()].sort((a, b) => (b[1].center + b[1].sales) - (a[1].center + a[1].sales));
+  const CHUNK = 25;
+  for (let i = 0; i < entries.length; i += CHUNK) {
+    const part = entries.slice(i, i + CHUNK);
+    const header = i === 0 ? `📦 مبيعات اليوم بالكرتونة (${entries.length} مادة):` : `📦 مبيعات اليوم بالكرتونة — تابع:`;
+    const body = part.map(([name, v]) => lineFor(name, v)).join("\n");
+    await tg("sendMessage", { chat_id: chatId, text: `${header}\n${body}` });
+  }
 }
 
 // ============================================================
