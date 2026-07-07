@@ -20,6 +20,7 @@ const WELCOME = `أهلاً 👋 أنا مساعدك الشخصي.
 
 🤖 اسأل أي سؤال عن العمل:
 • اسأل مين أكثر زبون مديون؟
+• أو اكتب سؤالك مباشرة بدون "اسأل" — أي رسالة ما بتنعرف كأمر أو تذكير بترد عليها بالذكاء الاصطناعي تلقائياً
 
 ⚙️ إعدادات:
 • حد التنبيه 30
@@ -29,18 +30,6 @@ const WELCOME = `أهلاً 👋 أنا مساعدك الشخصي.
 • ذكّرني بعد 20 دقيقة احكي مع المورّد
 
 اكتب "القائمة" أو /menu للأزرار السريعة 👇`;
-
-const HELP_PARSE = `ما قدرت أفهم الطلب 🤔
-
-للاستعلام اكتب:
-• رصيد <اسم الزبون>  /  كشف حساب <اسم الزبون>
-• سعر <اسم المادة>  /  شو ناقص  /  الديون  /  مبيعات اليوم  /  رسم المبيعات
-• اسأل <أي سؤال عن العمل>
-
-للتذكير اكتب الوقت بوضوح:
-• ... الساعة 5 العصر  /  بعد 20 دقيقة  /  بكرا الساعة 11
-
-أو اكتب "القائمة" للأزرار السريعة 🙏`;
 
 const MENU_KEYBOARD = {
   inline_keyboard: [
@@ -851,7 +840,12 @@ Deno.serve(async (req) => {
   }
 
   const parsed = parseReminder(text);
-  if (!parsed.ok) { await tg("sendMessage", { chat_id: chatId, text: HELP_PARSE }); return new Response("ok"); }
+  if (!parsed.ok) {
+    // ما تعرّفنا عليها كأمر محدد ولا تذكير — نعتبرها سؤال حر ونمرّرها مباشرة للذكاء الاصطناعي
+    // (بدون ما يحتاج المستخدم يكتب "اسأل" بالأول)
+    await handleAiQuestion(chatId, text);
+    return new Response("ok");
+  }
 
   await restPost("reminders", { chat_id: chatId, body: parsed.body, remind_at: parsed.remindUtc!.toISOString(), raw_message: text });
   const when = formatWhen(parsed.local!, localNow());
