@@ -64,17 +64,21 @@ if (-not $supabaseUrl -or -not $apiKey -or -not $syncEmail -or -not $syncPasswor
     exit 1
 }
 
-# GUID نوع الفاتورة — مبيعات مركز (تجزئة) وطلبيات (جملة)
-# مؤكّدين سابقاً عبر discover-ameen-sales-4.ps1
+# GUID نوع الفاتورة — مؤكّدين عبر discover-ameen-sales-4.ps1 و
+# discover-ameen-bill-types.ps1 (استعلام مباشر لجدول bt000 المرجعي
+# بالأمين، اللي فيه الاسم الحقيقي لكل نوع فاتورة):
+#   cc1097b1 = "مبيعات مركز"  (تجزئة)                → retail
+#   4a827bee = "مبيعات ل.س"   (نادر، حجم قليل)        → wholesale
+#   7f5b0921 = "مبيعات"       (نشيط جداً، كان ناقص كلياً من المزامنة) → wholesale
 $RETAIL_TYPE_GUID    = "cc1097b1-662d-4d80-8e4e-3b493249591c"
 $WHOLESALE_TYPE_GUID = "4a827bee-6ae1-4474-802b-970068872fcc"
+$SALES_TYPE_GUID     = "7f5b0921-61f3-4f23-a1f4-fbfae4144bf4"
 
 $sql = @"
 SELECT
   u.Number                                                    AS bill_no,
-  CASE WHEN u.TypeGUID = '$RETAIL_TYPE_GUID'    THEN 'retail'
-       WHEN u.TypeGUID = '$WHOLESALE_TYPE_GUID' THEN 'wholesale'
-       ELSE 'other' END                                       AS bill_type,
+  CASE WHEN u.TypeGUID = '$RETAIL_TYPE_GUID' THEN 'retail'
+       ELSE 'wholesale' END                                   AS bill_type,
   CAST(u.Date AS date)                                        AS sale_date,
   CONVERT(nvarchar(36), bi.MatGUID)                           AS item_key,
   m.Name                                                      AS item_name,
@@ -89,7 +93,7 @@ SELECT
 FROM bu000 u
 JOIN bi000 bi ON bi.ParentGUID = u.GUID
 JOIN mt000 m  ON m.GUID = bi.MatGUID
-WHERE u.TypeGUID IN ('$RETAIL_TYPE_GUID', '$WHOLESALE_TYPE_GUID')
+WHERE u.TypeGUID IN ('$RETAIL_TYPE_GUID', '$WHOLESALE_TYPE_GUID', '$SALES_TYPE_GUID')
   AND u.Date >= DATEADD(day, -$Days, CAST(GETDATE() AS date))
 ORDER BY u.Date DESC, u.Number DESC
 "@
