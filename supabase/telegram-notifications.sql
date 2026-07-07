@@ -881,6 +881,8 @@ declare
   total_amt numeric;
   total_cartons numeric;
   no_factor_cnt int;
+  exp_cnt int;
+  exp_total numeric;
 begin
   -- 1) رسالة الملخص العام
   select total_sales, total_cash, total_credit, created_at
@@ -954,6 +956,12 @@ begin
   end if;
   msg := msg || '💵 الدفعات المستلمة اليوم: ' || cnt || ' دفعة — الإجمالي ' || to_char(total_amt, 'FM999,999,999,990.##') || ' ل.س' || chr(10);
 
+  -- مصاريف اليوم: من جدول expense_entries (قيود en000 على حسابات
+  -- المصاريف بشجرة الحسابات ac000 — انظر tools/push-expense-entries.ps1)
+  select count(*), coalesce(sum(amount),0) into exp_cnt, exp_total
+  from public.expense_entries where entry_date = current_date;
+  msg := msg || '🧾 المصاريف اليوم: ' || exp_cnt || ' حركة — الإجمالي ' || to_char(exp_total, 'FM999,999,999,990.##') || ' ل.س' || chr(10);
+
   select count(*) into cnt from public.customer_requests where created_at::date = current_date;
   msg := msg || '📩 طلبات العملاء اليوم: ' || cnt;
   select count(*) into cnt from public.whatsapp_orders where created_at::date = current_date;
@@ -1002,6 +1010,32 @@ begin
     if line_no > 0 then
       perform public.notify_telegram('evening_report_payments', chunk_lines, 'evening-pay:' || today || ':' || chunk_no, 720);
     end if;
+  end if;
+
+  -- 2ب) قائمة المصاريف اليوم (مقسّمة كل 20)
+  line_no := 0; chunk_no := 0; chunk_lines := '';
+  for r in
+    select account_name, amount, notes
+    from public.expense_entries
+    where entry_date = current_date
+    order by created_at asc
+  loop
+    if line_no = 0 then
+      chunk_no := chunk_no + 1;
+      chunk_lines := '🧾 تفاصيل المصاريف اليوم (' || chunk_no || ') — ' || today || chr(10) || chr(10);
+    end if;
+    chunk_lines := chunk_lines || '• ' || coalesce(r.account_name, 'غير محدد')
+        || ' — ' || to_char(r.amount, 'FM999,999,999,990.##') || ' ل.س'
+        || case when r.notes is not null and r.notes <> '' then ' (' || left(r.notes, 50) || ')' else '' end
+        || chr(10);
+    line_no := line_no + 1;
+    if line_no >= 20 then
+      perform public.notify_telegram('evening_report_expenses', chunk_lines, 'evening-exp:' || today || ':' || chunk_no, 720);
+      line_no := 0;
+    end if;
+  end loop;
+  if line_no > 0 then
+    perform public.notify_telegram('evening_report_expenses', chunk_lines, 'evening-exp:' || today || ':' || chunk_no, 720);
   end if;
 
   -- 3) قائمة طلبات العملاء اليوم (مقسّمة كل 20)
