@@ -485,6 +485,56 @@ async function handlePriceQuery(chatId: number, name: string) {
 }
 
 // ============================================================
+// حركة مادة وربح اليوم — من جدول sales_line_items
+// يتغذّى الجدول من tools/push-sales-line-items.ps1 على جهاز Windows
+// (فواتير مبيعات المركز والجملة من الأمين، آخر أيام محدودة)
+// ============================================================
+async function handleItemMovement(chatId: number, name: string) {
+  const rows = await restGet(`sales_line_items?select=sale_date,bill_type,qty,unit_price,line_total,item_name&order=sale_date.desc&limit=500`);
+  if (!Array.isArray(rows) || !rows.length) {
+    await tg("sendMessage", { chat_id: chatId, text: "ما في بيانات حركة مبيعات متزامنة بعد 😕\nهاي الميزة بتحتاج تشغيل مزامنة حركة المبيعات من جهاز Windows." });
+    return;
+  }
+  const q = normalizeArabic(name);
+  const qTokens = q.split(" ").filter(Boolean);
+  const scored: { score: number; r: any }[] = [];
+  for (const r of rows) {
+    const score = fuzzyScore(q, qTokens, r.item_name ?? "", "");
+    if (score > 0) scored.push({ score, r });
+  }
+  if (!scored.length) {
+    await tg("sendMessage", { chat_id: chatId, text: `ما لقيت حركة مسجّلة لمادة «${name}» بآخر أيام 🔍` });
+    return;
+  }
+  scored.sort((a, b) => b.score - a.score);
+  const matchedName = scored[0].r.item_name;
+  const allForItem = scored.filter((s) => s.r.item_name === matchedName);
+  const lines = allForItem.slice(0, 15);
+  let msg = `📦 حركة: ${matchedName}\n\n`;
+  for (const s of lines) {
+    const r = s.r;
+    msg += `• ${fmtDate(r.sale_date)} (${r.bill_type === "wholesale" ? "جملة" : "تجزئة"}) — ${fmtNum(r.qty)} × ${fmtNum(r.unit_price)} = ${fmtNum(r.line_total)}\n`;
+  }
+  msg += `\nآخر ${lines.length} حركة مسجّلة (من أصل ${allForItem.length}).`;
+  await tg("sendMessage", { chat_id: chatId, text: msg });
+}
+
+async function handleProfitToday(chatId: number) {
+  const todayStr = new Date().toISOString().slice(0, 10);
+  const rows = await restGet(`sales_line_items?sale_date=eq.${todayStr}&select=line_total,net_profit,qty`);
+  if (!Array.isArray(rows) || !rows.length) {
+    await tg("sendMessage", { chat_id: chatId, text: "ما في حركة مبيعات مسجّلة اليوم لهلق 😕\n(هاي الميزة بتحتاج تشغيل مزامنة حركة المبيعات من جهاز Windows)." });
+    return;
+  }
+  const revenue = rows.reduce((s: number, r: any) => s + Number(r.line_total ?? 0), 0);
+  const profit = rows.reduce((s: number, r: any) => s + Number(r.net_profit ?? 0), 0);
+  await tg("sendMessage", {
+    chat_id: chatId,
+    text: `🧮 ربح اليوم\nعدد حركات البيع: ${rows.length}\nالمبيعات: ${fmtNum(revenue)}\nصافي الربح: ${fmtNum(profit)}`,
+  });
+}
+
+// ============================================================
 // رسم بياني نصي لاتجاه المبيعات — «رسم المبيعات»
 // (لا صورة فعلية — عرض نصي بسيط بالخانات + قائمة أرقام، أضمن وأبسط
 // من محاولة رسم صورة حقيقية بهذه البيئة)
@@ -532,6 +582,18 @@ async function buildBusinessContext(): Promise<string> {
       lines.push("لا يوجد ملخص مبيعات متزامن بعد.");
     }
   } catch { lines.push("تعذّر جلب بيانات المبيعات."); }
+
+  try {
+    const todayStr0 = new Date().toISOString().slice(0, 10);
+    const lineRows = await restGet(`sales_line_items?sale_date=eq.${todayStr0}&select=line_total,net_profit,item_name,qty`);
+    if (Array.isArray(lineRows) && lineRows.length) {
+      const rev = lineRows.reduce((s: number, r: any) => s + Number(r.line_total ?? 0), 0);
+      const prof = lineRows.reduce((s: number, r: any) => s + Number(r.net_profit ?? 0), 0);
+      lines.push(`حركة مبيعات اليوم (تفصيلية): ${lineRows.length} حركة بيع، مبيعات ${fmtNum(rev)}، صافي ربح ${fmtNum(prof)}.`);
+    } else {
+      lines.push("لا يوجد حركة مبيعات تفصيلية مسجّلة اليوم بعد.");
+    }
+  } catch { /* الجدول ممكن ما يكون موجود بعد — تجاهل بصمت */ }
 
   try {
     const report = await loadBalancesReport();
@@ -665,10 +727,14 @@ async function handleCommand(chatId: number, text: string): Promise<boolean> {
   if (["رسم المبيعات", "الرسم البياني", "رسم بياني", "مخطط المبيعات", "شارت المبيعات"].includes(norm)) { await handleSalesChart(chatId); return true; }
   if (text === "/low" || ["شو ناقص", "النواقص", "نواقص", "ناقص", "المخزون الناقص", "المخزون"].includes(norm)) { await handleLowStock(chatId); return true; }
   if (text === "/debts" || ["الديون", "ديون", "المديونيات"].includes(norm)) { await handleDebts(chatId); return true; }
+  if (["ربح اليوم", "الربح", "شو ربحنا", "ربحنا اليوم", "صافي الربح", "قديش ربحنا", "كم ربحنا اليوم"].includes(norm)) { await handleProfitToday(chatId); return true; }
   let m = norm.match(/^حد التنبيه\s+(\d+)\s*$/);
   if (m) { await handleSetThreshold(chatId, parseInt(m[1])); return true; }
   m = norm.match(/^سعر\s+(.+)$/);
   if (m) { await handlePriceQuery(chatId, m[1].trim()); return true; }
+  // «حركة مادة X» / «حركة X» — لكن مش «حركة حساب X» (هاي محجوزة لكشف حساب الزبون)
+  m = norm.match(/^حركه\s+(?!حساب)(?:ماده\s+)?(.+)$/);
+  if (m) { await handleItemMovement(chatId, m[1].trim()); return true; }
   return false;
 }
 
