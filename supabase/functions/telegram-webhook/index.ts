@@ -519,19 +519,35 @@ async function handleItemMovement(chatId: number, name: string) {
   await tg("sendMessage", { chat_id: chatId, text: msg });
 }
 
+// الربح المحسوب من (سعر البيع - التكلفة) × الكمية — وليس من عمود Netprofit
+// الجاهز بالأمين، لأنه تبيّن أنه غير موثوق (بيرجع رقم قريب من المبيعات
+// نفسها، هامش ~80%، غير منطقي إطلاقاً لتجارة دخان بالتجزئة). التحقق تم
+// بمقارنة فعلية: SUM(net_profit)=922 مقابل SUM((price-cost)*qty)=261
+// على نفس البيانات — الرقم التاني هو المنطقي (هامش ~23%).
+function computeProfit(rows: any[]): { revenue: number; profit: number; costedCount: number } {
+  let revenue = 0, profit = 0, costedCount = 0;
+  for (const r of rows) {
+    revenue += Number(r.line_total ?? 0);
+    const cost = r.unit_cost;
+    if (cost != null) {
+      profit += (Number(r.unit_price ?? 0) - Number(cost)) * Number(r.qty ?? 0);
+      costedCount++;
+    }
+  }
+  return { revenue, profit, costedCount };
+}
+
 async function handleProfitToday(chatId: number) {
   const todayStr = new Date().toISOString().slice(0, 10);
-  const rows = await restGet(`sales_line_items?sale_date=eq.${todayStr}&select=line_total,net_profit,qty`);
+  const rows = await restGet(`sales_line_items?sale_date=eq.${todayStr}&select=line_total,qty,unit_price,unit_cost`);
   if (!Array.isArray(rows) || !rows.length) {
     await tg("sendMessage", { chat_id: chatId, text: "ما في حركة مبيعات مسجّلة اليوم لهلق 😕\n(هاي الميزة بتحتاج تشغيل مزامنة حركة المبيعات من جهاز Windows)." });
     return;
   }
-  const revenue = rows.reduce((s: number, r: any) => s + Number(r.line_total ?? 0), 0);
-  const profit = rows.reduce((s: number, r: any) => s + Number(r.net_profit ?? 0), 0);
-  await tg("sendMessage", {
-    chat_id: chatId,
-    text: `🧮 ربح اليوم\nعدد حركات البيع: ${rows.length}\nالمبيعات: ${fmtNum(revenue)}\nصافي الربح: ${fmtNum(profit)}`,
-  });
+  const { revenue, profit, costedCount } = computeProfit(rows);
+  let msg = `🧮 ربح اليوم\nعدد حركات البيع: ${rows.length}\nالمبيعات: ${fmtNum(revenue)}\nصافي الربح (سعر البيع - التكلفة): ${fmtNum(profit)}`;
+  if (costedCount < rows.length) msg += `\n⚠️ ${rows.length - costedCount} حركة بدون سعر تكلفة معروف — مو محسوبة بالربح.`;
+  await tg("sendMessage", { chat_id: chatId, text: msg });
 }
 
 // ============================================================
@@ -585,11 +601,10 @@ async function buildBusinessContext(): Promise<string> {
 
   try {
     const todayStr0 = new Date().toISOString().slice(0, 10);
-    const lineRows = await restGet(`sales_line_items?sale_date=eq.${todayStr0}&select=line_total,net_profit,item_name,qty`);
+    const lineRows = await restGet(`sales_line_items?sale_date=eq.${todayStr0}&select=line_total,item_name,qty,unit_price,unit_cost`);
     if (Array.isArray(lineRows) && lineRows.length) {
-      const rev = lineRows.reduce((s: number, r: any) => s + Number(r.line_total ?? 0), 0);
-      const prof = lineRows.reduce((s: number, r: any) => s + Number(r.net_profit ?? 0), 0);
-      lines.push(`حركة مبيعات اليوم (تفصيلية): ${lineRows.length} حركة بيع، مبيعات ${fmtNum(rev)}، صافي ربح ${fmtNum(prof)}.`);
+      const { revenue: rev, profit: prof } = computeProfit(lineRows);
+      lines.push(`حركة مبيعات اليوم (تفصيلية): ${lineRows.length} حركة بيع، مبيعات ${fmtNum(rev)}، صافي ربح (سعر البيع - التكلفة) ${fmtNum(prof)}.`);
     } else {
       lines.push("لا يوجد حركة مبيعات تفصيلية مسجّلة اليوم بعد.");
     }
