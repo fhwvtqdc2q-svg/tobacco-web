@@ -650,6 +650,7 @@ language plpgsql security definer set search_path = public
 as $$
 declare
   sales record;
+  line_sales record;
   bal_report record;
   total_debt numeric := 0;
   debtor_count int := 0;
@@ -668,6 +669,13 @@ begin
   into sales
   from public.daily_sales_summary
   order by created_at desc limit 1;
+
+  -- daily_sales_summary ما بينزّه أي سكريبت فعلياً — نستخدم أمس من حركة
+  -- الفواتير التفصيلية (sales_line_items) كبديل موثوق لو الجدول فاضي
+  select count(*) as cnt, coalesce(sum(line_total),0) as rev
+  into line_sales
+  from public.sales_line_items
+  where sale_date = current_date - 1;
 
   select summary, items, created_at into bal_report
   from public.inventory_reports
@@ -706,6 +714,10 @@ begin
         || 'الإجمالي: ' || to_char(sales.total_sales, 'FM999,999,999,990.##')
         || ' — نقدي: ' || to_char(sales.total_cash, 'FM999,999,999,990.##')
         || ' — آجل: ' || to_char(sales.total_credit, 'FM999,999,999,990.##') || chr(10) || chr(10);
+  elsif line_sales.cnt > 0 then
+    msg := msg || '📊 مبيعات أمس (من حركة الفواتير التفصيلية)' || chr(10)
+        || 'المبيعات: ' || to_char(line_sales.rev, 'FM999,999,999,990.##')
+        || ' — عدد حركات البيع: ' || line_sales.cnt || chr(10) || chr(10);
   end if;
 
   msg := msg || '💰 الديون: ' || debtor_count || ' زبون مدين — الإجمالي ' || to_char(total_debt, 'FM999,999,999,990.##');
@@ -855,6 +867,8 @@ as $$
 declare
   today text := to_char(now(), 'YYYY-MM-DD');
   sales record;
+  line_sales record;
+  bal_report record;
   low_count int := 0;
   out_count int := 0;
   thr numeric := 50;
@@ -872,6 +886,13 @@ begin
   from public.daily_sales_summary
   where created_at::date = current_date
   order by created_at desc limit 1;
+
+  -- ملخص daily_sales_summary ما بينزّه أي سكريبت فعلياً — نستخدم
+  -- حركة الفواتير التفصيلية (sales_line_items) كبديل موثوق لإجمالي اليوم
+  select count(*) as cnt, coalesce(sum(line_total),0) as rev
+  into line_sales
+  from public.sales_line_items
+  where sale_date = current_date;
 
   begin
     select value::numeric into thr from public.bot_config where key = 'low_stock_threshold' limit 1;
@@ -891,12 +912,31 @@ begin
         || 'الإجمالي: ' || to_char(sales.total_sales, 'FM999,999,999,990.##')
         || ' — نقدي: ' || to_char(sales.total_cash, 'FM999,999,999,990.##')
         || ' — آجل: ' || to_char(sales.total_credit, 'FM999,999,999,990.##') || chr(10) || chr(10);
+  elsif line_sales.cnt > 0 then
+    msg := msg || '📊 إجمالي مبيعات اليوم (من حركة الفواتير التفصيلية)' || chr(10)
+        || 'المبيعات: ' || to_char(line_sales.rev, 'FM999,999,999,990.##')
+        || ' — عدد حركات البيع: ' || line_sales.cnt || chr(10) || chr(10);
   else
-    msg := msg || '📊 لسه ما وصل ملخص مبيعات اليوم من الأمين' || chr(10) || chr(10);
+    msg := msg || '📊 لسه ما وصلت حركة مبيعات اليوم من الأمين' || chr(10) || chr(10);
   end if;
 
-  select count(*), coalesce(sum(amount),0) into cnt, total_amt
-  from public.payment_records where payment_date = current_date;
+  -- دفعات اليوم: من تقرير أرصدة الأمين (recentPayments لكل زبون) — وليس
+  -- من جدول payment_records اللي هو إدخال يدوي من الموقع فقط وما بيتغذّى
+  -- تلقائياً من الأمين، فبيضل شبه فاضي دايماً.
+  select summary, items into bal_report
+  from public.inventory_reports
+  where source = 'ameen_customer_balances'
+  order by created_at desc limit 1;
+
+  cnt := 0; total_amt := 0;
+  if bal_report.items is not null and jsonb_typeof(bal_report.items) = 'array' then
+    select count(*), coalesce(sum(amt),0) into cnt, total_amt
+    from (
+      select nullif(e->'recentPayments'->0->>'amount','')::numeric as amt
+      from jsonb_array_elements(bal_report.items) e
+      where left(e->'recentPayments'->0->>'date', 10) = to_char(current_date, 'YYYY-MM-DD')
+    ) t;
+  end if;
   msg := msg || '💵 الدفعات المستلمة اليوم: ' || cnt || ' دفعة — الإجمالي ' || to_char(total_amt, 'FM999,999,999,990.##') || chr(10);
 
   select count(*) into cnt from public.customer_requests where created_at::date = current_date;
@@ -917,30 +957,36 @@ begin
 
   perform public.notify_telegram('evening_report', msg, 'evening:' || today, 720);
 
-  -- 2) قائمة الدفعات المستلمة اليوم (مقسّمة كل 20)
+  -- 2) قائمة الدفعات المستلمة اليوم (من تقرير أرصدة الأمين، مقسّمة كل 20)
   line_no := 0; chunk_no := 0; chunk_lines := '';
-  for r in
-    select customer_name, customer_key, amount, notes
-    from public.payment_records
-    where payment_date = current_date
-    order by created_at asc
-  loop
-    if line_no = 0 then
-      chunk_no := chunk_no + 1;
-      chunk_lines := '💵 تفاصيل دفعات اليوم (' || chunk_no || ') — ' || today || chr(10) || chr(10);
-    end if;
-    chunk_lines := chunk_lines || '• ' || coalesce(r.customer_name, r.customer_key, 'غير محدد')
-        || ' — ' || to_char(r.amount, 'FM999,999,999,990.##')
-        || case when r.notes is not null and r.notes <> '' then ' (' || left(r.notes, 40) || ')' else '' end
-        || chr(10);
-    line_no := line_no + 1;
-    if line_no >= 20 then
+  if bal_report.items is not null and jsonb_typeof(bal_report.items) = 'array' then
+    for r in
+      select name, amt
+      from (
+        select
+          e->>'name' as name,
+          nullif(e->'recentPayments'->0->>'amount','')::numeric as amt
+        from jsonb_array_elements(bal_report.items) e
+        where left(e->'recentPayments'->0->>'date', 10) = to_char(current_date, 'YYYY-MM-DD')
+      ) x
+      order by amt desc nulls last
+    loop
+      if line_no = 0 then
+        chunk_no := chunk_no + 1;
+        chunk_lines := '💵 تفاصيل دفعات اليوم (' || chunk_no || ') — ' || today || chr(10) || chr(10);
+      end if;
+      chunk_lines := chunk_lines || '• ' || coalesce(r.name, 'غير محدد')
+          || ' — ' || coalesce(to_char(r.amt, 'FM999,999,999,990.##'), '—')
+          || chr(10);
+      line_no := line_no + 1;
+      if line_no >= 20 then
+        perform public.notify_telegram('evening_report_payments', chunk_lines, 'evening-pay:' || today || ':' || chunk_no, 720);
+        line_no := 0;
+      end if;
+    end loop;
+    if line_no > 0 then
       perform public.notify_telegram('evening_report_payments', chunk_lines, 'evening-pay:' || today || ':' || chunk_no, 720);
-      line_no := 0;
     end if;
-  end loop;
-  if line_no > 0 then
-    perform public.notify_telegram('evening_report_payments', chunk_lines, 'evening-pay:' || today || ':' || chunk_no, 720);
   end if;
 
   -- 3) قائمة طلبات العملاء اليوم (مقسّمة كل 20)
