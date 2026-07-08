@@ -24,6 +24,7 @@ const WELCOME = `أهلاً 👋 أنا مساعدك الشخصي.
 
 ⚙️ إعدادات:
 • حد التنبيه 30
+• سعر الصرف 13300
 
 🔔 التذكيرات:
 • ذكّرني دقّ لأبو أحمد الساعة 5 العصر
@@ -181,33 +182,51 @@ function fmtNum(x: unknown): string {
   if (!isFinite(n)) return "—";
   return n.toLocaleString("en-US", { maximumFractionDigits: 2 });
 }
+// كل الأرقام المالية بالبوت (لغير أسعار اللائحة الموجّهة للزبائن) تُعرض
+// بالدولار — سعر الصرف يدوي، المالك يحدّثه بأمر «سعر الصرف <رقم>» كل
+// ما يتغيّر (لا يوجد مصدر آلي لسعر الصرف الحالي بالسوق).
+async function getExchangeRate(): Promise<number> {
+  try {
+    const rows = await restGet(`bot_config?key=eq.usd_rate&select=value`);
+    if (Array.isArray(rows) && rows.length) {
+      const n = Number(rows[0].value);
+      if (isFinite(n) && n > 0) return n;
+    }
+  } catch { /* نستخدم الافتراضي */ }
+  return 13300;
+}
+function fmtUSD(sypAmount: unknown, rate: number): string {
+  const n = Number(sypAmount);
+  if (!isFinite(n) || !isFinite(rate) || rate <= 0) return "—";
+  return `${(n / rate).toLocaleString("en-US", { maximumFractionDigits: 2 })} $`;
+}
 function fmtDate(s?: string): string {
   if (!s) return "—";
   return String(s).slice(0, 10);
 }
-function balanceLine(balance?: number): string {
+function balanceLine(balance: number | undefined, rate: number): string {
   const b = Number(balance ?? 0);
-  if (b > 0) return `${fmtNum(b)} — عليه (مدين) 🔴`;
-  if (b < 0) return `${fmtNum(Math.abs(b))} — له (دائن) 🟢`;
+  if (b > 0) return `${fmtUSD(b, rate)} — عليه (مدين) 🔴`;
+  if (b < 0) return `${fmtUSD(Math.abs(b), rate)} — له (دائن) 🟢`;
   return "صفر ✅";
 }
 
-function buildBalanceReply(c: CustomerEntry, reportDate: string): string {
+function buildBalanceReply(c: CustomerEntry, reportDate: string, rate: number): string {
   let msg = `💳 رصيد: ${c.name ?? c.key}\n`;
-  msg += `الرصيد: ${balanceLine(c.balance)}\n`;
+  msg += `الرصيد: ${balanceLine(c.balance, rate)}\n`;
   if (Number(c.creditLimit ?? 0) > 0) {
-    msg += `حد الائتمان: ${fmtNum(c.creditLimit)}\n`;
-    msg += `المتبقي من الحد: ${fmtNum(c.remainingLimit)}\n`;
+    msg += `حد الائتمان: ${fmtUSD(c.creditLimit, rate)}\n`;
+    msg += `المتبقي من الحد: ${fmtUSD(c.remainingLimit, rate)}\n`;
   }
   const lastPay = c.recentPayments?.[0];
-  if (lastPay) msg += `آخر دفعة: ${fmtNum(lastPay.amount)} بتاريخ ${fmtDate(lastPay.date)}\n`;
+  if (lastPay) msg += `آخر دفعة: ${fmtUSD(lastPay.amount, rate)} بتاريخ ${fmtDate(lastPay.date)}\n`;
   msg += `\n📅 بيانات الأمين بتاريخ ${reportDate}`;
   return msg;
 }
 
-function buildStatementReply(c: CustomerEntry, reportDate: string): string {
+function buildStatementReply(c: CustomerEntry, reportDate: string, rate: number): string {
   let msg = `📋 كشف حساب: ${c.name ?? c.key}\n`;
-  msg += `الرصيد الحالي: ${balanceLine(c.balance)}\n`;
+  msg += `الرصيد الحالي: ${balanceLine(c.balance, rate)}\n`;
   const movs = (c.recentMovements ?? []).slice(0, 10);
   if (movs.length) {
     msg += `\n🔄 آخر الحركات:\n`;
@@ -215,8 +234,8 @@ function buildStatementReply(c: CustomerEntry, reportDate: string): string {
       const debit = Number(m.debit ?? 0);
       const credit = Number(m.credit ?? 0);
       let line = `• ${fmtDate(m.date)} — `;
-      if (debit > 0) line += `مدين ${fmtNum(debit)}`;
-      else if (credit > 0) line += `دائن ${fmtNum(credit)}`;
+      if (debit > 0) line += `مدين ${fmtUSD(debit, rate)}`;
+      else if (credit > 0) line += `دائن ${fmtUSD(credit, rate)}`;
       else line += `0`;
       if (m.notes) line += ` (${String(m.notes).slice(0, 40)})`;
       msg += line + "\n";
@@ -228,7 +247,7 @@ function buildStatementReply(c: CustomerEntry, reportDate: string): string {
   if (pays.length) {
     msg += `\n💵 آخر الدفعات:\n`;
     for (const p of pays) {
-      msg += `• ${fmtDate(p.date)} — ${fmtNum(p.amount)}${p.notes ? ` (${String(p.notes).slice(0, 40)})` : ""}\n`;
+      msg += `• ${fmtDate(p.date)} — ${fmtUSD(p.amount, rate)}${p.notes ? ` (${String(p.notes).slice(0, 40)})` : ""}\n`;
     }
   }
   msg += `\n📅 بيانات الأمين بتاريخ ${reportDate}`;
@@ -241,6 +260,7 @@ async function handleCustomerQuery(chatId: number, kind: "balance" | "statement"
     await tg("sendMessage", { chat_id: chatId, text: "ما في بيانات أرصدة متزامنة حالياً 😕\nتأكد أن مزامنة الأمين شغّالة على جهاز Windows." });
     return;
   }
+  const rate = await getExchangeRate();
   const matches = matchCustomers(report.items, name);
   if (!matches.length) {
     await tg("sendMessage", { chat_id: chatId, text: `ما لقيت زبون باسم «${name}» 🔍\nجرّب جزء من الاسم، مثلاً الاسم الأول أو اسم المنطقة.` });
@@ -248,14 +268,14 @@ async function handleCustomerQuery(chatId: number, kind: "balance" | "statement"
   }
   if (matches.length === 1) {
     const c = matches[0];
-    const text = kind === "balance" ? buildBalanceReply(c, report.reportDate) : buildStatementReply(c, report.reportDate);
+    const text = kind === "balance" ? buildBalanceReply(c, report.reportDate, rate) : buildStatementReply(c, report.reportDate, rate);
     await tg("sendMessage", { chat_id: chatId, text });
     return;
   }
   if (kind === "balance" && matches.length <= 5) {
     // عدة نتائج للرصيد: اعرضها كلها باختصار + أزرار لكشف الحساب
     let msg = `🔍 لقيت ${matches.length} زبائن مطابقين:\n\n`;
-    for (const c of matches) msg += `• ${c.name ?? c.key}: ${balanceLine(c.balance)}\n`;
+    for (const c of matches) msg += `• ${c.name ?? c.key}: ${balanceLine(c.balance, rate)}\n`;
     msg += `\n📅 بيانات الأمين بتاريخ ${report.reportDate}`;
     await tg("sendMessage", { chat_id: chatId, text: msg });
     return;
@@ -317,7 +337,8 @@ async function handleStatementFileCommand(chatId: number, name: string): Promise
   }
   try {
     const c = matches[0];
-    const content = buildStatementReply(c, report.reportDate);
+    const rate = await getExchangeRate();
+    const content = buildStatementReply(c, report.reportDate, rate);
     await sendTextDocument(
       chatId,
       content,
@@ -363,6 +384,7 @@ async function sendMenu(chatId: number) {
 • كشف حساب <اسم الزبون>
 • سعر <اسم المادة>
 • حد التنبيه <رقم>
+• سعر الصرف <رقم>
 • اسأل <أي سؤال عن العمل>`,
     reply_markup: MENU_KEYBOARD,
   });
@@ -374,13 +396,14 @@ async function handleSales(chatId: number) {
     await tg("sendMessage", { chat_id: chatId, text: "ما في ملخص مبيعات متزامن بعد 😕\nملخص المبيعات يوصل من وكيل الأمين على جهاز Windows." });
     return;
   }
+  const rate = await getExchangeRate();
   const r = rows[0];
   await tg("sendMessage", {
     chat_id: chatId,
     text: `📊 آخر ملخص مبيعات (${fmtDate(r.created_at)})
-المبيعات: ${fmtNum(r.total_sales)}
-النقدي: ${fmtNum(r.total_cash)}
-الآجل: ${fmtNum(r.total_credit)}`,
+المبيعات: ${fmtUSD(r.total_sales, rate)}
+النقدي: ${fmtUSD(r.total_cash, rate)}
+الآجل: ${fmtUSD(r.total_credit, rate)}`,
   });
 }
 
@@ -440,9 +463,10 @@ async function handleDebts(chatId: number) {
     await tg("sendMessage", { chat_id: chatId, text: "✅ ما في ديون — كل الزبائن مسدّدين." });
     return;
   }
+  const rate = await getExchangeRate();
   const total = debtors.reduce((s, c) => s + Number(c.balance ?? 0), 0);
-  let msg = `💰 الديون — ${debtors.length} زبون مدين\nالإجمالي: ${fmtNum(total)}\n\nأعلى 10:\n`;
-  debtors.slice(0, 10).forEach((c, i) => { msg += `${i + 1}. ${c.name ?? c.key}: ${fmtNum(c.balance)}\n`; });
+  let msg = `💰 الديون — ${debtors.length} زبون مدين\nالإجمالي: ${fmtUSD(total, rate)}\n\nأعلى 10:\n`;
+  debtors.slice(0, 10).forEach((c, i) => { msg += `${i + 1}. ${c.name ?? c.key}: ${fmtUSD(c.balance, rate)}\n`; });
   msg += `\n📅 بيانات الأمين بتاريخ ${report.reportDate}`;
   await tg("sendMessage", { chat_id: chatId, text: msg });
 }
@@ -545,7 +569,8 @@ async function handleProfitToday(chatId: number) {
     return;
   }
   const { revenue, profit, costedCount } = computeProfit(rows);
-  let msg = `🧮 ربح اليوم\nعدد حركات البيع: ${rows.length}\nالمبيعات: ${fmtNum(revenue)}\nصافي الربح (سعر البيع - التكلفة): ${fmtNum(profit)}`;
+  const rate = await getExchangeRate();
+  let msg = `🧮 ربح اليوم\nعدد حركات البيع: ${rows.length}\nالمبيعات: ${fmtUSD(revenue, rate)}\nصافي الربح (سعر البيع - التكلفة): ${fmtUSD(profit, rate)}`;
   if (costedCount < rows.length) msg += `\n⚠️ ${rows.length - costedCount} حركة بدون سعر تكلفة معروف — مو محسوبة بالربح.`;
   await tg("sendMessage", { chat_id: chatId, text: msg });
 }
@@ -591,7 +616,8 @@ async function handleCartonsToday(chatId: number): Promise<void> {
     if (v.unit2Factor && v.unit2Factor > 0) totalCartons += (v.center + v.sales) / v.unit2Factor;
     else itemsWithoutFactor++;
   }
-  let summary = `📦 إجمالي مبيعات اليوم بالكرتونة\nالكراتين: ${fmtNum(totalCartons)} كرتونة (${entries.length} مادة)\nقيمة المبيعات: ${fmtNum(totalRevenue)}`;
+  const rate = await getExchangeRate();
+  let summary = `📦 إجمالي مبيعات اليوم بالكرتونة\nالكراتين: ${fmtNum(totalCartons)} كرتونة (${entries.length} مادة)\nقيمة المبيعات: ${fmtUSD(totalRevenue, rate)}`;
   if (itemsWithoutFactor > 0) summary += `\n⚠️ ${itemsWithoutFactor} مادة بدون عامل تحويل معروف — مو داخلة بمجموع الكراتين.`;
   await tg("sendMessage", { chat_id: chatId, text: summary });
 
@@ -626,10 +652,11 @@ async function handleSalesChart(chatId: number): Promise<void> {
     await tg("sendMessage", { chat_id: chatId, text: "ما في بيانات مبيعات كفاية لعرض رسم بياني 😕\nلسه ما وصل ولا ملخص مبيعات من الأمين." });
     return;
   }
+  const rate = await getExchangeRate();
   const values = rows.map((r: any) => Number(r.total_sales ?? 0));
   const spark = buildSparkline(values);
   let msg = `📊 اتجاه المبيعات (آخر ${rows.length} تحديث)\n\n${spark}\n\n`;
-  rows.slice(-10).forEach((r: any) => { msg += `${fmtDate(r.created_at)}: ${fmtNum(r.total_sales)}\n`; });
+  rows.slice(-10).forEach((r: any) => { msg += `${fmtDate(r.created_at)}: ${fmtUSD(r.total_sales, rate)}\n`; });
   if (rows.length < 5) msg += `\n⚠️ البيانات لسه قليلة (${rows.length} فقط) — الرسم رح يصير أدق مع تراكم مزامنة أيام أكتر.`;
   await tg("sendMessage", { chat_id: chatId, text: msg.trim() });
 }
@@ -642,12 +669,14 @@ async function handleSalesChart(chatId: number): Promise<void> {
 async function buildBusinessContext(): Promise<string> {
   const lines: string[] = [];
   lines.push(`التاريخ: ${new Date().toISOString().slice(0, 10)}`);
+  const rate = await getExchangeRate();
+  lines.push(`كل المبالغ بهالسياق محوّلة للدولار مسبقاً بسعر صرف ${fmtNum(rate)} ل.س = 1$ — جاوب دايماً بالدولار، لا تحوّل ولا تعرض أرقام بالليرة.`);
 
   try {
     const sales = await restGet(`daily_sales_summary?order=created_at.desc&limit=1&select=total_sales,total_cash,total_credit,created_at`);
     if (Array.isArray(sales) && sales.length) {
       const s = sales[0];
-      lines.push(`آخر ملخص مبيعات (${fmtDate(s.created_at)}): الإجمالي ${fmtNum(s.total_sales)}، نقدي ${fmtNum(s.total_cash)}، آجل ${fmtNum(s.total_credit)}.`);
+      lines.push(`آخر ملخص مبيعات (${fmtDate(s.created_at)}): الإجمالي ${fmtUSD(s.total_sales, rate)}، نقدي ${fmtUSD(s.total_cash, rate)}، آجل ${fmtUSD(s.total_credit, rate)}.`);
     } else {
       lines.push("لا يوجد ملخص مبيعات متزامن بعد.");
     }
@@ -658,7 +687,7 @@ async function buildBusinessContext(): Promise<string> {
     const lineRows = await restGet(`sales_line_items?sale_date=eq.${todayStr0}&select=line_total,item_name,qty,unit_price,unit_cost`);
     if (Array.isArray(lineRows) && lineRows.length) {
       const { revenue: rev, profit: prof } = computeProfit(lineRows);
-      lines.push(`حركة مبيعات اليوم (تفصيلية): ${lineRows.length} حركة بيع، مبيعات ${fmtNum(rev)}، صافي ربح (سعر البيع - التكلفة) ${fmtNum(prof)}.`);
+      lines.push(`حركة مبيعات اليوم (تفصيلية): ${lineRows.length} حركة بيع، مبيعات ${fmtUSD(rev, rate)}، صافي ربح (سعر البيع - التكلفة) ${fmtUSD(prof, rate)}.`);
     } else {
       lines.push("لا يوجد حركة مبيعات تفصيلية مسجّلة اليوم بعد.");
     }
@@ -669,10 +698,10 @@ async function buildBusinessContext(): Promise<string> {
     if (report && report.items.length) {
       const debtors = report.items.filter((c) => Number(c.balance ?? 0) > 0).sort((a, b) => Number(b.balance ?? 0) - Number(a.balance ?? 0));
       const totalDebt = debtors.reduce((s, c) => s + Number(c.balance ?? 0), 0);
-      lines.push(`بيانات الأرصدة (بتاريخ ${report.reportDate}): ${report.items.length} زبون إجمالاً، ${debtors.length} منهم مدين، إجمالي الديون ${fmtNum(totalDebt)}.`);
+      lines.push(`بيانات الأرصدة (بتاريخ ${report.reportDate}): ${report.items.length} زبون إجمالاً، ${debtors.length} منهم مدين، إجمالي الديون ${fmtUSD(totalDebt, rate)}.`);
       if (debtors.length) {
         lines.push("أعلى المدينين:");
-        debtors.slice(0, 15).forEach((c, i) => lines.push(`${i + 1}. ${c.name ?? c.key}: ${fmtNum(c.balance)}`));
+        debtors.slice(0, 15).forEach((c, i) => lines.push(`${i + 1}. ${c.name ?? c.key}: ${fmtUSD(c.balance, rate)}`));
       }
     } else {
       lines.push("لا يوجد بيانات أرصدة زبائن متزامنة بعد.");
@@ -710,6 +739,7 @@ async function askClaude(question: string, context: string): Promise<string> {
 
   const system = `أنت مساعد ذكي لصاحب محل دخان (OZK TOBACCO) وبترد بالعربية العامية السورية المختصرة والمباشرة، بدون مقدمات طويلة.
 عندك بيانات حقيقية عن حالة العمل الآن — استخدمها فقط للإجابة على سؤال المستخدم، ولا تختلق أي رقم أو اسم مش موجود بالبيانات المعطاة.
+كل الأرقام المالية بالسياق محوّلة للدولار مسبقاً — جاوب دايماً بالدولار (رمز $)، ولا تذكر أي رقم بالليرة السورية إطلاقاً.
 إذا السؤال بيحتاج بيانات مش متوفرة عندك بالسياق، قول هيك بوضوح بدل ما تخمّن.
 خلّي الجواب مختصر (ما يتجاوز 6 أسطر) إلا إذا السؤال بالأصل بيطلب قائمة أطول.`;
 
@@ -730,6 +760,45 @@ async function askClaude(question: string, context: string): Promise<string> {
   const data = await res.json();
   const text = data?.content?.[0]?.text;
   if (typeof text !== "string" || !text.trim()) throw new Error("رد فارغ من Claude");
+  return text.trim();
+}
+
+// ============================================================
+// تفريغ الرسائل الصوتية (Speech-to-Text) — عبر OpenAI Whisper
+// (Anthropic ما بيدعم صوت مباشر عبر الـ Messages API). يحتاج
+// OPENAI_API_KEY بأسرار Edge Function — نفس أسلوب ضبط ANTHROPIC_API_KEY.
+// ============================================================
+async function transcribeVoice(fileId: string): Promise<string> {
+  const apiKey = Deno.env.get("OPENAI_API_KEY");
+  if (!apiKey) throw new Error("OPENAI_API_KEY غير مضبوط بأسرار Supabase — لازم تضيفه لحتى يفهم البوت الرسائل الصوتية");
+
+  const { token } = await getSecrets();
+  const fileInfoRes = await fetch(`https://api.telegram.org/bot${token}/getFile?file_id=${fileId}`);
+  const fileInfo = await fileInfoRes.json().catch(() => null) as any;
+  const filePath = fileInfo?.result?.file_path;
+  if (!filePath) throw new Error("تعذّر جلب الملف الصوتي من تيليغرام");
+
+  const audioRes = await fetch(`https://api.telegram.org/file/bot${token}/${filePath}`);
+  if (!audioRes.ok) throw new Error(`تعذّر تحميل الملف الصوتي (${audioRes.status})`);
+  const audioBlob = await audioRes.blob();
+
+  const form = new FormData();
+  form.append("file", audioBlob, "voice.ogg");
+  form.append("model", "whisper-1");
+  form.append("language", "ar");
+
+  const res = await fetch("https://api.openai.com/v1/audio/transcriptions", {
+    method: "POST",
+    headers: { Authorization: `Bearer ${apiKey}` },
+    body: form,
+  });
+  if (!res.ok) {
+    const errText = await res.text().catch(() => "");
+    throw new Error(`openai_${res.status}: ${errText.slice(0, 200)}`);
+  }
+  const data = await res.json();
+  const text = data?.text;
+  if (typeof text !== "string" || !text.trim()) throw new Error("ما قدرت افهم الرسالة الصوتية");
   return text.trim();
 }
 
@@ -784,6 +853,15 @@ async function handleSetThreshold(chatId: number, n: number) {
   await tg("sendMessage", { chat_id: chatId, text: `تمام ✅ صار حد تنبيه المخزون: ${n}\nالتنبيهات التلقائية ورد «شو ناقص» رح يستخدموا هالحد.` });
 }
 
+async function handleSetExchangeRate(chatId: number, n: number) {
+  if (!(n >= 1000 && n <= 100000)) {
+    await tg("sendMessage", { chat_id: chatId, text: "الرقم لازم يكون بين 1,000 و 100,000 🙏 (كم ليرة سورية = دولار وحد)" });
+    return;
+  }
+  await restPost(`bot_config`, { key: "usd_rate", value: String(n) }, "resolution=merge-duplicates");
+  await tg("sendMessage", { chat_id: chatId, text: `تمام ✅ صار سعر الصرف: 1$ = ${fmtNum(n)} ل.س\nكل أرقام البوت (مبيعات، ديون، رصيد، ربح...) رح تُحسب بهالسعر لحد ما تغيّره.` });
+}
+
 // يعيد true إذا كانت الرسالة أمر استعلام وعُولجت
 async function handleCommand(chatId: number, text: string): Promise<boolean> {
   // سؤال حر بالذكاء الاصطناعي — على النص الأصلي (بدون تطبيع) للحفاظ على صياغة السؤال
@@ -801,6 +879,9 @@ async function handleCommand(chatId: number, text: string): Promise<boolean> {
   if (norm.includes("كرتون") || norm.includes("كراتين")) { await handleCartonsToday(chatId); return true; }
   let m = norm.match(/^حد التنبيه\s+(\d+)\s*$/);
   if (m) { await handleSetThreshold(chatId, parseInt(m[1])); return true; }
+  // «سعر الصرف <رقم>» — قبل مطابقة «سعر <مادة>» العامة كي ما تُفهم «الصرف» كاسم مادة
+  m = norm.match(/^سعر الصرف\s+(\d+)\s*$/);
+  if (m) { await handleSetExchangeRate(chatId, parseInt(m[1])); return true; }
   m = norm.match(/^سعر\s+(.+)$/);
   if (m) { await handlePriceQuery(chatId, m[1].trim()); return true; }
   // «حركة مادة X» / «حركة X» — لكن مش «حركة حساب X» (هاي محجوزة لكشف حساب الزبون)
@@ -940,12 +1021,25 @@ Deno.serve(async (req) => {
   const msg = update.message ?? update.edited_message;
   if (!msg || !msg.chat) return new Response("ok");
   const chatId = msg.chat.id;
-  const text = (msg.text ?? "").trim();
+  let text = (msg.text ?? "").trim();
 
   let owner: number | null;
   try { owner = await getOwner(); } catch { return new Response("ok"); }
   if (owner === null) { await setOwner(chatId); owner = chatId; }
   if (chatId !== owner) { await tg("sendMessage", { chat_id: chatId, text: "🔒 هذا بوت خاص." }); return new Response("ok"); }
+
+  // رسالة صوتية (voice) أو ملاحظة فيديو دائرية بصوت (video_note بلا صوت مو مدعومة) — نفرّغها لنص أولاً
+  const voice = msg.voice;
+  if (voice?.file_id && !text) {
+    try {
+      await tg("sendMessage", { chat_id: chatId, text: "🎙️ عم افهم الرسالة الصوتية..." });
+      text = await transcribeVoice(voice.file_id);
+      await tg("sendMessage", { chat_id: chatId, text: `📝 سمعتك تقول: "${text}"` });
+    } catch (e) {
+      await tg("sendMessage", { chat_id: chatId, text: `صار خطأ وأنا عم افهم الصوت 😕\n(${String(e).slice(0, 150)})` });
+      return new Response("ok");
+    }
+  }
 
   if (text === "/start" || text === "/help") {
     await tg("sendMessage", { chat_id: chatId, text: WELCOME, reply_markup: MENU_KEYBOARD });
