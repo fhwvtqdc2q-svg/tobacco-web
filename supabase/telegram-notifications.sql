@@ -711,16 +711,16 @@ begin
 
   if sales.created_at is not null then
     msg := msg || '📊 آخر مبيعات (' || to_char(sales.created_at, 'YYYY-MM-DD') || ')' || chr(10)
-        || 'الإجمالي: ' || to_char(sales.total_sales, 'FM999,999,999,990.##') || ' ل.س'
-        || ' — نقدي: ' || to_char(sales.total_cash, 'FM999,999,999,990.##') || ' ل.س'
-        || ' — آجل: ' || to_char(sales.total_credit, 'FM999,999,999,990.##') || ' ل.س' || chr(10) || chr(10);
+        || 'الإجمالي: ' || to_char(sales.total_sales, 'FM999,999,990.00') || ' $'
+        || ' — نقدي: ' || to_char(sales.total_cash, 'FM999,999,990.00') || ' $'
+        || ' — آجل: ' || to_char(sales.total_credit, 'FM999,999,990.00') || ' $' || chr(10) || chr(10);
   elsif line_sales.cnt > 0 then
     msg := msg || '📊 مبيعات أمس (من حركة الفواتير التفصيلية)' || chr(10)
-        || 'المبيعات: ' || to_char(line_sales.rev, 'FM999,999,999,990.##') || ' ل.س'
+        || 'المبيعات: ' || to_char(line_sales.rev, 'FM999,999,990.00') || ' $'
         || ' — عدد حركات البيع: ' || line_sales.cnt || chr(10) || chr(10);
   end if;
 
-  msg := msg || '💰 الديون: ' || debtor_count || ' زبون مدين — الإجمالي ' || to_char(total_debt, 'FM999,999,999,990.##') || ' ل.س';
+  msg := msg || '💰 الديون: ' || debtor_count || ' زبون مدين — الإجمالي ' || to_char(total_debt, 'FM999,999,990.00') || ' $';
   if over_limit_count > 0 then msg := msg || chr(10) || '🚫 ' || over_limit_count || ' زبون متجاوز لحد الائتمان'; end if;
   if debtor_count > 0 then msg := msg || chr(10) || '👇 قائمة المدينين التفصيلية بالرسائل التالية'; end if;
   msg := msg || chr(10) || chr(10);
@@ -756,10 +756,10 @@ begin
         chunk_lines := '💰 تفاصيل الديون (' || chunk_no || ') — ' || today || chr(10) || chr(10);
       end if;
       chunk_lines := chunk_lines || r.rn || '. ' || coalesce(r.name, 'غير معروف')
-          || ' — الرصيد: ' || to_char(r.bal, 'FM999,999,999,990.##') || ' ل.س';
+          || ' — الرصيد: ' || to_char(r.bal, 'FM999,999,990.00') || ' $';
       if r.last_pay_date is not null then
         chunk_lines := chunk_lines || chr(10) || '   آخر دفعة: '
-            || coalesce(to_char(r.last_pay_amt, 'FM999,999,999,990.##'), '—') || ' ل.س'
+            || coalesce(to_char(r.last_pay_amt, 'FM999,999,990.00'), '—') || ' $'
             || ' بتاريخ ' || left(r.last_pay_date, 10);
       else
         chunk_lines := chunk_lines || chr(10) || '   لا يوجد دفعات مسجّلة';
@@ -920,12 +920,12 @@ begin
 
   if sales.created_at is not null then
     msg := msg || '📊 إجمالي مبيعات اليوم' || chr(10)
-        || 'الإجمالي: ' || to_char(sales.total_sales, 'FM999,999,999,990.##') || ' ل.س'
-        || ' — نقدي: ' || to_char(sales.total_cash, 'FM999,999,999,990.##') || ' ل.س'
-        || ' — آجل: ' || to_char(sales.total_credit, 'FM999,999,999,990.##') || ' ل.س' || chr(10);
+        || 'الإجمالي: ' || to_char(sales.total_sales, 'FM999,999,990.00') || ' $'
+        || ' — نقدي: ' || to_char(sales.total_cash, 'FM999,999,990.00') || ' $'
+        || ' — آجل: ' || to_char(sales.total_credit, 'FM999,999,990.00') || ' $' || chr(10);
   elsif line_sales.cnt > 0 then
     msg := msg || '📊 إجمالي مبيعات اليوم (من حركة الفواتير التفصيلية)' || chr(10)
-        || 'المبيعات: ' || to_char(line_sales.rev, 'FM999,999,999,990.##') || ' ل.س'
+        || 'المبيعات: ' || to_char(line_sales.rev, 'FM999,999,990.00') || ' $'
         || ' — عدد حركات البيع: ' || line_sales.cnt || chr(10);
   else
     msg := msg || '📊 لسه ما وصلت حركة مبيعات اليوم من الأمين' || chr(10) || chr(10);
@@ -954,13 +954,13 @@ begin
       where left(e->'recentPayments'->0->>'date', 10) = to_char(current_date, 'YYYY-MM-DD')
     ) t;
   end if;
-  msg := msg || '💵 الدفعات المستلمة اليوم: ' || cnt || ' دفعة — الإجمالي ' || to_char(total_amt, 'FM999,999,999,990.##') || ' ل.س' || chr(10);
+  msg := msg || '💵 الدفعات المستلمة اليوم: ' || cnt || ' دفعة — الإجمالي ' || to_char(total_amt, 'FM999,999,990.00') || ' $' || chr(10);
 
   -- مصاريف اليوم: من جدول expense_entries (قيود en000 على حسابات
   -- المصاريف بشجرة الحسابات ac000 — انظر tools/push-expense-entries.ps1)
   select count(*), coalesce(sum(amount),0) into exp_cnt, exp_total
   from public.expense_entries where entry_date = current_date;
-  msg := msg || '🧾 المصاريف اليوم: ' || exp_cnt || ' حركة — الإجمالي ' || to_char(exp_total, 'FM999,999,999,990.##') || ' ل.س' || chr(10);
+  msg := msg || '🧾 المصاريف اليوم: ' || exp_cnt || ' حركة — الإجمالي ' || to_char(exp_total, 'FM999,999,990.00') || ' $' || chr(10);
 
   select count(*) into cnt from public.customer_requests where created_at::date = current_date;
   msg := msg || '📩 طلبات العملاء اليوم: ' || cnt;
@@ -999,7 +999,7 @@ begin
         chunk_lines := '💵 تفاصيل دفعات اليوم (' || chunk_no || ') — ' || today || chr(10) || chr(10);
       end if;
       chunk_lines := chunk_lines || '• ' || coalesce(r.name, 'غير محدد')
-          || ' — ' || coalesce(to_char(r.amt, 'FM999,999,999,990.##'), '—') || ' ل.س'
+          || ' — ' || coalesce(to_char(r.amt, 'FM999,999,990.00'), '—') || ' $'
           || chr(10);
       line_no := line_no + 1;
       if line_no >= 20 then
@@ -1025,7 +1025,7 @@ begin
       chunk_lines := '🧾 تفاصيل المصاريف اليوم (' || chunk_no || ') — ' || today || chr(10) || chr(10);
     end if;
     chunk_lines := chunk_lines || '• ' || coalesce(r.account_name, 'غير محدد')
-        || ' — ' || to_char(r.amount, 'FM999,999,999,990.##') || ' ل.س'
+        || ' — ' || to_char(r.amount, 'FM999,999,990.00') || ' $'
         || case when r.notes is not null and r.notes <> '' then ' (' || left(r.notes, 50) || ')' else '' end
         || chr(10);
     line_no := line_no + 1;
@@ -1064,7 +1064,8 @@ begin
     perform public.notify_telegram('evening_report_orders', chunk_lines, 'evening-req:' || today || ':' || chunk_no, 720);
   end if;
 
-  -- 4) قائمة تغييرات الأسعار اليوم (مقسّمة كل 20)
+  -- 4) قائمة تغييرات الأسعار اليوم (مقسّمة كل 20) — الأسعار هون هي أسعار
+  -- اللائحة الموجّهة للزبائن (نفس منطق سعر <مادة>) فبتضل بالليرة عمداً
   line_no := 0; chunk_no := 0; chunk_lines := '';
   for r in
     select item_name, old_price, new_price
@@ -1077,8 +1078,8 @@ begin
       chunk_lines := '💰 تفاصيل تغييرات الأسعار (' || chunk_no || ') — ' || today || chr(10) || chr(10);
     end if;
     chunk_lines := chunk_lines || '• ' || coalesce(r.item_name, 'غير معروف')
-        || ': ' || coalesce(to_char(r.old_price, 'FM999,999,999,990.##'), '—')
-        || ' ← ' || coalesce(to_char(r.new_price, 'FM999,999,999,990.##'), '—')
+        || ': ' || coalesce(to_char(r.old_price, 'FM999,999,999,990.##'), '—') || ' ل.س'
+        || ' ← ' || coalesce(to_char(r.new_price, 'FM999,999,999,990.##'), '—') || ' ل.س'
         || chr(10);
     line_no := line_no + 1;
     if line_no >= 20 then
