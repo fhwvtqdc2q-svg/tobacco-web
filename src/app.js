@@ -5144,35 +5144,44 @@ function render() {
   });
   app.querySelectorAll("[data-action='gen-invoice-doc']").forEach((el) => {
     el.addEventListener("click", () => {
-      const cust = el.dataset.customer || "";
-      const invs = customerInvoicesFor(cust);
-      const inv = invs.find((x) => String(x.number || "") === el.dataset.invNumber && String(x.date || "") === el.dataset.invDate)
-        || invs.find((x) => String(x.number || "") === el.dataset.invNumber);
-      if (!inv) { setNotice("error", "تعذّر إيجاد الفاتورة."); render(); return; }
-      const invoiceTotal = inv.total || 0;
-      // الرصيد قبل/بعد الفاتورة من قيدها في دفتر الأمين (مطابقة قطعية بمعرّف الفاتورة GUID).
-      // إن لم تتوفر بيانات المزامنة المحدّثة نعرض الرصيد الحالي فقط (آمن، لا تخمين).
-      const custItem = smartNameMatch(latestCustomerBalanceItems(), (it) => it.name, cust);
-      const mv = movementForBill(cust, inv.guid);
-      const opts = {
-        type: "invoice",
-        name: cust,
-        amount: invoiceTotal,
-        cur: "$",
-        date: inv.date || todayIsoDate(),
-        no: inv.number ? String(inv.number) : docNumber("INV"),
-        lines: inv.lines || []
-      };
-      if (mv) {
-        const ledgerDebit = Number(mv.debit || 0);
-        opts.newBalance = roundPrice(mv.balance);
-        opts.prevBalance = roundPrice(mv.balance - ledgerDebit + Number(mv.credit || 0));
-        const adjust = roundPrice(invoiceTotal - ledgerDebit);
-        if (ledgerDebit > 0 && Math.abs(adjust) > 0.009) opts.adjust = adjust;
-      } else {
-        opts.balance = custItem ? customerBalance(custItem) : null;
+      try {
+        const cust = el.dataset.customer || "";
+        const invs = customerInvoicesFor(cust);
+        const inv = invs.find((x) => String(x.number || "") === el.dataset.invNumber && String(x.date || "") === el.dataset.invDate)
+          || invs.find((x) => String(x.number || "") === el.dataset.invNumber);
+        if (!inv) { setNotice("error", "تعذّر إيجاد الفاتورة."); render(); return; }
+        const invoiceTotal = inv.total || 0;
+        const custItem = smartNameMatch(latestCustomerBalanceItems(), (it) => it.name, cust);
+        const opts = {
+          type: "invoice",
+          name: cust,
+          amount: invoiceTotal,
+          cur: "$",
+          date: inv.date || todayIsoDate(),
+          no: inv.number ? String(inv.number) : docNumber("INV"),
+          lines: inv.lines || []
+        };
+        // الرصيد قبل/بعد الفاتورة من قيدها في دفتر الأمين (مطابقة قطعية بالمعرّف GUID).
+        // عند أي خطأ في حساب الرصيد نتجاهله ونعرض الرصيد الحالي فقط — دون منع تصدير الفاتورة.
+        try {
+          const mv = movementForBill(cust, inv.guid);
+          if (mv) {
+            const ledgerDebit = Number(mv.debit || 0);
+            opts.newBalance = roundPrice(mv.balance);
+            opts.prevBalance = roundPrice(mv.balance - ledgerDebit + Number(mv.credit || 0));
+            const adjust = roundPrice(invoiceTotal - ledgerDebit);
+            if (ledgerDebit > 0 && Math.abs(adjust) > 0.009) opts.adjust = adjust;
+          } else {
+            opts.balance = custItem ? customerBalance(custItem) : null;
+          }
+        } catch (_balErr) {
+          opts.balance = custItem ? customerBalance(custItem) : null;
+        }
+        exportVoucherPdf(opts);
+      } catch (error) {
+        setNotice("error", "تعذّر تصدير الفاتورة: " + (error && error.message ? error.message : String(error)));
+        render();
       }
-      exportVoucherPdf(opts);
     });
   });
   app.querySelector("[data-form='voucher-payment']")?.addEventListener("submit", (event) => {
