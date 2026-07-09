@@ -945,13 +945,18 @@ begin
   where source = 'ameen_customer_balances'
   order by created_at desc limit 1;
 
+  -- نمرّ على كل دفعات كل زبون (مش بس آخر واحدة) ونفلتر حسب التاريخ — زبون
+  -- ممكن يكون إله أكثر من دفعة بنفس اليوم (مثلاً دفعة حقيقية + قيد تسوية
+  -- صغير)، وأخذ recentPayments[0] فقط كان يخفي الدفعات الحقيقية الأكبر لو
+  -- صار قيد لاحق أصغر بنفس اليوم.
   cnt := 0; total_amt := 0;
   if bal_report.items is not null and jsonb_typeof(bal_report.items) = 'array' then
     select count(*), coalesce(sum(amt),0) into cnt, total_amt
     from (
-      select nullif(e->'recentPayments'->0->>'amount','')::numeric as amt
-      from jsonb_array_elements(bal_report.items) e
-      where left(e->'recentPayments'->0->>'date', 10) = to_char(current_date, 'YYYY-MM-DD')
+      select nullif(p->>'amount','')::numeric as amt
+      from jsonb_array_elements(bal_report.items) e,
+           jsonb_array_elements(coalesce(e->'recentPayments', '[]'::jsonb)) p
+      where left(p->>'date', 10) = to_char(current_date, 'YYYY-MM-DD')
     ) t;
   end if;
   msg := msg || '💵 الدفعات المستلمة اليوم: ' || cnt || ' دفعة — الإجمالي ' || to_char(total_amt, 'FM999,999,990.00') || ' $' || chr(10);
@@ -980,17 +985,19 @@ begin
 
   perform public.notify_telegram('evening_report', msg, 'evening:' || today, 720);
 
-  -- 2) قائمة الدفعات المستلمة اليوم (من تقرير أرصدة الأمين، مقسّمة كل 20)
+  -- 2) قائمة الدفعات المستلمة اليوم (كل دفعة لكل زبون — مو أحدث وحدة بس، مقسّمة كل 20)
   line_no := 0; chunk_no := 0; chunk_lines := '';
   if bal_report.items is not null and jsonb_typeof(bal_report.items) = 'array' then
     for r in
-      select name, amt
+      select name, amt, notes
       from (
         select
           e->>'name' as name,
-          nullif(e->'recentPayments'->0->>'amount','')::numeric as amt
-        from jsonb_array_elements(bal_report.items) e
-        where left(e->'recentPayments'->0->>'date', 10) = to_char(current_date, 'YYYY-MM-DD')
+          nullif(p->>'amount','')::numeric as amt,
+          nullif(p->>'notes', '') as notes
+        from jsonb_array_elements(bal_report.items) e,
+             jsonb_array_elements(coalesce(e->'recentPayments', '[]'::jsonb)) p
+        where left(p->>'date', 10) = to_char(current_date, 'YYYY-MM-DD')
       ) x
       order by amt desc nulls last
     loop
@@ -1000,6 +1007,7 @@ begin
       end if;
       chunk_lines := chunk_lines || '• ' || coalesce(r.name, 'غير محدد')
           || ' — ' || coalesce(to_char(r.amt, 'FM999,999,990.00'), '—') || ' $'
+          || case when r.notes is not null then ' (' || left(r.notes, 40) || ')' else '' end
           || chr(10);
       line_no := line_no + 1;
       if line_no >= 20 then
