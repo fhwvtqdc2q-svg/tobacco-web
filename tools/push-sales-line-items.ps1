@@ -83,9 +83,17 @@ SELECT
   CONVERT(nvarchar(36), bi.MatGUID)                           AS item_key,
   m.Name                                                      AS item_name,
   bi.Qty                                                      AS qty,
-  bi.Price                                                    AS unit_price,
-  (bi.Qty * bi.Price)                                         AS line_total,
-  bi.UnitCostPrice                                            AS unit_cost,
+  -- بفواتير الجملة، السعر (bi.Price) يُدخل من الموظف بسعر الكرتونة، بينما
+  -- bi.Qty دايماً بعدد القطع (نفس التجزئة) — لازم نقسم على عامل الكرتونة
+  -- (Unit2Fact) لفواتير الجملة فقط، وإلا تصير القيمة مضروبة زيادة بمقدار
+  -- عدد القطع بالكرتونة (تأكّدنا ميدانياً: فاتورة 200 قطعة = 4 كراتين
+  -- بسعر 480$/كرتونة، مو 480$/قطعة).
+  CASE WHEN u.TypeGUID = '$RETAIL_TYPE_GUID' THEN bi.Price
+       ELSE bi.Price / NULLIF(m.Unit2Fact, 0) END              AS unit_price,
+  CASE WHEN u.TypeGUID = '$RETAIL_TYPE_GUID' THEN (bi.Qty * bi.Price)
+       ELSE (bi.Qty * bi.Price / NULLIF(m.Unit2Fact, 0)) END   AS line_total,
+  CASE WHEN u.TypeGUID = '$RETAIL_TYPE_GUID' THEN bi.UnitCostPrice
+       ELSE bi.UnitCostPrice / NULLIF(m.Unit2Fact, 0) END      AS unit_cost,
   bi.Netprofit                                                AS net_profit,
   u.Cust_Name                                                 AS customer_name,
   m.Unit2                                                     AS unit2_name,
