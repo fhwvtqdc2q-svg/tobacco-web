@@ -112,7 +112,7 @@ FROM bu000 u
 JOIN bt000 bt ON bt.GUID = u.$typeCol
 JOIN bi000 bi ON bi.ParentGUID = u.GUID
 JOIN mt000 m  ON m.GUID = bi.MatGUID
-WHERE bt.BillType = 1 AND u.Date >= @fromDate
+WHERE bt.BillType IN (1, 3) AND u.Date >= @fromDate
 ORDER BY u.Date DESC
 "@
         $c.Parameters.AddWithValue("@fromDate", $fromDate) | Out-Null
@@ -120,9 +120,10 @@ ORDER BY u.Date DESC
         $n = 0
         while ($rd.Read()) {
             $n++
-            Write-Host ("  [{0}] {1} | {2} | {3} | كمية {4} × سعر {5} = {6}" -f `
+            $retTag = if ([int]$rd["bill_class"] -eq 3) { " [مرتجع]" } else { "" }
+            Write-Host ("  [{0}] {1} | {2} | {3} | كمية {4} × سعر {5} = {6}{7}" -f `
                 $rd["bill_number"], ([datetime]$rd["bill_date"]).ToString("yyyy-MM-dd"), `
-                $rd["customer"], $rd["material"], $rd["qty"], $rd["price"], $rd["line_total"])
+                $rd["customer"], $rd["material"], $rd["qty"], $rd["price"], $rd["line_total"], $retTag)
         }
         $rd.Close(); $conn.Close()
         Write-Log "الاكتشاف انتهى — $n سطر عيّنة. إذا الأسماء/القيم تبيّن صح، شغّل السكربت بدون -Discover."
@@ -138,6 +139,7 @@ SELECT CAST(u.GUID AS varchar(40)) AS bill_guid,
        u.Date AS bill_date,
        LTRIM(RTRIM(COALESCE(u.Cust_Name,''))) AS customer,
        CAST(COALESCE(u.Total,0) AS decimal(18,3)) AS bill_total,
+       bt.BillType AS bill_type,
        LTRIM(RTRIM(COALESCE(m.Name,''))) AS material,
        CAST(COALESCE(bi.Qty,0)  AS decimal(18,3)) AS qty,
        CAST(COALESCE(bi.Qty2,0) AS decimal(18,3)) AS qty2,
@@ -150,7 +152,7 @@ FROM bu000 u
 JOIN bt000 bt ON bt.GUID = u.$typeCol
 JOIN bi000 bi ON bi.ParentGUID = u.GUID
 JOIN mt000 m  ON m.GUID = bi.MatGUID
-WHERE bt.BillType = 1
+WHERE bt.BillType IN (1, 3)
   AND u.Date >= @fromDate
   AND LTRIM(RTRIM(COALESCE(u.Cust_Name,''))) <> ''
 ORDER BY u.Date DESC, u.GUID
@@ -170,6 +172,9 @@ ORDER BY u.Date DESC, u.GUID
                 date     = ([datetime]$r["bill_date"]).ToString("yyyy-MM-dd")
                 customer = [string]$r["customer"]
                 total    = [double]$r["bill_total"]
+                # مرتجع مبيعات (BillType=3) — نميّزه عن فاتورة البيع العادية (BillType=1)
+                # ليعرضه الموقع كمستند «فاتورة مرتجع» منفصل بدل دمجه كدفعة عامة.
+                isReturn = ([int]$r["bill_type"] -eq 3)
                 lines    = New-Object System.Collections.Generic.List[object]
             }
         }
@@ -194,11 +199,12 @@ ORDER BY u.Date DESC, u.GUID
         $name = $b.customer
         if (-not $byCustomer.ContainsKey($name)) { $byCustomer[$name] = New-Object System.Collections.Generic.List[object] }
         $byCustomer[$name].Add(@{
-            number = $b.number
-            date   = $b.date
-            guid   = $g.ToLower()   # معرّف الفاتورة في الأمين — لربطها بقيدها في دفتر الحسابات
-            total  = [math]::Round($b.total, 3)
-            lines  = $b.lines.ToArray()
+            number   = $b.number
+            date     = $b.date
+            guid     = $g.ToLower()   # معرّف الفاتورة في الأمين — لربطها بقيدها في دفتر الحسابات
+            total    = [math]::Round($b.total, 3)
+            isReturn = $b.isReturn
+            lines    = $b.lines.ToArray()
         })
     }
 
