@@ -2156,6 +2156,52 @@ code {
   }
 }
 
+/* ── فواتير المشتريات (تسجيل داخلي فقط) ── */
+.po-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-top: 12px;
+}
+
+.po-card {
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 14px 16px;
+  background: var(--surface);
+}
+
+.po-card.po-received {
+  opacity: 0.72;
+}
+
+.po-card-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.po-card-info {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.po-card-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.po-delete:hover {
+  color: #e05252;
+  border-color: #e05252;
+}
+
 /* ── Overdue customers ── */
 .overdue-panel {
   border: 1px solid var(--danger) !important;

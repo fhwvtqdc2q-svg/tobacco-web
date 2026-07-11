@@ -169,7 +169,7 @@ function syncFreshnessLabel(value) {
   return `قبل ${Math.round(minutes / 60)} ساعة`;
 }
 
-const allowedRoutes = new Set(["overview", "login", "requests", "ameen", "pricing", "remote", "monitoring", "payments"]);
+const allowedRoutes = new Set(["overview", "login", "requests", "ameen", "pricing", "remote", "monitoring", "payments", "purchases"]);
 
 const customerPriceContacts = [
   { label: "هاتف المبيعات", value: "0985000771" },
@@ -227,6 +227,13 @@ const state = {
   invCustomer: "",
   invNotes: "",
   invRows: [{ name: "", qty: "1", price: "" }],
+  purchaseInvoices: [],
+  poSupplier: "",
+  poDate: "",
+  poNotes: "",
+  poRows: [{ name: "", qty: "1", price: "" }],
+  poSaving: false,
+  poOpenId: "",
   notifPermission: "default",
   seenRequestIds: new Set(),
   globalSearch: "",
@@ -292,11 +299,11 @@ function initKeyboardShortcuts() {
   document.addEventListener("keydown", (event) => {
     const typing = document.activeElement?.matches("input, textarea, select, [contenteditable]");
     if (event.altKey && !event.ctrlKey && !event.metaKey) {
-      const routeMap = { "1": "overview", "2": "dashboard", "3": "requests", "4": "ameen", "5": "pricing", "6": "invoice" };
+      const routeMap = { "1": "overview", "2": "dashboard", "3": "requests", "4": "ameen", "5": "pricing", "6": "invoice", "7": "purchases" };
       const target = routeMap[event.key];
       if (target) {
         event.preventDefault();
-        if ((target === "dashboard" || target === "invoice") && !state.session) return;
+        if ((target === "dashboard" || target === "invoice" || target === "purchases") && !state.session) return;
         setRoute(target);
         render();
         return;
@@ -342,6 +349,7 @@ async function boot() {
   await loadCustomerCreditLimits();
   await loadApprovedPriceItems();
   await loadCustomerProfiles();
+  await loadPurchaseInvoices();
   state.seenRequestIds = new Set(state.requests.map((r) => r.id));
   state.notifPermission = notifSupported() ? Notification.permission : "denied";
   state.loading = false;
@@ -385,6 +393,18 @@ async function loadInventoryReports() {
     await loadItemCosts();
   } catch {
     state.inventoryReports = [];
+  }
+}
+
+async function loadPurchaseInvoices() {
+  try {
+    if (dataStore.isConfigured() && !state.session) {
+      state.purchaseInvoices = [];
+      return;
+    }
+    state.purchaseInvoices = dataStore.listPurchaseInvoices ? await dataStore.listPurchaseInvoices() : [];
+  } catch {
+    state.purchaseInvoices = [];
   }
 }
 
@@ -823,6 +843,7 @@ async function saveSession(form, action) {
     await loadCustomerBalanceReports();
     await loadCustomerCreditLimits();
     await loadApprovedPriceItems();
+    await loadPurchaseInvoices();
     setRoute("overview", false);
   } catch (error) {
     setNotice("error", safeErrorMessage(error));
@@ -841,6 +862,7 @@ async function logout() {
     state.customerLimitError = null;
     state.approvedPriceItems = [];
     state.approvedPriceError = null;
+    state.purchaseInvoices = [];
     setNotice("success", "تم تسجيل الخروج.");
   } catch (error) {
     setNotice("error", safeErrorMessage(error));
@@ -2212,6 +2234,7 @@ function shell(content) {
           ${navButton("ameen", "📦 الأمين")}
           ${navButton("pricing", "💰 التسعير")}
           ${state.session ? navButton("invoice", "📄 الفواتير") : ""}
+          ${state.session ? navButton("purchases", "🧾 فواتير مشتريات") : ""}
           ${state.session ? navButton("staff", "👥 الموظفون") : ""}
           ${state.session ? navButton("ai", "🤖 المساعد الذكي") : ""}
         </nav>
@@ -2276,6 +2299,7 @@ function pageTitle() {
     payments: "الدفع",
     ai: "المساعد الذكي",
     invoice: "الفواتير بالدولار",
+    purchases: "فواتير المشتريات",
     dashboard: "التقارير",
     staff: "إدارة الموظفين",
     search: `نتائج: ${escapeHtml(state.globalSearch)}`
@@ -4118,6 +4142,13 @@ function searchPage() {
       results.push({ type: "عميل", label: name, sub: `الرصيد: ${c.balance ?? "—"}`, route: "ameen" });
     }
   });
+  (state.purchaseInvoices || []).forEach((p) => {
+    const supplierMatch = (p.supplierName || "").toLowerCase().includes(q);
+    const itemMatch = (p.items || []).some((item) => (item.name || "").toLowerCase().includes(q));
+    if (supplierMatch || itemMatch) {
+      results.push({ type: "مشتريات", label: `${p.publicId} — ${p.supplierName}`, sub: `${(p.items || []).length} صنف · ${p.orderDate}`, route: "purchases" });
+    }
+  });
 
   const rows = results.slice(0, 20).map((r) => `
     <button class="search-result-row" data-route="${escapeHtml(r.route)}" data-search-nav>
@@ -4487,6 +4518,208 @@ function invoice() {
       </div>
     </section>
   `);
+}
+
+// ===== فواتير المشتريات (طلبات الشراء من الموردين) =====
+// تسجيل داخلي فقط: لا طباعة ولا تصدير ولا مزامنة مع الأمين أو أي جهة أخرى.
+function purchases() {
+  if (!state.session) {
+    return shell(`
+      <section class="panel">
+        <h2>فواتير المشتريات</h2>
+        <p class="muted">سجّل الدخول أولاً للوصول إلى فواتير المشتريات.</p>
+      </section>
+    `);
+  }
+
+  const rows = state.poRows;
+  const grandTotal = rows.reduce((sum, r) => sum + toNumber(r.qty) * toNumber(r.price), 0);
+
+  const rowsHtml = rows.map((r, i) => `
+    <tr class="inv-row">
+      <td><input class="inv-input" data-po-field="name" data-po-index="${i}" value="${escapeHtml(r.name)}" placeholder="اسم الصنف المطلوب" dir="auto" list="po-items-list"></td>
+      <td><input class="inv-input inv-num" data-po-field="qty" data-po-index="${i}" value="${escapeHtml(r.qty)}" placeholder="0" type="number" min="0" step="any"></td>
+      <td><input class="inv-input inv-num" data-po-field="price" data-po-index="${i}" value="${escapeHtml(r.price)}" placeholder="اختياري" type="number" min="0" step="any"></td>
+      <td class="inv-line-total">$${(toNumber(r.qty) * toNumber(r.price)).toFixed(2)}</td>
+      <td>${rows.length > 1 ? `<button class="inv-remove" data-po-remove="${i}" title="حذف">✕</button>` : ""}</td>
+    </tr>
+  `).join("");
+
+  const itemNames = [...new Set((state.approvedPriceItems || []).map((p) => p.itemName).filter(Boolean))];
+  const datalistHtml = `<datalist id="po-items-list">${itemNames.map((name) => `<option value="${escapeHtml(name)}"></option>`).join("")}</datalist>`;
+
+  const savedList = state.purchaseInvoices.length
+    ? state.purchaseInvoices.map(purchaseInvoiceCard).join("")
+    : '<p class="muted">لا توجد فواتير مشتريات مسجلة بعد. سجّل أول فاتورة من النموذج أعلاه.</p>';
+
+  return shell(`
+    <section class="notice-panel warning" style="margin-bottom:16px">
+      <span>🗒 دفتر تسجيل داخلي: فواتير المشتريات هنا للتوثيق فقط — لا تُرسَل ولا تُنزَّل إلى الأمين أو أي نظام آخر.</span>
+    </section>
+
+    <section class="panel wide inv-panel">
+      <div class="inv-form-area">
+        <h2 style="margin:0">تسجيل فاتورة مشتريات جديدة</h2>
+        <div class="inv-header-fields">
+          <label class="inv-label">
+            اسم المورد
+            <input class="inv-input-main" id="po-supplier" value="${escapeHtml(state.poSupplier)}" placeholder="اسم المورد أو الشركة" maxlength="240">
+          </label>
+          <label class="inv-label">
+            تاريخ الطلب
+            <input class="inv-input-main" id="po-date" type="date" value="${escapeHtml(state.poDate || todayIsoDate())}">
+          </label>
+        </div>
+        <label class="inv-label">
+          ملاحظات (اختياري)
+          <input class="inv-input-main" id="po-notes" value="${escapeHtml(state.poNotes)}" placeholder="شروط التسليم، طريقة الدفع، إلخ…" maxlength="500">
+        </label>
+
+        ${datalistHtml}
+        <div class="inv-table-wrap">
+          <table class="inv-table">
+            <thead>
+              <tr>
+                <th>الصنف المطلوب</th>
+                <th style="width:90px">الكمية</th>
+                <th style="width:130px">سعر تقديري $ (اختياري)</th>
+                <th style="width:100px">المجموع $</th>
+                <th style="width:36px"></th>
+              </tr>
+            </thead>
+            <tbody id="po-body">${rowsHtml}</tbody>
+          </table>
+        </div>
+
+        <div class="inv-footer">
+          <button class="button secondary" data-action="po-add-row">+ إضافة صنف</button>
+          <div class="inv-total-box">
+            <span>الإجمالي التقديري</span>
+            <strong class="inv-grand-total po-grand-total">$${grandTotal.toFixed(2)}</strong>
+          </div>
+        </div>
+
+        <div class="inv-actions">
+          <button class="button primary" data-action="po-save" ${state.poSaving ? "disabled" : ""}>${state.poSaving ? "جاري الحفظ…" : "💾 تسجيل الفاتورة"}</button>
+          <button class="button secondary" data-action="po-reset" ${state.poSaving ? "disabled" : ""}>مسح</button>
+        </div>
+      </div>
+    </section>
+
+    <section class="panel wide" style="margin-top:16px">
+      <div class="panel-title-row">
+        <h2 style="margin:0">الفواتير المسجلة (${state.purchaseInvoices.length})</h2>
+      </div>
+      <div class="po-list">${savedList}</div>
+    </section>
+  `);
+}
+
+function purchaseInvoiceCard(po) {
+  const expanded = state.poOpenId === po.id;
+  const received = po.status === "received";
+  const chip = received
+    ? '<span class="status-chip chip-ready">مستلمة</span>'
+    : '<span class="status-chip chip-progress">قيد الطلب</span>';
+  const totalText = po.total > 0 ? `$${po.total.toFixed(2)}` : "بدون أسعار";
+  const detailRows = po.items.map((item, idx) => `
+    <tr>
+      <td style="width:32px;color:var(--muted)">${idx + 1}</td>
+      <td>${escapeHtml(item.name)}</td>
+      <td class="inv-num">${escapeHtml(String(item.qty))}</td>
+      <td class="inv-line-total">${item.price > 0 ? `$${item.price.toFixed(2)}` : "—"}</td>
+      <td class="inv-line-total">${item.price > 0 ? `$${(item.qty * item.price).toFixed(2)}` : "—"}</td>
+    </tr>
+  `).join("");
+
+  return `
+    <article class="po-card ${received ? "po-received" : ""}">
+      <div class="po-card-head">
+        <div class="po-card-info">
+          <strong>${escapeHtml(po.publicId)} — ${escapeHtml(po.supplierName)}</strong>
+          <small class="muted">${escapeHtml(po.orderDate)} · ${po.items.length} صنف · ${escapeHtml(totalText)}</small>
+        </div>
+        <div class="po-card-actions">
+          ${chip}
+          <button class="button secondary compact-button" type="button" data-po-toggle="${escapeHtml(po.id)}">${expanded ? "إخفاء التفاصيل" : "التفاصيل"}</button>
+          <button class="button secondary compact-button" type="button" data-po-status="${escapeHtml(po.id)}" data-po-next="${received ? "open" : "received"}">${received ? "إعادة لقيد الطلب" : "✓ استلمتها"}</button>
+          <button class="button secondary compact-button po-delete" type="button" data-po-delete="${escapeHtml(po.id)}">حذف</button>
+        </div>
+      </div>
+      ${expanded ? `
+        <div class="inv-table-wrap" style="margin-top:12px">
+          <table class="inv-table">
+            <thead><tr><th style="width:32px">#</th><th>الصنف</th><th style="width:80px">الكمية</th><th style="width:100px">السعر $</th><th style="width:100px">المجموع $</th></tr></thead>
+            <tbody>${detailRows}</tbody>
+          </table>
+        </div>
+        ${po.notes ? `<p class="muted" style="margin:10px 4px 0">📝 ${escapeHtml(po.notes)}</p>` : ""}
+      ` : ""}
+    </article>
+  `;
+}
+
+async function savePurchaseInvoice() {
+  if (state.poSaving) return;
+  const supplier = state.poSupplier.trim();
+  const items = state.poRows
+    .map((r) => ({ name: r.name.trim(), qty: toNumber(r.qty), price: toNumber(r.price) }))
+    .filter((r) => r.name && r.qty > 0);
+  if (!supplier) {
+    setNotice("error", "اكتب اسم المورد أولاً.");
+    render();
+    return;
+  }
+  if (!items.length) {
+    setNotice("error", "أضف صنفاً واحداً على الأقل مع كمية أكبر من صفر.");
+    render();
+    return;
+  }
+  state.poSaving = true;
+  render();
+  try {
+    await dataStore.createPurchaseInvoice({
+      supplierName: supplier,
+      orderDate: state.poDate || todayIsoDate(),
+      notes: state.poNotes,
+      items
+    });
+    await loadPurchaseInvoices();
+    state.poSupplier = "";
+    state.poDate = "";
+    state.poNotes = "";
+    state.poRows = [{ name: "", qty: "1", price: "" }];
+    setNotice("success", "تم تسجيل فاتورة المشتريات في السجل الداخلي.");
+  } catch (error) {
+    setNotice("error", safeErrorMessage(error));
+    if (/سجل الدخول/i.test(error.message || "")) state.route = "login";
+  } finally {
+    state.poSaving = false;
+    render();
+  }
+}
+
+async function setPurchaseInvoiceStatus(id, status) {
+  try {
+    await dataStore.updatePurchaseInvoiceStatus(id, status);
+    await loadPurchaseInvoices();
+    setNotice("success", status === "received" ? "تم تحديد الفاتورة كمستلمة." : "أُعيدت الفاتورة إلى قيد الطلب.");
+  } catch (error) {
+    setNotice("error", safeErrorMessage(error));
+  }
+  render();
+}
+
+async function removePurchaseInvoice(id) {
+  if (!confirm("حذف هذه الفاتورة نهائياً من السجل؟")) return;
+  try {
+    await dataStore.deletePurchaseInvoice(id);
+    await loadPurchaseInvoices();
+    setNotice("success", "تم حذف الفاتورة من السجل.");
+  } catch (error) {
+    setNotice("error", safeErrorMessage(error));
+  }
+  render();
 }
 
 function generateInvoiceNumber() {
@@ -4889,6 +5122,7 @@ function render() {
     monitoring,
     payments,
     invoice,
+    purchases,
     dashboard: reportsPage,
     staff: staffPage,
     search: searchPage,
@@ -4979,6 +5213,70 @@ function render() {
     state.invRows = [{ name: "", qty: "1", price: "" }];
     render();
   });
+  // Purchase invoices handlers (فواتير المشتريات — تسجيل داخلي فقط)
+  app.querySelector("#po-supplier")?.addEventListener("input", (e) => {
+    state.poSupplier = e.currentTarget.value;
+  });
+  app.querySelector("#po-date")?.addEventListener("change", (e) => {
+    state.poDate = e.currentTarget.value;
+  });
+  app.querySelector("#po-notes")?.addEventListener("input", (e) => {
+    state.poNotes = e.currentTarget.value;
+  });
+  app.querySelectorAll("[data-po-field]").forEach((input) => {
+    input.addEventListener("input", (e) => {
+      const i = Number(e.currentTarget.dataset.poIndex);
+      const field = e.currentTarget.dataset.poField;
+      if (!state.poRows[i]) return;
+      state.poRows[i][field] = e.currentTarget.value;
+      const tbody = document.getElementById("po-body");
+      if (tbody) {
+        const cells = tbody.querySelectorAll("tr")[i]?.querySelectorAll(".inv-line-total");
+        if (cells?.[0]) {
+          const qty = toNumber(state.poRows[i].qty);
+          const price = toNumber(state.poRows[i].price);
+          cells[0].textContent = `$${(qty * price).toFixed(2)}`;
+        }
+        const grandEl = document.querySelector(".po-grand-total");
+        if (grandEl) {
+          const total = state.poRows.reduce((s, r) => s + toNumber(r.qty) * toNumber(r.price), 0);
+          grandEl.textContent = `$${total.toFixed(2)}`;
+        }
+      }
+    });
+  });
+  app.querySelectorAll("[data-po-remove]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      state.poRows.splice(Number(btn.dataset.poRemove), 1);
+      render();
+    });
+  });
+  app.querySelector("[data-action='po-add-row']")?.addEventListener("click", () => {
+    state.poRows.push({ name: "", qty: "1", price: "" });
+    render();
+  });
+  app.querySelector("[data-action='po-save']")?.addEventListener("click", savePurchaseInvoice);
+  app.querySelector("[data-action='po-reset']")?.addEventListener("click", () => {
+    state.poSupplier = "";
+    state.poDate = "";
+    state.poNotes = "";
+    state.poRows = [{ name: "", qty: "1", price: "" }];
+    render();
+  });
+  app.querySelectorAll("[data-po-toggle]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const id = btn.dataset.poToggle;
+      state.poOpenId = state.poOpenId === id ? "" : id;
+      render();
+    });
+  });
+  app.querySelectorAll("[data-po-status]").forEach((btn) => {
+    btn.addEventListener("click", () => setPurchaseInvoiceStatus(btn.dataset.poStatus, btn.dataset.poNext));
+  });
+  app.querySelectorAll("[data-po-delete]").forEach((btn) => {
+    btn.addEventListener("click", () => removePurchaseInvoice(btn.dataset.poDelete));
+  });
+
   app.querySelector("[data-action='ai-clear']")?.addEventListener("click", () => {
     state.aiMessages = [];
     render();

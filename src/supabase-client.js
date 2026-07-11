@@ -4,6 +4,7 @@
   const INVENTORY_REPORTS_KEY = "tobacco-inventory-reports";
   const CUSTOMER_LIMITS_KEY = "tobacco-customer-credit-limits";
   const APPROVED_PRICES_KEY = "tobacco-approved-price-items";
+  const PURCHASE_INVOICES_KEY = "tobacco-purchase-invoices";
 
   const defaultRequests = [
     {
@@ -83,6 +84,7 @@
   const customerProfilesTable = config.customerProfilesTable || "customer_profiles";
   const itemCostsTable = config.itemCostsTable || "item_costs";
   const dailyMovementTable = config.dailyMovementTable || "daily_movement_reports";
+  const purchaseInvoicesTable = config.purchaseInvoicesTable || "purchase_invoices";
   const client =
     hasConfig && hasLibrary
       ? window.supabase.createClient(config.url, config.publishableKey, {
@@ -148,6 +150,34 @@
       notes: cleanText(input.notes, 500),
       updated_at: new Date().toISOString(),
       ...(userId ? { updated_by: userId } : {})
+    };
+  }
+
+  // فواتير المشتريات — تسجيل داخلي فقط (لا تُزامَن مع الأمين ولا تُصدَّر)
+  function normalizePurchaseItems(items) {
+    return (Array.isArray(items) ? items : [])
+      .map((item) => ({
+        name: cleanText(item.name, 240),
+        qty: Math.max(0, parseNumber(item.qty)),
+        price: Math.max(0, parseNumber(item.price))
+      }))
+      .filter((item) => item.name && item.qty > 0);
+  }
+
+  function normalizeDbPurchaseInvoice(row) {
+    const shortId = String(row.id || Date.now()).slice(0, 8).toUpperCase();
+    const items = normalizePurchaseItems(row.items);
+    return {
+      id: row.id,
+      publicId: `PO-${shortId}`,
+      supplierName: row.supplier_name || "",
+      orderDate: row.order_date || "",
+      status: row.status === "received" ? "received" : "open",
+      items,
+      total: parseNumber(row.total || 0),
+      notes: row.notes || "",
+      createdAt: row.created_at || "",
+      updatedAt: row.updated_at || row.created_at || ""
     };
   }
 
@@ -742,6 +772,89 @@
         throw new Error(error.message);
       }
       return data?.[0] ? normalizeDbPaymentRecord(data[0]) : { id: `PR-${Date.now()}`, ...record, source: "manual" };
+    },
+
+    async listPurchaseInvoices() {
+      if (!client) {
+        return readJson(PURCHASE_INVOICES_KEY, []).map(normalizeDbPurchaseInvoice);
+      }
+      const session = await getSupabaseSession();
+      if (!session) return [];
+      const { data, error } = await client
+        .from(purchaseInvoicesTable)
+        .select("id, supplier_name, order_date, status, items, total, notes, created_at, updated_at")
+        .order("created_at", { ascending: false })
+        .limit(300);
+      if (error) {
+        if (error.code === "42P01") return [];
+        throw new Error(translateDbError(error.message));
+      }
+      return (data || []).map(normalizeDbPurchaseInvoice);
+    },
+
+    async createPurchaseInvoice(input) {
+      const record = {
+        supplier_name: cleanText(input.supplierName, 240),
+        order_date: String(input.orderDate || new Date().toISOString().slice(0, 10)),
+        status: "open",
+        items: normalizePurchaseItems(input.items),
+        notes: cleanText(input.notes, 500)
+      };
+      if (!record.supplier_name) throw new Error("اكتب اسم المورد أولاً.");
+      if (!record.items.length) throw new Error("أضف صنفاً واحداً على الأقل مع كمية.");
+      record.total = roundPrice(record.items.reduce((sum, item) => sum + item.qty * item.price, 0));
+
+      if (!client) {
+        const all = readJson(PURCHASE_INVOICES_KEY, []);
+        const local = {
+          id: `local-${Date.now()}`,
+          ...record,
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString()
+        };
+        writeJson(PURCHASE_INVOICES_KEY, [local, ...all].slice(0, 300));
+        return normalizeDbPurchaseInvoice(local);
+      }
+
+      const user = await requireUser();
+      const { data, error } = await client
+        .from(purchaseInvoicesTable)
+        .insert({ ...record, created_by: user.id })
+        .select("id, supplier_name, order_date, status, items, total, notes, created_at, updated_at")
+        .limit(1);
+      if (error) {
+        if (error.code === "42P01") throw new Error("جدول purchase_invoices غير موجود. شغّل SQL الإعداد في Supabase أولاً.");
+        throw new Error(translateDbError(error.message));
+      }
+      return data?.[0] ? normalizeDbPurchaseInvoice(data[0]) : normalizeDbPurchaseInvoice(record);
+    },
+
+    async updatePurchaseInvoiceStatus(id, status) {
+      const nextStatus = status === "received" ? "received" : "open";
+      if (!client) {
+        const all = readJson(PURCHASE_INVOICES_KEY, []).map((row) =>
+          row.id === id ? { ...row, status: nextStatus, updated_at: new Date().toISOString() } : row
+        );
+        writeJson(PURCHASE_INVOICES_KEY, all);
+        return;
+      }
+      await requireUser();
+      const { error } = await client
+        .from(purchaseInvoicesTable)
+        .update({ status: nextStatus, updated_at: new Date().toISOString() })
+        .eq("id", id);
+      if (error) throw new Error(translateDbError(error.message));
+    },
+
+    async deletePurchaseInvoice(id) {
+      if (!client) {
+        const all = readJson(PURCHASE_INVOICES_KEY, []).filter((row) => row.id !== id);
+        writeJson(PURCHASE_INVOICES_KEY, all);
+        return;
+      }
+      await requireUser();
+      const { error } = await client.from(purchaseInvoicesTable).delete().eq("id", id);
+      if (error) throw new Error(translateDbError(error.message));
     },
 
     async listCustomerProfiles() {
