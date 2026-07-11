@@ -651,6 +651,19 @@ function customerInvoicesFor(name) {
   return match && Array.isArray(match.invoices) ? match.invoices : [];
 }
 
+// مطابقة قيد دائن (دفعة محتملة) بفاتورة مرتجع فعلية بالتاريخ والمبلغ — قيود المرتجع في الأمين
+// لا تحمل معرّف الفاتورة (BiGUID) كالفواتير العادية، فلا مطابقة قطعية ممكنة هنا.
+function findReturnInvoiceForMovement(custName, movement) {
+  const credit = Number(movement?.credit || 0);
+  if (!(credit > 0)) return null;
+  const invs = customerInvoicesFor(custName).filter((x) => x.isReturn);
+  if (!invs.length) return null;
+  const dOnly = String(movement?.date || "").slice(0, 10);
+  const amtMatch = (x) => Math.abs(Number(x.total || 0) - credit) < 1;
+  const dateMatch = (x) => String(x.date || "").slice(0, 10) === dOnly;
+  return invs.find((x) => dateMatch(x) && amtMatch(x)) || invs.find((x) => amtMatch(x)) || null;
+}
+
 // كمية سطر الفاتورة بشكل مقروء (نفضّل الوحدة الأكبر إن وُجدت).
 // لا نعرض سعر/إجمالي السطر لأن أرقام الأسطر المفردة بمصدر الأمين غير دقيقة
 // (مجموعها لا يطابق إجمالي الفاتورة)؛ الموثوق هو إجمالي الفاتورة فقط.
@@ -3295,25 +3308,28 @@ function balanceText(bal, cur) {
 function voucherPdfMarkup(v) {
   const isPay = v.type === "payment";
   const isInv = v.type === "invoice";
-  const title = isInv ? "فاتورة" : (isPay ? "سند صرف" : "سند قبض");
+  const isRet = v.type === "return";
+  const title = isInv ? "فاتورة" : (isRet ? "فاتورة مرتجع" : (isPay ? "سند صرف" : "سند قبض"));
   const cur = v.cur || "ل.س";
   const amtColor = (isPay || isInv) ? "#c0271f" : "#16794f";
-  const amtLabel = isInv ? "قيمة الفاتورة" : (isPay ? "المبلغ المصروف" : "المبلغ المستلم");
+  const amtLabel = isInv ? "قيمة الفاتورة" : (isRet ? "قيمة المرتجع" : (isPay ? "المبلغ المصروف" : "المبلغ المستلم"));
   const dstr = String(v.date || todayIsoDate()).slice(0, 10);
   const noteLine = isInv
     ? "هذه فاتورة صادرة عن OZK TOBACCO."
-    : (isPay
-      ? "هذا سند رسمي بالمبلغ المصروف من صندوق OZK TOBACCO."
-      : "شكراً لتعاملكم مع OZK TOBACCO. هذا سند رسمي بالمبلغ المستلم.");
-  const balLabel = isInv ? "الرصيد الحالي" : (isPay ? "الرصيد بعد الصرف" : "الرصيد بعد الدفعة");
+    : (isRet
+      ? "هذا سند رسمي بقيمة البضاعة المرتجعة إلى OZK TOBACCO — خُصمت من رصيد حسابكم."
+      : (isPay
+        ? "هذا سند رسمي بالمبلغ المصروف من صندوق OZK TOBACCO."
+        : "شكراً لتعاملكم مع OZK TOBACCO. هذا سند رسمي بالمبلغ المستلم."));
+  const balLabel = isInv ? "الرصيد الحالي" : (isRet ? "الرصيد بعد المرتجع" : (isPay ? "الرصيد بعد الصرف" : "الرصيد بعد الدفعة"));
   const rows = [];
   rows.push(`<tr><th style="width:130px">التاريخ</th><td>${escapeHtml(dstr)}</td></tr>`);
   if (v.method) rows.push(`<tr><th>طريقة الدفع</th><td>${escapeHtml(v.method)}</td></tr>`);
   if (v.notes) rows.push(`<tr><th>البيان</th><td>${escapeHtml(v.notes)}</td></tr>`);
-  // للفاتورة: نعرض الرصيد السابق ثم قيمة الفاتورة ثم الرصيد الجديد ليعرف الزبون وضعه بوضوح.
-  if (isInv && v.newBalance !== undefined && v.newBalance !== null) {
+  // للفاتورة والمرتجع: نعرض الرصيد السابق ثم القيمة ثم الرصيد الجديد ليعرف الزبون وضعه بوضوح.
+  if ((isInv || isRet) && v.newBalance !== undefined && v.newBalance !== null) {
     rows.push(`<tr><th>الرصيد السابق</th><td>${escapeHtml(balanceText(v.prevBalance, cur))}</td></tr>`);
-    rows.push(`<tr><th>قيمة هذه الفاتورة</th><td>${escapeHtml(formatMoney(v.amount || 0))} ${escapeHtml(cur)}</td></tr>`);
+    rows.push(`<tr><th>${isRet ? "قيمة هذا المرتجع" : "قيمة هذه الفاتورة"}</th><td>${escapeHtml(formatMoney(v.amount || 0))} ${escapeHtml(cur)}</td></tr>`);
     // إن سُجّلت الفاتورة على الحساب بمبلغ أقل/أكثر من قيمتها (حسم أو تسوية) نُظهر الفرق
     // ليبقى الحساب شفافاً: السابق + الفاتورة − الحسم = الجديد.
     if (Number(v.adjust || 0) > 0.009) {
@@ -3324,7 +3340,7 @@ function voucherPdfMarkup(v) {
     rows.push(`<tr><th>الرصيد الجديد</th><td><b>${escapeHtml(balanceText(v.newBalance, cur))}</b></td></tr>`);
   } else if (v.balance !== undefined && v.balance !== null && v.balance !== "") {
     const lbl = v.balanceLabel || balLabel;
-    const balTxt = (isInv || v.type === "receipt") ? balanceText(v.balance, cur) : `${formatMoney(v.balance)} ${cur}`;
+    const balTxt = (isInv || isRet || v.type === "receipt") ? balanceText(v.balance, cur) : `${formatMoney(v.balance)} ${cur}`;
     rows.push(`<tr><th>${escapeHtml(lbl)}</th><td>${escapeHtml(balTxt)}</td></tr>`);
   }
   const stamp = `
@@ -3341,7 +3357,7 @@ function voucherPdfMarkup(v) {
         <img src="public/icons/ozk-logo.png" class="rlogo" alt="OZK" onerror="this.style.display='none'">
         <div class="brand">OZK TOBACCO<small>مركز أبو زياد — لتجارة الدخان</small></div>
       </div>
-      <div class="rtitle"><h2>${title}</h2><span>رقم: ${escapeHtml(v.no || docNumber(isInv ? "INV" : (isPay ? "PV" : "R")))} · ${escapeHtml(dstr)}</span></div>
+      <div class="rtitle"><h2>${title}</h2><span>رقم: ${escapeHtml(v.no || docNumber(isInv ? "INV" : (isRet ? "RET" : (isPay ? "PV" : "R"))))} · ${escapeHtml(dstr)}</span></div>
     </div>
     <div class="balbox">
       <div><div class="nm">${escapeHtml(v.name || "")}</div>
@@ -3349,8 +3365,8 @@ function voucherPdfMarkup(v) {
       <div style="text-align:left"><div class="muted">${amtLabel}</div>
         <div class="big" style="color:${amtColor}">${escapeHtml(formatMoney(v.amount || 0))} ${escapeHtml(cur)}</div></div>
     </div>
-    ${(isInv && Array.isArray(v.lines) && v.lines.length) ? `
-    <div class="sec">أصناف الفاتورة</div>
+    ${((isInv || isRet) && Array.isArray(v.lines) && v.lines.length) ? `
+    <div class="sec">${isRet ? "أصناف المرتجع" : "أصناف الفاتورة"}</div>
     <table>
       <thead><tr><th>المادة</th><th>الكمية</th><th>سعر الوحدة</th></tr></thead>
       <tbody>${v.lines.map((l) => `<tr><td>${escapeHtml(l.material || "")}</td><td>${escapeHtml(invoiceLineQty(l))}</td><td>${escapeHtml(invoiceLinePrice(l, { total: v.amount, lines: v.lines }))}</td></tr>`).join("")}</tbody>
@@ -3365,10 +3381,11 @@ function voucherPdfMarkup(v) {
 async function exportVoucherPdf(v) {
   const isPay = v.type === "payment";
   const isInv = v.type === "invoice";
-  const safe = String(v.name || (isInv ? "فاتورة" : (isPay ? "صرف" : "قبض"))).replace(/[^\p{L}\p{N}]+/gu, "_").slice(0, 40);
-  const prefix = isInv ? "فاتورة" : (isPay ? "سند-صرف" : "سند-قبض");
+  const isRet = v.type === "return";
+  const safe = String(v.name || (isInv ? "فاتورة" : (isRet ? "مرتجع" : (isPay ? "صرف" : "قبض")))).replace(/[^\p{L}\p{N}]+/gu, "_").slice(0, 40);
+  const prefix = isInv ? "فاتورة" : (isRet ? "فاتورة-مرتجع" : (isPay ? "سند-صرف" : "سند-قبض"));
   await exportReportPdf(voucherPdfMarkup(v), `${prefix}-${safe}-${todayIsoDate()}.pdf`);
-  setNotice("success", isInv ? "تم تجهيز الفاتورة PDF." : (isPay ? "تم تجهيز سند الصرف PDF." : "تم تجهيز سند القبض PDF."));
+  setNotice("success", isInv ? "تم تجهيز الفاتورة PDF." : (isRet ? "تم تجهيز فاتورة المرتجع PDF." : (isPay ? "تم تجهيز سند الصرف PDF." : "تم تجهيز سند القبض PDF.")));
   render();
 }
 
@@ -3633,7 +3650,11 @@ function customerDetailsPanel(item) {
         ? [...item.recentMovements].sort((a, b) => new Date(b.date || 0) - new Date(a.date || 0))
         : []);
   const invoiceMoves = movements.filter((m) => Number(m?.debit || 0) > 0);
-  const paymentMoves = movements.filter((m) => Number(m?.credit || 0) > 0);
+  const creditMoves = movements.filter((m) => Number(m?.credit || 0) > 0);
+  // مرتجع المبيعات يُقيَّد دائناً على حساب الزبون تماماً كالدفعة — نفرزه هنا بمطابقة
+  // فاتورة المرتجع الفعلية (بالتاريخ والمبلغ) ليُصدَّر كفاتورة مرتجع لا كسند قبض.
+  const returnMoves = creditMoves.filter((m) => findReturnInvoiceForMovement(item.name || "", m));
+  const paymentMoves = creditMoves.filter((m) => !findReturnInvoiceForMovement(item.name || "", m));
 
   return `
     <section class="customer-detail-panel" data-customer-detail-panel>
@@ -3702,6 +3723,26 @@ function customerDetailsPanel(item) {
                   </div>
                 </div>`).join("")
               : '<p class="muted" style="padding:12px 0">لا توجد فواتير مسجلة.</p>'}
+          </div>
+        </article>
+        <article>
+          <div class="detail-section-head">
+            <h4>🔁 المرتجعات</h4>
+            <span class="status-chip">${returnMoves.length} مرتجع</span>
+          </div>
+          <div class="detail-list payment-timeline">
+            ${returnMoves.length
+              ? returnMoves.map((m) => `
+                <div class="payment-entry">
+                  <div class="payment-entry-dot movement-dot"></div>
+                  <div class="payment-entry-body">
+                    <strong class="payment-amount">مرتجع: ${escapeHtml(formatMoney(Number(m?.credit || 0)))}</strong>
+                    <span class="payment-date">${escapeHtml(m?.date ? formatDate(m.date) : "بلا تاريخ")}</span>
+                    ${m?.notes ? `<small class="payment-note">${escapeHtml(m.notes)}</small>` : ""}
+                    <button class="button secondary mini-button" type="button" data-action="gen-movement-doc" data-debit="0" data-credit="${escapeHtml(String(m?.credit || 0))}" data-date="${escapeHtml(m?.date || "")}" data-notes="${escapeHtml(m?.notes || "")}" data-balance="${m?.balance !== undefined && m?.balance !== null ? escapeHtml(String(m.balance)) : ""}" style="margin-top:6px">📄 فاتورة مرتجع PDF</button>
+                  </div>
+                </div>`).join("")
+              : '<p class="muted" style="padding:12px 0">لا توجد مرتجعات مسجلة.</p>'}
           </div>
         </article>
         <article>
@@ -3965,7 +4006,7 @@ function reportsPage() {
           <div class="sec">📋 فواتير «${escapeHtml(selectedCustomerName)}» (${selInvoices.length}) — اضغط فاتورة لرؤية محتوياتها</div>
           ${selInvoices.map((inv) => `
             <details class="acc-group" style="margin:6px 0">
-              <summary class="acc-summary"><span class="acc-title">🧾 فاتورة ${escapeHtml(inv.number || "")} — ${escapeHtml(inv.date || "")}</span><span class="acc-count">${escapeHtml(formatMoney(inv.total || 0))} $</span></summary>
+              <summary class="acc-summary"><span class="acc-title">${inv.isReturn ? "🔁 مرتجع" : "🧾 فاتورة"} ${escapeHtml(inv.number || "")} — ${escapeHtml(inv.date || "")}</span><span class="acc-count" style="${inv.isReturn ? "color:#16794f" : ""}">${escapeHtml(formatMoney(inv.total || 0))} $</span></summary>
               <div class="acc-body">
                 <table class="dm-table" style="width:100%">
                   <thead><tr><th>المادة</th><th>الكمية</th><th>سعر الوحدة</th></tr></thead>
@@ -3973,8 +4014,8 @@ function reportsPage() {
                     ${(inv.lines || []).map((l) => `<tr><td>${escapeHtml(l.material || "")}</td><td>${escapeHtml(invoiceLineQty(l))}</td><td>${escapeHtml(invoiceLinePrice(l, inv))}</td></tr>`).join("")}
                   </tbody>
                 </table>
-                <p class="muted" style="margin:6px 2px 0">إجمالي الفاتورة: <b>${escapeHtml(formatMoney(inv.total || 0))} $</b></p>
-                <button class="button secondary mini-button" type="button" data-action="gen-invoice-doc" data-inv-number="${escapeHtml(String(inv.number || ""))}" data-inv-date="${escapeHtml(String(inv.date || ""))}" data-customer="${escapeHtml(selectedCustomerName)}" style="margin-top:8px">📄 تصدير الفاتورة PDF (مع الأصناف)</button>
+                <p class="muted" style="margin:6px 2px 0">${inv.isReturn ? "إجمالي المرتجع" : "إجمالي الفاتورة"}: <b>${escapeHtml(formatMoney(inv.total || 0))} $</b></p>
+                <button class="button secondary mini-button" type="button" data-action="gen-invoice-doc" data-inv-number="${escapeHtml(String(inv.number || ""))}" data-inv-date="${escapeHtml(String(inv.date || ""))}" data-customer="${escapeHtml(selectedCustomerName)}" style="margin-top:8px">📄 ${inv.isReturn ? "تصدير فاتورة المرتجع PDF" : "تصدير الفاتورة PDF (مع الأصناف)"}</button>
               </div>
             </details>`).join("")}
         </div>`;
@@ -5561,7 +5602,7 @@ function render() {
       const storedBal = el.dataset.balance !== undefined && el.dataset.balance !== ""
         ? Number(el.dataset.balance) : null;
       if (debit > 0 && credit <= 0) {
-        const invs = customerInvoicesFor(item.name || "");
+        const invs = customerInvoicesFor(item.name || "").filter((x) => !x.isReturn);
         // نطابق الفاتورة التفصيلية بمعرّف القيد (قطعي) أولاً، ثم بالتاريخ/المبلغ كاحتياط.
         const bg = String(el.dataset.billGuid || "").trim().toLowerCase();
         const dOnly = String(el.dataset.date || "").slice(0, 10);
@@ -5586,15 +5627,30 @@ function render() {
           render();
         }
       } else if (credit > 0) {
-        const opts = { ...base, type: "receipt", amount: credit, no: docNumber("R") };
-        if (storedBal !== null && Number.isFinite(storedBal)) {
-          opts.balance = roundPrice(storedBal);
-          opts.balanceLabel = "الرصيد بعد الدفعة";
+        // مرتجع المبيعات يُقيَّد دائناً كالدفعة تماماً — نطابقه أولاً بفاتورة مرتجع فعلية
+        // (بالتاريخ والمبلغ، إذ لا معرّف قيد لقيود المرتجع) لنصدّره كفاتورة مرتجع مع أصنافها.
+        const retMatch = findReturnInvoiceForMovement(item.name || "", { date: el.dataset.date, credit });
+        if (retMatch) {
+          const opts = { ...base, cur: "$", type: "return", amount: retMatch.total || credit, no: retMatch.number ? String(retMatch.number) : docNumber("RET"), lines: retMatch.lines || [] };
+          if (storedBal !== null && Number.isFinite(storedBal)) {
+            opts.newBalance = roundPrice(storedBal);
+            opts.prevBalance = roundPrice(storedBal + credit);
+          } else {
+            opts.balance = customerBalance(item);
+            opts.balanceLabel = "الرصيد بعد المرتجع";
+          }
+          exportVoucherPdf(opts);
         } else {
-          opts.balance = customerBalance(item);
-          opts.balanceLabel = "الرصيد الحالي";
+          const opts = { ...base, type: "receipt", amount: credit, no: docNumber("R") };
+          if (storedBal !== null && Number.isFinite(storedBal)) {
+            opts.balance = roundPrice(storedBal);
+            opts.balanceLabel = "الرصيد بعد الدفعة";
+          } else {
+            opts.balance = customerBalance(item);
+            opts.balanceLabel = "الرصيد الحالي";
+          }
+          exportVoucherPdf(opts);
         }
-        exportVoucherPdf(opts);
       } else {
         setNotice("error", "لا يمكن تصدير هذا القيد."); render();
       }
@@ -5611,18 +5667,19 @@ function render() {
         const invoiceTotal = inv.total || 0;
         const custItem = smartNameMatch(latestCustomerBalanceItems(), (it) => it.name, cust);
         const opts = {
-          type: "invoice",
+          type: inv.isReturn ? "return" : "invoice",
           name: cust,
           amount: invoiceTotal,
           cur: "$",
           date: inv.date || todayIsoDate(),
-          no: inv.number ? String(inv.number) : docNumber("INV"),
+          no: inv.number ? String(inv.number) : docNumber(inv.isReturn ? "RET" : "INV"),
           lines: inv.lines || []
         };
         // الرصيد قبل/بعد الفاتورة من قيدها في دفتر الأمين (مطابقة قطعية بالمعرّف GUID).
+        // قيود المرتجع لا تحمل معرّف قيد، فتُستثنى وتعرض الرصيد الحالي فقط.
         // عند أي خطأ في حساب الرصيد نتجاهله ونعرض الرصيد الحالي فقط — دون منع تصدير الفاتورة.
         try {
-          const mv = movementForBill(cust, inv.guid);
+          const mv = inv.isReturn ? null : movementForBill(cust, inv.guid);
           if (mv) {
             const ledgerDebit = Number(mv.debit || 0);
             opts.newBalance = roundPrice(mv.balance);
@@ -5631,6 +5688,7 @@ function render() {
             if (ledgerDebit > 0 && Math.abs(adjust) > 0.009) opts.adjust = adjust;
           } else {
             opts.balance = custItem ? customerBalance(custItem) : null;
+            if (inv.isReturn) opts.balanceLabel = "الرصيد بعد المرتجع";
           }
         } catch (_balErr) {
           opts.balance = custItem ? customerBalance(custItem) : null;
