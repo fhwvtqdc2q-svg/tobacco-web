@@ -4554,7 +4554,7 @@ function purchases() {
 
   return shell(`
     <section class="notice-panel warning" style="margin-bottom:16px">
-      <span>🗒 دفتر تسجيل داخلي: فواتير المشتريات هنا للتوثيق فقط — لا تُرسَل ولا تُنزَّل إلى الأمين أو أي نظام آخر.</span>
+      <span>🗒 سجل طلبات الشراء: سجّل الفاتورة ثم اطبعها أو انسخ نصها لإرسالها إلى المورد — لا تُنزَّل إلى الأمين ولا تؤثر على المخزون أو الحسابات.</span>
     </section>
 
     <section class="panel wide inv-panel">
@@ -4642,6 +4642,8 @@ function purchaseInvoiceCard(po) {
         <div class="po-card-actions">
           ${chip}
           <button class="button secondary compact-button" type="button" data-po-toggle="${escapeHtml(po.id)}">${expanded ? "إخفاء التفاصيل" : "التفاصيل"}</button>
+          <button class="button secondary compact-button" type="button" data-po-print="${escapeHtml(po.id)}" title="طباعة طلب الشراء أو حفظه PDF لإرساله للمورد">🖨 طباعة / PDF</button>
+          <button class="button secondary compact-button" type="button" data-po-copy="${escapeHtml(po.id)}" title="نسخ نص الطلب للصقه في محادثة المورد">📋 نسخ للإرسال</button>
           <button class="button secondary compact-button" type="button" data-po-status="${escapeHtml(po.id)}" data-po-next="${received ? "open" : "received"}">${received ? "إعادة لقيد الطلب" : "✓ استلمتها"}</button>
           <button class="button secondary compact-button po-delete" type="button" data-po-delete="${escapeHtml(po.id)}">حذف</button>
         </div>
@@ -4689,7 +4691,7 @@ async function savePurchaseInvoice() {
     state.poDate = "";
     state.poNotes = "";
     state.poRows = [{ name: "", qty: "1", price: "" }];
-    setNotice("success", "تم تسجيل فاتورة المشتريات في السجل الداخلي.");
+    setNotice("success", "تم تسجيل فاتورة المشتريات ✓ — اطبعها أو انسخ نصها من القائمة أدناه لإرسالها إلى المورد.");
   } catch (error) {
     setNotice("error", safeErrorMessage(error));
     if (/سجل الدخول/i.test(error.message || "")) state.route = "login";
@@ -4720,6 +4722,158 @@ async function removePurchaseInvoice(id) {
     setNotice("error", safeErrorMessage(error));
   }
   render();
+}
+
+// نص طلب الشراء للإرسال إلى المورد (واتساب أو غيره) — الأسعار تظهر فقط إذا أُدخلت
+function buildPurchaseInvoiceText(po) {
+  const showPrices = po.total > 0;
+  const lines = po.items.map((item, idx) => {
+    const base = `${idx + 1}) ${item.name} — الكمية: ${item.qty}`;
+    return showPrices && item.price > 0 ? `${base} — السعر المتوقع: $${item.price.toFixed(2)}` : base;
+  });
+  const parts = [
+    `📋 طلب شراء ${po.publicId}`,
+    `من: ${appConfig.name}`,
+    `التاريخ: ${po.orderDate}`,
+    `إلى المورد: ${po.supplierName}`,
+    "",
+    "الأصناف المطلوبة:",
+    ...lines
+  ];
+  if (showPrices) parts.push("", `الإجمالي التقديري: $${po.total.toFixed(2)}`);
+  if (po.notes) parts.push("", `ملاحظات: ${po.notes}`);
+  return parts.join("\n");
+}
+
+async function copyPurchaseInvoiceText(id) {
+  const po = state.purchaseInvoices.find((p) => p.id === id);
+  if (!po) return;
+  const text = buildPurchaseInvoiceText(po);
+  let copied = false;
+  try {
+    await navigator.clipboard.writeText(text);
+    copied = true;
+  } catch {
+    try {
+      const area = document.createElement("textarea");
+      area.value = text;
+      document.body.appendChild(area);
+      area.select();
+      copied = document.execCommand("copy");
+      area.remove();
+    } catch {
+      copied = false;
+    }
+  }
+  setNotice(copied ? "success" : "error", copied ? "تم نسخ نص طلب الشراء — ألصقه في محادثة المورد (واتساب أو غيره)." : "تعذّر النسخ التلقائي. افتح التفاصيل وانسخ الأصناف يدوياً.");
+  render();
+}
+
+function printPurchaseInvoice(id) {
+  const po = state.purchaseInvoices.find((p) => p.id === id);
+  if (!po) return;
+  const showPrices = po.total > 0;
+  const printDate = new Intl.DateTimeFormat("ar-SA-u-nu-latn", { dateStyle: "long" }).format(new Date());
+
+  const rowsHtml = po.items.map((item, i) => `
+    <tr>
+      <td class="col-num">${i + 1}</td>
+      <td>${escapeHtml(item.name)}</td>
+      <td>${escapeHtml(String(item.qty))}</td>
+      ${showPrices ? `
+        <td class="col-price">${item.price > 0 ? `$${item.price.toFixed(2)}` : "—"}</td>
+        <td class="col-total">${item.price > 0 ? `$${(item.qty * item.price).toFixed(2)}` : "—"}</td>
+      ` : ""}
+    </tr>
+  `).join("");
+
+  const html = `<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<title>طلب شراء ${po.publicId}</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: 'Segoe UI', Tahoma, Arial, sans-serif; font-size: 13px; color: #1a1a1a; background: #fff; padding: 40px; direction: rtl; }
+  .inv-head { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 36px; border-bottom: 3px solid #b8860b; padding-bottom: 20px; }
+  .inv-company { font-size: 22px; font-weight: 700; color: #5c3d00; letter-spacing: 1px; }
+  .inv-company small { display: block; font-size: 12px; font-weight: 400; color: #888; margin-top: 4px; }
+  .inv-meta { text-align: left; direction: ltr; }
+  .inv-meta p { margin: 3px 0; font-size: 12px; color: #555; }
+  .inv-meta strong { color: #1a1a1a; }
+  .doc-type { font-size: 14px; font-weight: 700; color: #5c3d00; }
+  .inv-num { font-size: 16px; font-weight: 700; color: #b8860b; }
+  .inv-customer { background: #faf7f0; border: 1px solid #e8dfc8; border-radius: 6px; padding: 14px 18px; margin-bottom: 28px; }
+  .inv-customer p { font-size: 12px; color: #888; margin-bottom: 4px; }
+  .inv-customer strong { font-size: 15px; }
+  table { width: 100%; border-collapse: collapse; margin-bottom: 20px; }
+  th { background: #5c3d00; color: #fff; padding: 10px 12px; text-align: right; font-size: 12px; }
+  td { padding: 9px 12px; border-bottom: 1px solid #eee; font-size: 13px; }
+  tr:nth-child(even) td { background: #fdf9f3; }
+  .col-num { width: 36px; text-align: center; color: #aaa; }
+  .col-price, .col-total { text-align: left; direction: ltr; font-family: monospace; }
+  .total-row td { border-top: 2px solid #b8860b; font-weight: 700; font-size: 14px; background: #faf7f0; }
+  .notes { font-size: 12px; color: #666; margin-bottom: 28px; padding: 10px 14px; border-right: 3px solid #b8860b; background: #fdfaf5; }
+  .inv-foot { text-align: center; font-size: 11px; color: #aaa; margin-top: 40px; border-top: 1px solid #eee; padding-top: 16px; }
+  @media print { body { padding: 24px; } @page { margin: 1.5cm; } }
+</style>
+</head>
+<body>
+<div class="inv-head">
+  <div>
+    <div class="inv-company">${escapeHtml(appConfig.name)}<small>${escapeHtml(appConfig.tagline)}</small></div>
+  </div>
+  <div class="inv-meta">
+    <p class="doc-type">طلب شراء</p>
+    <p class="inv-num">${escapeHtml(po.publicId)}</p>
+    <p><strong>تاريخ الطلب:</strong> ${escapeHtml(po.orderDate)}</p>
+    <p><strong>تاريخ الطباعة:</strong> ${printDate}</p>
+    ${showPrices ? "<p><strong>العملة:</strong> دولار أمريكي (USD)</p>" : ""}
+  </div>
+</div>
+
+<div class="inv-customer">
+  <p>طلب شراء إلى المورد</p>
+  <strong>${escapeHtml(po.supplierName)}</strong>
+</div>
+
+<table>
+  <thead>
+    <tr>
+      <th class="col-num">#</th>
+      <th>الصنف المطلوب</th>
+      <th style="width:70px">الكمية</th>
+      ${showPrices ? '<th style="width:110px" class="col-price">السعر المتوقع</th><th style="width:110px" class="col-total">المجموع</th>' : ""}
+    </tr>
+  </thead>
+  <tbody>${rowsHtml}</tbody>
+  ${showPrices ? `
+  <tfoot>
+    <tr class="total-row">
+      <td colspan="3"></td>
+      <td>الإجمالي</td>
+      <td class="col-total">$${po.total.toFixed(2)}</td>
+    </tr>
+  </tfoot>
+  ` : ""}
+</table>
+
+${po.notes ? `<div class="notes"><strong>ملاحظة:</strong> ${escapeHtml(po.notes)}</div>` : ""}
+
+<div class="inv-foot">${escapeHtml(appConfig.name)} &mdash; ${escapeHtml(appConfig.supportEmail)}</div>
+
+</body></html>`;
+
+  const win = window.open("", "_blank", "width=850,height=1100");
+  if (win) {
+    win.document.write(html);
+    win.document.close();
+    win.focus();
+    win.print();
+  } else {
+    setNotice("error", "يرجى السماح بالنوافذ المنبثقة لطباعة طلب الشراء.");
+    render();
+  }
 }
 
 function generateInvoiceNumber() {
@@ -5275,6 +5429,12 @@ function render() {
   });
   app.querySelectorAll("[data-po-delete]").forEach((btn) => {
     btn.addEventListener("click", () => removePurchaseInvoice(btn.dataset.poDelete));
+  });
+  app.querySelectorAll("[data-po-print]").forEach((btn) => {
+    btn.addEventListener("click", () => printPurchaseInvoice(btn.dataset.poPrint));
+  });
+  app.querySelectorAll("[data-po-copy]").forEach((btn) => {
+    btn.addEventListener("click", () => copyPurchaseInvoiceText(btn.dataset.poCopy));
   });
 
   app.querySelector("[data-action='ai-clear']")?.addEventListener("click", () => {
