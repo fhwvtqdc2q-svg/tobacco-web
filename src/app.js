@@ -4821,7 +4821,7 @@ function printPurchaseInvoice(id) {
 <body>
 <div class="inv-head">
   <div>
-    <div class="inv-company">${escapeHtml(appConfig.name)}<small>${escapeHtml(appConfig.tagline)}</small></div>
+    <div class="inv-company">${escapeHtml(appConfig.name)}${appConfig.tagline ? `<small>${escapeHtml(appConfig.tagline)}</small>` : ""}</div>
   </div>
   <div class="inv-meta">
     <p class="doc-type">طلب شراء</p>
@@ -4941,7 +4941,7 @@ function printInvoice() {
 <body>
 <div class="inv-head">
   <div>
-    <div class="inv-company">${escapeHtml(appConfig.name)}<small>${escapeHtml(appConfig.tagline)}</small></div>
+    <div class="inv-company">${escapeHtml(appConfig.name)}${appConfig.tagline ? `<small>${escapeHtml(appConfig.tagline)}</small>` : ""}</div>
   </div>
   <div class="inv-meta">
     <p class="inv-num">${invNum}</p>
