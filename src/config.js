@@ -27,7 +27,8 @@ window.appConfig = {
     requestsTable: "customer_requests",
     inventoryReportsTable: "inventory_reports",
     creditLimitsTable: "customer_credit_limits",
-    approvedPricesTable: "approved_price_items"
+    approvedPricesTable: "approved_price_items",
+    purchaseInvoicesTable: "purchase_invoices"
   }
 };
 
