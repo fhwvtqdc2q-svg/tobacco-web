@@ -1,7 +1,7 @@
 window.appConfig = {
   name: "OZK TOBACCO",
   supportEmail: "ozk.kh@outlook.com",
-  tagline: "منصة خدمة عملاء وإدارة عن بعد",
+  tagline: "",
   description:
     "لوحة ويب عربية لإدارة طلبات العملاء، متابعة العمل عن بعد، مراقبة الحالة، وتجهيز الدفع الإلكتروني عند اختيار مزود مناسب.",
   language: "ar",
