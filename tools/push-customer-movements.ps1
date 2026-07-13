@@ -85,6 +85,7 @@ GROUP BY LTRIM(RTRIM(cu.CustomerName))
     $cmd.CommandText = @"
 WITH led AS (
     SELECT LTRIM(RTRIM(cu.CustomerName)) AS name,
+           en.AccountGUID AS acct, CAST(en.ParentGUID AS varchar(40)) AS parent,
            COALESCE(CASE WHEN ce.Date >= '2000-01-01' THEN ce.Date END, en.Date) AS dt, en.Number AS num,
            CASE WHEN COALESCE(en.Notes,'') LIKE N'%افتتاح%' THEN 0 ELSE 1 END AS isopen,
            CASE WHEN COALESCE(en.Credit,0) > 0 THEN 1 ELSE 0 END AS iscredit,
@@ -125,7 +126,21 @@ WITH led AS (
       AND cu.CustomerName IS NOT NULL AND LTRIM(RTRIM(cu.CustomerName)) <> ''
       AND (cu.bHide IS NULL OR cu.bHide = 0)
 )
-SELECT name, dt, debit, credit, notes, bill_guid, balance, balanceChrono
+SELECT name, dt, debit, credit, notes, bill_guid, balance, balanceChrono,
+       -- رصيد المستند بعد/قبل **سند القيد كاملاً** (نجمع أسطر نفس السند ParentGUID على حساب
+       -- الزبون بالترتيب الزمني): كي يشمل قيد الخصم المرافق للفاتورة بنفس السند فلا يتضخّم
+       -- رصيدها الجديد. للفاتورة المفردة السطر يساوي balanceChrono تماماً. الحارس يحمي من
+       -- تجميع قيود بلا سند (ParentGUID صفري/فارغ) خطأً.
+       CASE WHEN parent IS NOT NULL AND parent <> '00000000-0000-0000-0000-000000000000'
+            THEN LAST_VALUE(balanceChrono) OVER (PARTITION BY acct, parent
+                   ORDER BY dt, isopen, sortdt, cenum, num
+                   ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING)
+            ELSE balanceChrono END AS docNew,
+       CASE WHEN parent IS NOT NULL AND parent <> '00000000-0000-0000-0000-000000000000'
+            THEN FIRST_VALUE(balanceChrono - (debit - credit)) OVER (PARTITION BY acct, parent
+                   ORDER BY dt, isopen, sortdt, cenum, num
+                   ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING)
+            ELSE balanceChrono - (debit - credit) END AS docPrev
 FROM led
 WHERE dt >= @fromDate
 ORDER BY name, dt, isopen, iscredit, sortdt, cenum, num
@@ -143,6 +158,8 @@ ORDER BY name, dt, isopen, iscredit, sortdt, cenum, num
             billGuid = [string]$r.GetValue(5)
             balance  = [double]$r.GetValue(6)
             balanceChrono = [double]$r.GetValue(7)
+            docNew   = [double]$r.GetValue(8)
+            docPrev  = [double]$r.GetValue(9)
         })
     }
     $r.Close()
