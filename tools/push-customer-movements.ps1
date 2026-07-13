@@ -104,7 +104,19 @@ WITH led AS (
                                COALESCE(ce.CreateDate, en.Date),
                                COALESCE(ce.Number, 0),
                                en.Number
-                      ROWS UNBOUNDED PRECEDING) AS decimal(18,3)) AS balance
+                      ROWS UNBOUNDED PRECEDING) AS decimal(18,3)) AS balance,
+           -- الرصيد الزمني الحقيقي: نفس الترتيب لكن **بلا** قاعدة «المدين قبل الدائن» (iscredit).
+           -- يعكس رصيد الحساب لحظة إنشاء القيد فعلياً (بوقت ce.CreateDate)، فيصلح لمستند
+           -- الفاتورة/السند المُرسَل للزبون (لا يتضخّم إن جاءت دفعة بين فاتورتَي نفس اليوم).
+           -- كشف الحساب يبقى على balance (ترتيب الأمين). راجع push ↔ src/app.js (مستندات فقط).
+           CAST(SUM(COALESCE(en.Debit,0) - COALESCE(en.Credit,0))
+                OVER (PARTITION BY en.AccountGUID
+                      ORDER BY COALESCE(CASE WHEN ce.Date >= '2000-01-01' THEN ce.Date END, en.Date),
+                               CASE WHEN COALESCE(en.Notes,'') LIKE N'%افتتاح%' THEN 0 ELSE 1 END,
+                               COALESCE(ce.CreateDate, en.Date),
+                               COALESCE(ce.Number, 0),
+                               en.Number
+                      ROWS UNBOUNDED PRECEDING) AS decimal(18,3)) AS balanceChrono
     FROM dbo.en000 en
     JOIN dbo.cu000 cu ON cu.AccountGUID = en.AccountGUID
     LEFT JOIN dbo.ce000 ce ON ce.GUID = en.ParentGUID
@@ -113,7 +125,7 @@ WITH led AS (
       AND cu.CustomerName IS NOT NULL AND LTRIM(RTRIM(cu.CustomerName)) <> ''
       AND (cu.bHide IS NULL OR cu.bHide = 0)
 )
-SELECT name, dt, debit, credit, notes, bill_guid, balance
+SELECT name, dt, debit, credit, notes, bill_guid, balance, balanceChrono
 FROM led
 WHERE dt >= @fromDate
 ORDER BY name, dt, isopen, iscredit, sortdt, cenum, num
@@ -130,6 +142,7 @@ ORDER BY name, dt, isopen, iscredit, sortdt, cenum, num
             notes    = [string]$r.GetValue(4)
             billGuid = [string]$r.GetValue(5)
             balance  = [double]$r.GetValue(6)
+            balanceChrono = [double]$r.GetValue(7)
         })
     }
     $r.Close()

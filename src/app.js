@@ -3167,6 +3167,41 @@ function movementForBill(custName, billGuid) {
   ) || null;
 }
 
+// حركة الفاتورة في تقرير الحركات: نطابق بمعرّف القيد (GUID) إن وُجد وغير صفري، وإلا بالتاريخ
+// والمبلغ على جهة المدين. سبب الاحتياط: قيود السنة الجديدة (AmnDb002 بعد التدوير) تأتي أحياناً
+// بمعرّف صفري (00000000-...) فيفشل الربط بالمعرّف وحده.
+function invoiceMovement(custName, inv) {
+  const report = state.customerMovementsReport;
+  const items = report && Array.isArray(report.items) ? report.items : [];
+  const match = smartNameMatch(items, (it) => it.name, custName);
+  const movements = match && Array.isArray(match.movements) ? match.movements : [];
+  if (!movements.length) return null;
+  const g = String(inv?.guid || "").trim().toLowerCase();
+  const ZERO_GUID = "00000000-0000-0000-0000-000000000000";
+  if (g && g !== ZERO_GUID) {
+    const byGuid = movements.find((m) => String(m?.billGuid || "").trim().toLowerCase() === g);
+    if (byGuid) return byGuid;
+  }
+  const d = String(inv?.date || "").slice(0, 10);
+  const total = Number(inv?.total || 0);
+  for (let i = movements.length - 1; i >= 0; i--) {
+    const m = movements[i];
+    if (d && String(m?.date || "").slice(0, 10) !== d) continue;
+    if (Number(m?.debit || 0) > 0 && Math.abs(Number(m?.debit || 0) - total) <= 0.5) return m;
+  }
+  return null;
+}
+
+// الرصيد الزمني الحقيقي للحركة — يُفضَّل للمستندات المُرسَلة للزبون (فاتورة/سند) على `balance`
+// الذي هو بترتيب كشف الأمين (المدين قبل الدائن) فيتضخّم إن جاءت دفعة بين فاتورتَي نفس اليوم.
+function movementChronoBalance(m) {
+  if (!m) return null;
+  const c = m.balanceChrono;
+  if (c !== undefined && c !== null && c !== "") return Number(c);
+  if (m.balance !== undefined && m.balance !== null && m.balance !== "") return Number(m.balance);
+  return null;
+}
+
 // الرصيد بعد قيد الحركة كما حسبه الأمين وخزّنه (الرصيد المتحرك الدقيق، يشمل القيد الافتتاحي
 // وبترتيب الأمين). نطابق الحركة بالتاريخ والقيمة على الجهة الصحيحة (مدين للفاتورة، دائن للدفعة)
 // ونُرجع رصيدها المُخزَّن. يُرجع null إن لم يتوفّر الرصيد المُخزَّن بعد (بيانات قبل تحديث المزامنة).
@@ -3719,7 +3754,7 @@ function customerDetailsPanel(item) {
                     <strong class="payment-amount">فاتورة: ${escapeHtml(formatMoney(Number(m?.debit || 0)))}</strong>
                     <span class="payment-date">${escapeHtml(m?.date ? formatDate(m.date) : "بلا تاريخ")}</span>
                     ${m?.notes ? `<small class="payment-note">${escapeHtml(m.notes)}</small>` : ""}
-                    <button class="button secondary mini-button" type="button" data-action="gen-movement-doc" data-debit="${escapeHtml(String(m?.debit || 0))}" data-credit="0" data-date="${escapeHtml(m?.date || "")}" data-notes="${escapeHtml(m?.notes || "")}" data-balance="${m?.balance !== undefined && m?.balance !== null ? escapeHtml(String(m.balance)) : ""}" data-bill-guid="${escapeHtml(String(m?.billGuid || ""))}" style="margin-top:6px">📄 فاتورة PDF</button>
+                    <button class="button secondary mini-button" type="button" data-action="gen-movement-doc" data-debit="${escapeHtml(String(m?.debit || 0))}" data-credit="0" data-date="${escapeHtml(m?.date || "")}" data-notes="${escapeHtml(m?.notes || "")}" data-balance="${m?.balance !== undefined && m?.balance !== null ? escapeHtml(String(m.balance)) : ""}" data-balance-chrono="${m?.balanceChrono !== undefined && m?.balanceChrono !== null ? escapeHtml(String(m.balanceChrono)) : ""}" data-bill-guid="${escapeHtml(String(m?.billGuid || ""))}" style="margin-top:6px">📄 فاتورة PDF</button>
                   </div>
                 </div>`).join("")
               : '<p class="muted" style="padding:12px 0">لا توجد فواتير مسجلة.</p>'}
@@ -3739,7 +3774,7 @@ function customerDetailsPanel(item) {
                     <strong class="payment-amount">مرتجع: ${escapeHtml(formatMoney(Number(m?.credit || 0)))}</strong>
                     <span class="payment-date">${escapeHtml(m?.date ? formatDate(m.date) : "بلا تاريخ")}</span>
                     ${m?.notes ? `<small class="payment-note">${escapeHtml(m.notes)}</small>` : ""}
-                    <button class="button secondary mini-button" type="button" data-action="gen-movement-doc" data-debit="0" data-credit="${escapeHtml(String(m?.credit || 0))}" data-date="${escapeHtml(m?.date || "")}" data-notes="${escapeHtml(m?.notes || "")}" data-balance="${m?.balance !== undefined && m?.balance !== null ? escapeHtml(String(m.balance)) : ""}" style="margin-top:6px">📄 فاتورة مرتجع PDF</button>
+                    <button class="button secondary mini-button" type="button" data-action="gen-movement-doc" data-debit="0" data-credit="${escapeHtml(String(m?.credit || 0))}" data-date="${escapeHtml(m?.date || "")}" data-notes="${escapeHtml(m?.notes || "")}" data-balance="${m?.balance !== undefined && m?.balance !== null ? escapeHtml(String(m.balance)) : ""}" data-balance-chrono="${m?.balanceChrono !== undefined && m?.balanceChrono !== null ? escapeHtml(String(m.balanceChrono)) : ""}" style="margin-top:6px">📄 فاتورة مرتجع PDF</button>
                   </div>
                 </div>`).join("")
               : '<p class="muted" style="padding:12px 0">لا توجد مرتجعات مسجلة.</p>'}
@@ -3759,7 +3794,7 @@ function customerDetailsPanel(item) {
                     <strong class="payment-amount">دفعة: ${escapeHtml(formatMoney(Number(m?.credit || 0)))}</strong>
                     <span class="payment-date">${escapeHtml(m?.date ? formatDate(m.date) : "بلا تاريخ")}</span>
                     ${m?.notes ? `<small class="payment-note">${escapeHtml(m.notes)}</small>` : ""}
-                    <button class="button secondary mini-button" type="button" data-action="gen-movement-doc" data-debit="0" data-credit="${escapeHtml(String(m?.credit || 0))}" data-date="${escapeHtml(m?.date || "")}" data-notes="${escapeHtml(m?.notes || "")}" data-balance="${m?.balance !== undefined && m?.balance !== null ? escapeHtml(String(m.balance)) : ""}" style="margin-top:6px">📄 سند قبض PDF</button>
+                    <button class="button secondary mini-button" type="button" data-action="gen-movement-doc" data-debit="0" data-credit="${escapeHtml(String(m?.credit || 0))}" data-date="${escapeHtml(m?.date || "")}" data-notes="${escapeHtml(m?.notes || "")}" data-balance="${m?.balance !== undefined && m?.balance !== null ? escapeHtml(String(m.balance)) : ""}" data-balance-chrono="${m?.balanceChrono !== undefined && m?.balanceChrono !== null ? escapeHtml(String(m.balanceChrono)) : ""}" style="margin-top:6px">📄 سند قبض PDF</button>
                   </div>
                 </div>`).join("")
               : '<p class="muted" style="padding:12px 0">لا توجد دفعات مسجلة.</p>'}
@@ -5601,6 +5636,10 @@ function render() {
       // الرصيد المُخزَّن من دفتر الأمين لهذا القيد بالذات — ممرَّر مع الزر، بلا أي مطابقة.
       const storedBal = el.dataset.balance !== undefined && el.dataset.balance !== ""
         ? Number(el.dataset.balance) : null;
+      // الرصيد الزمني الحقيقي للمستند (لا يتضخّم بدفعة نفس اليوم). يسقط لرصيد الكشف إن غاب.
+      const storedBalChrono = el.dataset.balanceChrono !== undefined && el.dataset.balanceChrono !== ""
+        ? Number(el.dataset.balanceChrono) : storedBal;
+      const docBal = (storedBalChrono !== null && Number.isFinite(storedBalChrono)) ? storedBalChrono : storedBal;
       if (debit > 0 && credit <= 0) {
         const invs = customerInvoicesFor(item.name || "").filter((x) => !x.isReturn);
         // نطابق الفاتورة التفصيلية بمعرّف القيد (قطعي) أولاً، ثم بالتاريخ/المبلغ كاحتياط.
@@ -5613,9 +5652,9 @@ function render() {
         if (match) {
           const total = match.total || debit;
           const opts = { ...base, cur: "$", type: "invoice", amount: total, no: match.number ? String(match.number) : docNumber("INV"), lines: match.lines || [] };
-          if (storedBal !== null && Number.isFinite(storedBal)) {
-            opts.newBalance = roundPrice(storedBal);
-            opts.prevBalance = roundPrice(storedBal - debit);
+          if (docBal !== null && Number.isFinite(docBal)) {
+            opts.newBalance = roundPrice(docBal);
+            opts.prevBalance = roundPrice(docBal - debit);
             const adjust = roundPrice(total - debit);
             if (Math.abs(adjust) > 0.009) opts.adjust = adjust;
           } else {
@@ -5632,9 +5671,9 @@ function render() {
         const retMatch = findReturnInvoiceForMovement(item.name || "", { date: el.dataset.date, credit });
         if (retMatch) {
           const opts = { ...base, cur: "$", type: "return", amount: retMatch.total || credit, no: retMatch.number ? String(retMatch.number) : docNumber("RET"), lines: retMatch.lines || [] };
-          if (storedBal !== null && Number.isFinite(storedBal)) {
-            opts.newBalance = roundPrice(storedBal);
-            opts.prevBalance = roundPrice(storedBal + credit);
+          if (docBal !== null && Number.isFinite(docBal)) {
+            opts.newBalance = roundPrice(docBal);
+            opts.prevBalance = roundPrice(docBal + credit);
           } else {
             opts.balance = customerBalance(item);
             opts.balanceLabel = "الرصيد بعد المرتجع";
@@ -5642,8 +5681,8 @@ function render() {
           exportVoucherPdf(opts);
         } else {
           const opts = { ...base, type: "receipt", amount: credit, no: docNumber("R") };
-          if (storedBal !== null && Number.isFinite(storedBal)) {
-            opts.balance = roundPrice(storedBal);
+          if (docBal !== null && Number.isFinite(docBal)) {
+            opts.balance = roundPrice(docBal);
             opts.balanceLabel = "الرصيد بعد الدفعة";
           } else {
             opts.balance = customerBalance(item);
@@ -5675,15 +5714,18 @@ function render() {
           no: inv.number ? String(inv.number) : docNumber(inv.isReturn ? "RET" : "INV"),
           lines: inv.lines || []
         };
-        // الرصيد قبل/بعد الفاتورة من قيدها في دفتر الأمين (مطابقة قطعية بالمعرّف GUID).
+        // الرصيد قبل/بعد الفاتورة من قيدها في دفتر الأمين. نستعمل الرصيد **الزمني الحقيقي**
+        // (balanceChrono) لا رصيد ترتيب-الكشف، كي لا يتضخّم رصيد الفاتورة إن جاءت دفعة بينها
+        // وبين فاتورة أخرى في نفس اليوم. المطابقة بالمعرّف أو بالتاريخ/المبلغ (المعرّف قد يكون صفرياً).
         // قيود المرتجع لا تحمل معرّف قيد، فتُستثنى وتعرض الرصيد الحالي فقط.
         // عند أي خطأ في حساب الرصيد نتجاهله ونعرض الرصيد الحالي فقط — دون منع تصدير الفاتورة.
         try {
-          const mv = inv.isReturn ? null : movementForBill(cust, inv.guid);
-          if (mv) {
+          const mv = inv.isReturn ? null : invoiceMovement(cust, inv);
+          const chrono = mv ? movementChronoBalance(mv) : null;
+          if (mv && chrono !== null && Number.isFinite(chrono)) {
             const ledgerDebit = Number(mv.debit || 0);
-            opts.newBalance = roundPrice(mv.balance);
-            opts.prevBalance = roundPrice(mv.balance - ledgerDebit + Number(mv.credit || 0));
+            opts.newBalance = roundPrice(chrono);
+            opts.prevBalance = roundPrice(chrono - ledgerDebit + Number(mv.credit || 0));
             const adjust = roundPrice(invoiceTotal - ledgerDebit);
             if (ledgerDebit > 0 && Math.abs(adjust) > 0.009) opts.adjust = adjust;
           } else {
