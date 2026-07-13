@@ -3495,10 +3495,10 @@ function inventoryReportPdfMarkup() {
   const excludedCount = allRaw.length - all.length;
   const low = all.filter((i) => i?.status === "low");
   const out = all.filter((i) => i?.status === "out");
-  // ترتيب: المجموعات الأهم (غلواز، ماستر) أولاً — طلب الإدارة — ثم بقية المجموعات فالاسم.
+  // ترتيب (طلب الإدارة): حسب الكمية من الأكثر إلى الأقل — يُقاس بإجمالي الكراتين
+  // (نفس الرقم المعروض في العمود) ثم الاسم عند التساوي.
   const list = all.slice().sort((a, b) =>
-    priorityGroupRank(a.groupName) - priorityGroupRank(b.groupName) ||
-    String(a.groupName || "").localeCompare(String(b.groupName || ""), "ar") ||
+    itemQtyUnit2(b) - itemQtyUnit2(a) ||
     String(a.name || "").localeCompare(String(b.name || ""), "ar")
   );
   const rows = list.length
