@@ -1,13 +1,13 @@
 {
     "schemaVersion":  1,
-    "status":  "active",
-    "owner":  "Codex",
-    "task":  "تحويل صفحة التسعير إلى مركز نشرة الأسعار داخل الموقع",
-    "branch":  "task branch pending for: تحويل صفحة التسعير إلى مركز نشرة الأسعار داخل الموقع",
+    "status":  "idle",
+    "owner":  null,
+    "task":  null,
+    "branch":  null,
     "files":  [
-                  "index.html,src/app.js,src/styles.css,public/service-worker.js"
+
               ],
-    "startedAt":  "2026-07-14T18:02:16Z",
-    "updatedAt":  "2026-07-14T18:02:16Z",
-    "note":  "Work in progress. Do not edit the reserved files."
+    "startedAt":  null,
+    "updatedAt":  "2026-07-14T18:28:18Z",
+    "note":  "No active task. Read AI_HANDOFF.md before starting work."
 }
