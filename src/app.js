@@ -3019,19 +3019,19 @@ function pricing() {
         <div class="newsletter-edition-grid">
           <article class="newsletter-edition-card is-featured">
             <span class="newsletter-edition-type">جملة</span><h4>نشرة الدولار</h4><p>الكرتونة أو الطرد أو الشرحة الكاملة فقط.</p>
-            <div><a href="public/downloads/price-list-usd.html">معاينة</a><a href="public/downloads/price-list-usd.pdf">PDF</a></div>
+            <div><a href="public/downloads/price-list-usd.html">اختيار اللون</a><a href="public/downloads/price-list-usd.pdf">داكن</a><a href="public/downloads/price-list-usd-light.pdf">فاتح</a></div>
           </article>
           <article class="newsletter-edition-card">
             <span class="newsletter-edition-type">مفرق</span><h4>نشرة السوري</h4><p>المواد ذات المخزون الموجب وفق سعر الصرف المعتمد.</p>
-            <div><a href="public/downloads/price-list-syp-14050.html">معاينة</a><a href="public/downloads/price-list-syp-14050.pdf">PDF</a></div>
+            <div><a href="public/downloads/price-list-syp-14050.html">اختيار اللون</a><a href="public/downloads/price-list-syp-14050.pdf">داكن</a><a href="public/downloads/price-list-syp-14050-light.pdf">فاتح</a></div>
           </article>
           <article class="newsletter-edition-card">
             <span class="newsletter-edition-type">وزاري جملة</span><h4>الوزاري بالدولار</h4><p>الأصناف الوزارية والمحزّرة المتوفرة بالجملة.</p>
-            <div><a href="public/downloads/price-list-wazari-usd.html">معاينة</a><a href="public/downloads/price-list-wazari-usd.pdf">PDF</a></div>
+            <div><a href="public/downloads/price-list-wazari-usd.html">اختيار اللون</a><a href="public/downloads/price-list-wazari-usd.pdf">داكن</a><a href="public/downloads/price-list-wazari-usd-light.pdf">فاتح</a></div>
           </article>
           <article class="newsletter-edition-card">
             <span class="newsletter-edition-type">وزاري مفرق</span><h4>الوزاري بالسوري</h4><p>نسخة المفرق المستقلة للأصناف الوزارية.</p>
-            <div><a href="public/downloads/price-list-wazari-syp-14050.html">معاينة</a><a href="public/downloads/price-list-wazari-syp-14050.pdf">PDF</a></div>
+            <div><a href="public/downloads/price-list-wazari-syp-14050.html">اختيار اللون</a><a href="public/downloads/price-list-wazari-syp-14050.pdf">داكن</a><a href="public/downloads/price-list-wazari-syp-14050-light.pdf">فاتح</a></div>
           </article>
         </div>
       </section>
@@ -3043,8 +3043,8 @@ function pricing() {
         </div>
         <div class="newsletter-primary-actions">
           <button class="button secondary" type="button" data-action="refresh-ameen">تحديث المخزون</button>
-          <a class="button primary" href="public/downloads/price-list-usd.pdf">طباعة نشرة الدولار</a>
-          <a class="button primary" href="public/downloads/price-list-syp-14050.pdf">طباعة نشرة السوري</a>
+          <a class="button primary" href="public/downloads/price-list-usd.html">اختيار وطباعة الدولار</a>
+          <a class="button primary" href="public/downloads/price-list-syp-14050.html">اختيار وطباعة السوري</a>
           <button class="button success" type="button" data-action="publish-bulletin" ${state.session ? "" : "disabled"}>اعتماد ونشر للزبائن</button>
         </div>
         ${state.bulletinStatus ? `<p class="bulletin-status ${state.bulletinStatus.type}">${escapeHtml(state.bulletinStatus.msg)}</p>` : ""}
