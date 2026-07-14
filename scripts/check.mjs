@@ -8,7 +8,10 @@ const required = [
   "src/number-normalizer.js",
   "src/styles.css",
   "public/manifest.webmanifest",
-  "public/service-worker.js"
+  "public/service-worker.js",
+  "AI_WORK_SYNC.md",
+  "AI_HANDOFF.md",
+  "AI_ACTIVE_TASK.json"
 ];
 
 let failed = false;
@@ -61,6 +64,20 @@ if (!cacheMatch || !cacheMatch[1].trim()) {
 const manifest = JSON.parse(readFileSync("public/manifest.webmanifest", "utf8"));
 if (!manifest.name || !manifest.start_url) {
   console.error("manifest.webmanifest is incomplete.");
+  failed = true;
+}
+
+const coordination = JSON.parse(readFileSync("AI_ACTIVE_TASK.json", "utf8"));
+if (coordination.schemaVersion !== 1 || !["idle", "active"].includes(coordination.status)) {
+  console.error("AI_ACTIVE_TASK.json has an invalid schema or status.");
+  failed = true;
+}
+if (coordination.status === "active" && (!coordination.owner || !coordination.task || !coordination.branch)) {
+  console.error("Active AI task is missing owner, task, or branch.");
+  failed = true;
+}
+if (!Array.isArray(coordination.files)) {
+  console.error("AI_ACTIVE_TASK.json files must be an array.");
   failed = true;
 }
 
