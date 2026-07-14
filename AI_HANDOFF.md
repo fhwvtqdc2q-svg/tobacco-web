@@ -9,6 +9,13 @@
 - المسؤول: Codex
 - آخر تحديث: 2026-07-14
 
+## 2026-07-14 - Codex - Redesign price list with light and dark themes
+
+- Status: completed
+- Branch: task branch pending for: Redesign price list with light and dark themes
+- Files: 'scripts/generate-price-lists.mjs','public/downloads/index.html','public/downloads/price-list-usd.html','public/service-worker.js'
+- Result: تم اعتماد ودمج نشرات الدولار والسوري والوزاري، مزامنة حد الوحدة الثانية، تنسيق الطباعة، العنوان والتواصل، وتجميع السيغار. جميع الفحوص نجحت.
+- Handoff UTC: 2026-07-14T15:11:42Z
 ## 2026-07-14 - Codex - اعتماد نشرات الأسعار والمزامنة
 
 - Status: completed and verified
