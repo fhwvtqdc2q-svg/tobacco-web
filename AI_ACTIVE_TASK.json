@@ -1,13 +1,13 @@
 {
     "schemaVersion":  1,
-    "status":  "idle",
-    "owner":  null,
-    "task":  null,
-    "branch":  null,
+    "status":  "active",
+    "owner":  "Codex",
+    "task":  "إصلاح زر الطباعة على الهاتف ومنع حجب التبويب الجديد",
+    "branch":  "task branch pending for: إصلاح زر الطباعة على الهاتف ومنع حجب التبويب الجديد",
     "files":  [
-
+                  "src/app.js,scripts/generate-price-lists.mjs,public/downloads/price-list-usd.html,public/downloads/price-list-syp-14050.html,public/downloads/price-list-wazari-usd.html,public/downloads/price-list-wazari-syp-14050.html,public/service-worker.js,scripts/check.mjs"
               ],
-    "startedAt":  null,
-    "updatedAt":  "2026-07-14T19:30:32Z",
-    "note":  "No active task. Read AI_HANDOFF.md before starting work."
+    "startedAt":  "2026-07-14T19:37:21Z",
+    "updatedAt":  "2026-07-14T19:37:21Z",
+    "note":  "Work in progress. Do not edit the reserved files."
 }
