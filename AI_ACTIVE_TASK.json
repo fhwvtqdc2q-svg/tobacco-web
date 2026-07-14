@@ -1,13 +1,13 @@
 {
     "schemaVersion":  1,
-    "status":  "idle",
-    "owner":  null,
-    "task":  null,
-    "branch":  null,
+    "status":  "active",
+    "owner":  "Codex",
+    "task":  "إكمال ملفات PDF النهائية للنشرات وإزالة الهوامش البيضاء",
+    "branch":  "task branch pending for: إكمال ملفات PDF النهائية للنشرات وإزالة الهوامش البيضاء",
     "files":  [
-
+                  "scripts/generate-pdfs.mjs,public/service-worker.js"
               ],
-    "startedAt":  null,
-    "updatedAt":  "2026-07-14T15:11:42Z",
-    "note":  "No active task. Read AI_HANDOFF.md before starting work."
+    "startedAt":  "2026-07-14T17:09:04Z",
+    "updatedAt":  "2026-07-14T17:09:04Z",
+    "note":  "Work in progress. Do not edit the reserved files."
 }
