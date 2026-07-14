@@ -494,13 +494,12 @@ const buildHtml = ({ pageItems, titleSuffix, badgeClass, badgeLabel, unitLabel, 
   })()}
 </div>
 
-<div class="columns secondary-page">
-  ${(() => {
+${(() => {
     const { specialRight, specialLeft } = buildColumnLayout(pageItems);
+    if (specialRight.length === 0 && specialLeft.length === 0) return "";
     const renderStack = (stack) => stack.map(g => renderGroup(g, priceFormatter, unitFormatter)).join("\n");
-    return `<div class="column-stack">${renderStack(specialRight)}</div>\n<div class="column-stack">${renderStack(specialLeft)}</div>`;
+    return `<div class="columns secondary-page">\n<div class="column-stack">${renderStack(specialRight)}</div>\n<div class="column-stack">${renderStack(specialLeft)}</div>\n</div>`;
   })()}
-</div>
 
 <script>
   const savedTheme = localStorage.getItem('ozk-price-theme');
