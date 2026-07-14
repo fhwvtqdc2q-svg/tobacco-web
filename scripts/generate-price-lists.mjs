@@ -28,17 +28,40 @@ const groupByName = new Map(jsonItems.map(i => [String(i.name).trim(), i.group])
 const SUPABASE_URL = "https://dyxbirfpxeocqffnfdeb.supabase.co";
 const SUPABASE_KEY = "sb_publishable_RkM_QDWxk8Yekqz9KBKXBw_Yl14zhSH";
 let feed = [];
+let feedError = "";
 try {
   const res = await fetch(
-    `${SUPABASE_URL}/rest/v1/approved_price_sync_feed?select=item_name,unit1_name,unit2_name,unit2_factor,unit2_price,retail_carton_usd&order=item_name.asc&limit=5000`,
+    `${SUPABASE_URL}/rest/v1/available_price_sync_feed?select=item_key,item_name,unit1_name,unit2_name,unit2_factor,unit2_price,retail_carton_usd,stock_qty,stock_status,source_synced_at,updated_at&order=item_name.asc&limit=5000`,
     { headers: { apikey: SUPABASE_KEY, Authorization: `Bearer ${SUPABASE_KEY}`, "Accept-Profile": "public" } }
   );
-  if (res.ok) feed = await res.json();
-} catch { /* نستخدم الاحتياط المحلي */ }
+  if (!res.ok) throw new Error(`${res.status} ${await res.text()}`);
+  feed = await res.json();
+} catch (error) {
+  feedError = error instanceof Error ? error.message : String(error);
+}
+
+if (!feed.length) {
+  throw new Error(`تعذّر توليد النشرة: لا يوجد جرد أمين متاح بكمية موجبة في available_price_sync_feed. ${feedError}`);
+}
 
 let usdItems, sypItems;
 if (feed.length) {
-  const all = feed.map(r => {
+  // قد تعيد النافذة مفتاحين قديم/جديد للاسم المعروض نفسه بسبب اختلافات إملائية
+  // في item_key. نفصل الاختيار بين الجملة والمفرق كي لا يلغي تحديث أحدهما الآخر.
+  const latestEligibleRows = (isEligible) => {
+    const latest = new Map();
+    for (const row of feed) {
+      const displayName = String(row.item_name || "").trim();
+      if (!displayName || !isEligible(row)) continue;
+      const previous = latest.get(displayName);
+      const rowTime = Date.parse(row.updated_at || "") || 0;
+      const previousTime = Date.parse(previous?.updated_at || "") || 0;
+      if (!previous || rowTime >= previousTime) latest.set(displayName, row);
+    }
+    return [...latest.values()];
+  };
+
+  const mapRow = (r) => {
     const name = String(r.item_name || "").trim();
     return {
       name,
@@ -48,37 +71,141 @@ if (feed.length) {
       unitFactor: Number(r.unit2_factor) > 0 ? Number(r.unit2_factor) : 10,
       usd: Number(r.unit2_price || 0),
       retailCarton: Number(r.retail_carton_usd || 0),
+      stockQty: Number(r.stock_qty || 0),
     };
-  });
-  usdItems = all.filter(i => i.usd > 0);
-  sypItems = all.filter(i => i.retailCarton > 0); // المفرق: فقط ما له سعر مفرق يدوي
+  };
+  // الجملة: سعر دولار صالح + كرتونة/طرد/شرحة كاملة واحدة على الأقل.
+  usdItems = latestEligibleRows((row) => {
+    const stockQty = Number(row.stock_qty || 0);
+    const unit2Factor = Number(row.unit2_factor || 0);
+    return Number(row.unit2_price || 0) > 0 && unit2Factor > 0 && stockQty / unit2Factor >= 1;
+  }).map(mapRow);
+
+  // المفرق: سعر سوري صالح + أي كمية موجبة، حتى لو كانت أقل من وحدة ثانية كاملة.
+  sypItems = latestEligibleRows((row) =>
+    Number(row.retail_carton_usd || 0) > 0 && Number(row.stock_qty || 0) > 0
+  ).map(mapRow);
   console.log(`أسعار حية من Supabase: ${usdItems.length} جملة، ${sypItems.length} مفرق`);
-} else {
-  usdItems = jsonItems;
-  sypItems = jsonItems.map(i => ({ ...i, retailCarton: 0 })); // احتياط: مشتق من الجملة
-  console.log("تحذير: تعذّر جلب الأسعار الحية — استخدام price-data.json المحلي");
 }
+
+// ── فصل الوزاري وتجميع أصناف المعسل المتشابهة ────────────────────────────────
+const includes = (name, text) => name.includes(text);
+const isWazari = (item) => {
+  const name = item.name;
+  if (includes(name, "نخلة") && (includes(name, "محزر") || includes(name, "وزاري"))) return true;
+  if (includes(name, "كينت") && !includes(name, "حرة")) return true;
+  if (includes(name, "وينستون") && !includes(name, "حرة")) return true;
+  if (includes(name, "فاخر") && includes(name, "اسود") && includes(name, "محزر")) return true;
+  if (includes(name, "مالبورو") && (
+    includes(name, "محزر") || includes(name, "ورق ابيض") || includes(name, "ورق أبيض") ||
+    includes(name, "ورق احمر") || includes(name, "ورق أحمر") || includes(name, "كوين ازرق") || includes(name, "كوين أزرق")
+  )) return true;
+  return false;
+};
+
+const shishaLabel = (item) => {
+  const name = item.name;
+  if (includes(name, "مزايا")) return includes(name, "كف") ? "مزايا كف" : "مزايا مشكل";
+  if (includes(name, "الاسطورة")) return "أسطورة مشكل";
+  if (includes(name, "معسل روز")) return "روز مشكل";
+  if (includes(name, "الصفوة")) return "صفوة جميع النكهات";
+  if (includes(name, "فاخر")) {
+    const black = includes(name, "اسود") || includes(name, "أسود");
+    const red = includes(name, "احمر") || includes(name, "أحمر");
+    if (black && includes(name, "كف")) return "فاخر أسود كف";
+    if (black) return "فاخر أسود كروز";
+    if (red) return "فاخر أحمر كروز";
+    return "فاخر نكهات";
+  }
+  // نخلة تبقى باسم الصنف الكامل كي يعرف الزبون النوع بوضوح.
+  if (includes(name, "نخلة")) return name;
+  return name;
+};
+
+const consolidateGeneral = (items, mode) => {
+  const result = [];
+  const seen = new Set();
+  for (const item of items.filter(item => !isWazari(item))) {
+    const isShisha = ["معسل", "مزايا", "نخلة"].includes(item.group);
+    if (!isShisha) { result.push(item); continue; }
+    // عبوات 100غ لا تدخل أي نشرة معسل عامة مهما كانت العلامة.
+    if (/100\s*غ/.test(item.name)) continue;
+    const name = shishaLabel(item);
+    // كل تسمية مجمعة تظهر مرة واحدة فقط؛ الأسعار ستعدّل من لوحة الأسعار لاحقاً.
+    const key = name;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    result.push({ ...item, name, group: "معسل" });
+  }
+  return result;
+};
+
+const toWazari = (items) => items.filter(isWazari).map(item => {
+  let group = "وزاري متنوع";
+  if (includes(item.name, "نخلة")) group = "نخلة وزاري";
+  else if (includes(item.name, "كينت")) group = "كينت وزاري";
+  else if (includes(item.name, "وينستون")) group = "وينستون وزاري";
+  else if (includes(item.name, "مالبورو")) group = "مالبورو وزاري";
+  else if (includes(item.name, "فاخر")) group = "فاخر وزاري";
+  return { ...item, group };
+});
+
+const usdWazariItems = toWazari(usdItems);
+const sypWazariItems = toWazari(sypItems);
+usdItems = consolidateGeneral(usdItems, "usd");
+sypItems = consolidateGeneral(sypItems, "syp");
 
 // ── شعار ─────────────────────────────────────────────────────────────────────
 const logoB64 = readFileSync(resolve(root, "public/icons/ozk-logo.png")).toString("base64");
 const logoSrc = `data:image/png;base64,${logoB64}`;
 
-// ── ترتيب المجموعات ───────────────────────────────────────────────────────────
-const FIRST = ["ماستر", "غلواز"];
-const LAST  = ["أردن","برو","كينت","بزنس","MT","سلفان","قداحات","ورق","كورسير"];
-
 const buildGroups = (list) => {
   const groupMap = new Map();
   for (const item of list) {
-    const g = item.group ?? item.name.split(" ")[0];
+    const original = item.group ?? item.name.split(" ")[0];
+    const cigarItem = item.name.includes("سيغار") || ["سيغار", "كلارو", "سيناتور"].includes(original);
+    const g = cigarItem ? "السيغار" : ({
+      "جيتان": "غلواز",
+      "ريد": "حمرا",
+      "شرق": "حمرا",
+      "أوريس": "أوريس",
+      "اوريس": "أوريس",
+      "تي": "تي اس",
+      "دخان": "ام تي",
+      "وينستون": "أصناف الحرة",
+      "مالبورو": "أصناف الحرة",
+      "كينغ": "كينغ دوم",
+      "كابتن": "كابتن بلاك",
+    })[original] ?? original;
     if (!groupMap.has(g)) groupMap.set(g, []);
     groupMap.get(g).push(item);
   }
-  const all    = [...groupMap.entries()];
-  const first  = FIRST.map(n => all.find(([g]) => g===n)).filter(Boolean);
-  const last   = LAST .map(n => all.find(([g]) => g===n)).filter(Boolean);
-  const middle = all.filter(([g]) => !FIRST.includes(g) && !LAST.includes(g));
-  return [...first, ...middle, ...last];
+  return [...groupMap.entries()];
+};
+
+const buildColumnLayout = (list) => {
+  const groups = buildGroups(list);
+  const byName = new Map(groups);
+  const take = (names) => names.map(name => byName.get(name) ? [name, byName.get(name)] : null).filter(Boolean);
+
+  // التسلسل المتفق عليه، وكل عمود مستقل عن ارتفاع العمود المقابل.
+  const right = take(["ماستر", "كابتن بلاك", "اوسكار", "اختمار", "روز", "1970", "كينغ دوم", "مانشستر"]);
+  const left = take(["غلواز", "اليغانس", "تي اس", "أوريس", "حمرا", "يونايتد", "ولسون", "نابولي"]);
+  const reserved = new Set([...right, ...left].map(([name]) => name));
+  const specialNames = new Set(["معسل", "مزايا", "نخلة", "فحم", "فيبات", "ورق", "قداحات", "سلفان"]);
+  const remaining = groups.filter(([name]) => !reserved.has(name) && !specialNames.has(name));
+
+  // توزيع بقية دخان وسيغار حسب عدد الأسطر لإكمال العمودين بأقرب ارتفاع ممكن.
+  const height = (stack) => stack.reduce((sum, [, items]) => sum + items.length + 1, 0);
+  for (const group of remaining) {
+    (height(right) <= height(left) ? right : left).push(group);
+  }
+
+  const specialMap = new Map(groups.filter(([name]) => specialNames.has(name)));
+  // المعسل عمود مستقل، وفي مقابله الفحم ثم الورق فالفيب والقداحات.
+  const specialRight = take(["فحم", "ورق", "فيبات", "قداحات", "سلفان"]).filter(([name]) => specialMap.has(name));
+  const specialLeft = take(["معسل"]).filter(([name]) => specialMap.has(name));
+  return { right, left, specialRight, specialLeft };
 };
 
 // ── CSS ───────────────────────────────────────────────────────────────────────
@@ -89,32 +216,69 @@ const CSS = `
 
   body {
     font-family: 'Almarai', Tahoma, Arial, sans-serif;
-    background: #0c0a07;
-    color: #e8d9b0;
+    --page: #0c0a07;
+    --surface: #141009;
+    --surface-alt: #0f0c07;
+    --surface-strong: #1a1208;
+    --text: #f3ead2;
+    --muted: #a88d61;
+    --line: #33240d;
+    --gold: #d7a83f;
+    --gold-strong: #efc45d;
+    --button-text: #0c0a07;
+    background: var(--page);
+    color: var(--text);
     direction: rtl;
+    transition: background .2s ease, color .2s ease;
+  }
+
+  body[data-theme="light"] {
+    --page: #fffdf8;
+    --surface: #ffffff;
+    --surface-alt: #f8f3e8;
+    --surface-strong: #5b3a09;
+    --text: #211b12;
+    --muted: #796a54;
+    --line: #e4d8c1;
+    --gold: #a56f09;
+    --gold-strong: #7a4f00;
+    --button-text: #ffffff;
   }
 
   @page { size: A4 portrait; margin: 0; }
 
   @media print {
+    html, body, .columns, .column-stack {
+      background: var(--page) !important;
+    }
+    body::before {
+      content: "";
+      position: fixed;
+      inset: 0;
+      background: var(--page) !important;
+      z-index: -1;
+    }
     body { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
     .no-print { display: none !important; }
-    .header     { background: #0c0a07 !important; }
-    .subheader  { background: #191208 !important; border-bottom-color: #5a3e12 !important; }
-    .group-header { background: #1a1208 !important; }
-    tr.odd  { background: #141009 !important; }
-    tr.even { background: #0f0c07 !important; }
+    .theme-switch { display: none !important; }
+    .secondary-page {
+      break-before: page;
+      page-break-before: always;
+      break-inside: avoid-page;
+      page-break-inside: avoid;
+      margin-top: 0;
+    }
   }
 
   /* ── رأس ─────────────────────────────────── */
   .header {
-    background: #0c0a07;
+    background: var(--page);
     padding: 10px 14px 8px;
     display: flex;
     align-items: center;
     justify-content: space-between;
     gap: 10px;
-    border-bottom: 2px solid #5a3e12;
+    border-bottom: 2px solid var(--gold);
   }
   .header-logo {
     height: 48px;
@@ -127,12 +291,12 @@ const CSS = `
   .header-title {
     font-size: 20px;
     font-weight: 900;
-    color: #d7a83f;
+    color: var(--gold-strong);
     letter-spacing: 1px;
   }
   .header-date {
     font-size: 10.5px;
-    color: #9a7840;
+    color: var(--muted);
     margin-top: 2px;
     font-weight: 600;
     direction: ltr;
@@ -146,36 +310,64 @@ const CSS = `
     margin-top: 4px;
     letter-spacing: .3px;
   }
-  .badge-usd { background: #d7a83f; color: #0c0a07; }
+  .badge-usd { background: var(--gold); color: var(--button-text); }
   .badge-syp { background: #2d6a2d; color: #c8f0c8; }
   .header-right {
     min-width: 62px;
     text-align: left;
   }
-  .item-count-num  { font-size: 22px; font-weight: 900; color: #d7a83f; line-height: 1; }
-  .item-count-lbl  { font-size: 9px;  color: #6b5535; font-weight: 600; }
+  .item-count-num  { font-size: 22px; font-weight: 900; color: var(--gold-strong); line-height: 1; }
+  .item-count-lbl  { font-size: 9px; color: var(--muted); font-weight: 600; }
 
   /* ── شريط فرعي ──────────────────────────── */
   .subheader {
-    background: #191208;
-    border-bottom: 1px solid #3a2808;
+    background: var(--surface-alt);
+    border-bottom: 1px solid var(--line);
     padding: 4px 14px;
     font-size: 9px;
-    color: #8a6a35;
+    color: var(--muted);
     display: flex;
     justify-content: space-between;
     font-weight: 600;
     letter-spacing: .2px;
     margin-bottom: 6px;
   }
-  .subheader strong { color: #d7a83f; }
+  .subheader strong { color: var(--gold-strong); }
 
-  /* ── عمودان CSS columns ──────────────────── */
+  /* ── عمودان مستقلان بلا فراغات بين المجموعات ── */
   .columns {
-    column-count: 2;
-    column-gap: 8px;
-    column-fill: auto;
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+    align-items: start;
     padding: 0 8px 8px;
+    background: var(--page);
+    position: relative;
+  }
+  .columns::before {
+    content: "";
+    position: absolute;
+    top: 0;
+    bottom: 8px;
+    left: 50%;
+    width: 2px;
+    transform: translateX(-50%);
+    background: var(--gold);
+    border-radius: 2px;
+  }
+  .column-stack { min-width: 0; background: var(--page); position: relative; z-index: 1; }
+  .secondary-page { break-before: page; page-break-before: always; margin-top: 8px; }
+
+  @media screen and (max-width: 720px) {
+    .columns { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 4px; padding: 0 4px 6px; }
+    .header { padding-top: 58px; }
+    .document-tools { right: 10px; left: 10px; justify-content: center; }
+    .group-block { margin-bottom: 3px; }
+    .group-header { padding: 4px 5px; font-size: 9px; }
+    td { padding: 3px 4px; font-size: 8px; }
+    td.name { width: 55%; }
+    td.unit { width: 15%; font-size: 7px; }
+    td.price { width: 30%; font-size: 8px; }
   }
 
   /* ── مجموعة مواد ────────────────────────── */
@@ -183,17 +375,17 @@ const CSS = `
     break-inside: avoid;
     -webkit-column-break-inside: avoid;
     margin-bottom: 5px;
-    border: 1px solid #2a2010;
-    border-radius: 5px;
+    border: 1px solid var(--line);
+    border-radius: 3px;
     overflow: hidden;
   }
   .group-header {
-    background: #1a1208;
-    border-bottom: 1px solid #3a2810;
+    background: var(--surface-strong);
+    border-bottom: 1px solid var(--line);
     padding: 5px 9px;
     font-size: 11px;
     font-weight: 900;
-    color: #d7a83f;
+    color: #f2c55c;
     display: flex;
     justify-content: space-between;
     align-items: center;
@@ -201,8 +393,8 @@ const CSS = `
   }
   .group-count {
     font-size: 8.5px;
-    background: rgba(215,168,63,.15);
-    color: #c8983a;
+    background: rgba(255,255,255,.12);
+    color: #f4d184;
     border-radius: 8px;
     padding: 1px 6px;
     font-weight: 700;
@@ -210,26 +402,32 @@ const CSS = `
 
   /* ── جدول ───────────────────────────────── */
   table { width: 100%; border-collapse: collapse; }
-  td { padding: 3.5px 7px; border-bottom: 1px solid #201808; font-size: 10px; }
-  td.name  { font-weight: 700; color: #e0cfa0; width: 54%; }
-  td.unit  { color: #7a6040; text-align: center; width: 16%; font-size: 9px; }
-  td.price { font-weight: 900; text-align: left; direction: ltr; font-size: 10.5px; color: #d7a83f; width: 30%; }
-  tr.odd   { background: #141009; }
-  tr.even  { background: #0f0c07; }
+  td { padding: 4px 8px; border-bottom: 1px solid var(--line); font-size: 10px; }
+  td.name  { font-weight: 700; color: var(--text); width: 54%; }
+  td.unit  { color: var(--muted); text-align: center; width: 16%; font-size: 9px; }
+  td.price { font-weight: 900; text-align: left; direction: ltr; font-size: 10.5px; color: var(--gold-strong); width: 30%; }
+  tr.odd   { background: var(--surface); }
+  tr.even  { background: var(--surface-alt); }
   tr:last-child td { border-bottom: none; }
 
   /* ── أرقام الهاتف في الشريط الفرعي ─────── */
   .phones { display: flex; flex-direction: column; align-items: flex-end; gap: 0px; }
-  .phones span { font-size: 9px; color: #8a6a35; font-weight: 700; direction: ltr; }
+  .phones span { font-size: 11px; color: var(--muted); font-weight: 800; direction: ltr; line-height: 1.35; }
+  .phones .location { color: var(--gold-strong); direction: rtl; }
 
   /* ── زر طباعة ───────────────────────────── */
-  .print-btn {
+  .document-tools {
     position: fixed; top: 12px; left: 12px; z-index: 999;
-    background: #d7a83f; color: #0c0a07; border: none;
-    padding: 8px 18px; border-radius: 8px; font-size: 12px;
+    display: flex; gap: 6px;
+  }
+  .document-tools button {
+    background: var(--gold); color: var(--button-text); border: 1px solid var(--gold);
+    padding: 8px 12px; border-radius: 6px; font-size: 11px;
     font-weight: 900; cursor: pointer;
     font-family: 'Almarai', Tahoma, sans-serif;
-    box-shadow: 0 3px 12px rgba(0,0,0,.5);
+  }
+  .document-tools .theme-switch {
+    background: var(--surface); color: var(--text); border-color: var(--line);
   }
 `;
 
@@ -240,8 +438,7 @@ const renderGroup = ([name, its], priceFormatter, unitFormatter = (item) => item
     <span>${name}</span>
     <span class="group-count">${its.length}</span>
   </div>
-  <table><tbody>
-    ${its.map((item, i) => `
+  <table><tbody>${its.map((item, i) => `
     <tr class="${i%2===0?"odd":"even"}">
       <td class="name">${item.name}</td>
       <td class="unit">${unitFormatter(item)}</td>
@@ -261,7 +458,10 @@ const buildHtml = ({ pageItems, titleSuffix, badgeClass, badgeLabel, unitLabel, 
 </head>
 <body>
 
-<button class="print-btn no-print" onclick="window.print()">🖨️ طباعة / PDF</button>
+<div class="document-tools no-print">
+  <button onclick="window.print()">طباعة / PDF</button>
+  <button class="theme-switch" type="button" onclick="toggleTheme()">فاتح / داكن</button>
+</div>
 
 <div class="header">
   <img src="${logoSrc}" alt="OZK TOBACCO" class="header-logo">
@@ -282,12 +482,35 @@ const buildHtml = ({ pageItems, titleSuffix, badgeClass, badgeLabel, unitLabel, 
     <span>0985000771</span>
     <span>0984000662</span>
     <span>مركز: 0994092038</span>
+    <span class="location">دوما – ساحة الغنم</span>
   </div>
 </div>
 
 <div class="columns">
-  ${buildGroups(pageItems).map(g => renderGroup(g, priceFormatter, unitFormatter)).join("\n")}
+  ${(() => {
+    const { right, left } = buildColumnLayout(pageItems);
+    const renderStack = (stack) => stack.map(g => renderGroup(g, priceFormatter, unitFormatter)).join("\n");
+    return `<div class="column-stack">${renderStack(right)}</div>\n<div class="column-stack">${renderStack(left)}</div>`;
+  })()}
 </div>
+
+<div class="columns secondary-page">
+  ${(() => {
+    const { specialRight, specialLeft } = buildColumnLayout(pageItems);
+    const renderStack = (stack) => stack.map(g => renderGroup(g, priceFormatter, unitFormatter)).join("\n");
+    return `<div class="column-stack">${renderStack(specialRight)}</div>\n<div class="column-stack">${renderStack(specialLeft)}</div>`;
+  })()}
+</div>
+
+<script>
+  const savedTheme = localStorage.getItem('ozk-price-theme');
+  document.body.dataset.theme = savedTheme || 'dark';
+  function toggleTheme() {
+    const next = document.body.dataset.theme === 'light' ? 'dark' : 'light';
+    document.body.dataset.theme = next;
+    localStorage.setItem('ozk-price-theme', next);
+  }
+</script>
 
 </body>
 </html>`;
@@ -324,6 +547,34 @@ writeFileSync(
   })
 );
 console.log(`✓ price-list-syp-${SYP_RATE}.html`);
+
+// ── نشرات الوزاري المنفصلة ───────────────────────────────────────────────────
+writeFileSync(
+  resolve(root, "public/downloads/price-list-wazari-usd.html"),
+  buildHtml({
+    pageItems: usdWazariItems,
+    titleSuffix: "الوزاري — دولار",
+    badgeClass: "badge-usd",
+    badgeLabel: "💵 نشرة الوزاري — جملة",
+    unitLabel: "سعر الكرتونة (جملة)",
+    priceFormatter: (item) => `${item.usd.toFixed(2)} $`,
+  })
+);
+console.log("✓ price-list-wazari-usd.html");
+
+writeFileSync(
+  resolve(root, `public/downloads/price-list-wazari-syp-${SYP_RATE}.html`),
+  buildHtml({
+    pageItems: sypWazariItems,
+    titleSuffix: "الوزاري — سوري",
+    badgeClass: "badge-syp",
+    badgeLabel: "🇸🇾 نشرة الوزاري — مفرق",
+    unitLabel: "سعر المفرق للوحدة",
+    priceFormatter: (item) => `${Math.round((item.retailCarton * SYP_RATE) / item.unitFactor).toLocaleString("ar-SY")} ل.س`,
+    unitFormatter: (item) => item.unit1 || (item.unit === "كرتونة" ? "علبة" : item.unit),
+  })
+);
+console.log(`✓ price-list-wazari-syp-${SYP_RATE}.html`);
 
 // ── index ─────────────────────────────────────────────────────────────────────
 const indexHtml = `<!DOCTYPE html>
@@ -362,6 +613,18 @@ const indexHtml = `<!DOCTYPE html>
 <div class="date">${issueDate}</div>
 <h1>اختر نشرة الأسعار</h1>
 <div class="cards">
+  <a class="card" href="price-list-wazari-syp-${SYP_RATE}.html" target="_blank">
+    <div class="card-icon">🏛️</div>
+    <div class="card-title">نشرة الوزاري — سوري</div>
+    <div class="card-unit">الأصناف الوزارية والمحزّرة</div>
+    <div class="card-btn">عرض وطباعة</div>
+  </a>
+  <a class="card" href="price-list-wazari-usd.html" target="_blank">
+    <div class="card-icon">🏛️</div>
+    <div class="card-title">نشرة الوزاري — دولار</div>
+    <div class="card-unit">جملة بالكرتونة الكاملة</div>
+    <div class="card-btn">عرض وطباعة</div>
+  </a>
   <a class="card" href="price-list-syp-${SYP_RATE}.html" target="_blank">
     <div class="card-icon">🇸🇾</div>
     <div class="card-title">نشرة السوري — مفرق</div>
@@ -382,4 +645,4 @@ const indexHtml = `<!DOCTYPE html>
 </html>`;
 writeFileSync(resolve(root, "public/downloads/index.html"), indexHtml);
 console.log("✓ index.html");
-console.log(`\nاكتمل — جملة: ${usdItems.length} مادة | مفرق: ${sypItems.length} مادة`);
+console.log(`\nاكتمل — عام جملة: ${usdItems.length} | عام مفرق: ${sypItems.length} | وزاري جملة: ${usdWazariItems.length} | وزاري مفرق: ${sypWazariItems.length}`);
