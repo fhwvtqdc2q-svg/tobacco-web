@@ -9,6 +9,13 @@
 - المسؤول: Codex
 - آخر تحديث: 2026-07-14
 
+## 2026-07-14 - Codex - إكمال ملفات PDF النهائية للنشرات وإزالة الهوامش البيضاء
+
+- Status: completed
+- Branch: task branch pending for: إكمال ملفات PDF النهائية للنشرات وإزالة الهوامش البيضاء
+- Files: scripts/generate-pdfs.mjs,public/service-worker.js
+- Result: تم إنشاء PDF للدولار والسوري والوزاري بهوامش صفرية وخلفية داكنة كاملة، ومنع صفحة الوزاري الفارغة، وفحص كل الصفحات بصرياً. npm check وgit diff check ناجحان.
+- Handoff UTC: 2026-07-14T17:18:20Z
 ## 2026-07-14 - Codex - Redesign price list with light and dark themes
 
 - Status: completed
