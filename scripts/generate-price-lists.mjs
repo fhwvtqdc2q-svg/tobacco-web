@@ -461,7 +461,8 @@ const buildHtml = ({ pageItems, titleSuffix, badgeClass, badgeLabel, unitLabel, 
 <body>
 
 <div class="document-tools no-print">
-  <a href="${pdfFile}" target="_blank" rel="noopener">فتح PDF للطباعة</a>
+  <a href="${pdfFile}">فتح PDF للطباعة</a>
+  <a href="${pdfFile}" download>تنزيل PDF</a>
   <button class="theme-switch" type="button" onclick="toggleTheme()">فاتح / داكن</button>
 </div>
 
