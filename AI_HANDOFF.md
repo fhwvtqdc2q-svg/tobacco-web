@@ -4,10 +4,20 @@
 
 ## الحالة الحالية
 
-- الحالة: متاح
-- المهمة المفتوحة: لا توجد
-- المسؤول: لا يوجد
+- الحالة: جاهز للدمج والنشر
+- المهمة المفتوحة: اعتماد نشرات الأسعار الجديدة
+- المسؤول: Codex
 - آخر تحديث: 2026-07-14
+
+## 2026-07-14 - Codex - اعتماد نشرات الأسعار والمزامنة
+
+- Status: completed and verified
+- Branch: `feat/price-list-light-dark`
+- Files: `scripts/generate-price-lists.mjs`, `tools/ameen-sync-agent.ps1`, `public/downloads/*`, `public/service-worker.js`, `supabase/available-price-sync-feed.sql`, `AI_WORK_SYNC.md`
+- Result: نشرتا الدولار والسوري بتنسيق فاتح/داكن وعمودين متوازنين؛ فصل الوزاري؛ صفحة مستقلة للمعسل والفحم؛ طباعة بخلفية كاملة ومسطرة ذهبية؛ تكبير أرقام التواصل وإضافة «دوما – ساحة الغنم»؛ ربط مخزون النشرة بتغيّر العدد الصحيح للكرتونة/الطرد/الشرحة.
+- Inventory verification: مهمة `TOBACCO Ameen Sync` تعمل كل دقيقة، وآخر تشغيل نجح. بعد تحديث الأمين بقي في نشرة الدولار من كورسير فقط «كورسير قصير فضي» (52/50).
+- Checks: `npm.cmd run check`, `git diff --check`, PowerShell parser, uniqueness checks for all four lists.
+- Generated lists: general USD 125 rows, general SYP 165 rows, wazari USD 7 rows, wazari SYP 9 rows at final generation.
 
 ## 2026-07-14 - Codex - Enable Claude Codex coordination
 

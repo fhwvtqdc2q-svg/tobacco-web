@@ -447,6 +447,62 @@ function Send-InventoryReport($SupabaseUrl, $ApiKey, $Session, $Report) {
   Send-Report -SupabaseUrl $SupabaseUrl -ApiKey $ApiKey -Session $Session -Report $Report -Source "ameen_sql_agent"
 }
 
+function Sync-PriceListStockOnFullUnitChange($SupabaseUrl, $ApiKey, $Session, $Report) {
+  $headers = @{
+    apikey = $ApiKey
+    Authorization = "Bearer $($Session.access_token)"
+    Accept = "application/json"
+    "Accept-Profile" = "public"
+    "Content-Profile" = "public"
+  }
+  $endpoint = "$SupabaseUrl/rest/v1/approved_price_items"
+  $publishedResponse = Invoke-RestMethodWithRetry -Method Get -Uri "$endpoint`?select=item_key,item_name,stock_qty,unit2_factor&limit=5000" -Headers $headers
+  $published = @()
+  foreach ($row in $publishedResponse) { $published += $row }
+  $publishedByKey = @{}
+  foreach ($row in $published) {
+    $matchKey = Normalize-ItemName $row.item_name
+    if ($matchKey) { $publishedByKey[$matchKey] = $row }
+  }
+
+  $changed = 0
+  $matched = 0
+  foreach ($item in $Report.Items) {
+    $key = Normalize-ItemName $item.name
+    $current = $publishedByKey[$key]
+    if ($null -eq $current) { continue }
+    $matched++
+
+    $oldQty = To-Number $current.stock_qty
+    $oldFactor = To-Number $current.unit2_factor
+    if ($oldFactor -le 0) { $oldFactor = To-Number $item.unit2Factor }
+    if ($oldFactor -le 0) { $oldFactor = 1 }
+    $newQty = To-Number $item.stockQty
+    $newFactor = To-Number $item.unit2Factor
+    if ($newFactor -le 0) { $newFactor = 1 }
+
+    $oldFullUnits = [math]::Floor($oldQty / $oldFactor)
+    $newFullUnits = [math]::Floor($newQty / $newFactor)
+    $availabilityChanged = (($oldQty -gt 0) -ne ($newQty -gt 0))
+    if ($oldFullUnits -eq $newFullUnits -and -not $availabilityChanged) { continue }
+
+    $payload = ConvertTo-JsonText -Value @{
+      stock_qty = [math]::Round($newQty, 3)
+      stock_status = [string]$item.status
+      unit1_name = [string]$item.unit1Name
+      unit2_name = [string]$item.unit2Name
+      unit2_factor = [math]::Round($newFactor, 3)
+      source_synced_at = (Get-Date).ToUniversalTime().ToString("o")
+      updated_at = (Get-Date).ToUniversalTime().ToString("o")
+    } -Depth 5
+    $encodedKey = [uri]::EscapeDataString([string]$current.item_key)
+    Invoke-RestMethodWithRetry -Method Patch -Uri "$endpoint`?item_key=eq.$encodedKey" -Headers ($headers + @{ Prefer = "return=minimal" }) -ContentType "application/json; charset=utf-8" -Body $payload | Out-Null
+    $changed++
+  }
+  Write-AgentLog ("Price-list stock comparison: Published={0}, Matched={1}, BoundaryChanges={2}" -f $published.Count, $matched, $changed)
+  return $changed
+}
+
 function Send-CustomerBalanceReport($SupabaseUrl, $ApiKey, $Session, $Report) {
   Send-Report -SupabaseUrl $SupabaseUrl -ApiKey $ApiKey -Session $Session -Report $Report -Source "ameen_customer_balances"
 }
@@ -467,6 +523,7 @@ function Sync-Once {
   $report = Build-InventoryReport -Rows $rows -LowThreshold $LowThreshold
   $session = Get-SupabaseSession -Url $supabaseUrl -ApiKey $supabaseKey -Email $syncEmail -Password $syncPassword
   Send-InventoryReport -SupabaseUrl $supabaseUrl -ApiKey $supabaseKey -Session $session -Report $report
+  $priceListStockChanges = Sync-PriceListStockOnFullUnitChange -SupabaseUrl $supabaseUrl -ApiKey $supabaseKey -Session $session -Report $report
 
   $customerCount = 0
   if (-not $SkipCustomerBalances) {
@@ -481,7 +538,7 @@ function Sync-Once {
     $customerCount = $customerReport.Items.Count
   }
 
-  Write-AgentLog ("Synced {0} items. Low={1}, Out={2}, Customers={3}" -f $report.Items.Count, $report.Summary.lowStockItems, $report.Summary.outOfStockItems, $customerCount)
+  Write-AgentLog ("Synced {0} items. PriceListFullUnitChanges={1}, Low={2}, Out={3}, Customers={4}" -f $report.Items.Count, $priceListStockChanges, $report.Summary.lowStockItems, $report.Summary.outOfStockItems, $customerCount)
 }
 
 do {
