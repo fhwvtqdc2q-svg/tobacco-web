@@ -4,9 +4,13 @@
  *
  * المخرجات:
  *   public/downloads/price-list-usd.pdf
+ *   public/downloads/price-list-usd-light.pdf
  *   public/downloads/price-list-syp-14050.pdf
+ *   public/downloads/price-list-syp-14050-light.pdf
  *   public/downloads/price-list-wazari-usd.pdf
+ *   public/downloads/price-list-wazari-usd-light.pdf
  *   public/downloads/price-list-wazari-syp-14050.pdf
+ *   public/downloads/price-list-wazari-syp-14050-light.pdf
  *
  * متطلبات: npx playwright install chromium
  */
@@ -24,21 +28,25 @@ const files = [
   {
     html: resolve(downloadsDir, "price-list-usd.html"),
     pdf: resolve(downloadsDir, "price-list-usd.pdf"),
+    lightPdf: resolve(downloadsDir, "price-list-usd-light.pdf"),
     label: "نشرة الدولار",
   },
   {
     html: resolve(downloadsDir, "price-list-syp-14050.html"),
     pdf: resolve(downloadsDir, "price-list-syp-14050.pdf"),
+    lightPdf: resolve(downloadsDir, "price-list-syp-14050-light.pdf"),
     label: "نشرة الليرة السورية",
   },
   {
     html: resolve(downloadsDir, "price-list-wazari-usd.html"),
     pdf: resolve(downloadsDir, "price-list-wazari-usd.pdf"),
+    lightPdf: resolve(downloadsDir, "price-list-wazari-usd-light.pdf"),
     label: "نشرة الوزاري بالدولار",
   },
   {
     html: resolve(downloadsDir, "price-list-wazari-syp-14050.html"),
     pdf: resolve(downloadsDir, "price-list-wazari-syp-14050.pdf"),
+    lightPdf: resolve(downloadsDir, "price-list-wazari-syp-14050-light.pdf"),
     label: "نشرة الوزاري بالليرة السورية",
   },
 ];
@@ -56,9 +64,10 @@ console.log("جارٍ تشغيل المتصفح...");
 const browser = await chromium.launch();
 const page = await browser.newPage();
 
-for (const { html, pdf, label } of files) {
+for (const { html, pdf, lightPdf, label } of files) {
   process.stdout.write(`توليد ${label}... `);
   await page.goto(`file://${html}`, { waitUntil: "networkidle" });
+  await page.evaluate(() => { document.body.dataset.theme = "dark"; });
   await page.pdf({
     path: pdf,
     format: "A4",
@@ -66,7 +75,15 @@ for (const { html, pdf, label } of files) {
     preferCSSPageSize: true,
     margin: { top: "0", bottom: "0", left: "0", right: "0" },
   });
-  console.log(`✓ ${pdf.split("/").pop()}`);
+  await page.evaluate(() => { document.body.dataset.theme = "light"; });
+  await page.pdf({
+    path: lightPdf,
+    format: "A4",
+    printBackground: true,
+    preferCSSPageSize: true,
+    margin: { top: "0", bottom: "0", left: "0", right: "0" },
+  });
+  console.log(`✓ ${pdf.split("/").pop()} + ${lightPdf.split("/").pop()}`);
 }
 
 await browser.close();

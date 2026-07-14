@@ -360,7 +360,7 @@ const CSS = `
 
   @media screen and (max-width: 720px) {
     .columns { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 4px; padding: 0 4px 6px; }
-    .header { padding-top: 58px; }
+    .header { padding-top: 102px; }
     .document-tools { right: 10px; left: 10px; justify-content: center; }
     .group-block { margin-bottom: 3px; }
     .group-header { padding: 4px 5px; font-size: 9px; }
@@ -418,7 +418,7 @@ const CSS = `
   /* ── زر طباعة ───────────────────────────── */
   .document-tools {
     position: fixed; top: 12px; left: 12px; z-index: 999;
-    display: flex; gap: 6px;
+    display: flex; flex-wrap: wrap; gap: 6px;
   }
   .document-tools button,
   .document-tools a {
@@ -461,8 +461,9 @@ const buildHtml = ({ pageItems, titleSuffix, badgeClass, badgeLabel, unitLabel, 
 <body>
 
 <div class="document-tools no-print">
-  <a href="${pdfFile}">فتح PDF للطباعة</a>
-  <a href="${pdfFile}" download>تنزيل PDF</a>
+  <button type="button" onclick="window.print()">طباعة مباشرة</button>
+  <a data-pdf-open href="${pdfFile}">فتح PDF</a>
+  <a data-pdf-download href="${pdfFile}" download>تنزيل PDF</a>
   <button class="theme-switch" type="button" onclick="toggleTheme()">فاتح / داكن</button>
 </div>
 
@@ -507,11 +508,21 @@ ${(() => {
 <script>
   const savedTheme = localStorage.getItem('ozk-price-theme');
   document.body.dataset.theme = savedTheme || 'dark';
+  function selectedPdfFile() {
+    return document.body.dataset.theme === 'light' ? '${pdfFile.replace(".pdf", "-light.pdf")}' : '${pdfFile}';
+  }
+  function syncPdfLinks() {
+    const pdfFile = selectedPdfFile();
+    document.querySelector('[data-pdf-open]').href = pdfFile;
+    document.querySelector('[data-pdf-download]').href = pdfFile;
+  }
   function toggleTheme() {
     const next = document.body.dataset.theme === 'light' ? 'dark' : 'light';
     document.body.dataset.theme = next;
     localStorage.setItem('ozk-price-theme', next);
+    syncPdfLinks();
   }
+  syncPdfLinks();
 </script>
 
 </body>

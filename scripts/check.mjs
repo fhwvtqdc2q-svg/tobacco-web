@@ -11,12 +11,16 @@ const required = [
   "public/service-worker.js",
   "public/downloads/price-list-usd.html",
   "public/downloads/price-list-usd.pdf",
+  "public/downloads/price-list-usd-light.pdf",
   "public/downloads/price-list-syp-14050.html",
   "public/downloads/price-list-syp-14050.pdf",
+  "public/downloads/price-list-syp-14050-light.pdf",
   "public/downloads/price-list-wazari-usd.html",
   "public/downloads/price-list-wazari-usd.pdf",
+  "public/downloads/price-list-wazari-usd-light.pdf",
   "public/downloads/price-list-wazari-syp-14050.html",
   "public/downloads/price-list-wazari-syp-14050.pdf",
+  "public/downloads/price-list-wazari-syp-14050-light.pdf",
   "AI_WORK_SYNC.md",
   "AI_HANDOFF.md",
   "AI_ACTIVE_TASK.json"
@@ -72,8 +76,8 @@ const generatedNewsletterPages = [
 ];
 for (const newsletterPage of generatedNewsletterPages) {
   const page = readFileSync(newsletterPage, "utf8");
-  if (!page.includes("فتح PDF للطباعة") || !page.includes("تنزيل PDF") || page.includes('target="_blank"')) {
-    console.error(`Newsletter page is missing same-tab print and download controls: ${newsletterPage}`);
+  if (!page.includes("طباعة مباشرة") || !page.includes("فتح PDF") || !page.includes("تنزيل PDF") || !page.includes("-light.pdf") || page.includes('target="_blank"')) {
+    console.error(`Newsletter page is missing theme-aware mobile print controls: ${newsletterPage}`);
     failed = true;
   }
 }
