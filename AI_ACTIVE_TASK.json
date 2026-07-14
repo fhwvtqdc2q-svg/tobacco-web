@@ -1,13 +1,13 @@
 {
     "schemaVersion":  1,
-    "status":  "idle",
-    "owner":  null,
-    "task":  null,
-    "branch":  null,
+    "status":  "active",
+    "owner":  "Codex",
+    "task":  "إضافة طباعة هاتف مباشرة وملفات PDF فاتحة وداكنة",
+    "branch":  "task branch pending for: إضافة طباعة هاتف مباشرة وملفات PDF فاتحة وداكنة",
     "files":  [
-
+                  "scripts/generate-price-lists.mjs,scripts/generate-pdfs.mjs,scripts/check.mjs,src/app.js,public/downloads/*,public/service-worker.js"
               ],
-    "startedAt":  null,
-    "updatedAt":  "2026-07-14T19:53:28Z",
-    "note":  "No active task. Read AI_HANDOFF.md before starting work."
+    "startedAt":  "2026-07-14T19:59:55Z",
+    "updatedAt":  "2026-07-14T19:59:55Z",
+    "note":  "Work in progress. Do not edit the reserved files."
 }
