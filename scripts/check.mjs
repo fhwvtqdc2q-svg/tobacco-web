@@ -64,6 +64,20 @@ for (const contract of newsletterContracts) {
   }
 }
 
+const generatedNewsletterPages = [
+  "public/downloads/price-list-usd.html",
+  "public/downloads/price-list-syp-14050.html",
+  "public/downloads/price-list-wazari-usd.html",
+  "public/downloads/price-list-wazari-syp-14050.html"
+];
+for (const newsletterPage of generatedNewsletterPages) {
+  const page = readFileSync(newsletterPage, "utf8");
+  if (!page.includes("فتح PDF للطباعة") || !page.includes('target="_blank"')) {
+    console.error(`Newsletter page is missing the reliable PDF print link: ${newsletterPage}`);
+    failed = true;
+  }
+}
+
 // تناسق نسخة الكاش: كل أصل محلي في index.html يجب أن يحمل نفس قيمة ?v=
 // يلتقط خطأ "رفعت رقم النسخة لبعض الملفات ونسيت الباقي" قبل النشر.
 const versionTags = [...html.matchAll(/(?:src|href)="[^"]*\?v=([^"&]+)"/g)].map((m) => m[1]);

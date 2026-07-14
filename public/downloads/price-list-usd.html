@@ -215,11 +215,13 @@
     position: fixed; top: 12px; left: 12px; z-index: 999;
     display: flex; gap: 6px;
   }
-  .document-tools button {
+  .document-tools button,
+  .document-tools a {
     background: var(--gold); color: var(--button-text); border: 1px solid var(--gold);
     padding: 8px 12px; border-radius: 6px; font-size: 11px;
     font-weight: 900; cursor: pointer;
     font-family: 'Almarai', Tahoma, sans-serif;
+    text-decoration: none;
   }
   .document-tools .theme-switch {
     background: var(--surface); color: var(--text); border-color: var(--line);
@@ -229,7 +231,7 @@
 <body>
 
 <div class="document-tools no-print">
-  <button onclick="window.print()">طباعة / PDF</button>
+  <a href="price-list-usd.pdf" target="_blank" rel="noopener">فتح PDF للطباعة</a>
   <button class="theme-switch" type="button" onclick="toggleTheme()">فاتح / داكن</button>
 </div>
 
@@ -241,7 +243,7 @@
     <span class="currency-badge badge-usd">💵 دولار أمريكي — جملة</span>
   </div>
   <div class="header-right">
-    <div class="item-count-num">127</div>
+    <div class="item-count-num">128</div>
     <div class="item-count-lbl">مادة</div>
   </div>
 </div>
@@ -604,7 +606,7 @@
 <div class="group-block">
   <div class="group-header">
     <span>غلواز</span>
-    <span class="group-count">5</span>
+    <span class="group-count">6</span>
   </div>
   <table><tbody>
     <tr class="odd">
@@ -628,6 +630,11 @@
       <td class="price">400.00 $</td>
     </tr>
     <tr class="odd">
+      <td class="name">غلواز كوين أصفر</td>
+      <td class="unit">كرتونة</td>
+      <td class="price">401.00 $</td>
+    </tr>
+    <tr class="even">
       <td class="name">غلواز كوين اصفر اس سبعة.</td>
       <td class="unit">كرتونة</td>
       <td class="price">350.00 $</td>

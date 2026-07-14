@@ -215,11 +215,13 @@
     position: fixed; top: 12px; left: 12px; z-index: 999;
     display: flex; gap: 6px;
   }
-  .document-tools button {
+  .document-tools button,
+  .document-tools a {
     background: var(--gold); color: var(--button-text); border: 1px solid var(--gold);
     padding: 8px 12px; border-radius: 6px; font-size: 11px;
     font-weight: 900; cursor: pointer;
     font-family: 'Almarai', Tahoma, sans-serif;
+    text-decoration: none;
   }
   .document-tools .theme-switch {
     background: var(--surface); color: var(--text); border-color: var(--line);
@@ -229,7 +231,7 @@
 <body>
 
 <div class="document-tools no-print">
-  <button onclick="window.print()">طباعة / PDF</button>
+  <a href="price-list-wazari-syp-14050.pdf" target="_blank" rel="noopener">فتح PDF للطباعة</a>
   <button class="theme-switch" type="button" onclick="toggleTheme()">فاتح / داكن</button>
 </div>
 
