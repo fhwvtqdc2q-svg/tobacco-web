@@ -5,6 +5,8 @@
  * المخرجات:
  *   public/downloads/price-list-usd.pdf
  *   public/downloads/price-list-syp-14050.pdf
+ *   public/downloads/price-list-wazari-usd.pdf
+ *   public/downloads/price-list-wazari-syp-14050.pdf
  *
  * متطلبات: npx playwright install chromium
  */
@@ -29,6 +31,16 @@ const files = [
     pdf: resolve(downloadsDir, "price-list-syp-14050.pdf"),
     label: "نشرة الليرة السورية",
   },
+  {
+    html: resolve(downloadsDir, "price-list-wazari-usd.html"),
+    pdf: resolve(downloadsDir, "price-list-wazari-usd.pdf"),
+    label: "نشرة الوزاري بالدولار",
+  },
+  {
+    html: resolve(downloadsDir, "price-list-wazari-syp-14050.html"),
+    pdf: resolve(downloadsDir, "price-list-wazari-syp-14050.pdf"),
+    label: "نشرة الوزاري بالليرة السورية",
+  },
 ];
 
 // تحقق من وجود الملفات
@@ -51,7 +63,8 @@ for (const { html, pdf, label } of files) {
     path: pdf,
     format: "A4",
     printBackground: true,
-    margin: { top: "12mm", bottom: "12mm", left: "10mm", right: "10mm" },
+    preferCSSPageSize: true,
+    margin: { top: "0", bottom: "0", left: "0", right: "0" },
   });
   console.log(`✓ ${pdf.split("/").pop()}`);
 }
