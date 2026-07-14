@@ -420,11 +420,13 @@ const CSS = `
     position: fixed; top: 12px; left: 12px; z-index: 999;
     display: flex; gap: 6px;
   }
-  .document-tools button {
+  .document-tools button,
+  .document-tools a {
     background: var(--gold); color: var(--button-text); border: 1px solid var(--gold);
     padding: 8px 12px; border-radius: 6px; font-size: 11px;
     font-weight: 900; cursor: pointer;
     font-family: 'Almarai', Tahoma, sans-serif;
+    text-decoration: none;
   }
   .document-tools .theme-switch {
     background: var(--surface); color: var(--text); border-color: var(--line);
@@ -448,7 +450,7 @@ const renderGroup = ([name, its], priceFormatter, unitFormatter = (item) => item
 </div>`;
 
 // ── بناء HTML ─────────────────────────────────────────────────────────────────
-const buildHtml = ({ pageItems, titleSuffix, badgeClass, badgeLabel, unitLabel, priceFormatter, unitFormatter = (item) => item.unit }) => `<!DOCTYPE html>
+const buildHtml = ({ pageItems, titleSuffix, badgeClass, badgeLabel, unitLabel, pdfFile, priceFormatter, unitFormatter = (item) => item.unit }) => `<!DOCTYPE html>
 <html dir="rtl" lang="ar">
 <head>
 <meta charset="UTF-8">
@@ -459,7 +461,7 @@ const buildHtml = ({ pageItems, titleSuffix, badgeClass, badgeLabel, unitLabel, 
 <body>
 
 <div class="document-tools no-print">
-  <button onclick="window.print()">طباعة / PDF</button>
+  <a href="${pdfFile}" target="_blank" rel="noopener">فتح PDF للطباعة</a>
   <button class="theme-switch" type="button" onclick="toggleTheme()">فاتح / داكن</button>
 </div>
 
@@ -523,6 +525,7 @@ writeFileSync(
     badgeClass: "badge-usd",
     badgeLabel: "💵 دولار أمريكي — جملة",
     unitLabel: "سعر الكرتونة (جملة)",
+    pdfFile: "price-list-usd.pdf",
     priceFormatter: (item) => `${item.usd.toFixed(2)} $`,
   })
 );
@@ -537,6 +540,7 @@ writeFileSync(
     badgeClass: "badge-syp",
     badgeLabel: `🇸🇾 ليرة — مفرق — صرف ${SYP_RATE.toLocaleString()}`,
     unitLabel: "سعر المفرق للوحدة",
+    pdfFile: `price-list-syp-${SYP_RATE}.pdf`,
     priceFormatter: (item) => {
       const cartonUsd = item.retailCarton > 0 ? item.retailCarton : item.usd;
       const p = Math.round((cartonUsd * SYP_RATE) / (item.unitFactor ?? 10));
@@ -556,6 +560,7 @@ writeFileSync(
     badgeClass: "badge-usd",
     badgeLabel: "💵 نشرة الوزاري — جملة",
     unitLabel: "سعر الكرتونة (جملة)",
+    pdfFile: "price-list-wazari-usd.pdf",
     priceFormatter: (item) => `${item.usd.toFixed(2)} $`,
   })
 );
@@ -569,6 +574,7 @@ writeFileSync(
     badgeClass: "badge-syp",
     badgeLabel: "🇸🇾 نشرة الوزاري — مفرق",
     unitLabel: "سعر المفرق للوحدة",
+    pdfFile: `price-list-wazari-syp-${SYP_RATE}.pdf`,
     priceFormatter: (item) => `${Math.round((item.retailCarton * SYP_RATE) / item.unitFactor).toLocaleString("ar-SY")} ل.س`,
     unitFormatter: (item) => item.unit1 || (item.unit === "كرتونة" ? "علبة" : item.unit),
   })

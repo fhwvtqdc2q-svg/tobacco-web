@@ -3043,8 +3043,8 @@ function pricing() {
         </div>
         <div class="newsletter-primary-actions">
           <button class="button secondary" type="button" data-action="refresh-ameen">تحديث المخزون</button>
-          <button class="button primary" type="button" data-action="download-customer-price-pdf" ${generalCount ? "" : "disabled"}>معاينة الدولار</button>
-          <button class="button primary" type="button" data-action="download-customer-price-syria" ${generalCount ? "" : "disabled"}>معاينة السوري</button>
+          <a class="button primary" href="public/downloads/price-list-usd.pdf" target="_blank" rel="noopener">طباعة نشرة الدولار</a>
+          <a class="button primary" href="public/downloads/price-list-syp-14050.pdf" target="_blank" rel="noopener">طباعة نشرة السوري</a>
           <button class="button success" type="button" data-action="publish-bulletin" ${state.session ? "" : "disabled"}>اعتماد ونشر للزبائن</button>
         </div>
         ${state.bulletinStatus ? `<p class="bulletin-status ${state.bulletinStatus.type}">${escapeHtml(state.bulletinStatus.msg)}</p>` : ""}
