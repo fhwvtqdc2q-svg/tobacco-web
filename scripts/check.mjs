@@ -72,8 +72,8 @@ const generatedNewsletterPages = [
 ];
 for (const newsletterPage of generatedNewsletterPages) {
   const page = readFileSync(newsletterPage, "utf8");
-  if (!page.includes("فتح PDF للطباعة") || !page.includes('target="_blank"')) {
-    console.error(`Newsletter page is missing the reliable PDF print link: ${newsletterPage}`);
+  if (!page.includes("فتح PDF للطباعة") || !page.includes("تنزيل PDF") || page.includes('target="_blank"')) {
+    console.error(`Newsletter page is missing same-tab print and download controls: ${newsletterPage}`);
     failed = true;
   }
 }
