@@ -9,6 +9,14 @@ const required = [
   "src/styles.css",
   "public/manifest.webmanifest",
   "public/service-worker.js",
+  "public/downloads/price-list-usd.html",
+  "public/downloads/price-list-usd.pdf",
+  "public/downloads/price-list-syp-14050.html",
+  "public/downloads/price-list-syp-14050.pdf",
+  "public/downloads/price-list-wazari-usd.html",
+  "public/downloads/price-list-wazari-usd.pdf",
+  "public/downloads/price-list-wazari-syp-14050.html",
+  "public/downloads/price-list-wazari-syp-14050.pdf",
   "AI_WORK_SYNC.md",
   "AI_HANDOFF.md",
   "AI_ACTIVE_TASK.json"
@@ -37,6 +45,23 @@ if (!html.includes("supabase-client.js")) {
 if (!html.includes("number-normalizer.js")) {
   console.error("index.html is missing number-normalizer.js wiring.");
   failed = true;
+}
+
+const app = readFileSync("src/app.js", "utf8");
+const newsletterContracts = [
+  'navButton("pricing", "نشرة الأسعار")',
+  'pricing: "نشرة الأسعار"',
+  "مركز نشرة الأسعار",
+  "public/downloads/price-list-usd.html",
+  "public/downloads/price-list-syp-14050.html",
+  "public/downloads/price-list-wazari-usd.html",
+  "public/downloads/price-list-wazari-syp-14050.html"
+];
+for (const contract of newsletterContracts) {
+  if (!app.includes(contract)) {
+    console.error(`Newsletter center contract is missing: ${contract}`);
+    failed = true;
+  }
 }
 
 // تناسق نسخة الكاش: كل أصل محلي في index.html يجب أن يحمل نفس قيمة ?v=

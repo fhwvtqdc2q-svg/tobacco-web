@@ -2234,7 +2234,7 @@ function completionPercent() {
 
 function shell(content) {
   return `
-    <div class="app-shell">
+    <div class="app-shell route-${escapeHtml(state.route)}">
       <aside class="sidebar" aria-label="التنقل">
         <a class="brand" href="#" data-route="overview" aria-label="الرئيسية">
           <img src="public/icons/ozk-logo.png" alt="">
@@ -2245,7 +2245,7 @@ function shell(content) {
           ${state.session ? navButton("dashboard", "📑 التقارير") : ""}
           ${navButton("login", "🔑 تسجيل الدخول")}
           ${navButton("ameen", "📦 الأمين")}
-          ${navButton("pricing", "💰 التسعير")}
+          ${navButton("pricing", "نشرة الأسعار")}
           ${state.session ? navButton("invoice", "📄 الفواتير") : ""}
           ${state.session ? navButton("purchases", "🧾 فواتير مشتريات") : ""}
           ${state.session ? navButton("staff", "👥 الموظفون") : ""}
@@ -2306,7 +2306,7 @@ function pageTitle() {
     login: "تسجيل الدخول",
     requests: "طلبات العملاء",
     ameen: "تقارير الأمين",
-    pricing: "التسعير",
+    pricing: "نشرة الأسعار",
     remote: "الإدارة عن بعد",
     monitoring: "المراقبة",
     payments: "الدفع",
@@ -2979,56 +2979,115 @@ function pricing() {
     dataStore.isConfigured() && !state.session
       ? '<p class="muted">سجل الدخول حتى تحفظ الأسعار في Supabase وتصل إلى جهاز المحاسبة.</p>'
       : "";
+  const generalCount = customerPriceListItems().length;
+  const publishState = state.bulletinStatus?.type === "error" ? "تحتاج مراجعة" : "جاهزة للنشر";
 
   return shell(`
-    <section class="panel wide inventory-browser">
+    <section class="newsletter-hub">
+      <div class="newsletter-hero">
+        <div class="newsletter-hero-copy">
+          <span class="newsletter-kicker">OZK TOBACCO</span>
+          <h2>مركز نشرة الأسعار</h2>
+          <p>حدّث المخزون، راجع الأسعار، عاين النشرات وانشرها للزبائن من مكان واحد.</p>
+        </div>
+        <div class="newsletter-hero-status">
+          <span>حالة النشرة</span>
+          <strong>${escapeHtml(publishState)}</strong>
+          <small>آخر جرد: ${escapeHtml(formatDateTime(syncedAt))}</small>
+        </div>
+      </div>
+
+      <div class="newsletter-steps" aria-label="مراحل تجهيز النشرة">
+        <div class="newsletter-step is-ready"><span>1</span><strong>تحديث المخزون</strong><small>مزامنة الأمين</small></div>
+        <div class="newsletter-step is-current"><span>2</span><strong>مراجعة الأسعار</strong><small>${escapeHtml(waiting)} بحاجة تسعير</small></div>
+        <div class="newsletter-step"><span>3</span><strong>معاينة النشرة</strong><small>دولار وسوري</small></div>
+        <div class="newsletter-step"><span>4</span><strong>اعتماد ونشر</strong><small>رابط الزبائن</small></div>
+      </div>
+
+      <div class="newsletter-metrics">
+        ${inventoryMetric("مواد المخزون", allAvailable.length, "من آخر جرد حي")}
+        ${inventoryMetric("أسعار معتمدة", approvedCount, "محفوظة للمحاسبة")}
+        ${inventoryMetric("بحاجة تسعير", waiting, "تحتاج المراجعة")}
+        ${inventoryMetric("مواد النشرة", generalCount, "جاهزة للمعاينة")}
+      </div>
+
+      <section class="newsletter-editions" aria-labelledby="newsletter-editions-title">
+        <div class="newsletter-section-head">
+          <div><span>المعاينة النهائية</span><h3 id="newsletter-editions-title">اختر النشرة</h3></div>
+          <a class="newsletter-public-link" href="public/downloads/" target="_blank" rel="noopener">فتح صفحة الزبائن</a>
+        </div>
+        <div class="newsletter-edition-grid">
+          <article class="newsletter-edition-card is-featured">
+            <span class="newsletter-edition-type">جملة</span><h4>نشرة الدولار</h4><p>الكرتونة أو الطرد أو الشرحة الكاملة فقط.</p>
+            <div><a href="public/downloads/price-list-usd.html" target="_blank" rel="noopener">معاينة</a><a href="public/downloads/price-list-usd.pdf" target="_blank" rel="noopener">PDF</a></div>
+          </article>
+          <article class="newsletter-edition-card">
+            <span class="newsletter-edition-type">مفرق</span><h4>نشرة السوري</h4><p>المواد ذات المخزون الموجب وفق سعر الصرف المعتمد.</p>
+            <div><a href="public/downloads/price-list-syp-14050.html" target="_blank" rel="noopener">معاينة</a><a href="public/downloads/price-list-syp-14050.pdf" target="_blank" rel="noopener">PDF</a></div>
+          </article>
+          <article class="newsletter-edition-card">
+            <span class="newsletter-edition-type">وزاري جملة</span><h4>الوزاري بالدولار</h4><p>الأصناف الوزارية والمحزّرة المتوفرة بالجملة.</p>
+            <div><a href="public/downloads/price-list-wazari-usd.html" target="_blank" rel="noopener">معاينة</a><a href="public/downloads/price-list-wazari-usd.pdf" target="_blank" rel="noopener">PDF</a></div>
+          </article>
+          <article class="newsletter-edition-card">
+            <span class="newsletter-edition-type">وزاري مفرق</span><h4>الوزاري بالسوري</h4><p>نسخة المفرق المستقلة للأصناف الوزارية.</p>
+            <div><a href="public/downloads/price-list-wazari-syp-14050.html" target="_blank" rel="noopener">معاينة</a><a href="public/downloads/price-list-wazari-syp-14050.pdf" target="_blank" rel="noopener">PDF</a></div>
+          </article>
+        </div>
+      </section>
+
+      <section class="newsletter-command" aria-labelledby="newsletter-command-title">
+        <div class="newsletter-section-head">
+          <div><span>العمل اليومي</span><h3 id="newsletter-command-title">تحديث، مراجعة، نشر</h3></div>
+          <span class="status-chip">${state.session ? "متصل بالحساب" : "يلزم تسجيل الدخول للنشر"}</span>
+        </div>
+        <div class="newsletter-primary-actions">
+          <button class="button secondary" type="button" data-action="refresh-ameen">تحديث المخزون</button>
+          <button class="button primary" type="button" data-action="download-customer-price-pdf" ${generalCount ? "" : "disabled"}>معاينة الدولار</button>
+          <button class="button primary" type="button" data-action="download-customer-price-syria" ${generalCount ? "" : "disabled"}>معاينة السوري</button>
+          <button class="button success" type="button" data-action="publish-bulletin" ${state.session ? "" : "disabled"}>اعتماد ونشر للزبائن</button>
+        </div>
+        ${state.bulletinStatus ? `<p class="bulletin-status ${state.bulletinStatus.type}">${escapeHtml(state.bulletinStatus.msg)}</p>` : ""}
+      </section>
+
+      <section class="panel wide inventory-browser newsletter-pricing-panel">
       <div class="panel-title-row inventory-browser-head">
         <div>
-          <h3>تسعير اليوم</h3>
-          <p class="muted">كل يوم تظهر هنا المواد الموجودة في المستودع لتسعيرها من الهاتف. جهاز المحاسبة يسحب الأسعار المعتمدة تلقائياً.</p>
+          <span class="newsletter-section-label">مراجعة المواد</span>
+          <h3>أسعار النشرة</h3>
+          <p class="muted">عدّل السعر المطلوب واحفظه مباشرة. جهاز المحاسبة يسحب السعر المعتمد تلقائياً.</p>
         </div>
-        <span class="status-chip">آخر جرد: ${escapeHtml(formatDateTime(syncedAt))}</span>
+        <span class="status-chip">${escapeHtml(approvedCount)} سعر معتمد</span>
       </div>
       ${authHint}
       ${state.approvedPriceError ? `<p class="muted">تنبيه الأسعار: ${escapeHtml(state.approvedPriceError)}</p>` : ""}
-      <div class="inventory-metrics">
-        ${inventoryMetric("مواد للتسعير", allAvailable.length, "من آخر جرد حي")}
-        ${inventoryMetric("أسعار معتمدة", approvedCount, "تبقى فعالة يومياً")}
-        ${inventoryMetric("بحاجة تسعير", waiting, "لا يوجد لها سعر معتمد")}
-        ${inventoryMetric("أسعار المحاسبة", state.approvedPriceItems.length, "جاهزة للسحب الآلي")}
-        ${inventoryMetric("تسجيل الدخول", state.session ? "نعم" : "لا", state.session?.email || "لن يتم الحفظ قبل الدخول")}
-      </div>
       <div class="currency-toggle" role="group">
-        <button type="button" class="ctgl ${state.priceMode === "mufrak" ? "" : "active"}" data-mode="jumla">🧾 تسعير جملة</button>
-        <button type="button" class="ctgl ${state.priceMode === "mufrak" ? "active" : ""}" data-mode="mufrak">🛒 تسعير مفرق</button>
+        <button type="button" class="ctgl ${state.priceMode === "mufrak" ? "" : "active"}" data-mode="jumla">أسعار الجملة بالدولار</button>
+        <button type="button" class="ctgl ${state.priceMode === "mufrak" ? "active" : ""}" data-mode="mufrak">أسعار المفرق بالسوري</button>
       </div>
       <div class="inventory-controls">
         <label>
-          بحث باسم المادة
-          <input data-pricing-search value="${escapeHtml(state.pricingSearch)}" placeholder="اكتب اسم المادة">
+          البحث ضمن مواد النشرة
+          <input data-pricing-search value="${escapeHtml(state.pricingSearch)}" placeholder="اكتب اسم المادة أو المجموعة">
         </label>
       </div>
-      <div class="button-row report-actions">
-        <button class="button secondary" type="button" data-action="refresh-ameen">تحديث الجرد</button>
-        <button class="button secondary" type="button" data-action="download-daily-pricing" ${items.length ? "" : "disabled"}>تنزيل قائمة تسعير اليوم</button>
-        <button class="button primary" type="button" data-action="report-inventory">📦 تقرير المخزون PDF</button>
-        <button class="button secondary" type="button" data-action="download-price-template" ${allAvailable.length ? "" : "disabled"}>تنزيل قالب إكسل</button>
-        <button class="button primary" type="button" data-action="download-customer-price-pdf" ${customerPriceListItems().length ? "" : "disabled"}>🧾 نشرة جملة (دولار)</button>
-        <button class="button primary" type="button" data-action="download-customer-price-syria" ${customerPriceListItems().length ? "" : "disabled"}>🛒 نشرة مفرق (سوري)</button>
-        <button class="button secondary" type="button" data-action="download-approved-prices" ${state.approvedPriceItems.length ? "" : "disabled"}>تصدير أسعار المحاسبة</button>
-        <button class="button success" type="button" data-action="publish-bulletin" ${state.session ? "" : "disabled"} title="ينشر النشرتين على رابط الزبائن">🚀 نشر النشرة للزبائن</button>
-      </div>
-      ${state.bulletinStatus ? `<p class="bulletin-status ${state.bulletinStatus.type}">${escapeHtml(state.bulletinStatus.msg)}</p>` : ""}
-      <form class="form-card compact" data-form="live-price-import">
-        <label>
-          رفع ملف تسعير كامل
-          <input name="livePrice" type="file" accept=".xlsx,.xls,.csv">
-        </label>
-        <button class="button primary" type="submit" ${allAvailable.length ? "" : "disabled"}>اعتماد ملف الأسعار</button>
-      </form>
       <div class="inventory-list inventory-list-dense pricing-list" data-pricing-results>
         ${items.length ? groupedAccordion("pricing", items, { groupOf: (i) => i.groupName, rowOf: pricingRow, query: state.pricingSearch }) : `<p class="muted">${escapeHtml(emptyText)}</p>`}
       </div>
+      <details class="newsletter-tools">
+        <summary>أدوات وتقارير إضافية</summary>
+        <div class="button-row report-actions">
+          <button class="button secondary" type="button" data-action="download-daily-pricing" ${items.length ? "" : "disabled"}>قائمة تسعير اليوم</button>
+          <button class="button secondary" type="button" data-action="report-inventory">تقرير المخزون PDF</button>
+          <button class="button secondary" type="button" data-action="download-price-template" ${allAvailable.length ? "" : "disabled"}>قالب إكسل</button>
+          <button class="button secondary" type="button" data-action="download-approved-prices" ${state.approvedPriceItems.length ? "" : "disabled"}>أسعار المحاسبة</button>
+        </div>
+        <form class="form-card compact" data-form="live-price-import">
+          <label>رفع ملف تسعير كامل<input name="livePrice" type="file" accept=".xlsx,.xls,.csv"></label>
+          <button class="button primary" type="submit" ${allAvailable.length ? "" : "disabled"}>اعتماد ملف الأسعار</button>
+        </form>
+      </details>
+      </section>
     </section>
   `);
 }
