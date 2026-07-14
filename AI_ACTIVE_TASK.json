@@ -1,13 +1,13 @@
 {
     "schemaVersion":  1,
-    "status":  "idle",
-    "owner":  null,
-    "task":  null,
-    "branch":  null,
+    "status":  "active",
+    "owner":  "Codex",
+    "task":  "إصلاح طباعة نشرات الأسعار وتوحيدها على PDF الرسمي",
+    "branch":  "task branch pending for: إصلاح طباعة نشرات الأسعار وتوحيدها على PDF الرسمي",
     "files":  [
-
+                  "src/app.js,scripts/generate-price-lists.mjs,public/downloads/index.html,public/downloads/price-list-usd.html,public/downloads/price-list-syp-14050.html,public/downloads/price-list-wazari-usd.html,public/downloads/price-list-wazari-syp-14050.html,public/service-worker.js,scripts/check.mjs"
               ],
-    "startedAt":  null,
-    "updatedAt":  "2026-07-14T18:28:18Z",
-    "note":  "No active task. Read AI_HANDOFF.md before starting work."
+    "startedAt":  "2026-07-14T19:16:49Z",
+    "updatedAt":  "2026-07-14T19:16:49Z",
+    "note":  "Work in progress. Do not edit the reserved files."
 }
