@@ -1,5 +1,7 @@
 # Repository Instructions
 
+اقرأ أيضاً `AI_WORK_SYNC.md` قبل أي عمل؛ فهو مرجع التنسيق المشترك بين Codex وClaude.
+
 هذه التعليمات مخصصة لمنصة الويب وتقارير TOBACCO/Al-Ameen.
 
 ## Review guidelines
