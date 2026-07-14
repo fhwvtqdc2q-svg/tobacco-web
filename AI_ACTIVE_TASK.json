@@ -1,13 +1,13 @@
 {
     "schemaVersion":  1,
-    "status":  "idle",
-    "owner":  null,
-    "task":  null,
-    "branch":  null,
+    "status":  "active",
+    "owner":  "Codex",
+    "task":  "Redesign price list with light and dark themes",
+    "branch":  "task branch pending for: Redesign price list with light and dark themes",
     "files":  [
-
+                  "\u0027scripts/generate-price-lists.mjs\u0027,\u0027public/downloads/index.html\u0027,\u0027public/downloads/price-list-usd.html\u0027,\u0027public/service-worker.js\u0027"
               ],
-    "startedAt":  null,
-    "updatedAt":  "2026-07-14T12:39:33Z",
-    "note":  "No active task. Read AI_HANDOFF.md before starting work."
+    "startedAt":  "2026-07-14T13:11:17Z",
+    "updatedAt":  "2026-07-14T13:11:17Z",
+    "note":  "Work in progress. Do not edit the reserved files."
 }
