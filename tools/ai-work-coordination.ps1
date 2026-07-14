@@ -26,10 +26,15 @@ function Save-Lock($Lock) {
 }
 
 $lock = Read-Lock
+$currentBranch = (git -C $repo branch --show-current).Trim()
 
 if ($Action -eq 'Status') {
     $lock | ConvertTo-Json -Depth 5
     exit 0
+}
+
+if ($currentBranch -ne 'main') {
+    throw "Claim and Complete must run on main so every device can see the shared lock. Current branch: $currentBranch"
 }
 
 if (-not $Owner -or -not $Task) {
@@ -43,18 +48,17 @@ if ($Action -eq 'Claim') {
         throw "Task is locked by $($lock.owner): $($lock.task). Wait for handoff."
     }
 
-    $branch = (git -C $repo branch --show-current).Trim()
     $lock.status = 'active'
     $lock.owner = $Owner
     $lock.task = $Task
-    $lock.branch = $branch
+    $lock.branch = "task branch pending for: $Task"
     $lock.files = @($Files)
     $lock.startedAt = $now
     $lock.updatedAt = $now
     $lock.note = if ($Note) { $Note } else { 'Work in progress. Do not edit the reserved files.' }
     Save-Lock $lock
 
-    Write-Output "Task claimed by $Owner on branch $branch."
+    Write-Output "Task claimed by $Owner. Commit and push the lock on main, then create a task branch."
     exit 0
 }
 
