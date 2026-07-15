@@ -37,7 +37,15 @@ try {
 }
 if (-not (Test-Path $CsvFile)) { Write-Host "خطأ: ملف الأسعار غير موجود: $CsvFile" -ForegroundColor Red; exit 1 }
 $csv = Import-Csv -Path $CsvFile -Encoding UTF8
-Write-Host ("أسعار الموقع: " + $csv.Count + " مادة")
+$sourceCount = $csv.Count
+$arabicCulture = [Globalization.CultureInfo]::GetCultureInfo("ar-SY")
+$csv = @($csv | Group-Object { ([string]$_.item_name).Trim() } | ForEach-Object {
+    $_.Group | Sort-Object {
+        try { [datetime]::Parse([string]$_.updated_at, $arabicCulture) }
+        catch { [datetime]::MinValue }
+    } -Descending | Select-Object -First 1
+})
+Write-Host ("أسعار الموقع: $sourceCount سجل، أحدث سعر معتمد لـ $($csv.Count) مادة")
 
 # (2) أسعار الأمين من القائمتين
 Add-Type -AssemblyName "System.Data"

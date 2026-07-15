@@ -74,7 +74,15 @@ WHERE i.ParentGUID = @ListGuid AND LTRIM(RTRIM(m.Name)) = LTRIM(RTRIM(@ItemName)
 
 try {
     $prices = Import-Csv -Path $CsvFile -Encoding UTF8
-    Write-Host "تم قراءة $($prices.Count) سعر من CSV" -ForegroundColor Green
+    $sourceCount = $prices.Count
+    $arabicCulture = [Globalization.CultureInfo]::GetCultureInfo("ar-SY")
+    $prices = @($prices | Group-Object { ([string]$_.item_name).Trim() } | ForEach-Object {
+        $_.Group | Sort-Object {
+            try { [datetime]::Parse([string]$_.updated_at, $arabicCulture) }
+            catch { [datetime]::MinValue }
+        } -Descending | Select-Object -First 1
+    })
+    Write-Host "تم قراءة $sourceCount سجل من CSV واعتماد أحدث سعر لـ $($prices.Count) مادة" -ForegroundColor Green
 
     # الاتصال بقاعدة بيانات الأمين
     Add-Type -AssemblyName "System.Data"
