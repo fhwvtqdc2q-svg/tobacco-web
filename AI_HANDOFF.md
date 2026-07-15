@@ -9,6 +9,13 @@
 - المسؤول: Codex
 - آخر تحديث: 2026-07-14
 
+## 2026-07-15 - Codex - فصل أرصدة الزبائن في تبويب مستقل
+
+- Status: completed
+- Branch: task branch pending for: فصل أرصدة الزبائن في تبويب مستقل
+- Files: src/app.js,scripts/check.mjs,index.html,public/service-worker.js
+- Result: فُصلت أرصدة الزبائن والحد المسموح عن الأمين إلى تبويب مستقل محمي بعد الدخول، مع ربط البحث والتحديث والتصدير، وفحوص ونشر ناجح.
+- Handoff UTC: 2026-07-15T07:28:07Z
 ## 2026-07-15 - Codex - إضافة قيمة آخر دفعة إلى تقرير أرصدة الزبائن
 
 - Status: completed
