@@ -18,6 +18,7 @@ const WELCOME = `أهلاً 👋 أنا مساعدك الشخصي.
 • شو ناقص
 • الديون
 • مبيعات اليوم
+• ربح اليوم
 • رسم المبيعات
 
 🤖 اسأل أي سؤال عن العمل:
@@ -35,7 +36,8 @@ const WELCOME = `أهلاً 👋 أنا مساعدك الشخصي.
 
 const MENU_KEYBOARD = {
   inline_keyboard: [
-    [{ text: "📊 مبيعات اليوم", callback_data: "sales" }, { text: "⚠️ شو ناقص", callback_data: "low" }],
+    [{ text: "📊 مبيعات اليوم", callback_data: "sales" }, { text: "🧮 ربح اليوم", callback_data: "profit" }],
+    [{ text: "⚠️ شو ناقص", callback_data: "low" }],
     [{ text: "💰 الديون", callback_data: "debts" }, { text: "📈 رسم المبيعات", callback_data: "chart" }],
     [{ text: "🔄 فحص الأسعار", callback_data: "price_sync" }],
     [{ text: "🩺 حالة النظام", callback_data: "system_status" }],
@@ -653,34 +655,37 @@ async function handleItemMovement(chatId: number, name: string) {
   await tg("sendMessage", { chat_id: chatId, text: msg });
 }
 
-// الربح المحسوب من (سعر البيع - التكلفة) × الكمية — وليس من عمود Netprofit
-// الجاهز بالأمين، لأنه تبيّن أنه غير موثوق (بيرجع رقم قريب من المبيعات
-// نفسها، هامش ~80%، غير منطقي إطلاقاً لتجارة دخان بالتجزئة). التحقق تم
-// بمقارنة فعلية: SUM(net_profit)=922 مقابل SUM((price-cost)*qty)=261
-// على نفس البيانات — الرقم التاني هو المنطقي (هامش ~23%).
-function computeProfit(rows: any[]): { revenue: number; profit: number; costedCount: number } {
-  let revenue = 0, profit = 0, costedCount = 0;
-  for (const r of rows) {
-    revenue += Number(r.line_total ?? 0);
-    const cost = r.unit_cost;
-    if (cost != null) {
-      profit += (Number(r.unit_price ?? 0) - Number(cost)) * Number(r.qty ?? 0);
-      costedCount++;
-    }
-  }
-  return { revenue, profit, costedCount };
-}
-
 async function handleProfitToday(chatId: number) {
-  const todayStr = new Date().toISOString().slice(0, 10);
-  const rows = await restGet(`sales_line_items?sale_date=eq.${todayStr}&select=line_total,qty,unit_price,unit_cost`);
-  if (!Array.isArray(rows) || !rows.length) {
-    await tg("sendMessage", { chat_id: chatId, text: "ما في حركة مبيعات مسجّلة اليوم لهلق 😕\n(هاي الميزة بتحتاج تشغيل مزامنة حركة المبيعات من جهاز Windows)." });
+  const rows = await restGet(`inventory_reports?source=eq.ameen_daily_profit&order=created_at.desc&limit=1&select=summary,created_at`);
+  if (!Array.isArray(rows) || !rows.length || !rows[0]?.summary) {
+    await tg("sendMessage", { chat_id: chatId, text: "ما في تقرير ربح متزامن من الأمين بعد 😕\nشغّل مزامنة حركة المبيعات من جهاز Windows مرة واحدة." });
     return;
   }
-  const { revenue, profit, costedCount } = computeProfit(rows);
-  let msg = `🧮 ربح اليوم\nعدد حركات البيع: ${rows.length}\nالمبيعات: ${fmtUSD(revenue)}\nصافي الربح (سعر البيع - التكلفة): ${fmtUSD(profit)}`;
-  if (costedCount < rows.length) msg += `\n⚠️ ${rows.length - costedCount} حركة بدون سعر تكلفة معروف — مو محسوبة بالربح.`;
+  const s = rows[0].summary;
+  const today = localNow().toISOString().slice(0, 10);
+  if (String(s.report_date ?? "") !== today) {
+    await tg("sendMessage", { chat_id: chatId, text: `⚠️ آخر تقرير ربح من الأمين قديم (بتاريخ ${fmtDate(s.report_date)}).\nما رح أعرضه كربح اليوم حتى ما أعطيك رقم مضلل.` });
+    return;
+  }
+  let msg = `🧮 تقرير ربح اليوم — ${fmtDate(s.report_date)}\n\n`;
+  msg += `1️⃣ إجمالي المبيعات: ${fmtUSD(s.sales_gross)}\n`;
+  msg += `2️⃣ تكلفة البضاعة المباعة: ${fmtUSD(s.sales_cost)}\n`;
+  msg += `3️⃣ ربح البضاعة قبل التعديلات: ${fmtUSD(s.product_margin_before_adjustments)}\n`;
+  msg += `4️⃣ الحسومات: ${fmtUSD(s.discounts)}\n`;
+  msg += `5️⃣ المرتجعات: ${fmtUSD(s.returns)}`;
+  if (Number(s.returns_cost ?? 0) > 0) msg += ` (تكلفتها المرجعة ${fmtUSD(s.returns_cost)})`;
+  msg += `\n6️⃣ مصاريف اليوم: ${fmtUSD(s.expenses)}\n`;
+  msg += `7️⃣ صافي الربح الحقيقي: ${fmtUSD(s.net_profit)}\n\n`;
+  msg += `الفواتير: ${fmtNum(s.sales_bill_count)} بيع`;
+  if (Number(s.return_bill_count ?? 0) > 0) msg += ` + ${fmtNum(s.return_bill_count)} مرتجع`;
+  msg += ` | المصاريف: ${fmtNum(s.expense_entry_count)} حركة`;
+  if (Number(s.sales_extras ?? 0) !== 0) msg += `\n➕ إضافات الفواتير الداخلة بالحساب: ${fmtUSD(s.sales_extras)}`;
+  if (Number(s.missing_cost_lines ?? 0) > 0) {
+    msg += `\n⚠️ ${fmtNum(s.missing_cost_lines)} سطر بلا تكلفة صحيحة؛ الصافي مؤقت حتى تُستكمل تكلفته بالأمين.`;
+  } else {
+    msg += `\n✅ كل أسطر اليوم لها تكلفة معروفة بالأمين.`;
+  }
+  msg += `\n🕒 آخر مزامنة: ${ageLabel(ageMinutes(rows[0].created_at))}`;
   await tg("sendMessage", { chat_id: chatId, text: msg });
 }
 
@@ -831,15 +836,15 @@ async function buildBusinessContext(question: string): Promise<string> {
   } catch { lines.push("تعذّر جلب بيانات المبيعات."); }
 
   try {
-    const todayStr0 = new Date().toISOString().slice(0, 10);
-    const lineRows = await restGet(`sales_line_items?sale_date=eq.${todayStr0}&select=line_total,item_name,qty,unit_price,unit_cost`);
-    if (Array.isArray(lineRows) && lineRows.length) {
-      const { revenue: rev, profit: prof } = computeProfit(lineRows);
-      lines.push(`حركة مبيعات اليوم (تفصيلية): ${lineRows.length} حركة بيع، مبيعات ${fmtUSD(rev)}، صافي ربح (سعر البيع - التكلفة) ${fmtUSD(prof)}.`);
+    const profitRows = await restGet(`inventory_reports?source=eq.ameen_daily_profit&order=created_at.desc&limit=1&select=summary,created_at`);
+    if (Array.isArray(profitRows) && profitRows.length && profitRows[0]?.summary) {
+      const p = profitRows[0].summary;
+      lines.push(`ربح اليوم من الأمين (${fmtDate(p.report_date)}): مبيعات ${fmtUSD(p.sales_gross)}، تكلفة بضاعة ${fmtUSD(p.sales_cost)}، حسومات ${fmtUSD(p.discounts)}، مرتجعات ${fmtUSD(p.returns)}، مصاريف ${fmtUSD(p.expenses)}، صافي ربح ${fmtUSD(p.net_profit)}.`);
+      if (Number(p.missing_cost_lines ?? 0) > 0) lines.push(`تنبيه: ${fmtNum(p.missing_cost_lines)} سطر مبيع بلا تكلفة مكتملة؛ رقم الربح مؤقت.`);
     } else {
-      lines.push("لا يوجد حركة مبيعات تفصيلية مسجّلة اليوم بعد.");
+      lines.push("لا يوجد تقرير ربح يومي متزامن من الأمين بعد.");
     }
-  } catch { /* الجدول ممكن ما يكون موجود بعد — تجاهل بصمت */ }
+  } catch { lines.push("تعذّر جلب تقرير الربح اليومي."); }
 
   try {
     const report = await loadBalancesReport();
@@ -1157,6 +1162,7 @@ Deno.serve(async (req) => {
     const data = String(cq.data ?? "");
     try {
       if (data === "sales") await handleSales(cqChatId);
+      else if (data === "profit") await handleProfitToday(cqChatId);
       else if (data === "low") await handleLowStock(cqChatId);
       else if (data === "debts") await handleDebts(cqChatId);
       else if (data === "chart") await handleSalesChart(cqChatId);
