@@ -40,7 +40,15 @@ let feedError = "";
 try {
   const res = await fetch(
     `${SUPABASE_URL}/rest/v1/available_price_sync_feed?select=item_key,item_name,unit1_name,unit2_name,unit2_factor,unit2_price,retail_carton_usd,stock_qty,stock_status,source_synced_at,updated_at&order=item_name.asc&limit=5000`,
-    { headers: { apikey: SUPABASE_KEY, Authorization: `Bearer ${SUPABASE_KEY}`, "Accept-Profile": "public" } }
+    {
+      headers: {
+        apikey: SUPABASE_KEY,
+        Authorization: `Bearer ${SUPABASE_KEY}`,
+        "Accept-Profile": "public",
+        "Cache-Control": "no-cache",
+        Pragma: "no-cache"
+      }
+    }
   );
   if (!res.ok) throw new Error(`${res.status} ${await res.text()}`);
   feed = await res.json();
@@ -64,7 +72,13 @@ if (feed.length) {
       const previous = latest.get(displayName);
       const rowTime = Date.parse(row.updated_at || "") || 0;
       const previousTime = Date.parse(previous?.updated_at || "") || 0;
-      if (!previous || rowTime >= previousTime) latest.set(displayName, row);
+      // وقت السعر هو المرجع الأول. عند تساوي الوقت نفضّل المفتاح المطابق حرفياً
+      // لاسم صنف الأمين حتى لا يفوز alias قديم بلا همزة/تاء مربوطة.
+      const exactKey = String(row.item_key || "").trim() === displayName;
+      const previousExactKey = String(previous?.item_key || "").trim() === displayName;
+      if (!previous || rowTime > previousTime || (rowTime === previousTime && exactKey && !previousExactKey)) {
+        latest.set(displayName, row);
+      }
     }
     return [...latest.values()];
   };
