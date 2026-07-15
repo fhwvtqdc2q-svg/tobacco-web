@@ -53,6 +53,13 @@ if (!html.includes("number-normalizer.js")) {
 }
 
 const app = readFileSync("src/app.js", "utf8");
+const priceGenerator = readFileSync("scripts/generate-price-lists.mjs", "utf8");
+for (const contract of ['["ماستر كوين أبيض", 340]', '["1970 كوين أبيض", 275]', "distinctPrices.size < 2"]) {
+  if (!priceGenerator.includes(contract)) {
+    console.error(`Corrected bulletin price contract is missing: ${contract}`);
+    failed = true;
+  }
+}
 const priceGenerationWorkflow = readFileSync(".github/workflows/generate-price-lists.yml", "utf8");
 if (/git commit[^\n]*\[skip ci\]/i.test(priceGenerationWorkflow)) {
   console.error("Generated price-list commits must trigger Pages deployment; remove [skip ci] from the generator commit.");
