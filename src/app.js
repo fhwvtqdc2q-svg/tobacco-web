@@ -1926,7 +1926,19 @@ function customerPricePdfMarkup(items, latest, useSyria = false) {
   `;
 }
 
-async function publishBulletin() {
+let bulletinPublishTimer = null;
+
+function scheduleBulletinPublish() {
+  clearTimeout(bulletinPublishTimer);
+  if (!localStorage.getItem("gh_publish_token")) {
+    state.bulletinStatus = { type: "muted", msg: "حُفظ السعر. اضغط «اعتماد ونشر» مرة واحدة لتفعيل النشر التلقائي على هذا الجهاز." };
+    return;
+  }
+  state.bulletinStatus = { type: "muted", msg: "حُفظ السعر — ستُحدّث النشرة تلقائياً بعد انتهاء تعديلاتك." };
+  bulletinPublishTimer = setTimeout(() => publishBulletin({ storedTokenOnly: true }), 15000);
+}
+
+async function publishBulletin(options = {}) {
   const REPO = "fhwvtqdc2q-svg/tobacco-web";
   const WORKFLOW = "generate-price-lists.yml";
   const rateInput = document.querySelector("[data-published-exchange-rate]");
@@ -1941,6 +1953,7 @@ async function publishBulletin() {
 
   let token = localStorage.getItem("gh_publish_token");
   if (!token) {
+    if (options.storedTokenOnly) return;
     token = prompt("أدخل GitHub Token لنشر النشرة (يُحفظ مرة واحدة على هذا الجهاز):");
     if (!token) return;
     localStorage.setItem("gh_publish_token", token.trim());
@@ -2213,7 +2226,15 @@ async function savePricingItem(form) {
       savedLabel = `سعر الجملة ${formatMoney(entered)}$`;
     }
 
-    const targetKeys = sourceKeys.length ? sourceKeys : [itemKey];
+    const requestedKeys = sourceKeys.length ? sourceKeys : [itemKey];
+    const normalizedTargets = new Set(requestedKeys.map(normalizeItemName));
+    // وحّد كل aliases القديمة للاسم نفسه (همزة/تاء مربوطة/نقاط) بالسعر الجديد.
+    // بذلك لا تستطيع مزامنة المخزون إعادة سعر قديم إلى النشرة لاحقاً.
+    const aliasKeys = (state.approvedPriceItems || [])
+      .filter((price) => normalizedTargets.has(normalizeItemName(price.itemKey)) || normalizedTargets.has(normalizeItemName(price.itemName)))
+      .map((price) => price.itemKey)
+      .filter(Boolean);
+    const targetKeys = [...new Set([...requestedKeys, ...aliasKeys])];
     const records = targetKeys.map((targetKey) => {
       const sourceItem = reportItems(latest).find((item) => (item.key || normalizeItemName(item.name)) === targetKey) || latestItem;
       const sourceExisting = approvedPriceMap().get(targetKey);
@@ -2252,6 +2273,7 @@ async function savePricingItem(form) {
     state.approvedPriceItems = [...priceMap.values()].sort((a, b) => String(a.itemName || "").localeCompare(String(b.itemName || ""), "ar"));
     const mergedLabel = records.length > 1 ? ` على ${records.length} أصناف مدمجة` : "";
     setNotice("success", `✓ تم حفظ ${savedLabel}: ${itemName}${mergedLabel}`);
+    scheduleBulletinPublish();
     render();
     return true;
   } catch (error) {
@@ -3184,7 +3206,7 @@ function pricing() {
         <div>
           <span class="newsletter-section-label">مراجعة المواد</span>
           <h3>أسعار النشرة</h3>
-          <p class="muted">تظهر هنا النشرة العامة فقط بعد استبعاد الوزاري ودمج الأصناف المتشابهة. في الجملة لا يظهر ما دون كرتونة أو طرد أو شرحة كاملة.</p>
+          <p class="muted">تظهر هنا النشرة العامة فقط بعد استبعاد الوزاري ودمج الأصناف المتشابهة. بعد حفظ الأسعار تُحدّث النشرة تلقائياً خلال لحظات.</p>
         </div>
         <span class="status-chip">${escapeHtml(approvedCount)} سعر معتمد</span>
       </div>

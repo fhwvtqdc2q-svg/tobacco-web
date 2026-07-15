@@ -105,6 +105,12 @@ for (const contract of ["data-published-exchange-rate", "inputs: { rate: String(
     failed = true;
   }
 }
+for (const contract of ["scheduleBulletinPublish", "normalizedTargets", "aliasKeys", "storedTokenOnly: true"]) {
+  if (!app.includes(contract)) {
+    console.error(`Automatic bulletin synchronization contract is missing: ${contract}`);
+    failed = true;
+  }
+}
 if (!app.includes("unit2Price > 0 ? unit2Price : entered")) {
   console.error("Retail-only pricing fallback is missing.");
   failed = true;
