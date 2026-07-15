@@ -143,6 +143,24 @@ if (!appJs.includes("قيمة آخر دفعة") || !/receivablesPdfMarkup[\s\S]*
   failed = true;
 }
 
+// أرصدة الزبائن صفحة مستقلة وليست جزءاً من تبويب الأمين.
+for (const contract of [
+  'navButton("balances", "💳 أرصدة الزبائن")',
+  "function customerBalancesPage()",
+  "balances: customerBalancesPage",
+  '["ameen", "balances", "pricing", "dashboard", "payments"]'
+]) {
+  if (!appJs.includes(contract)) {
+    console.error(`Standalone customer balances contract is missing: ${contract}`);
+    failed = true;
+  }
+}
+const ameenFunction = appJs.match(/function ameen\(\) \{[\s\S]*?\n\}\n\nfunction customerBalancesPage\(/)?.[0] || "";
+if (ameenFunction.includes("customerBalanceSection(")) {
+  console.error("Ameen tab must not render the customer balances section.");
+  failed = true;
+}
+
 const manifest = JSON.parse(readFileSync("public/manifest.webmanifest", "utf8"));
 if (!manifest.name || !manifest.start_url) {
   console.error("manifest.webmanifest is incomplete.");
