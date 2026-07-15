@@ -111,6 +111,9 @@ for (const contract of [
   "INVENTORY_GROUP_SEQUENCE",
   "inventoryReportStatus",
   "inventory-group-row",
+  "inventoryTwoColumnPages",
+  "inventory-columns",
+  "grid-template-columns:repeat(2",
   "inventory-rpt",
   "color-scheme:light",
   "لا تُدمج أصناف المعسل"
