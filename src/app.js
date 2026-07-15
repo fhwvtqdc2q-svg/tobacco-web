@@ -1538,7 +1538,74 @@ function customerPriceListItems() {
         String(a.groupName || "").localeCompare(String(b.groupName || ""), "ar") ||
         String(a.name || "").localeCompare(String(b.name || ""), "ar")
     );
-  return mergeBulletinNamedGroups(mergeOstoraPriceItems(mergeMazayaPriceItems(items)));
+  return consolidateGeneralPriceItems(items);
+}
+
+function isWazariPriceItem(item) {
+  const name = normalizeItemName(item.name || item.itemName || "");
+  if (name.includes("نخله") && (name.includes("محزر") || name.includes("وزاري"))) return true;
+  if (name.includes("كينت") && !name.includes("حره")) return true;
+  if (name.includes("وينستون") && !name.includes("حره")) return true;
+  if (name.includes("فاخر") && name.includes("اسود") && name.includes("محزر")) return true;
+  if (
+    name.includes("مالبورو") &&
+    (name.includes("محزر") || name.includes("ورق ابيض") || name.includes("ورق احمر") || name.includes("كوين ازرق"))
+  ) return true;
+  return false;
+}
+
+function hasFullSecondUnit(item) {
+  const factor = itemUnit2Factor(item);
+  return factor > 0 && itemQty(item) / factor >= 1;
+}
+
+function shishaPriceLabel(item) {
+  const name = normalizeItemName(item.name || item.itemName || "");
+  if (name.includes("مزايا")) return name.includes("كف") ? "مزايا كف" : "مزايا مشكل";
+  if (name.includes("اسطوره")) return "أسطورة مشكل";
+  if (name.includes("معسل روز")) return "روز مشكل";
+  if (name.includes("صفوه")) return "صفوة جميع النكهات";
+  if (name.includes("فاخر")) {
+    if (name.includes("اسود") && name.includes("كف")) return "فاخر أسود كف";
+    if (name.includes("اسود")) return "فاخر أسود كروز";
+    if (name.includes("احمر")) return "فاخر أحمر كروز";
+    return "فاخر نكهات";
+  }
+  return item.name || item.itemName || "";
+}
+
+function isGeneralShishaPriceItem(item) {
+  const group = normalizeItemName(item.groupName || "");
+  const name = normalizeItemName(item.name || item.itemName || "");
+  return ["معسل", "مزايا", "نخله"].some((word) => group.includes(word)) ||
+    ["معسل", "مزايا", "نخله", "فاخر", "صفوه", "اسطوره"].some((word) => name.includes(word));
+}
+
+function consolidateGeneralPriceItems(items) {
+  const regular = [];
+  const merged = new Map();
+  items.filter((item) => !isWazariPriceItem(item)).forEach((item) => {
+    const normalizedName = normalizeItemName(item.name || item.itemName || "");
+    if (isGeneralShishaPriceItem(item) && /100\s*غ/u.test(normalizedName)) return;
+    if (!isGeneralShishaPriceItem(item) || normalizedName.includes("نخله")) {
+      regular.push(item);
+      return;
+    }
+    const label = shishaPriceLabel(item);
+    const existing = merged.get(label);
+    if (existing) {
+      existing.sourceKeys.push(item.key);
+      return;
+    }
+    merged.set(label, {
+      ...item,
+      name: label,
+      itemName: label,
+      groupName: "معسل",
+      sourceKeys: [item.key].filter(Boolean)
+    });
+  });
+  return mergeBulletinNamedGroups([...regular, ...merged.values()]);
 }
 
 function isMazayaPriceItem(item) {
@@ -1565,7 +1632,12 @@ function mergeBulletinNamedGroups(items) {
     });
     if (matches.length < 2) return;
     const rep = matches.find((it) => normalizeItemName(it.name || it.itemName || "") === baseN) || matches[0];
-    const merged = { ...rep, name: display, itemName: display };
+    const merged = {
+      ...rep,
+      name: display,
+      itemName: display,
+      sourceKeys: matches.map((it) => it.key).filter(Boolean)
+    };
     result = result.filter((it) => !matches.includes(it));
     result.push(merged);
   });
@@ -1606,6 +1678,7 @@ function mergeMazayaPriceItems(items) {
     return {
       ...src,
       key,
+      sourceKeys: srcItems.map((it) => it.key).filter(Boolean),
       name,
       itemName: name,
       groupName: "مزايا",
@@ -1644,6 +1717,7 @@ function mergeOstoraPriceItems(items) {
   const ostoraItem = {
     ...first,
     key: "ostora-all",
+    sourceKeys: ostora.map((it) => it.key).filter(Boolean),
     name: "معسل الأسطورة",
     itemName: "معسل الأسطورة",
     groupName: "معسل الاسطورة",
@@ -1886,6 +1960,8 @@ function prepareBulletinItems(useSyria = false) {
   const latest = state.inventoryReports[0];
   let items = customerPriceListItems();
 
+  if (!useSyria) items = items.filter(hasFullSecondUnit);
+
   if (useSyria) {
     // نشرة المفرّق: سعر المفرق يُدخل بسعر الكرتونة بالدولار → يقسم على عدد الكروز ثم × سعر الصرف
     const rate = Number(state.syriaExchangeRate) || 1;
@@ -2023,9 +2099,17 @@ function pricingWorklistItems() {
     .sort((a, b) => Number(a.hasApprovedPrice) - Number(b.hasApprovedPrice) || String(a.name || "").localeCompare(String(b.name || ""), "ar"));
 }
 
+// قائمة العمل داخل الموقع تطابق النشرة العامة: الوزاري منفصل والدمج ظاهر كما يراه الزبون.
+// حد الوحدة الثانية يخص الجملة فقط؛ المفرق السوري يبقى متاحاً لأي مخزون موجب حسب القاعدة المعتمدة.
+function generalPricingWorklistItems() {
+  const items = pricingWorklistItems()
+    .filter((item) => state.priceMode === "mufrak" ? itemQty(item) > 0 : hasFullSecondUnit(item));
+  return consolidateGeneralPriceItems(items);
+}
+
 function downloadDailyPricingWorklist() {
   const latest = state.inventoryReports[0];
-  const items = pricingWorklistItems();
+  const items = generalPricingWorklistItems();
   if (!latest || !items.length) {
     setNotice("error", "لا توجد مواد متوفرة لإنشاء قائمة تسعير اليوم.");
     render();
@@ -2065,8 +2149,12 @@ async function savePricingItem(form) {
   try {
     const latest = state.inventoryReports[0];
     const itemKey = form.dataset.itemKey || "";
+    const sourceKeys = JSON.parse(form.dataset.sourceKeys || "[]").filter(Boolean);
     const itemName = form.dataset.itemName || "";
-    const latestItem = reportItems(latest).find((item) => (item.key || normalizeItemName(item.name)) === itemKey);
+    const latestItem = reportItems(latest).find((item) => {
+      const key = item.key || normalizeItemName(item.name);
+      return key === itemKey || sourceKeys.includes(key);
+    });
     const unit1Name = form.dataset.unit1Name || itemUnit1Name(latestItem) || "";
     const unit2Name = form.dataset.unit2Name || itemUnit2Name(latestItem) || unit1Name;
     const formUnit2Factor = toNumber(form.dataset.unit2Factor || 0);
@@ -2082,7 +2170,7 @@ async function savePricingItem(form) {
     if (!itemKey || !itemName) throw new Error("لا يمكن حفظ السعر بدون مادة واضحة.");
     if (!dataStore.upsertApprovedPriceItems) throw new Error("حفظ الأسعار غير مفعل في قاعدة البيانات.");
 
-    const existing = approvedPriceMap().get(itemKey);
+    const existing = approvedPriceMap().get(itemKey) || approvedPriceMap().get(sourceKeys[0]);
     const basePayload = (existing && existing.pricePayload) || {};
     let unit2Price, salePrice, payloadObj, savedLabel;
 
@@ -2099,23 +2187,36 @@ async function savePricingItem(form) {
       savedLabel = `سعر الجملة ${formatMoney(entered)}$`;
     }
 
-    const saved = await dataStore.upsertApprovedPriceItems([
-      {
-        itemKey,
-        itemName,
-        unit1Name,
-        unit2Name,
-        unit2Factor,
-        unit2Price,
-        unit1Price: salePrice,
-        salePrice,
-        stockQty,
-        stockStatus,
+    const targetKeys = sourceKeys.length ? sourceKeys : [itemKey];
+    const records = targetKeys.map((targetKey) => {
+      const sourceItem = reportItems(latest).find((item) => (item.key || normalizeItemName(item.name)) === targetKey) || latestItem;
+      const sourceExisting = approvedPriceMap().get(targetKey);
+      const sourceFactor = Math.max(1, itemUnit2Factor(sourceItem));
+      const sourceUnit2Price = mode === "mufrak" ? Number(sourceExisting?.unit2Price || unit2Price) : entered;
+      if (mode === "mufrak" && sourceUnit2Price <= 0) {
+        throw new Error(`سعّر الجملة أولاً للصنف: ${sourceItem?.name || targetKey}`);
+      }
+      const sourceSalePrice = Number(sourceExisting?.salePrice || roundPrice(sourceUnit2Price / sourceFactor));
+      const sourcePayload = mode === "mufrak"
+        ? { ...(sourceExisting?.pricePayload || {}), retail: { price: entered }, source: "phone_pricing_page", pricedDate: todayIsoDate() }
+        : payloadObj;
+      return {
+        itemKey: targetKey,
+        itemName: sourceItem?.name || itemName,
+        unit1Name: itemUnit1Name(sourceItem) || unit1Name,
+        unit2Name: itemUnit2Name(sourceItem) || unit2Name,
+        unit2Factor: sourceFactor,
+        unit2Price: sourceUnit2Price,
+        unit1Price: mode === "mufrak" ? sourceSalePrice : roundPrice(entered / sourceFactor),
+        salePrice: mode === "mufrak" ? sourceSalePrice : roundPrice(entered / sourceFactor),
+        stockQty: itemQty(sourceItem),
+        stockStatus: sourceItem?.status || stockStatus,
         sourceReportId: uuidOrNull(latest.id),
         sourceSyncedAt: reportSyncedAt(latest),
-        pricePayload: payloadObj
-      }
-    ]);
+        pricePayload: sourcePayload
+      };
+    });
+    const saved = await dataStore.upsertApprovedPriceItems(records);
 
     if (!saved || !Array.isArray(saved)) {
       throw new Error("لم يتم استقبال تأكيد الحفظ من قاعدة البيانات. تأكد من الاتصال والصلاحيات.");
@@ -2124,7 +2225,8 @@ async function savePricingItem(form) {
     const priceMap = approvedPriceMap();
     saved.forEach((item) => priceMap.set(item.itemKey, item));
     state.approvedPriceItems = [...priceMap.values()].sort((a, b) => String(a.itemName || "").localeCompare(String(b.itemName || ""), "ar"));
-    setNotice("success", `✓ تم حفظ ${savedLabel}: ${itemName}`);
+    const mergedLabel = records.length > 1 ? ` على ${records.length} أصناف مدمجة` : "";
+    setNotice("success", `✓ تم حفظ ${savedLabel}: ${itemName}${mergedLabel}`);
     render();
     return true;
   } catch (error) {
@@ -2952,7 +3054,7 @@ function pricingRow(item) {
       ${costLine}
       ${retailHint}
       <span>${escapeHtml(priced ? (mode === "mufrak" ? "مفرق ✓" : "جملة ✓") : statusLabel(item.status))}</span>
-      <form class="pricing-editor" data-form="pricing-item" data-item-key="${escapeHtml(item.key)}" data-item-name="${escapeHtml(item.name || "")}" data-stock-qty="${escapeHtml(qty)}" data-stock-status="${escapeHtml(item.status || "")}" data-unit1-name="${escapeHtml(unit1Name)}" data-unit2-name="${escapeHtml(unit2Name)}" data-unit2-factor="${escapeHtml(unit2Factor)}">
+      <form class="pricing-editor" data-form="pricing-item" data-item-key="${escapeHtml(item.key)}" data-source-keys="${escapeHtml(JSON.stringify(item.sourceKeys || []))}" data-item-name="${escapeHtml(item.name || "")}" data-stock-qty="${escapeHtml(qty)}" data-stock-status="${escapeHtml(item.status || "")}" data-unit1-name="${escapeHtml(unit1Name)}" data-unit2-name="${escapeHtml(unit2Name)}" data-unit2-factor="${escapeHtml(unit2Factor)}">
         <label>
           <span>${escapeHtml(modeLabel)} (${escapeHtml(unitLabel)} $)</span>
           <input name="salePrice" type="text" inputmode="decimal" dir="ltr" value="${escapeHtml(priced ? shown : "")}" placeholder="0">
@@ -2965,13 +3067,10 @@ function pricingRow(item) {
 
 function pricing() {
   const latest = state.inventoryReports[0];
-  const items = pricingWorklistItems();
+  const items = generalPricingWorklistItems();
   const allAvailable = liveAvailableItems();
-  const approvedCount = allAvailable.filter((item) => {
-    const price = approvedPriceMap().get(item.key || normalizeItemName(item.name));
-    return price && (Number(price.salePrice || 0) > 0 || Number(price.unit2Price || 0) > 0);
-  }).length;
-  const waiting = Math.max(0, allAvailable.length - approvedCount);
+  const approvedCount = items.filter((item) => item.hasApprovedPrice || item.unit2Price > 0 || item.salePrice > 0).length;
+  const waiting = Math.max(0, items.length - approvedCount);
   const syncedAt = reportSyncedAt(latest);
   const emptyText =
     dataStore.isConfigured() && !state.session
@@ -3057,7 +3156,7 @@ function pricing() {
         <div>
           <span class="newsletter-section-label">مراجعة المواد</span>
           <h3>أسعار النشرة</h3>
-          <p class="muted">عدّل السعر المطلوب واحفظه مباشرة. جهاز المحاسبة يسحب السعر المعتمد تلقائياً.</p>
+          <p class="muted">تظهر هنا النشرة العامة فقط بعد استبعاد الوزاري ودمج الأصناف المتشابهة. في الجملة لا يظهر ما دون كرتونة أو طرد أو شرحة كاملة.</p>
         </div>
         <span class="status-chip">${escapeHtml(approvedCount)} سعر معتمد</span>
       </div>
@@ -5449,7 +5548,7 @@ function bindPricingForms(root = app) {
 
 // تحديث قائمة نتائج التسعير فقط (دون إعادة رسم الصفحة) حتى لا يضيع التركيز أثناء البحث
 function updatePricingResults() {
-  const items = pricingWorklistItems();
+  const items = generalPricingWorklistItems();
   const results = app.querySelector("[data-pricing-results]");
   if (!results) return;
   results.innerHTML = items.length
