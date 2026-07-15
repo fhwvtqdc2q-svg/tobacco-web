@@ -9,6 +9,13 @@
 - المسؤول: Codex
 - آخر تحديث: 2026-07-14
 
+## 2026-07-15 - Codex - إضافة قيمة آخر دفعة إلى تقرير أرصدة الزبائن
+
+- Status: completed
+- Branch: task branch pending for: إضافة قيمة آخر دفعة إلى تقرير أرصدة الزبائن
+- Files: src/app.js,scripts/check.mjs,index.html,public/service-worker.js
+- Result: أضيف عمود قيمة آخر دفعة بجانب تاريخها في تقرير الذمم PDF من حقل مزامنة الأمين، مع فحص منع الرجوع ورفع نسخ الأصول والكاش، والنشر ناجح.
+- Handoff UTC: 2026-07-15T07:20:07Z
 ## 2026-07-15 - Codex - إصلاح كاش تقرير المخزون القديم
 
 - Status: completed
