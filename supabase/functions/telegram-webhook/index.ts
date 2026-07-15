@@ -405,9 +405,39 @@ function stockInCartons(r: any): string {
   return `${fmtNum(qty)} ${unit1}`;
 }
 
+// بعض المواد مسجّلة بصفّين بـapproved_price_items لنفس الاسم فعلياً، بفرق
+// همزة بس («أحمر» مقابل «احمر») — ناتج إدخال مكرّر بالأمين. نجمعهم تلقائياً
+// (بالمخزون والسعر) تحت نتيجة وحدة بدل ما نعرضهم كأنهم مادتين مختلفتين.
+function mergeDuplicateStockRows(rows: any[]): any[] {
+  const groups = new Map<string, any[]>();
+  for (const r of rows) {
+    const key = normalizeArabic(r.item_name ?? r.item_key ?? "");
+    if (!key) continue;
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key)!.push(r);
+  }
+  const merged: any[] = [];
+  for (const group of groups.values()) {
+    if (group.length === 1) { merged.push(group[0]); continue; }
+    const base = group[0];
+    const stock_qty = group.reduce((sum, r) => sum + Number(r.stock_qty ?? 0), 0);
+    const salePrices = [...new Set(group.map((r) => r.sale_price).filter((p) => p != null))];
+    const unit2Prices = [...new Set(group.map((r) => r.unit2_price).filter((p) => p != null))];
+    merged.push({
+      ...base,
+      stock_qty,
+      sale_price: salePrices.length === 1 ? salePrices[0] : base.sale_price,
+      unit2_price: unit2Prices.length === 1 ? unit2Prices[0] : base.unit2_price,
+      _priceVariants: salePrices.length > 1 ? salePrices : undefined,
+    });
+  }
+  return merged;
+}
+
 async function handleLowStock(chatId: number) {
   const thr = await getThreshold();
-  const rows = await restGet(`approved_price_items?select=item_name,item_key,stock_qty,unit1_name,unit2_name,unit2_factor&stock_qty=lte.${thr}&order=stock_qty.asc&limit=1000`);
+  const rawRows = await restGet(`approved_price_items?select=item_name,item_key,stock_qty,unit1_name,unit2_name,unit2_factor&stock_qty=lte.${thr}&order=stock_qty.asc&limit=1000`);
+  const rows = Array.isArray(rawRows) ? mergeDuplicateStockRows(rawRows) : rawRows;
   if (!Array.isArray(rows) || !rows.length) {
     await tg("sendMessage", { chat_id: chatId, text: `✅ ولا مادة تحت حد التنبيه (${thr}) — المخزون تمام.` });
     return;
@@ -455,11 +485,12 @@ async function handleDebts(chatId: number) {
 }
 
 async function handlePriceQuery(chatId: number, name: string) {
-  const rows = await restGet(`approved_price_items?select=item_name,item_key,sale_price,unit1_name,unit1_price,unit2_name,unit2_price,stock_qty&limit=1000`);
-  if (!Array.isArray(rows) || !rows.length) {
+  const rawRows = await restGet(`approved_price_items?select=item_name,item_key,sale_price,unit1_name,unit1_price,unit2_name,unit2_price,stock_qty&limit=1000`);
+  if (!Array.isArray(rawRows) || !rawRows.length) {
     await tg("sendMessage", { chat_id: chatId, text: "ما قدرت جيب لائحة الأسعار حالياً 😕" });
     return;
   }
+  const rows = mergeDuplicateStockRows(rawRows);
   const q = normalizeArabic(name);
   const qTokens = q.split(" ").filter(Boolean);
   const scored: { score: number; r: any }[] = [];
@@ -483,6 +514,7 @@ async function handlePriceQuery(chatId: number, name: string) {
     const r = s.r;
     msg += `💵 ${r.item_name ?? r.item_key}\n`;
     if (r.sale_price != null) msg += `السعر: ${fmtNum(r.sale_price)}\n`;
+    if (r._priceVariants) msg += `⚠️ مسجّلة بسعرين مختلفين بالأمين (نسختين مكرّرتين لنفس المادة): ${r._priceVariants.map(fmtNum).join(" و ")}\n`;
     if (r.unit1_price != null && r.unit1_name) msg += `${r.unit1_name}: ${fmtNum(r.unit1_price)}\n`;
     if (r.unit2_price != null && r.unit2_name) msg += `${r.unit2_name}: ${fmtNum(r.unit2_price)}\n`;
     if (r.stock_qty != null) msg += `المخزون: ${fmtNum(r.stock_qty)}\n`;
@@ -734,6 +766,7 @@ async function buildBusinessContext(question: string): Promise<string> {
     const thr = await getThreshold();
     priceItems = await restGet(`approved_price_items?select=item_name,item_key,stock_qty,unit1_name,unit2_name,unit2_factor,sale_price&limit=2000`) as any[];
     if (Array.isArray(priceItems)) {
+      priceItems = mergeDuplicateStockRows(priceItems);
       const out = priceItems.filter((r: any) => Number(r.stock_qty ?? 0) <= 0);
       const low = priceItems.filter((r: any) => Number(r.stock_qty ?? 0) > 0 && Number(r.stock_qty ?? 0) <= thr);
       lines.push(`المخزون: ${out.length} مادة نافدة، ${low.length} مادة تحت حد التنبيه (${thr}).`);
@@ -751,7 +784,10 @@ async function buildBusinessContext(question: string): Promise<string> {
     if (mentioned.length) {
       lines.push("نتائج بحث دقيقة عن مواد وردت بالسؤال (استخدمها إذا كانت مطابقة لقصد السائل):");
       for (const r of mentioned) {
-        lines.push(`- ${r.item_name ?? r.item_key}: المخزون ${stockInCartons(r)}${r.sale_price != null ? `، السعر ${fmtNum(r.sale_price)} ل.س` : ""}`);
+        const priceNote = r._priceVariants
+          ? `، أسعار مختلفة مسجّلة (نسختين مكرّرتين لنفس المادة بالأمين): ${r._priceVariants.map(fmtNum).join(" و ")} ل.س`
+          : r.sale_price != null ? `، السعر ${fmtNum(r.sale_price)} ل.س` : "";
+        lines.push(`- ${r.item_name ?? r.item_key}: المخزون ${stockInCartons(r)}${priceNote}`);
       }
     }
   }
