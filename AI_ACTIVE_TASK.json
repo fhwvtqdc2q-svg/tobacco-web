@@ -1,13 +1,13 @@
 {
     "schemaVersion":  1,
-    "status":  "idle",
-    "owner":  null,
-    "task":  null,
-    "branch":  null,
+    "status":  "active",
+    "owner":  "Codex",
+    "task":  "تصحيح مزامنة أسعار النشرة ومنع الأسعار القديمة",
+    "branch":  "task branch pending for: تصحيح مزامنة أسعار النشرة ومنع الأسعار القديمة",
     "files":  [
-
+                  "src/app.js,scripts/generate-price-lists.mjs,scripts/check.mjs,public/downloads/*,public/service-worker.js,index.html,AI_WORK_SYNC.md"
               ],
-    "startedAt":  null,
-    "updatedAt":  "2026-07-15T08:38:05Z",
-    "note":  "No active task. Read AI_HANDOFF.md before starting work."
+    "startedAt":  "2026-07-15T08:46:34Z",
+    "updatedAt":  "2026-07-15T08:46:34Z",
+    "note":  "Work in progress. Do not edit the reserved files."
 }
