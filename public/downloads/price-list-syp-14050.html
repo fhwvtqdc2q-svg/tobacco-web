@@ -107,12 +107,18 @@
   }
   .badge-usd { background: var(--gold); color: var(--button-text); }
   .badge-syp { background: #2d6a2d; color: #c8f0c8; }
+  .new-syria-flag {
+    display:inline-grid; grid-template-rows:repeat(3, 3px); width:16px; height:9px;
+    overflow:hidden; border:1px solid rgba(255,255,255,.45); border-radius:1px;
+    vertical-align:middle; direction:ltr; margin-inline-end:4px;
+  }
+  .new-syria-flag .green { background:#16813b; }
+  .new-syria-flag .white { background:#fff; color:#d71920; font-size:4px; line-height:3px; letter-spacing:1px; text-align:center; }
+  .new-syria-flag .black { background:#111; }
   .header-right {
     min-width: 62px;
     text-align: left;
   }
-  .item-count-num  { font-size: 22px; font-weight: 900; color: var(--gold-strong); line-height: 1; }
-  .item-count-lbl  { font-size: 9px; color: var(--muted); font-weight: 600; }
 
   /* ── شريط فرعي ──────────────────────────── */
   .subheader {
@@ -242,12 +248,9 @@
   <div class="header-center">
     <div class="header-title">نشرة الأسعار</div>
     <div class="header-date">15 July 2026</div>
-    <span class="currency-badge badge-syp">🇸🇾 ليرة — مفرق — صرف 14,050</span>
+    <span class="currency-badge badge-syp"><span class="new-syria-flag" role="img" aria-label="علم سوريا الجديد"><span class="green"></span><span class="white">★★★</span><span class="black"></span></span> ليرة — مفرق — صرف 14,050</span>
   </div>
-  <div class="header-right">
-    <div class="item-count-num">166</div>
-    <div class="item-count-lbl">مادة</div>
-  </div>
+  <div class="header-right" aria-hidden="true"></div>
 </div>
 
 <div class="subheader">
@@ -301,12 +304,12 @@
     <tr class="odd">
       <td class="name">ماستر كوين أبيض</td>
       <td class="unit">كروز</td>
-      <td class="price">٩٨٬٣٥٠ ل.س</td>
+      <td class="price">٩٦٬٩٤٥ ل.س</td>
     </tr>
     <tr class="even">
       <td class="name">ماستر كوين أزرق</td>
       <td class="unit">كروز</td>
-      <td class="price">٨٥٬٧٠٥ ل.س</td>
+      <td class="price">٨٧٬١١٠ ل.س</td>
     </tr>
   </tbody></table>
 </div>
@@ -441,7 +444,7 @@
     <tr class="odd">
       <td class="name">1970 سليم نعنع</td>
       <td class="unit">كروز</td>
-      <td class="price">٧٣٬٩٠٣ ل.س</td>
+      <td class="price">٧٤٬٤٦٥ ل.س</td>
     </tr>
     <tr class="even">
       <td class="name">1970 طويل أزرق</td>
@@ -461,7 +464,7 @@
     <tr class="odd">
       <td class="name">1970 كوين أبيض</td>
       <td class="unit">كروز</td>
-      <td class="price">٧٦٬٧١٣ ل.س</td>
+      <td class="price">٧٧٬٢٧٥ ل.س</td>
     </tr>
   </tbody></table>
 </div>
@@ -768,7 +771,7 @@
     <tr class="odd">
       <td class="name">اليغانس سليم أزرق</td>
       <td class="unit">كروز</td>
-      <td class="price">١٠٢٬٥٦٥ ل.س</td>
+      <td class="price">١٠٨٬١٨٥ ل.س</td>
     </tr>
     <tr class="even">
       <td class="name">اليغانس سليم ازرق بدن طبعة</td>
@@ -867,7 +870,7 @@
     <tr class="odd">
       <td class="name">تي اس فضي</td>
       <td class="unit">كروز</td>
-      <td class="price">٦٨٬٨٤٥ ل.س</td>
+      <td class="price">٧١٬٦٥٥ ل.س</td>
     </tr>
   </tbody></table>
 </div>
@@ -1035,7 +1038,7 @@
     <tr class="odd">
       <td class="name">تيرا</td>
       <td class="unit">كروز</td>
-      <td class="price">٣٩٣٬٤٠٠ ل.س</td>
+      <td class="price">٣٣٧٬٢٠٠ ل.س</td>
     </tr>
   </tbody></table>
 </div>

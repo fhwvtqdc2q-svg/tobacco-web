@@ -9,6 +9,7 @@ const required = [
   "src/styles.css",
   "public/manifest.webmanifest",
   "public/service-worker.js",
+  "scripts/exchange-rate.json",
   "public/downloads/price-list-usd.html",
   "public/downloads/price-list-usd.pdf",
   "public/downloads/price-list-usd-light.pdf",
@@ -57,6 +58,12 @@ if (/git commit[^\n]*\[skip ci\]/i.test(priceGenerationWorkflow)) {
   console.error("Generated price-list commits must trigger Pages deployment; remove [skip ci] from the generator commit.");
   failed = true;
 }
+for (const contract of ["inputs:", "rate:", "SYP_RATE:", "scripts/exchange-rate.json"]) {
+  if (!priceGenerationWorkflow.includes(contract)) {
+    console.error(`Exchange-rate workflow contract is missing: ${contract}`);
+    failed = true;
+  }
+}
 const newsletterContracts = [
   'navButton("pricing", "نشرة الأسعار")',
   'pricing: "نشرة الأسعار"',
@@ -92,6 +99,12 @@ if (app.includes("سعّر الجملة أولاً")) {
   console.error("Retail-only pricing must not require a wholesale USD price first.");
   failed = true;
 }
+for (const contract of ["data-published-exchange-rate", "inputs: { rate: String(rate) }", "loadPublishedExchangeRate"] ) {
+  if (!app.includes(contract)) {
+    console.error(`Daily exchange-rate contract is missing: ${contract}`);
+    failed = true;
+  }
+}
 if (!app.includes("unit2Price > 0 ? unit2Price : entered")) {
   console.error("Retail-only pricing fallback is missing.");
   failed = true;
@@ -107,6 +120,10 @@ for (const newsletterPage of generatedNewsletterPages) {
   const page = readFileSync(newsletterPage, "utf8");
   if (!page.includes("طباعة مباشرة") || !page.includes("فتح PDF") || !page.includes("تنزيل PDF") || !page.includes("-light.pdf") || page.includes('target="_blank"')) {
     console.error(`Newsletter page is missing theme-aware mobile print controls: ${newsletterPage}`);
+    failed = true;
+  }
+  if (page.includes("item-count-num") || page.includes("item-count-lbl")) {
+    console.error(`Newsletter page must not show the item count: ${newsletterPage}`);
     failed = true;
   }
 }

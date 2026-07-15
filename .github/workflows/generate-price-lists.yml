@@ -6,6 +6,11 @@ on:
     paths:
       - 'scripts/price-data.json'
   workflow_dispatch:
+    inputs:
+      rate:
+        description: 'سعر صرف الليرة السورية مقابل الدولار'
+        required: false
+        type: string
   schedule:
     # يتجدّد تلقائياً من الأسعار الحيّة في Supabase كل 3 ساعات (بدون لابتوب)
     - cron: '0 */3 * * *'
@@ -36,6 +41,8 @@ jobs:
         run: npx playwright install chromium --with-deps
 
       - name: Generate price list HTML
+        env:
+          SYP_RATE: ${{ inputs.rate || '' }}
         run: node scripts/generate-price-lists.mjs
 
       - name: Generate PDFs
@@ -53,7 +60,7 @@ jobs:
         run: |
           git config user.name  "price-bot"
           git config user.email "action@github.com"
-          git add public/downloads/ public/service-worker.js
+          git add public/downloads/ public/service-worker.js scripts/exchange-rate.json
           git diff --staged --quiet && echo "لا تغييرات" && exit 0
           STAMP=$(date -u '+%Y-%m-%d %H:%M UTC')
           # هذا الدفع يجب أن يشغّل pages.yml حتى تصل الأسعار الجديدة للموقع فوراً.

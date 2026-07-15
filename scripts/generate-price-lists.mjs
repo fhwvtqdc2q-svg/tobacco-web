@@ -11,7 +11,15 @@ const root  = resolve(__dir, "..");
 
 const args = process.argv.slice(2);
 const get  = (f) => { const i = args.indexOf(f); return i !== -1 ? args[i+1] : null; };
-const SYP_RATE = Number(get("--rate")     ?? 14050);
+const rateFile = resolve(root, "scripts/exchange-rate.json");
+const storedRate = JSON.parse(readFileSync(rateFile, "utf8"));
+const requestedRate = get("--rate") ?? (String(process.env.SYP_RATE || "").trim() || null);
+const SYP_RATE = Number(requestedRate ?? storedRate.sypPerUsd ?? 14050);
+if (!Number.isFinite(SYP_RATE) || SYP_RATE <= 0) throw new Error("سعر الصرف غير صالح.");
+if (requestedRate !== null) {
+  writeFileSync(rateFile, `${JSON.stringify({ sypPerUsd: SYP_RATE, updatedAt: new Date().toISOString().slice(0, 10) }, null, 2)}\n`);
+}
+const SYP_FILE_TAG = "14050"; // اسم رابط ثابت؛ السعر الفعلي داخل الملف يأتي من exchange-rate.json
 const VALIDITY = Number(get("--validity") ?? 30);
 
 // ── تاريخ ─────────────────────────────────────────────────────────────────────
@@ -313,12 +321,18 @@ const CSS = `
   }
   .badge-usd { background: var(--gold); color: var(--button-text); }
   .badge-syp { background: #2d6a2d; color: #c8f0c8; }
+  .new-syria-flag {
+    display:inline-grid; grid-template-rows:repeat(3, 3px); width:16px; height:9px;
+    overflow:hidden; border:1px solid rgba(255,255,255,.45); border-radius:1px;
+    vertical-align:middle; direction:ltr; margin-inline-end:4px;
+  }
+  .new-syria-flag .green { background:#16813b; }
+  .new-syria-flag .white { background:#fff; color:#d71920; font-size:4px; line-height:3px; letter-spacing:1px; text-align:center; }
+  .new-syria-flag .black { background:#111; }
   .header-right {
     min-width: 62px;
     text-align: left;
   }
-  .item-count-num  { font-size: 22px; font-weight: 900; color: var(--gold-strong); line-height: 1; }
-  .item-count-lbl  { font-size: 9px; color: var(--muted); font-weight: 600; }
 
   /* ── شريط فرعي ──────────────────────────── */
   .subheader {
@@ -475,10 +489,7 @@ const buildHtml = ({ pageItems, titleSuffix, badgeClass, badgeLabel, unitLabel, 
     <div class="header-date">${issueDate}</div>
     <span class="currency-badge ${badgeClass}">${badgeLabel}</span>
   </div>
-  <div class="header-right">
-    <div class="item-count-num">${pageItems.length}</div>
-    <div class="item-count-lbl">مادة</div>
-  </div>
+  <div class="header-right" aria-hidden="true"></div>
 </div>
 
 <div class="subheader">
@@ -529,6 +540,8 @@ ${(() => {
 </body>
 </html>`;
 
+const newSyriaFlag = '<span class="new-syria-flag" role="img" aria-label="علم سوريا الجديد"><span class="green"></span><span class="white">★★★</span><span class="black"></span></span>';
+
 // ── نشرة الدولار (جملة — سعر الكرتونة) ───────────────────────────────────────
 writeFileSync(
   resolve(root, "public/downloads/price-list-usd.html"),
@@ -546,14 +559,14 @@ console.log("✓ price-list-usd.html");
 
 // ── نشرة الليرة (مفرق — سعر المفرق اليدوي للكرتونة ÷ عدد الكروز × الصرف) ─────
 writeFileSync(
-  resolve(root, `public/downloads/price-list-syp-${SYP_RATE}.html`),
+  resolve(root, `public/downloads/price-list-syp-${SYP_FILE_TAG}.html`),
   buildHtml({
     pageItems: sypItems,
     titleSuffix: "سوري",
     badgeClass: "badge-syp",
-    badgeLabel: `🇸🇾 ليرة — مفرق — صرف ${SYP_RATE.toLocaleString()}`,
+    badgeLabel: `${newSyriaFlag} ليرة — مفرق — صرف ${SYP_RATE.toLocaleString()}`,
     unitLabel: "سعر المفرق للوحدة",
-    pdfFile: `price-list-syp-${SYP_RATE}.pdf`,
+    pdfFile: `price-list-syp-${SYP_FILE_TAG}.pdf`,
     priceFormatter: (item) => {
       const cartonUsd = item.retailCarton > 0 ? item.retailCarton : item.usd;
       const p = Math.round((cartonUsd * SYP_RATE) / (item.unitFactor ?? 10));
@@ -562,7 +575,7 @@ writeFileSync(
     unitFormatter: (item) => item.unit1 || (item.unit === 'كرتونة' ? 'علبة' : item.unit),
   })
 );
-console.log(`✓ price-list-syp-${SYP_RATE}.html`);
+console.log(`✓ price-list-syp-${SYP_FILE_TAG}.html — صرف ${SYP_RATE}`);
 
 // ── نشرات الوزاري المنفصلة ───────────────────────────────────────────────────
 writeFileSync(
@@ -580,19 +593,19 @@ writeFileSync(
 console.log("✓ price-list-wazari-usd.html");
 
 writeFileSync(
-  resolve(root, `public/downloads/price-list-wazari-syp-${SYP_RATE}.html`),
+  resolve(root, `public/downloads/price-list-wazari-syp-${SYP_FILE_TAG}.html`),
   buildHtml({
     pageItems: sypWazariItems,
     titleSuffix: "الوزاري — سوري",
     badgeClass: "badge-syp",
-    badgeLabel: "🇸🇾 نشرة الوزاري — مفرق",
+    badgeLabel: `${newSyriaFlag} نشرة الوزاري — مفرق`,
     unitLabel: "سعر المفرق للوحدة",
-    pdfFile: `price-list-wazari-syp-${SYP_RATE}.pdf`,
+    pdfFile: `price-list-wazari-syp-${SYP_FILE_TAG}.pdf`,
     priceFormatter: (item) => `${Math.round((item.retailCarton * SYP_RATE) / item.unitFactor).toLocaleString("ar-SY")} ل.س`,
     unitFormatter: (item) => item.unit1 || (item.unit === "كرتونة" ? "علبة" : item.unit),
   })
 );
-console.log(`✓ price-list-wazari-syp-${SYP_RATE}.html`);
+console.log(`✓ price-list-wazari-syp-${SYP_FILE_TAG}.html — صرف ${SYP_RATE}`);
 
 // ── index ─────────────────────────────────────────────────────────────────────
 const indexHtml = `<!DOCTYPE html>
@@ -631,7 +644,7 @@ const indexHtml = `<!DOCTYPE html>
 <div class="date">${issueDate}</div>
 <h1>اختر نشرة الأسعار</h1>
 <div class="cards">
-  <a class="card" href="price-list-wazari-syp-${SYP_RATE}.html" target="_blank">
+  <a class="card" href="price-list-wazari-syp-${SYP_FILE_TAG}.html" target="_blank">
     <div class="card-icon">🏛️</div>
     <div class="card-title">نشرة الوزاري — سوري</div>
     <div class="card-unit">الأصناف الوزارية والمحزّرة</div>
@@ -643,7 +656,7 @@ const indexHtml = `<!DOCTYPE html>
     <div class="card-unit">جملة بالكرتونة الكاملة</div>
     <div class="card-btn">عرض وطباعة</div>
   </a>
-  <a class="card" href="price-list-syp-${SYP_RATE}.html" target="_blank">
+  <a class="card" href="price-list-syp-${SYP_FILE_TAG}.html" target="_blank">
     <div class="card-icon">🇸🇾</div>
     <div class="card-title">نشرة السوري — مفرق</div>
     <div class="card-unit">سعر المفرق للوحدة الواحدة</div>
