@@ -67,7 +67,17 @@ const page = await browser.newPage();
 for (const { html, pdf, lightPdf, label } of files) {
   process.stdout.write(`توليد ${label}... `);
   await page.goto(`file://${html}`, { waitUntil: "networkidle" });
-  await page.evaluate(() => { document.body.dataset.theme = "dark"; });
+  await page.evaluate(() => {
+    document.body.dataset.theme = "dark";
+    document.documentElement.style.background = "#0c0a07";
+    document.body.style.background = "#0c0a07";
+  });
+  const darkBackground = await page.addStyleTag({ content: `
+    @media print {
+      html, body { background: #0c0a07 !important; }
+      html { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
+    }
+  ` });
   await page.pdf({
     path: pdf,
     format: "A4",
@@ -75,7 +85,18 @@ for (const { html, pdf, lightPdf, label } of files) {
     preferCSSPageSize: true,
     margin: { top: "0", bottom: "0", left: "0", right: "0" },
   });
-  await page.evaluate(() => { document.body.dataset.theme = "light"; });
+  await darkBackground.evaluate((element) => element.remove());
+  await page.evaluate(() => {
+    document.body.dataset.theme = "light";
+    document.documentElement.style.background = "#fffdf8";
+    document.body.style.background = "#fffdf8";
+  });
+  const lightBackground = await page.addStyleTag({ content: `
+    @media print {
+      html, body { background: #fffdf8 !important; }
+      html { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
+    }
+  ` });
   await page.pdf({
     path: lightPdf,
     format: "A4",
@@ -83,6 +104,7 @@ for (const { html, pdf, lightPdf, label } of files) {
     preferCSSPageSize: true,
     margin: { top: "0", bottom: "0", left: "0", right: "0" },
   });
+  await lightBackground.evaluate((element) => element.remove());
   console.log(`✓ ${pdf.split("/").pop()} + ${lightPdf.split("/").pop()}`);
 }
 

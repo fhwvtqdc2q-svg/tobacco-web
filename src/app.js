@@ -238,7 +238,7 @@ const state = {
   seenRequestIds: new Set(),
   globalSearch: "",
   syriaCurrency: "USD",
-  syriaExchangeRate: readJson("syria-exchange-rate", 1),
+  syriaExchangeRate: readJson("syria-exchange-rate", 14050),
   syriaRateConfirmed: false,
   openSections: {},
   priceMode: readJson("price-mode", "jumla"),
@@ -342,6 +342,7 @@ function notifPermissionBanner() {
 async function boot() {
   applyTheme();
   initKeyboardShortcuts();
+  await loadPublishedExchangeRate();
   await refreshSession();
   await loadRequests();
   await loadInventoryReports();
@@ -356,6 +357,19 @@ async function boot() {
   render();
   const overdue = overdueCustomers();
   if (overdue.length > 0) fireOverdueNotif(overdue.length);
+}
+
+async function loadPublishedExchangeRate() {
+  try {
+    const response = await fetch(`scripts/exchange-rate.json?v=${Date.now()}`, { cache: "no-store" });
+    if (!response.ok) return;
+    const payload = await response.json();
+    const rate = Number(payload.sypPerUsd || 0);
+    if (rate > 0) {
+      state.syriaExchangeRate = rate;
+      writeJson("syria-exchange-rate", rate);
+    }
+  } catch {}
 }
 
 async function refreshSession() {
@@ -1915,6 +1929,15 @@ function customerPricePdfMarkup(items, latest, useSyria = false) {
 async function publishBulletin() {
   const REPO = "fhwvtqdc2q-svg/tobacco-web";
   const WORKFLOW = "generate-price-lists.yml";
+  const rateInput = document.querySelector("[data-published-exchange-rate]");
+  const rate = Number(rateInput?.value || state.syriaExchangeRate || 0);
+  if (!Number.isFinite(rate) || rate <= 0) {
+    setNotice("error", "أدخل سعر صرف صحيح قبل نشر النشرة.");
+    render();
+    return;
+  }
+  state.syriaExchangeRate = rate;
+  writeJson("syria-exchange-rate", rate);
 
   let token = localStorage.getItem("gh_publish_token");
   if (!token) {
@@ -1936,7 +1959,7 @@ async function publishBulletin() {
           "Content-Type": "application/json",
           Accept: "application/vnd.github+json",
         },
-        body: JSON.stringify({ ref: "main" }),
+        body: JSON.stringify({ ref: "main", inputs: { rate: String(rate) } }),
       }
     );
 
@@ -3146,6 +3169,9 @@ function pricing() {
         </div>
         <div class="newsletter-primary-actions">
           <button class="button secondary" type="button" data-action="refresh-ameen">تحديث المخزون</button>
+          <label style="display:flex;align-items:center;gap:8px;font-weight:700">سعر الصرف اليوم
+            <input data-published-exchange-rate type="number" min="1" step="1" value="${escapeHtml(state.syriaExchangeRate)}" style="width:120px;padding:8px;border:1px solid var(--line);border-radius:8px" aria-label="سعر صرف الليرة السورية مقابل الدولار">
+          </label>
           <a class="button primary" href="public/downloads/price-list-usd.html">اختيار وطباعة الدولار</a>
           <a class="button primary" href="public/downloads/price-list-syp-14050.html">اختيار وطباعة السوري</a>
           <button class="button success" type="button" data-action="publish-bulletin" ${state.session ? "" : "disabled"}>اعتماد ونشر للزبائن</button>
@@ -5896,6 +5922,13 @@ function render() {
   app.querySelector("[data-action='download-customer-price-pdf']")?.addEventListener("click", () => openPricePreview(false));
   app.querySelector("[data-action='download-customer-price-syria']")?.addEventListener("click", () => openPricePreview(true));
   app.querySelector("[data-action='publish-bulletin']")?.addEventListener("click", publishBulletin);
+  app.querySelector("[data-published-exchange-rate]")?.addEventListener("change", (event) => {
+    const rate = Number(event.currentTarget.value || 0);
+    if (rate > 0) {
+      state.syriaExchangeRate = rate;
+      writeJson("syria-exchange-rate", rate);
+    }
+  });
   app.querySelector("[data-action='download-approved-prices']")?.addEventListener("click", downloadApprovedPricesForAccounting);
   app.querySelector("[data-action='download-inventory']")?.addEventListener("click", downloadLatestInventoryReport);
   app.querySelector("[data-action='download-filtered-inventory']")?.addEventListener("click", downloadFilteredInventoryReport);
