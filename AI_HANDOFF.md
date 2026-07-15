@@ -9,6 +9,13 @@
 - المسؤول: Codex
 - آخر تحديث: 2026-07-14
 
+## 2026-07-15 - Codex - إصلاح كاش تقرير المخزون القديم
+
+- Status: completed
+- Branch: task branch pending for: إصلاح كاش تقرير المخزون القديم
+- Files: index.html,public/service-worker.js,scripts/check.mjs
+- Result: ثبت أن الصورة تستخدم app.js القديم. رُفعت نسخة أصول index إلى tobacco-88 وكاش PWA إلى v272، وأضيف فحص منع الرجوع، وتحقق النشر من الروابط الحية.
+- Handoff UTC: 2026-07-15T07:13:42Z
 ## 2026-07-15 - Codex - تحويل تقرير المخزون الفاتح إلى عمودين متقابلين
 
 - Status: completed
