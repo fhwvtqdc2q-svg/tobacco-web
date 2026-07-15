@@ -1,4 +1,4 @@
-# ============================================================
+﻿# ============================================================
 # verify-prices.ps1  (قراءة فقط — لا يعدّل شيئاً)
 # تدقيق مزامنة الأسعار: يسحب أسعار الموقع (Supabase) ويقارنها سعراً سعراً
 # مع قائمتي الأمين: «جملة الجملة» (الجملة) و«كروزات مركز» (المفرق).
@@ -7,7 +7,8 @@
 # ============================================================
 param(
     [string]$EnvFile = "$PSScriptRoot\.env",
-    [string]$CsvFile = "$PSScriptRoot\..\reports\prices\tobacco-approved-prices.csv"
+    [string]$CsvFile = "$PSScriptRoot\..\reports\prices\tobacco-approved-prices.csv",
+    [string]$ResultFile = ""
 )
 
 if (Test-Path $EnvFile) {
@@ -122,6 +123,10 @@ foreach ($row in $csv) {
 Write-Host ""
 Write-Host ("مطابق: جملة = $okJumla مادة | مفرق = $okRetail مادة") -ForegroundColor Green
 Write-Host ("أسعار مختلفة: $mismatch | مواد ناقصة من قوائم الأمين: $missing") -ForegroundColor $(if (($mismatch + $missing) -eq 0) { "Green" } else { "Yellow" })
+# سطر آلي ASCII لسكربت المزامنة؛ لا يتأثر بترميز العربية داخل Task Scheduler.
+$machineResult = "PRICE_VERIFY wholesale=$okJumla retail=$okRetail mismatches=$mismatch missing=$missing"
+Write-Output $machineResult
+if ($ResultFile) { [IO.File]::WriteAllText($ResultFile, $machineResult, [Text.Encoding]::ASCII) }
 Write-Host ""
 if ($mismatch -eq 0 -and $missing -eq 0) {
     Write-Host "================ مزامنة الأسعار سليمة: صفر فروق ✓✓ ================" -ForegroundColor Green

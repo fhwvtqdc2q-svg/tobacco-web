@@ -13,6 +13,7 @@ const WELCOME = `أهلاً 👋 أنا مساعدك الشخصي.
 
 📦 اللائحة والمخزون:
 • سعر <اسم المادة>
+• فحص الأسعار
 • شو ناقص
 • الديون
 • مبيعات اليوم
@@ -35,6 +36,7 @@ const MENU_KEYBOARD = {
   inline_keyboard: [
     [{ text: "📊 مبيعات اليوم", callback_data: "sales" }, { text: "⚠️ شو ناقص", callback_data: "low" }],
     [{ text: "💰 الديون", callback_data: "debts" }, { text: "📈 رسم المبيعات", callback_data: "chart" }],
+    [{ text: "🔄 فحص الأسعار", callback_data: "price_sync" }],
     [{ text: "❓ مساعدة", callback_data: "help" }],
   ],
 };
@@ -369,6 +371,7 @@ async function sendMenu(chatId: number) {
 • رصيد <اسم الزبون>
 • كشف حساب <اسم الزبون>
 • سعر <اسم المادة>
+• فحص الأسعار
 • حد التنبيه <رقم>
 • اسأل <أي سؤال عن العمل>`,
     reply_markup: MENU_KEYBOARD,
@@ -521,6 +524,31 @@ async function handlePriceQuery(chatId: number, name: string) {
     msg += "\n";
   }
   await tg("sendMessage", { chat_id: chatId, text: msg.trim() });
+}
+
+async function handlePriceSyncStatus(chatId: number) {
+  const rows = await restGet(`inventory_reports?source=eq.ameen_price_sync_status&order=created_at.desc&limit=1&select=summary,created_at`);
+  if (!Array.isArray(rows) || !rows.length) {
+    await tg("sendMessage", { chat_id: chatId, text: "ما وصل فحص مزامنة الأسعار من جهاز الأمين بعد." });
+    return;
+  }
+  const status: any = rows[0].summary ?? {};
+  const checked = status.checked_at ? fmtDate(status.checked_at) : "غير معروف";
+  if (status.status === "ok") {
+    await tg("sendMessage", {
+      chat_id: chatId,
+      text: `✅ الأسعار متزامنة مع الأمين\nالجملة المطابقة: ${fmtNum(status.wholesale_matched)} مادة\nالمفرق المطابق: ${fmtNum(status.retail_matched)} مادة\nالفروقات: 0\nآخر فحص: ${checked}`,
+    });
+    return;
+  }
+  if (status.status === "mismatch") {
+    await tg("sendMessage", {
+      chat_id: chatId,
+      text: `⚠️ يوجد خلل بمزامنة الأسعار\nفروقات الأسعار: ${fmtNum(status.mismatch_count)}\nمواد ناقصة: ${fmtNum(status.missing_count)}\nآخر فحص: ${checked}`,
+    });
+    return;
+  }
+  await tg("sendMessage", { chat_id: chatId, text: `🚨 تعذر فحص مزامنة الأسعار\nآخر محاولة: ${checked}` });
 }
 
 // ============================================================
@@ -939,6 +967,7 @@ async function handleCommand(chatId: number, text: string): Promise<boolean> {
   if (["رسم المبيعات", "الرسم البياني", "رسم بياني", "مخطط المبيعات", "شارت المبيعات"].includes(norm)) { await handleSalesChart(chatId); return true; }
   if (text === "/low" || ["شو ناقص", "النواقص", "نواقص", "ناقص", "المخزون الناقص", "المخزون"].includes(norm)) { await handleLowStock(chatId); return true; }
   if (text === "/debts" || ["الديون", "ديون", "المديونيات"].includes(norm)) { await handleDebts(chatId); return true; }
+  if (text === "/pricesync" || ["فحص الاسعار", "مزامنه الاسعار", "حاله الاسعار", "تزامن الاسعار"].includes(norm)) { await handlePriceSyncStatus(chatId); return true; }
   if (["ربح اليوم", "الربح", "شو ربحنا", "ربحنا اليوم", "صافي الربح", "قديش ربحنا", "كم ربحنا اليوم"].includes(norm)) { await handleProfitToday(chatId); return true; }
   // أي رسالة فيها ذكر "كرتونة/كراتين" — «مبيعات اليوم بالكرتونة»، «الكراتين اليوم»، إلخ
   if (norm.includes("كرتون") || norm.includes("كراتين")) { await handleCartonsToday(chatId); return true; }
@@ -1063,6 +1092,7 @@ Deno.serve(async (req) => {
       else if (data === "low") await handleLowStock(cqChatId);
       else if (data === "debts") await handleDebts(cqChatId);
       else if (data === "chart") await handleSalesChart(cqChatId);
+      else if (data === "price_sync") await handlePriceSyncStatus(cqChatId);
       else if (data === "help") await tg("sendMessage", { chat_id: cqChatId, text: WELCOME });
       else if (data.startsWith("b|")) await handleCustomerQuery(cqChatId, "balance", data.slice(2));
       else if (data.startsWith("s|")) await handleCustomerQuery(cqChatId, "statement", data.slice(2));
