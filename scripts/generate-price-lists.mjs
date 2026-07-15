@@ -33,6 +33,13 @@ const isoDate   = today.toISOString().slice(0, 10);
 const jsonItems = JSON.parse(readFileSync(resolve(root, "scripts/price-data.json"), "utf8"));
 const groupByName = new Map(jsonItems.map(i => [String(i.name).trim(), i.group]));
 
+// حسم مؤقت لتعارض aliases القديمة في Supabase. يُطبّق فقط عندما توجد أسعار
+// مختلفة للاسم نفسه؛ بعد أن يوحّد حفظ الموقع كل aliases تتوقف هذه القاعدة تلقائياً.
+const BULLETIN_CONFLICT_OVERRIDES = new Map([
+  ["ماستر كوين أبيض", 340],
+  ["1970 كوين أبيض", 275]
+]);
+
 const SUPABASE_URL = "https://dyxbirfpxeocqffnfdeb.supabase.co";
 const SUPABASE_KEY = "sb_publishable_RkM_QDWxk8Yekqz9KBKXBw_Yl14zhSH";
 let feed = [];
@@ -64,11 +71,14 @@ let usdItems, sypItems;
 if (feed.length) {
   // قد تعيد النافذة مفتاحين قديم/جديد للاسم المعروض نفسه بسبب اختلافات إملائية
   // في item_key. نفصل الاختيار بين الجملة والمفرق كي لا يلغي تحديث أحدهما الآخر.
-  const latestEligibleRows = (isEligible) => {
+  const latestEligibleRows = (isEligible, conflictOverrides = null) => {
     const latest = new Map();
+    const candidatesByName = new Map();
     for (const row of feed) {
       const displayName = String(row.item_name || "").trim();
       if (!displayName || !isEligible(row)) continue;
+      if (!candidatesByName.has(displayName)) candidatesByName.set(displayName, []);
+      candidatesByName.get(displayName).push(row);
       const previous = latest.get(displayName);
       const rowTime = Date.parse(row.updated_at || "") || 0;
       const previousTime = Date.parse(previous?.updated_at || "") || 0;
@@ -78,6 +88,17 @@ if (feed.length) {
       const previousExactKey = String(previous?.item_key || "").trim() === displayName;
       if (!previous || rowTime > previousTime || (rowTime === previousTime && exactKey && !previousExactKey)) {
         latest.set(displayName, row);
+      }
+    }
+    if (conflictOverrides) {
+      for (const [displayName, preferredPrice] of conflictOverrides) {
+        const candidates = candidatesByName.get(displayName) || [];
+        const distinctPrices = new Set(candidates.map((row) => Number(row.unit2_price || 0)));
+        if (distinctPrices.size < 2) continue;
+        const preferred = candidates
+          .filter((row) => Number(row.unit2_price || 0) === preferredPrice)
+          .sort((a, b) => (Date.parse(b.updated_at || "") || 0) - (Date.parse(a.updated_at || "") || 0))[0];
+        if (preferred) latest.set(displayName, preferred);
       }
     }
     return [...latest.values()];
@@ -101,7 +122,7 @@ if (feed.length) {
     const stockQty = Number(row.stock_qty || 0);
     const unit2Factor = Number(row.unit2_factor || 0);
     return Number(row.unit2_price || 0) > 0 && unit2Factor > 0 && stockQty / unit2Factor >= 1;
-  }).map(mapRow);
+  }, BULLETIN_CONFLICT_OVERRIDES).map(mapRow);
 
   // المفرق: سعر سوري صالح + أي كمية موجبة، حتى لو كانت أقل من وحدة ثانية كاملة.
   sypItems = latestEligibleRows((row) =>
