@@ -96,11 +96,24 @@ if (versionTags.length === 0) {
   }
 }
 
+// منع بقاء المتصفح على app.js قديم بعد تغييرات تقرير المخزون: يجب رفع نسخة
+// أصول index مع نسخة الكاش الجديدة، وإلا تفتح نافذة about:blank من كود قديم.
+const tobaccoAssetVersion = Number((versionTags[0] || "").match(/tobacco-(\d+)/)?.[1] || 0);
+if (tobaccoAssetVersion < 88) {
+  console.error("index.html asset version must be tobacco-88 or newer after the inventory report update.");
+  failed = true;
+}
+
 // service worker يجب أن يحمل CACHE_NAME غير فارغ (يُرفع رقمه عند كل نشر).
 const sw = readFileSync("public/service-worker.js", "utf8");
 const cacheMatch = sw.match(/CACHE_NAME\s*=\s*["']([^"']+)["']/);
 if (!cacheMatch || !cacheMatch[1].trim()) {
   console.error("service-worker.js is missing a non-empty CACHE_NAME.");
+  failed = true;
+}
+const cacheVersion = Number(cacheMatch?.[1]?.match(/v(\d+)$/)?.[1] || 0);
+if (cacheVersion < 272) {
+  console.error("service worker cache must be v272 or newer after the inventory report update.");
   failed = true;
 }
 
