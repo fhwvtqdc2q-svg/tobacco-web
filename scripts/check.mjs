@@ -104,6 +104,23 @@ if (!cacheMatch || !cacheMatch[1].trim()) {
   failed = true;
 }
 
+// عقد تقرير المخزون: ترتيب النشرة، تصنيف حسب حركة المبيع، مجموعات ظاهرة،
+// وتصميم فاتح ثابت في الشاشة والطباعة.
+const appJs = readFileSync("src/app.js", "utf8");
+for (const contract of [
+  "INVENTORY_GROUP_SEQUENCE",
+  "inventoryReportStatus",
+  "inventory-group-row",
+  "inventory-rpt",
+  "color-scheme:light",
+  "لا تُدمج أصناف المعسل"
+]) {
+  if (!appJs.includes(contract)) {
+    console.error(`Inventory report contract is missing: ${contract}`);
+    failed = true;
+  }
+}
+
 const manifest = JSON.parse(readFileSync("public/manifest.webmanifest", "utf8"));
 if (!manifest.name || !manifest.start_url) {
   console.error("manifest.webmanifest is incomplete.");
