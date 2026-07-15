@@ -13,6 +13,7 @@ const WELCOME = `أهلاً 👋 أنا مساعدك الشخصي.
 
 📦 اللائحة والمخزون:
 • سعر <اسم المادة>
+• غيّر سعر <اسم المادة> ل<رقم> (يطلب تأكيد قبل التنفيذ)
 • شو ناقص
 • الديون
 • مبيعات اليوم
@@ -513,10 +514,10 @@ async function handlePriceQuery(chatId: number, name: string) {
   for (const s of scored) {
     const r = s.r;
     msg += `💵 ${r.item_name ?? r.item_key}\n`;
-    if (r.sale_price != null) msg += `السعر: ${fmtNum(r.sale_price)}\n`;
-    if (r._priceVariants) msg += `⚠️ مسجّلة بسعرين مختلفين بالأمين (نسختين مكرّرتين لنفس المادة): ${r._priceVariants.map(fmtNum).join(" و ")}\n`;
-    if (r.unit1_price != null && r.unit1_name) msg += `${r.unit1_name}: ${fmtNum(r.unit1_price)}\n`;
-    if (r.unit2_price != null && r.unit2_name) msg += `${r.unit2_name}: ${fmtNum(r.unit2_price)}\n`;
+    if (r.sale_price != null) msg += `السعر: ${fmtUSD(r.sale_price)}\n`;
+    if (r._priceVariants) msg += `⚠️ مسجّلة بسعرين مختلفين بالأمين (نسختين مكرّرتين لنفس المادة): ${r._priceVariants.map(fmtUSD).join(" و ")}\n`;
+    if (r.unit1_price != null && r.unit1_name) msg += `${r.unit1_name}: ${fmtUSD(r.unit1_price)}\n`;
+    if (r.unit2_price != null && r.unit2_name) msg += `${r.unit2_name}: ${fmtUSD(r.unit2_price)}\n`;
     if (r.stock_qty != null) msg += `المخزون: ${fmtNum(r.stock_qty)}\n`;
     msg += "\n";
   }
@@ -785,8 +786,8 @@ async function buildBusinessContext(question: string): Promise<string> {
       lines.push("نتائج بحث دقيقة عن مواد وردت بالسؤال (استخدمها إذا كانت مطابقة لقصد السائل):");
       for (const r of mentioned) {
         const priceNote = r._priceVariants
-          ? `، أسعار مختلفة مسجّلة (نسختين مكرّرتين لنفس المادة بالأمين): ${r._priceVariants.map(fmtNum).join(" و ")} ل.س`
-          : r.sale_price != null ? `، السعر ${fmtNum(r.sale_price)} ل.س` : "";
+          ? `، أسعار مختلفة مسجّلة (نسختين مكرّرتين لنفس المادة بالأمين): ${r._priceVariants.map(fmtUSD).join(" و ")}`
+          : r.sale_price != null ? `، السعر ${fmtUSD(r.sale_price)}` : "";
         lines.push(`- ${r.item_name ?? r.item_key}: المخزون ${stockInCartons(r)}${priceNote}`);
       }
     }
@@ -927,6 +928,141 @@ async function handleSetThreshold(chatId: number, n: number) {
   await tg("sendMessage", { chat_id: chatId, text: `تمام ✅ صار حد تنبيه المخزون: ${n}\nالتنبيهات التلقائية ورد «شو ناقص» رح يستخدموا هالحد.` });
 }
 
+// ============================================================
+// تغيير سعر مادة من تيليغرام — «غيّر سعر <مادة> ل<رقم>» — يتطلب تأكيد
+// بزرّين قبل التنفيذ الفعلي. الرقم المُدخَل هو سعر الكرتونة (سعر الجملة،
+// unit2_price) — نفس منطق صفحة التسعير بالموقع (savePricingItem بوضع
+// "jumla"): يُحفظ كسعر كرتونة، وسعر الكروز (sale_price/unit1_price) يُشتق
+// تلقائياً بقسمته على unit2_factor الخاص بالمادة. الكتابة تصير مباشرة على
+// approved_price_items (نفس الجدول يلي الموقع نفسه يقرأ/يكتب منه)، والـ
+// trigger الموجود أصلاً على الجدول (trg_notify_price_changes) بيسجّل
+// التغيير بـprice_change_log ويبعث إشعار تيليغرام تلقائياً — تماماً متل
+// ما لو التعديل صار من الموقع. حالة الطلب (بانتظار/مؤكَّد/ملغى) محفوظة
+// بجدول bot_pending_actions لأن edge function ما بتحتفظ بحالة بالذاكرة
+// بين الرسائل.
+// ============================================================
+async function restPostReturning(path: string, body: unknown): Promise<any> {
+  const res = await restPost(path, body, "return=representation");
+  if (!res.ok) throw new Error(`rest_post_failed_${res.status}`);
+  return res.json();
+}
+
+function groupPriceRows(rows: any[]): { name: string; rows: any[] }[] {
+  const groups = new Map<string, { name: string; rows: any[] }>();
+  for (const r of rows) {
+    const key = normalizeArabic(r.item_name ?? r.item_key ?? "");
+    if (!key) continue;
+    if (!groups.has(key)) groups.set(key, { name: r.item_name ?? r.item_key, rows: [] });
+    groups.get(key)!.rows.push(r);
+  }
+  return [...groups.values()];
+}
+
+async function handlePriceChangeRequest(chatId: number, itemQuery: string, newCartonPrice: number): Promise<void> {
+  if (!(newCartonPrice > 0)) {
+    await tg("sendMessage", { chat_id: chatId, text: "السعر لازم يكون رقم أكبر من صفر 🙏" });
+    return;
+  }
+  const rawRows = await restGet(`approved_price_items?select=item_name,item_key,unit2_price,unit2_name,unit2_factor&limit=1000`);
+  if (!Array.isArray(rawRows) || !rawRows.length) {
+    await tg("sendMessage", { chat_id: chatId, text: "ما قدرت جيب لائحة الأسعار حالياً 😕" });
+    return;
+  }
+  const groups = groupPriceRows(rawRows);
+  const q = normalizeArabic(itemQuery);
+  const qTokens = q.split(" ").filter(Boolean);
+  const scored = groups
+    .map((g) => ({ score: fuzzyScore(q, qTokens, g.name, ""), g }))
+    .filter((s) => s.score > 0)
+    .sort((a, b) => b.score - a.score);
+
+  if (!scored.length) {
+    await tg("sendMessage", { chat_id: chatId, text: `ما لقيت مادة باسم «${itemQuery}» 🔍\nجرّب جزء من الاسم.` });
+    return;
+  }
+  if (scored.length > 1 && scored[0].score === scored[1].score) {
+    let msg = `في أكثر من مادة مطابقة لـ«${itemQuery}» — حدّد أكثر 🙏\nأقرب النتائج:\n`;
+    for (const s of scored.slice(0, 5)) msg += `• ${s.g.name}\n`;
+    await tg("sendMessage", { chat_id: chatId, text: msg });
+    return;
+  }
+
+  const match = scored[0].g;
+  const unit2Name = match.rows.find((r: any) => r.unit2_name)?.unit2_name || "كرتونة";
+  const oldPrices = [...new Set(match.rows.map((r: any) => r.unit2_price))];
+  const oldPriceText = oldPrices.length === 1 ? fmtUSD(oldPrices[0]) : oldPrices.map(fmtUSD).join(" / ");
+  const factorForPreview = Number(match.rows[0]?.unit2_factor) || 1;
+  const newUnit1Preview = newCartonPrice / factorForPreview;
+
+  const inserted = await restPostReturning("bot_pending_actions", [{
+    action_type: "price_change",
+    payload: {
+      items: match.rows.map((r: any) => ({ item_key: r.item_key, unit2_factor: Number(r.unit2_factor) || 1 })),
+      item_name: match.name,
+      new_carton_price: newCartonPrice,
+    },
+    created_by: chatId,
+  }]);
+  const pendingId = inserted?.[0]?.id;
+  if (!pendingId) {
+    await tg("sendMessage", { chat_id: chatId, text: "صار خطأ وأنا عم جهّز طلب التأكيد 😕" });
+    return;
+  }
+
+  await tg("sendMessage", {
+    chat_id: chatId,
+    text: `🔧 تأكيد تغيير سعر\n${match.name}\nسعر ${unit2Name} من: ${oldPriceText}\nسعر ${unit2Name} ل: ${fmtUSD(newCartonPrice)}\n(سعر الكروز رح يصير تلقائياً ≈ ${fmtUSD(newUnit1Preview)})${match.rows.length > 1 ? `\n\n(هاي المادة مسجّلة بـ${match.rows.length} نسخ مكرّرة بالأمين — رح يتغيّر السعر بكل النسخ.)` : ""}`,
+    reply_markup: {
+      inline_keyboard: [[
+        { text: "✅ تأكيد", callback_data: `pca|y|${pendingId}` },
+        { text: "❌ إلغاء", callback_data: `pca|n|${pendingId}` },
+      ]],
+    },
+  });
+}
+
+async function handlePendingPriceAction(chatId: number, messageId: number | undefined, decision: string, id: string): Promise<void> {
+  const rows = await restGet(`bot_pending_actions?id=eq.${id}&select=*`);
+  if (!Array.isArray(rows) || !rows.length) {
+    await tg("sendMessage", { chat_id: chatId, text: "ما لقيت هالطلب — يمكن انحذف أو صار عليه إجراء 🤷" });
+    return;
+  }
+  const pending = rows[0];
+  if (pending.status !== "pending") {
+    await tg("sendMessage", { chat_id: chatId, text: `هالطلب صار عليه إجراء مسبقاً (${pending.status}) ✋` });
+    return;
+  }
+  const ageMinutes = (Date.now() - new Date(pending.created_at).getTime()) / 60000;
+  if (ageMinutes > 15) {
+    await restPatch(`bot_pending_actions?id=eq.${id}`, { status: "expired" });
+    await tg("sendMessage", { chat_id: chatId, text: "⌛ انتهت صلاحية طلب التأكيد (أكثر من 15 دقيقة) — كرّر الأمر من جديد." });
+    return;
+  }
+
+  if (decision === "n") {
+    await restPatch(`bot_pending_actions?id=eq.${id}`, { status: "cancelled" });
+    if (messageId) await tg("editMessageText", { chat_id: chatId, message_id: messageId, text: "❌ تم إلغاء تغيير السعر." });
+    return;
+  }
+
+  const payload = pending.payload || {};
+  const items: { item_key: string; unit2_factor: number }[] = Array.isArray(payload.items) ? payload.items : [];
+  const newCartonPrice = Number(payload.new_carton_price);
+  for (const item of items) {
+    const factor = Number(item.unit2_factor) || 1;
+    const unit1Price = newCartonPrice / factor;
+    await restPatch(`approved_price_items?item_key=eq.${encodeURIComponent(item.item_key)}`, {
+      unit2_price: newCartonPrice,
+      sale_price: unit1Price,
+      unit1_price: unit1Price,
+    });
+  }
+  await restPatch(`bot_pending_actions?id=eq.${id}`, { status: "confirmed" });
+  if (messageId) {
+    await tg("editMessageText", { chat_id: chatId, message_id: messageId, text: `✅ تم تغيير سعر ${payload.item_name}: ${fmtUSD(newCartonPrice)} للكرتونة` });
+  }
+}
+
 // يعيد true إذا كانت الرسالة أمر استعلام وعُولجت
 async function handleCommand(chatId: number, text: string): Promise<boolean> {
   // سؤال حر بالذكاء الاصطناعي — على النص الأصلي (بدون تطبيع) للحفاظ على صياغة السؤال
@@ -944,6 +1080,12 @@ async function handleCommand(chatId: number, text: string): Promise<boolean> {
   if (norm.includes("كرتون") || norm.includes("كراتين")) { await handleCartonsToday(chatId); return true; }
   let m = norm.match(/^حد التنبيه\s+(\d+)\s*$/);
   if (m) { await handleSetThreshold(chatId, parseInt(m[1])); return true; }
+  // «غيّر سعر <مادة> ل<رقم>» / «بدّل سعر <مادة> يصير <رقم>» — قبل نمط «سعر X» الاستعلامي.
+  // نستخرج الرقم من نص مُطبَّع بالأرقام فقط (normalizeDigits) بدون تجريد النقطة العشرية —
+  // norm (المطبَّع الكامل) بيشيل النقطة كعلامة ترقيم، فبيكسّر أسعار عشرية متل "8.5" لـ"8 5".
+  const digitsOnly = normalizeDigits(text).trim();
+  m = digitsOnly.match(/^(?:غيّر|غير|بدّل|بدل)\s+سعر\s+(.+?)\s*(?:لـ|ل|الى|إلى|الي|يصير|ليصير|صار|تصير|=)\s*([\d]+(?:\.[\d]+)?)\s*$/);
+  if (m) { await handlePriceChangeRequest(chatId, m[1].trim(), parseFloat(m[2])); return true; }
   m = norm.match(/^سعر\s+(.+)$/);
   if (m) { await handlePriceQuery(chatId, m[1].trim()); return true; }
   // «حركة مادة X» / «حركة X» — لكن مش «حركة حساب X» (هاي محجوزة لكشف حساب الزبون)
@@ -1073,6 +1215,10 @@ Deno.serve(async (req) => {
         if (action && orderId && cq.message?.message_id) {
           await handleOrderAction(cqChatId, cq.message.message_id, String(cq.message.text ?? ""), action, orderId);
         }
+      }
+      else if (data.startsWith("pca|")) {
+        const parts = data.split("|"); // pca|y/n|<pending_id>
+        if (parts[1] && parts[2]) await handlePendingPriceAction(cqChatId, cq.message?.message_id, parts[1], parts[2]);
       }
     } catch (e) {
       await tg("sendMessage", { chat_id: cqChatId, text: `صار خطأ 😕 جرّب كمان مرة.\n(${String(e).slice(0, 80)})` });
