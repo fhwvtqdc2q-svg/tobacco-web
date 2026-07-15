@@ -1,13 +1,13 @@
 {
     "schemaVersion":  1,
-    "status":  "idle",
-    "owner":  null,
-    "task":  null,
-    "branch":  null,
+    "status":  "active",
+    "owner":  "Codex",
+    "task":  "إضافة تقرير الربح اليومي الحقيقي إلى بوت تيليغرام",
+    "branch":  "task branch pending for: إضافة تقرير الربح اليومي الحقيقي إلى بوت تيليغرام",
     "files":  [
-
+                  "tools/push-daily-profit.ps1,supabase/functions/telegram-webhook/index.ts,CLAUDE.md"
               ],
-    "startedAt":  null,
-    "updatedAt":  "2026-07-15T10:17:23Z",
-    "note":  "No active task. Read AI_HANDOFF.md before starting work."
+    "startedAt":  "2026-07-15T10:45:40Z",
+    "updatedAt":  "2026-07-15T10:45:40Z",
+    "note":  "Work in progress. Do not edit the reserved files."
 }
