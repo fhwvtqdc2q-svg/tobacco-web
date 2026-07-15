@@ -1,13 +1,13 @@
 {
     "schemaVersion":  1,
-    "status":  "active",
-    "owner":  "Codex",
-    "task":  "تثبيت ودمج بوت تيليغرام وحذف المبيعات من التقرير الصباحي",
-    "branch":  "task branch pending for: تثبيت ودمج بوت تيليغرام وحذف المبيعات من التقرير الصباحي",
+    "status":  "idle",
+    "owner":  null,
+    "task":  null,
+    "branch":  null,
     "files":  [
-                  "supabase/functions/telegram-webhook/index.ts,supabase/telegram-notifications.sql,tools/push-sales-line-items.ps1,tools/push-expense-entries.ps1,tools/register-sales-line-items-task.ps1,tools/register-expense-entries-task.ps1,CLAUDE.md"
+
               ],
-    "startedAt":  "2026-07-15T07:43:11Z",
-    "updatedAt":  "2026-07-15T07:43:11Z",
-    "note":  "Work in progress. Do not edit the reserved files."
+    "startedAt":  null,
+    "updatedAt":  "2026-07-15T07:47:12Z",
+    "note":  "No active task. Read AI_HANDOFF.md before starting work."
 }
