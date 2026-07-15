@@ -1,13 +1,13 @@
 {
     "schemaVersion":  1,
-    "status":  "idle",
-    "owner":  null,
-    "task":  null,
-    "branch":  null,
+    "status":  "active",
+    "owner":  "Codex",
+    "task":  "إصلاح كاش تقرير المخزون القديم",
+    "branch":  "task branch pending for: إصلاح كاش تقرير المخزون القديم",
     "files":  [
-
+                  "index.html,public/service-worker.js,scripts/check.mjs"
               ],
-    "startedAt":  null,
-    "updatedAt":  "2026-07-15T07:06:30Z",
-    "note":  "No active task. Read AI_HANDOFF.md before starting work."
+    "startedAt":  "2026-07-15T07:10:50Z",
+    "updatedAt":  "2026-07-15T07:10:50Z",
+    "note":  "Work in progress. Do not edit the reserved files."
 }
