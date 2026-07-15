@@ -1549,7 +1549,9 @@ function isWazariPriceItem(item) {
   if (name.includes("فاخر") && name.includes("اسود") && name.includes("محزر")) return true;
   if (
     name.includes("مالبورو") &&
-    (name.includes("محزر") || name.includes("ورق ابيض") || name.includes("ورق احمر") || name.includes("كوين ازرق"))
+    (name.includes("محزر") ||
+      (name.includes("ورق") && (name.includes("ابيض") || name.includes("احمر"))) ||
+      (name.includes("كوين") && name.includes("ازرق")))
   ) return true;
   return false;
 }
@@ -2176,8 +2178,9 @@ async function savePricingItem(form) {
 
     if (mode === "mufrak") {
       unit2Price = Number((existing && existing.unit2Price) || 0);
-      if (unit2Price <= 0) throw new Error("سعّر الجملة أولاً، ثم بدّل لوضع المفرق وأضف سعره.");
-      salePrice = Number((existing && existing.salePrice) || roundPrice(unit2Price / unit2Factor));
+      // سعر المفرق مستقل عن الجملة: إن لم يوجد سعر جملة نحفظ سعراً مرجعياً للوحدة الأولى
+      // كي يبقى السجل صالحاً في Supabase، بينما تعتمد نشرة السوري على retail.price حصراً.
+      salePrice = Number((existing && existing.salePrice) || roundPrice((unit2Price > 0 ? unit2Price : entered) / unit2Factor));
       payloadObj = { ...basePayload, retail: { price: entered }, source: "phone_pricing_page", pricedDate: todayIsoDate() };
       savedLabel = `سعر المفرق ${formatMoney(entered)}$ لل${unit2Name || "كرتونة"} (≈ ${formatMoney(roundPrice(entered / unit2Factor))}$ لل${unit1Name || "كروز"})`;
     } else {
@@ -2193,10 +2196,9 @@ async function savePricingItem(form) {
       const sourceExisting = approvedPriceMap().get(targetKey);
       const sourceFactor = Math.max(1, itemUnit2Factor(sourceItem));
       const sourceUnit2Price = mode === "mufrak" ? Number(sourceExisting?.unit2Price || unit2Price) : entered;
-      if (mode === "mufrak" && sourceUnit2Price <= 0) {
-        throw new Error(`سعّر الجملة أولاً للصنف: ${sourceItem?.name || targetKey}`);
-      }
-      const sourceSalePrice = Number(sourceExisting?.salePrice || roundPrice(sourceUnit2Price / sourceFactor));
+      const sourceSalePrice = Number(
+        sourceExisting?.salePrice || roundPrice((sourceUnit2Price > 0 ? sourceUnit2Price : entered) / sourceFactor)
+      );
       const sourcePayload = mode === "mufrak"
         ? { ...(sourceExisting?.pricePayload || {}), retail: { price: entered }, source: "phone_pricing_page", pricedDate: todayIsoDate() }
         : payloadObj;
