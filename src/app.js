@@ -169,7 +169,7 @@ function syncFreshnessLabel(value) {
   return `قبل ${Math.round(minutes / 60)} ساعة`;
 }
 
-const allowedRoutes = new Set(["overview", "login", "requests", "ameen", "pricing", "remote", "monitoring", "payments", "purchases"]);
+const allowedRoutes = new Set(["overview", "login", "requests", "ameen", "balances", "pricing", "remote", "monitoring", "payments", "purchases"]);
 
 const customerPriceContacts = [
   { label: "هاتف المبيعات", value: "0985000771" },
@@ -299,7 +299,7 @@ function initKeyboardShortcuts() {
   document.addEventListener("keydown", (event) => {
     const typing = document.activeElement?.matches("input, textarea, select, [contenteditable]");
     if (event.altKey && !event.ctrlKey && !event.metaKey) {
-      const routeMap = { "1": "overview", "2": "dashboard", "3": "requests", "4": "ameen", "5": "pricing", "6": "invoice", "7": "purchases" };
+      const routeMap = { "1": "overview", "2": "dashboard", "3": "requests", "4": "ameen", "5": "pricing", "6": "invoice", "7": "purchases", "8": "balances" };
       const target = routeMap[event.key];
       if (target) {
         event.preventDefault();
@@ -2245,6 +2245,7 @@ function shell(content) {
           ${state.session ? navButton("dashboard", "📑 التقارير") : ""}
           ${navButton("login", "🔑 تسجيل الدخول")}
           ${navButton("ameen", "📦 الأمين")}
+          ${state.session ? navButton("balances", "💳 أرصدة الزبائن") : ""}
           ${navButton("pricing", "نشرة الأسعار")}
           ${state.session ? navButton("invoice", "📄 الفواتير") : ""}
           ${state.session ? navButton("purchases", "🧾 فواتير مشتريات") : ""}
@@ -2306,6 +2307,7 @@ function pageTitle() {
     login: "تسجيل الدخول",
     requests: "طلبات العملاء",
     ameen: "تقارير الأمين",
+    balances: "أرصدة الزبائن والحد المسموح",
     pricing: "نشرة الأسعار",
     remote: "الإدارة عن بعد",
     monitoring: "المراقبة",
@@ -4123,7 +4125,6 @@ function customerBalanceSection(report) {
 
 function ameen() {
   const latest = state.inventoryReports[0];
-  const customerReport = state.customerBalanceReports[0];
   const summary = latest?.summary || {};
   const items = reportItems(latest);
   const approvedPrices = state.approvedPriceItems || [];
@@ -4141,7 +4142,6 @@ function ameen() {
     ${
       latest
         ? `${ameenBrowser(items)}
-          ${customerBalanceSection(customerReport)}
           <section class="panel wide ameen-movement">
             <h3>حركة المواد والمقارنة</h3>
             <div class="inventory-metrics">
@@ -4151,9 +4151,13 @@ function ameen() {
               ${inventoryMetric("المقارنة السابقة", summary.previousReportDate || "لا يوجد", "تحتاج تقريرين أو أكثر")}
             </div>
           </section>`
-        : customerBalanceSection(customerReport)
+        : `<section class="panel wide"><h3>مخزون الأمين</h3><p class="muted">لم يصل تقرير المخزون بعد. شغّل مزامنة الأمين ثم حدّث الصفحة.</p></section>`
     }
   `);
+}
+
+function customerBalancesPage() {
+  return shell(customerBalanceSection(state.customerBalanceReports[0]));
 }
 
 function remote() {
@@ -4424,7 +4428,7 @@ function searchPage() {
   balItems.forEach((c) => {
     const name = c.customer_name || c.name || "";
     if (name.toLowerCase().includes(q)) {
-      results.push({ type: "عميل", label: name, sub: `الرصيد: ${c.balance ?? "—"}`, route: "ameen" });
+      results.push({ type: "عميل", label: name, sub: `الرصيد: ${c.balance ?? "—"}`, route: "balances" });
     }
   });
   (state.purchaseInvoices || []).forEach((p) => {
@@ -5556,6 +5560,7 @@ function render() {
     login,
     requests,
     ameen,
+    balances: customerBalancesPage,
     pricing,
     remote,
     monitoring,
@@ -6143,7 +6148,7 @@ setInterval(() => {
   // لا نقاطع المستخدم أثناء الكتابة في نموذج
   const active = document.activeElement;
   if (active && (active.tagName === "INPUT" || active.tagName === "TEXTAREA" || active.tagName === "SELECT")) return;
-  const autoRefreshRoutes = ["ameen", "pricing", "dashboard", "payments"];
+  const autoRefreshRoutes = ["ameen", "balances", "pricing", "dashboard", "payments"];
   if (autoRefreshRoutes.includes(state.route) && (!dataStore.isConfigured() || state.session)) {
     Promise.all([loadInventoryReports(), loadCustomerBalanceReports(), loadCustomerCreditLimits(), loadApprovedPriceItems()])
       .then(() => render())
