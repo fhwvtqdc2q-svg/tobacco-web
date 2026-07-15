@@ -9,6 +9,13 @@
 - المسؤول: Codex
 - آخر تحديث: 2026-07-14
 
+## 2026-07-15 - Codex - تصحيح والتحقق من مزامنة أسعار النشرة مع الأمين
+
+- Status: completed
+- Branch: task branch pending for: تصحيح والتحقق من مزامنة أسعار النشرة مع الأمين
+- Files: tools/apply-approved-prices-to-ameen.ps1,tools/verify-prices.ps1
+- Result: اعتماد أحدث سجل لكل اسم قبل التطبيق والفحص؛ مزامنة فعلية وفحص مستقل: صفر فروق، جملة 248 ومفرق 241.
+- Handoff UTC: 2026-07-15T09:10:16Z
 ## 2026-07-15 - Codex - تصحيح سعري ماستر كوين و1970 كوين
 
 - Status: completed
