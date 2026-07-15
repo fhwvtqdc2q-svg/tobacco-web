@@ -14,6 +14,7 @@ const WELCOME = `أهلاً 👋 أنا مساعدك الشخصي.
 📦 اللائحة والمخزون:
 • سعر <اسم المادة>
 • فحص الأسعار
+• حالة النظام
 • شو ناقص
 • الديون
 • مبيعات اليوم
@@ -37,6 +38,7 @@ const MENU_KEYBOARD = {
     [{ text: "📊 مبيعات اليوم", callback_data: "sales" }, { text: "⚠️ شو ناقص", callback_data: "low" }],
     [{ text: "💰 الديون", callback_data: "debts" }, { text: "📈 رسم المبيعات", callback_data: "chart" }],
     [{ text: "🔄 فحص الأسعار", callback_data: "price_sync" }],
+    [{ text: "🩺 حالة النظام", callback_data: "system_status" }],
     [{ text: "❓ مساعدة", callback_data: "help" }],
   ],
 };
@@ -372,6 +374,7 @@ async function sendMenu(chatId: number) {
 • كشف حساب <اسم الزبون>
 • سعر <اسم المادة>
 • فحص الأسعار
+• حالة النظام
 • حد التنبيه <رقم>
 • اسأل <أي سؤال عن العمل>`,
     reply_markup: MENU_KEYBOARD,
@@ -549,6 +552,70 @@ async function handlePriceSyncStatus(chatId: number) {
     return;
   }
   await tg("sendMessage", { chat_id: chatId, text: `🚨 تعذر فحص مزامنة الأسعار\nآخر محاولة: ${checked}` });
+}
+
+function ageMinutes(value: unknown): number {
+  const time = Date.parse(String(value ?? ""));
+  return Number.isFinite(time) ? Math.max(0, Math.floor((Date.now() - time) / 60000)) : Number.POSITIVE_INFINITY;
+}
+
+function ageLabel(minutes: number): string {
+  if (!Number.isFinite(minutes)) return "لا توجد بيانات";
+  if (minutes < 1) return "الآن";
+  if (minutes < 60) return `منذ ${minutes} دقيقة`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `منذ ${hours} ساعة`;
+  return `منذ ${Math.floor(hours / 24)} يوم`;
+}
+
+async function handleSystemStatus(chatId: number) {
+  const [inventoryRaw, balancesRaw, priceSyncRaw, movementsRaw, invoicesRaw, latestPriceRaw, latestSalesRaw] = await Promise.all([
+    restGet(`inventory_reports?source=eq.ameen_sql_agent&order=created_at.desc&select=source,summary,created_at&limit=1`),
+    restGet(`inventory_reports?source=eq.ameen_customer_balances&order=created_at.desc&select=source,summary,created_at&limit=1`),
+    restGet(`inventory_reports?source=eq.ameen_price_sync_status&order=created_at.desc&select=source,summary,created_at&limit=1`),
+    restGet(`inventory_reports?source=eq.ameen_customer_movements&order=created_at.desc&select=source,summary,created_at&limit=1`),
+    restGet(`inventory_reports?source=eq.ameen_customer_invoices&order=created_at.desc&select=source,summary,created_at&limit=1`),
+    restGet(`approved_price_items?select=updated_at&order=updated_at.desc&limit=1`),
+    restGet(`sales_line_items?select=created_at&order=created_at.desc&limit=1`),
+  ]);
+  const reports = [inventoryRaw, balancesRaw, priceSyncRaw, movementsRaw, invoicesRaw]
+    .flatMap((rows) => Array.isArray(rows) ? rows.slice(0, 1) : []);
+  const latestBySource = new Map<string, any>();
+  for (const row of reports) if (!latestBySource.has(String(row.source))) latestBySource.set(String(row.source), row);
+  const lines: string[] = [];
+  let warnings = 0;
+  const addFreshness = (label: string, source: string, maxMinutes: number) => {
+    const row = latestBySource.get(source);
+    const age = ageMinutes(row?.created_at);
+    const ok = age <= maxMinutes;
+    if (!ok) warnings++;
+    lines.push(`${ok ? "🟢" : "🔴"} ${label}: ${ageLabel(age)}`);
+  };
+
+  addFreshness("الأمين والمخزون", "ameen_sql_agent", 5);
+  addFreshness("أرصدة الزبائن", "ameen_customer_balances", 5);
+  addFreshness("فواتير الزبائن", "ameen_customer_invoices", 15);
+  addFreshness("حركات الحسابات", "ameen_customer_movements", 15);
+
+  const priceRow = latestBySource.get("ameen_price_sync_status");
+  const priceStatus = priceRow?.summary ?? {};
+  const priceAge = ageMinutes(priceRow?.created_at);
+  const priceOk = priceStatus.status === "ok" && Number(priceStatus.mismatch_count ?? 0) === 0 && Number(priceStatus.missing_count ?? 0) === 0 && priceAge <= 10;
+  if (!priceOk) warnings++;
+  lines.push(`${priceOk ? "🟢" : "🔴"} مزامنة الأسعار: ${priceOk ? "صفر فروق" : "تحتاج فحص"} — ${ageLabel(priceAge)}`);
+
+  const latestEditAge = ageMinutes(Array.isArray(latestPriceRaw) ? latestPriceRaw[0]?.updated_at : null);
+  const pricesPending = Number.isFinite(latestEditAge) && Number.isFinite(priceAge) && latestEditAge + 7 < priceAge;
+  if (pricesPending) warnings++;
+  lines.push(`${pricesPending ? "🟡" : "🟢"} أسعار النشرة: ${pricesPending ? "يوجد تعديل بانتظار المزامنة" : "محدّثة"}`);
+
+  const salesAge = ageMinutes(Array.isArray(latestSalesRaw) ? latestSalesRaw[0]?.created_at : null);
+  const salesOk = salesAge <= 15;
+  if (!salesOk) warnings++;
+  lines.push(`${salesOk ? "🟢" : "🔴"} حركة المبيعات: ${ageLabel(salesAge)}`);
+
+  const headline = warnings === 0 ? "✅ كل الأنظمة تعمل بشكل طبيعي" : `⚠️ يوجد ${warnings} تنبيه يحتاج متابعة`;
+  await tg("sendMessage", { chat_id: chatId, text: `🩺 حالة النظام\n${headline}\n\n${lines.join("\n")}\n\nآخر فحص: ${fmtDate(new Date().toISOString())}` });
 }
 
 // ============================================================
@@ -968,6 +1035,7 @@ async function handleCommand(chatId: number, text: string): Promise<boolean> {
   if (text === "/low" || ["شو ناقص", "النواقص", "نواقص", "ناقص", "المخزون الناقص", "المخزون"].includes(norm)) { await handleLowStock(chatId); return true; }
   if (text === "/debts" || ["الديون", "ديون", "المديونيات"].includes(norm)) { await handleDebts(chatId); return true; }
   if (text === "/pricesync" || ["فحص الاسعار", "مزامنه الاسعار", "حاله الاسعار", "تزامن الاسعار"].includes(norm)) { await handlePriceSyncStatus(chatId); return true; }
+  if (text === "/status" || ["حاله النظام", "فحص النظام", "وضع النظام", "النظام"].includes(norm)) { await handleSystemStatus(chatId); return true; }
   if (["ربح اليوم", "الربح", "شو ربحنا", "ربحنا اليوم", "صافي الربح", "قديش ربحنا", "كم ربحنا اليوم"].includes(norm)) { await handleProfitToday(chatId); return true; }
   // أي رسالة فيها ذكر "كرتونة/كراتين" — «مبيعات اليوم بالكرتونة»، «الكراتين اليوم»، إلخ
   if (norm.includes("كرتون") || norm.includes("كراتين")) { await handleCartonsToday(chatId); return true; }
@@ -1093,6 +1161,7 @@ Deno.serve(async (req) => {
       else if (data === "debts") await handleDebts(cqChatId);
       else if (data === "chart") await handleSalesChart(cqChatId);
       else if (data === "price_sync") await handlePriceSyncStatus(cqChatId);
+      else if (data === "system_status") await handleSystemStatus(cqChatId);
       else if (data === "help") await tg("sendMessage", { chat_id: cqChatId, text: WELCOME });
       else if (data.startsWith("b|")) await handleCustomerQuery(cqChatId, "balance", data.slice(2));
       else if (data.startsWith("s|")) await handleCustomerQuery(cqChatId, "statement", data.slice(2));
