@@ -1,13 +1,13 @@
 {
     "schemaVersion":  1,
-    "status":  "active",
-    "owner":  "Codex",
-    "task":  "تحويل تقرير المخزون الفاتح إلى عمودين متقابلين",
-    "branch":  "task branch pending for: تحويل تقرير المخزون الفاتح إلى عمودين متقابلين",
+    "status":  "idle",
+    "owner":  null,
+    "task":  null,
+    "branch":  null,
     "files":  [
-                  "src/app.js,public/service-worker.js,scripts/check.mjs"
+
               ],
-    "startedAt":  "2026-07-15T05:06:49Z",
-    "updatedAt":  "2026-07-15T05:06:49Z",
-    "note":  "Work in progress. Do not edit the reserved files."
+    "startedAt":  null,
+    "updatedAt":  "2026-07-15T07:06:30Z",
+    "note":  "No active task. Read AI_HANDOFF.md before starting work."
 }
