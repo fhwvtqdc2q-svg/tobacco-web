@@ -9,6 +9,13 @@
 - المسؤول: Codex
 - آخر تحديث: 2026-07-14
 
+## 2026-07-15 - Codex - تصحيح سعري ماستر كوين و1970 كوين
+
+- Status: completed
+- Branch: task branch pending for: تصحيح سعري ماستر كوين و1970 كوين
+- Files: scripts/generate-price-lists.mjs,scripts/check.mjs,public/downloads/*,public/service-worker.js,AI_WORK_SYNC.md
+- Result: صُححت النشرة واعتمد تأكيد المستخدم: ماستر كوين أبيض 340$ و1970 كوين أبيض 275$. أُعيد توليد PDF وتحقق السعران على الموقع الحي.
+- Handoff UTC: 2026-07-15T08:55:39Z
 ## 2026-07-15 - Codex - تصحيح مزامنة أسعار النشرة ومنع الأسعار القديمة
 
 - Status: completed

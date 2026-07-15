@@ -1,13 +1,13 @@
 {
     "schemaVersion":  1,
-    "status":  "active",
-    "owner":  "Codex",
-    "task":  "تصحيح سعري ماستر كوين و1970 كوين",
-    "branch":  "task branch pending for: تصحيح سعري ماستر كوين و1970 كوين",
+    "status":  "idle",
+    "owner":  null,
+    "task":  null,
+    "branch":  null,
     "files":  [
-                  "scripts/generate-price-lists.mjs,scripts/check.mjs,public/downloads/*,public/service-worker.js,AI_WORK_SYNC.md"
+
               ],
-    "startedAt":  "2026-07-15T08:53:20Z",
-    "updatedAt":  "2026-07-15T08:53:20Z",
-    "note":  "Work in progress. Do not edit the reserved files."
+    "startedAt":  null,
+    "updatedAt":  "2026-07-15T08:55:39Z",
+    "note":  "No active task. Read AI_HANDOFF.md before starting work."
 }
