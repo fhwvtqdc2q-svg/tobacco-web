@@ -9,6 +9,13 @@
 - المسؤول: Codex
 - آخر تحديث: 2026-07-14
 
+## 2026-07-15 - Codex - تصحيح مزامنة أسعار النشرة ومنع الأسعار القديمة
+
+- Status: completed
+- Branch: task branch pending for: تصحيح مزامنة أسعار النشرة ومنع الأسعار القديمة
+- Files: src/app.js,scripts/generate-price-lists.mjs,scripts/check.mjs,public/downloads/*,public/service-worker.js,index.html,AI_WORK_SYNC.md
+- Result: دُققت 27 مجموعة مفاتيح مكررة، ووُحّد حفظ aliases، وأضيف نشر تلقائي بعد آخر تعديل. أُعيد التوليد بصرف 13300 وتحقق الموقع الحي: ماستر كوين أبيض 350 و1970 كوين أبيض 260.
+- Handoff UTC: 2026-07-15T08:51:15Z
 ## 2026-07-15 - Codex - السماح بتسعير نشرة السوري دون سعر جملة
 
 - Status: completed
