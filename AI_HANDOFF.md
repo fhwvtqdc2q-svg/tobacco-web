@@ -9,6 +9,13 @@
 - المسؤول: Codex
 - آخر تحديث: 2026-07-14
 
+## 2026-07-15 - Codex - إصلاح نشر تحديثات أسعار النشرة تلقائياً
+
+- Status: completed
+- Branch: task branch pending for: إصلاح نشر تحديثات أسعار النشرة تلقائياً
+- Files: .github/workflows/generate-price-lists.yml,scripts/check.mjs,AI_WORK_SYNC.md
+- Result: ثبت أن Supabase والملف المولد يحملان 355$ لماستر طويل ورق، وأزيل skip ci من دفع المولد لتشغيل Pages تلقائياً. تحقق السعر الحي 355$ ونجح النشر والفحوص.
+- Handoff UTC: 2026-07-15T08:16:23Z
 ## 2026-07-15 - Codex - توحيد قائمة التسعير داخل الموقع مع قواعد النشرة العامة
 
 - Status: completed

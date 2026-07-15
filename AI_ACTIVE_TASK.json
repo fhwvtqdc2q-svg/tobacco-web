@@ -1,13 +1,13 @@
 {
     "schemaVersion":  1,
-    "status":  "active",
-    "owner":  "Codex",
-    "task":  "إصلاح نشر تحديثات أسعار النشرة تلقائياً",
-    "branch":  "task branch pending for: إصلاح نشر تحديثات أسعار النشرة تلقائياً",
+    "status":  "idle",
+    "owner":  null,
+    "task":  null,
+    "branch":  null,
     "files":  [
-                  ".github/workflows/generate-price-lists.yml,scripts/check.mjs,AI_WORK_SYNC.md"
+
               ],
-    "startedAt":  "2026-07-15T08:14:07Z",
-    "updatedAt":  "2026-07-15T08:14:07Z",
-    "note":  "Work in progress. Do not edit the reserved files."
+    "startedAt":  null,
+    "updatedAt":  "2026-07-15T08:16:23Z",
+    "note":  "No active task. Read AI_HANDOFF.md before starting work."
 }
