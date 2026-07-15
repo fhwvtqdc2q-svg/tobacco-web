@@ -88,6 +88,15 @@ for (const contract of [
   }
 }
 
+if (app.includes("سعّر الجملة أولاً")) {
+  console.error("Retail-only pricing must not require a wholesale USD price first.");
+  failed = true;
+}
+if (!app.includes("unit2Price > 0 ? unit2Price : entered")) {
+  console.error("Retail-only pricing fallback is missing.");
+  failed = true;
+}
+
 const generatedNewsletterPages = [
   "public/downloads/price-list-usd.html",
   "public/downloads/price-list-syp-14050.html",

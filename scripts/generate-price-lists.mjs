@@ -97,8 +97,9 @@ const isWazari = (item) => {
   if (includes(name, "وينستون") && !includes(name, "حرة")) return true;
   if (includes(name, "فاخر") && includes(name, "اسود") && includes(name, "محزر")) return true;
   if (includes(name, "مالبورو") && (
-    includes(name, "محزر") || includes(name, "ورق ابيض") || includes(name, "ورق أبيض") ||
-    includes(name, "ورق احمر") || includes(name, "ورق أحمر") || includes(name, "كوين ازرق") || includes(name, "كوين أزرق")
+    includes(name, "محزر") ||
+    (includes(name, "ورق") && (includes(name, "ابيض") || includes(name, "أبيض") || includes(name, "احمر") || includes(name, "أحمر"))) ||
+    (includes(name, "كوين") && (includes(name, "ازرق") || includes(name, "أزرق")))
   )) return true;
   return false;
 };
