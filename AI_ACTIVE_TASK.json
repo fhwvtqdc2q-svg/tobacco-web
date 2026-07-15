@@ -1,13 +1,13 @@
 {
     "schemaVersion":  1,
-    "status":  "idle",
-    "owner":  null,
-    "task":  null,
-    "branch":  null,
+    "status":  "active",
+    "owner":  "Codex",
+    "task":  "تصحيح والتحقق من مزامنة أسعار النشرة مع الأمين",
+    "branch":  "task branch pending for: تصحيح والتحقق من مزامنة أسعار النشرة مع الأمين",
     "files":  [
-
+                  "tools/apply-approved-prices-to-ameen.ps1,tools/verify-prices.ps1"
               ],
-    "startedAt":  null,
-    "updatedAt":  "2026-07-15T08:55:39Z",
-    "note":  "No active task. Read AI_HANDOFF.md before starting work."
+    "startedAt":  "2026-07-15T09:08:10Z",
+    "updatedAt":  "2026-07-15T09:08:10Z",
+    "note":  "Work in progress. Do not edit the reserved files."
 }
