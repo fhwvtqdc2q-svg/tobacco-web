@@ -9,6 +9,13 @@
 - المسؤول: Codex
 - آخر تحديث: 2026-07-14
 
+## 2026-07-15 - Codex - السماح بتسعير نشرة السوري دون سعر جملة
+
+- Status: completed
+- Branch: task branch pending for: السماح بتسعير نشرة السوري دون سعر جملة
+- Files: src/app.js,scripts/check.mjs,index.html,public/service-worker.js,AI_WORK_SYNC.md
+- Result: أتيح سعر المفرق دون الجملة، أضيف سعر صرف يومي محفوظ ومُرسل للتوليد، حُذف عداد المواد، استُبدل علم سوريا، وأزيل البياض من جميع صفحات PDF الداكنة. نجحت الفحوص والنشر الحي.
+- Handoff UTC: 2026-07-15T08:38:05Z
 ## 2026-07-15 - Codex - إصلاح نشر تحديثات أسعار النشرة تلقائياً
 
 - Status: completed
