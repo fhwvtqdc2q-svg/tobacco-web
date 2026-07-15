@@ -56,5 +56,7 @@ jobs:
           git add public/downloads/ public/service-worker.js
           git diff --staged --quiet && echo "لا تغييرات" && exit 0
           STAMP=$(date -u '+%Y-%m-%d %H:%M UTC')
-          git commit -m "Auto: تحديث نشرات الأسعار — ${STAMP} [skip ci]"
+          # هذا الدفع يجب أن يشغّل pages.yml حتى تصل الأسعار الجديدة للموقع فوراً.
+          # لا تستخدم [skip ci] هنا؛ مسار push أعلاه محصور بملف price-data فلا توجد حلقة توليد.
+          git commit -m "Auto: تحديث نشرات الأسعار — ${STAMP}"
           git push

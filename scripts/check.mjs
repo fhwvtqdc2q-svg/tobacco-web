@@ -52,6 +52,11 @@ if (!html.includes("number-normalizer.js")) {
 }
 
 const app = readFileSync("src/app.js", "utf8");
+const priceGenerationWorkflow = readFileSync(".github/workflows/generate-price-lists.yml", "utf8");
+if (/git commit[^\n]*\[skip ci\]/i.test(priceGenerationWorkflow)) {
+  console.error("Generated price-list commits must trigger Pages deployment; remove [skip ci] from the generator commit.");
+  failed = true;
+}
 const newsletterContracts = [
   'navButton("pricing", "نشرة الأسعار")',
   'pricing: "نشرة الأسعار"',
