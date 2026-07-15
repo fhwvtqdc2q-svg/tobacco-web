@@ -137,6 +137,12 @@ for (const contract of [
   }
 }
 
+// تقرير الذمم يجب أن يعرض تاريخ آخر دفعة وقيمتها في عمودين صريحين.
+if (!appJs.includes("قيمة آخر دفعة") || !/receivablesPdfMarkup[\s\S]*customerLastPaymentAmount\(it\)/.test(appJs)) {
+  console.error("Receivables PDF must include the last payment amount beside its date.");
+  failed = true;
+}
+
 const manifest = JSON.parse(readFileSync("public/manifest.webmanifest", "utf8"));
 if (!manifest.name || !manifest.start_url) {
   console.error("manifest.webmanifest is incomplete.");

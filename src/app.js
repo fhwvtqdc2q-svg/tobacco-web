@@ -3511,15 +3511,17 @@ function receivablesPdfMarkup() {
         const bal = customerBalance(it);
         const isDebit = bal > 0;
         const ld = customerLastPaymentDate(it);
+        const la = customerLastPaymentAmount(it);
         return `<tr><td>${idx + 1}</td><td>${escapeHtml(it.name || "")}</td>`
           + `<td class="deb">${isDebit ? escapeHtml(formatMoney(bal)) : "—"}</td>`
           + `<td class="cred">${isDebit ? "—" : escapeHtml(formatMoney(Math.abs(bal)))}</td>`
-          + `<td>${ld ? escapeHtml(String(ld).slice(0, 10)) : "—"}</td></tr>`;
+          + `<td>${ld ? escapeHtml(String(ld).slice(0, 10)) : "—"}</td>`
+          + `<td>${la > 0 ? escapeHtml(formatMoney(la)) : "—"}</td></tr>`;
       }).join("")
       + `<tr class="closing"><td></td><td>الإجمالي (${escapeHtml(withBalance.length)} زبون)</td>`
       + `<td class="deb">${escapeHtml(formatMoney(totalDebit))}</td>`
-      + `<td class="cred">${escapeHtml(formatMoney(totalCredit))}</td><td></td></tr>`
-    : `<tr><td colspan="5" class="muted">لا يوجد زبائن أصحاب أرصدة</td></tr>`;
+      + `<td class="cred">${escapeHtml(formatMoney(totalCredit))}</td><td></td><td></td></tr>`
+    : `<tr><td colspan="6" class="muted">لا يوجد زبائن أصحاب أرصدة</td></tr>`;
   return `${REPORT_STYLE}<div class="ozk-rpt">
     <div class="rhead"><div class="brand">OZK TOBACCO<small>تقرير الذمم الإجمالي</small></div>
       <div class="rtitle"><h2>الذمم</h2><span>بتاريخ ${escapeHtml(todayIsoDate())}</span></div></div>
@@ -3530,7 +3532,7 @@ function receivablesPdfMarkup() {
     </div>
     <div class="sec">أرصدة الزبائن — المدين والدائن (${escapeHtml(withBalance.length)} زبون)</div>
     <table>
-      <thead><tr><th>#</th><th>الزبون</th><th>مدين (عليه)</th><th>دائن (له)</th><th>آخر دفعة</th></tr></thead>
+      <thead><tr><th>#</th><th>الزبون</th><th>مدين (عليه)</th><th>دائن (له)</th><th>تاريخ آخر دفعة</th><th>قيمة آخر دفعة</th></tr></thead>
       <tbody>${rows}</tbody>
     </table>
   </div>`;
