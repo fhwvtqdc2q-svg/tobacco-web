@@ -646,7 +646,49 @@ async function handleSalesChart(chatId: number): Promise<void> {
 // يستخدم نفس مفتاح ANTHROPIC_API_KEY المضبوط أصلاً بأسرار Supabase
 // لدالة claude-assistant (الأسرار مشتركة بين كل دوال المشروع)
 // ============================================================
-async function buildBusinessContext(): Promise<string> {
+// مسافة Levenshtein بسيطة — تسمح بفرق حرف واحد بين كلمتين (مفيد لأخطاء
+// تفريغ الصوت الشائعة، متل "مستر" بدل "ماستر" — حرف ناقص بالنص).
+function levenshtein(a: string, b: string): number {
+  const m = a.length, n = b.length;
+  const dp: number[][] = Array.from({ length: m + 1 }, () => new Array(n + 1).fill(0));
+  for (let i = 0; i <= m; i++) dp[i][0] = i;
+  for (let j = 0; j <= n; j++) dp[0][j] = j;
+  for (let i = 1; i <= m; i++) {
+    for (let j = 1; j <= n; j++) {
+      dp[i][j] = a[i - 1] === b[j - 1] ? dp[i - 1][j - 1] : 1 + Math.min(dp[i - 1][j], dp[i][j - 1], dp[i - 1][j - 1]);
+    }
+  }
+  return dp[m][n];
+}
+function tokensSimilar(a: string, b: string): boolean {
+  if (a === b) return true;
+  if (a.length >= 3 && b.length >= 3 && (a.includes(b) || b.includes(a))) return true;
+  return Math.min(a.length, b.length) >= 3 && levenshtein(a, b) <= 1;
+}
+
+// يدوّر داخل سؤال حر (نص أو مفرّغ من صوت) عن أسماء مواد مذكورة فيه، ويرجع
+// أقرب المطابقات — لحتى الذكاء الاصطناعي يقدر يجاوب عن كمية/سعر مادة محدّدة
+// بدل ما يقول "ما عندي بيانات تفصيلية" (كانت هاي المشكلة قبل هالإضافة).
+function findMentionedItems(question: string, items: any[]): any[] {
+  const q = normalizeArabic(question);
+  const qTokens = q.split(" ").filter((t) => t.length >= 3);
+  if (!qTokens.length) return [];
+  const scored: { score: number; r: any }[] = [];
+  for (const r of items) {
+    const name = normalizeArabic(r.item_name ?? r.item_key ?? "");
+    if (!name) continue;
+    const nameTokens = name.split(" ").filter((t) => t.length >= 3);
+    if (!nameTokens.length) continue;
+    const matched = nameTokens.filter((t) => qTokens.some((qt) => tokensSimilar(t, qt)));
+    if (!matched.length) continue;
+    const score = matched.length / nameTokens.length;
+    if (score >= 0.5) scored.push({ score, r });
+  }
+  scored.sort((a, b) => b.score - a.score);
+  return scored.slice(0, 5).map((s) => s.r);
+}
+
+async function buildBusinessContext(question: string): Promise<string> {
   const lines: string[] = [];
   lines.push(`التاريخ: ${new Date().toISOString().slice(0, 10)}`);
   lines.push(`كل المبالغ بهالسياق بالدولار مباشرة (حسابات الأمين ممسوكة بالدولار أصلاً) — جاوب دايماً بالدولار، ولا تذكر أرقام بالليرة.`);
@@ -687,17 +729,32 @@ async function buildBusinessContext(): Promise<string> {
     }
   } catch { lines.push("تعذّر جلب بيانات الأرصدة."); }
 
+  let priceItems: any[] = [];
   try {
     const thr = await getThreshold();
-    const items = await restGet(`approved_price_items?select=item_name,item_key,stock_qty&order=stock_qty.asc&limit=1000`);
-    if (Array.isArray(items)) {
-      const out = items.filter((r: any) => Number(r.stock_qty ?? 0) <= 0);
-      const low = items.filter((r: any) => Number(r.stock_qty ?? 0) > 0 && Number(r.stock_qty ?? 0) <= thr);
+    priceItems = await restGet(`approved_price_items?select=item_name,item_key,stock_qty,unit1_name,unit2_name,unit2_factor,sale_price&limit=2000`) as any[];
+    if (Array.isArray(priceItems)) {
+      const out = priceItems.filter((r: any) => Number(r.stock_qty ?? 0) <= 0);
+      const low = priceItems.filter((r: any) => Number(r.stock_qty ?? 0) > 0 && Number(r.stock_qty ?? 0) <= thr);
       lines.push(`المخزون: ${out.length} مادة نافدة، ${low.length} مادة تحت حد التنبيه (${thr}).`);
       if (out.length) lines.push("نافد: " + out.slice(0, 10).map((r: any) => r.item_name ?? r.item_key).join("، "));
       if (low.length) lines.push("تحت الحد: " + low.slice(0, 10).map((r: any) => r.item_name ?? r.item_key).join("، "));
+    } else {
+      priceItems = [];
     }
   } catch { lines.push("تعذّر جلب بيانات المخزون."); }
+
+  // بحث دقيق عن مواد قد تكون مذكورة بنص السؤال (خصوصاً مفيد للأسئلة الصوتية
+  // يلي بيسأل فيها المالك عن كمية/سعر مادة محدّدة بالاسم)
+  if (priceItems.length) {
+    const mentioned = findMentionedItems(question, priceItems);
+    if (mentioned.length) {
+      lines.push("نتائج بحث دقيقة عن مواد وردت بالسؤال (استخدمها إذا كانت مطابقة لقصد السائل):");
+      for (const r of mentioned) {
+        lines.push(`- ${r.item_name ?? r.item_key}: المخزون ${stockInCartons(r)}${r.sale_price != null ? `، السعر ${fmtNum(r.sale_price)} ل.س` : ""}`);
+      }
+    }
+  }
 
   const todayStr = new Date().toISOString().slice(0, 10);
   try {
@@ -719,7 +776,9 @@ async function askClaude(question: string, context: string): Promise<string> {
   const system = `أنت مساعد ذكي لصاحب محل دخان (OZK TOBACCO) وبترد بالعربية العامية السورية المختصرة والمباشرة، بدون مقدمات طويلة.
 عندك بيانات حقيقية عن حالة العمل الآن — استخدمها فقط للإجابة على سؤال المستخدم، ولا تختلق أي رقم أو اسم مش موجود بالبيانات المعطاة.
 كل الأرقام المالية بالسياق بالدولار أصلاً — جاوب دايماً بالدولار (رمز $)، ولا تذكر أي رقم بالليرة السورية إطلاقاً.
-إذا السؤال بيحتاج بيانات مش متوفرة عندك بالسياق، قول هيك بوضوح بدل ما تخمّن.
+إذا بالسياق قسم "نتائج بحث دقيقة عن مواد" وفيه مادة تناسب سؤال المستخدم، استخدم رقمها بالضبط
+(الكمية أو السعر) بدل ما تقول "ما عندي بيانات" — هاي بيانات حقيقية من المخزون مباشرة.
+إذا السؤال بيحتاج بيانات مش متوفرة عندك بالسياق فعلاً، قول هيك بوضوح بدل ما تخمّن.
 خلّي الجواب مختصر (ما يتجاوز 6 أسطر) إلا إذا السؤال بالأصل بيطلب قائمة أطول.`;
 
   const res = await fetch("https://api.anthropic.com/v1/messages", {
@@ -784,7 +843,7 @@ async function transcribeVoice(fileId: string): Promise<string> {
 async function handleAiQuestion(chatId: number, question: string): Promise<void> {
   await tg("sendMessage", { chat_id: chatId, text: "🤔 عم فكر..." });
   try {
-    const context = await buildBusinessContext();
+    const context = await buildBusinessContext(question);
     const answer = await askClaude(question, context);
     await tg("sendMessage", { chat_id: chatId, text: `🤖 ${answer}` });
   } catch (e) {
