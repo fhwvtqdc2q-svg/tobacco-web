@@ -28,6 +28,13 @@ Write-Host "الخطوة 2: تطبيق الأسعار على الأمين..." -F
 & "$PSScriptRoot\apply-approved-prices-to-ameen.ps1" -CsvFile $CsvFile -EnvFile $EnvFile -LogFile $LogFile
 if ($LASTEXITCODE -ne 0) {
     Write-Host "فشل تطبيق الأسعار على الأمين!" -ForegroundColor Red
+    # إشعار تيليغرام عند الفشل (مرة كل ساعة كحد أقصى لنفس العطل)
+    try {
+        & "$PSScriptRoot\send-telegram-notification.ps1" `
+            -Message "🚨 فشل تطبيق الأسعار على قاعدة الأمين (sync-approved-prices-to-ameen)" `
+            -EventType "sync_failure" -DedupeKey "winfail:apply-to-ameen" -DedupeMinutes 60 `
+            -EnvFile $EnvFile
+    } catch { }
     exit 1
 }
 
