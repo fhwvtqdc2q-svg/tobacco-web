@@ -1,13 +1,13 @@
 {
     "schemaVersion":  1,
-    "status":  "idle",
-    "owner":  null,
-    "task":  null,
-    "branch":  null,
+    "status":  "active",
+    "owner":  "Codex",
+    "task":  "إضافة فحص مزامنة الأسعار وتنبيهاتها إلى بوت تيليغرام",
+    "branch":  "task branch pending for: إضافة فحص مزامنة الأسعار وتنبيهاتها إلى بوت تيليغرام",
     "files":  [
-
+                  "tools/sync-approved-prices-to-ameen.ps1,tools/publish-price-sync-status.ps1,supabase/functions/telegram-webhook/index.ts,CLAUDE.md"
               ],
-    "startedAt":  null,
-    "updatedAt":  "2026-07-15T09:10:16Z",
-    "note":  "No active task. Read AI_HANDOFF.md before starting work."
+    "startedAt":  "2026-07-15T09:19:23Z",
+    "updatedAt":  "2026-07-15T09:19:23Z",
+    "note":  "Work in progress. Do not edit the reserved files."
 }
