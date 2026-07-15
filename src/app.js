@@ -3591,40 +3591,140 @@ const INV_STATUS_BADGE = {
   active: '<span style="color:#16794f;font-weight:700">متوفّر</span>'
 };
 
+// ترتيب تقرير المخزون يطابق ترتيب مجموعات نشرة الأسعار. لا ندمج المواد هنا:
+// كل صنف (وبالأخص أصناف المعسل) يبقى بسطر مستقل لإظهار كميته الحقيقية.
+const INVENTORY_GROUP_SEQUENCE = [
+  ["غلواز", "جولواز", "gauloises"],
+  ["ماستر", "master"],
+  ["كابتن بلاك", "captain black"],
+  ["اليغانس", "اليجنس", "elegance"],
+  ["اوسكار", "oscar"],
+  ["تي اس", "ts"],
+  ["اختمار"],
+  ["اوريس", "auris"],
+  ["روز", "rose"],
+  ["حمرا", "الحمراء"],
+  ["1970"],
+  ["يونايتد", "united"],
+  ["كينغ دوم", "كينج دوم", "kingdom"],
+  ["ولسون", "wilson"],
+  ["مانشستر", "manchester"],
+  ["نابولي", "napoli"],
+  ["مليونير", "millionaire"],
+  ["بزنس", "business"],
+  ["بارسا", "barca"],
+  ["برو", "pro"],
+  ["ام تي", "mt"],
+  ["اصناف الحره", "حرة", "حره"],
+  ["سيغار", "سيناتور", "كلارو"],
+  ["فحم"],
+  ["ورق"],
+  ["معسل", "مزايا", "فاخر", "نخله", "صفوه", "اسطوره"],
+  ["فيب", "فيبات"],
+  ["قداحات", "قداحه"],
+  ["سلفان"]
+];
+
+function inventoryGroupInfo(it) {
+  const label = String(it?.groupName || "مواد بدون مجموعة").trim() || "مواد بدون مجموعة";
+  const haystack = normalizeItemName(`${label} ${it?.name || ""}`);
+  const rank = INVENTORY_GROUP_SEQUENCE.findIndex((aliases) =>
+    aliases.some((alias) => haystack.includes(normalizeItemName(alias)))
+  );
+  return { label, rank: rank < 0 ? INVENTORY_GROUP_SEQUENCE.length : rank };
+}
+
+function isCriticalFastGroup(it) {
+  const text = normalizeItemName(`${it?.groupName || ""} ${it?.name || ""}`);
+  return ["ماستر", "master", "غلواز", "جولواز", "gauloises"]
+    .some((alias) => text.includes(normalizeItemName(alias)));
+}
+
+// التصنيف التشغيلي يعتمد على حركة المبيع لا على رقم ثابت لجميع المواد:
+// 30 يوماً أو أقل = قريب من النفاد. الأصناف البطيئة بلا مبيع حديث تبقى «متوفرة»
+// ولا تُظلم بتصنيف قريب النفاد. نحتفظ بحد الأمين للماستر والغلواز لأنهما سريعَا الحركة.
+function inventoryReportStatus(it, sales, periodDays, hasSalesReport) {
+  const rawQty = Number(it?.stockQty || 0);
+  const positiveQty = Number(it?.stockQtyPositive || 0);
+  if (rawQty <= 0 && positiveQty > 0) return "review";
+  if (rawQty <= 0) return "out";
+  if (!hasSalesReport) return ["low", "review", "stale"].includes(it?.status) ? it.status : "active";
+
+  const sold = Number(sales.get(normalizeItemName(it?.name || "")) || 0);
+  if (sold > 0) {
+    const coverageDays = rawQty / (sold / periodDays);
+    if (coverageDays <= 30) return "low";
+  }
+  if (isCriticalFastGroup(it) && it?.status === "low") return "low";
+  return "active";
+}
+
+const INVENTORY_REPORT_STYLE = `<style>
+.ozk-rpt.inventory-rpt{color-scheme:light!important;color:#221808!important;background:#fffdf8!important}
+.ozk-rpt.inventory-rpt .rhead{background:#fffdf8!important}
+.ozk-rpt.inventory-rpt .rcard{background:#f7efd9!important;color:#221808!important}
+.ozk-rpt.inventory-rpt th{background:#ece1c4!important;color:#221808!important}
+.ozk-rpt.inventory-rpt td{background:#fffdf8!important;color:#221808!important}
+.ozk-rpt.inventory-rpt tr:nth-child(even) td{background:#faf4e6!important}
+.ozk-rpt.inventory-rpt .inventory-group-row td{background:#6b4309!important;color:#f4ca62!important;border-color:#b8892a!important;font-weight:900;padding:6px 8px}
+.ozk-rpt.inventory-rpt .inventory-group-row .group-count{float:left;background:#f4ca62;color:#4d2d04;border-radius:999px;padding:1px 7px;font-size:10px}
+.ozk-rpt.inventory-rpt .status-low{color:#9a6100!important;font-weight:800}.ozk-rpt.inventory-rpt .status-active{color:#16794f!important;font-weight:800}
+@media print{html,body,.ozk-rpt.inventory-rpt{background:#fffdf8!important;color:#221808!important}}
+</style>`;
+
 function inventoryReportPdfMarkup() {
-  // قاعدة القائمة (طلب الإدارة): تظهر المادة إن كان عندنا منها كمية، أو كانت نافدة
-  // لكن «عليها طلب» (في لائحة الأسعار المعتمدة أو بيعت خلال الفترة الأخيرة) — فتفيد
-  // لإعادة الطلب. أما النافدة التي لا طلب عليها (مواد ميتة/قديمة) فتُستبعد كلياً.
+  // كل كمية موجبة تظهر. الصنف النافد لا يظهر إلا إذا كان عليه مبيع حقيقي حديث؛
+  // التسعير القديم وحده ليس دليلاً كافياً (مثل أصناف بلاتينوم القديمة).
   const allRaw = reportItems(latestStockReport());
   const sales = materialSalesUnit1Map();
-  const hasDemand = (it) => Boolean(it?.priceListed) || sales.has(normalizeItemName(it?.name || ""));
-  const all = allRaw.filter((it) => Number(it?.stockQty || 0) > 0 || hasDemand(it));
+  const salesReport = state.customerInvoicesReport;
+  const hasSalesReport = Boolean(salesReport && Array.isArray(salesReport.items));
+  const periodDays = Math.max(1, Number(salesReport?.summary?.periodDays || 60));
+  const hasRecentSale = (it) => sales.has(normalizeItemName(it?.name || ""));
+  const all = allRaw.filter((it) =>
+    Number(it?.stockQty || 0) > 0 || Number(it?.stockQtyPositive || 0) > 0 || hasRecentSale(it)
+  );
   const excludedCount = allRaw.length - all.length;
-  const low = all.filter((i) => i?.status === "low");
-  const out = all.filter((i) => i?.status === "out");
-  // ترتيب (طلب الإدارة): حسب الكمية من الأكثر إلى الأقل — يُقاس بإجمالي الكراتين
-  // (نفس الرقم المعروض في العمود) ثم الاسم عند التساوي.
-  const list = all.slice().sort((a, b) =>
-    itemQtyUnit2(b) - itemQtyUnit2(a) ||
+  const classified = all.map((it) => ({
+    ...it,
+    reportStatus: inventoryReportStatus(it, sales, periodDays, hasSalesReport),
+    reportGroup: inventoryGroupInfo(it)
+  }));
+  const low = classified.filter((i) => i.reportStatus === "low");
+  const out = classified.filter((i) => i.reportStatus === "out");
+  const review = classified.filter((i) => i.reportStatus === "review");
+  const list = classified.slice().sort((a, b) =>
+    a.reportGroup.rank - b.reportGroup.rank ||
+    String(a.reportGroup.label).localeCompare(String(b.reportGroup.label), "ar") ||
     String(a.name || "").localeCompare(String(b.name || ""), "ar")
   );
+  const groupCounts = new Map();
+  list.forEach((it) => groupCounts.set(it.reportGroup.label, (groupCounts.get(it.reportGroup.label) || 0) + 1));
+  let previousGroup = null;
   const rows = list.length
     ? list.map((it) => {
-        const st = INV_STATUS_BADGE[it?.status] || INV_STATUS_BADGE.active;
-        return `<tr><td>${escapeHtml(pdfAr(it.name || ""))}</td><td>${escapeHtml(pdfAr(formatQtyCartons(it)))}</td><td>${st}</td></tr>`;
+        const groupHeader = it.reportGroup.label !== previousGroup
+          ? `<tr class="inventory-group-row"><td colspan="3">${escapeHtml(pdfAr(it.reportGroup.label))}<span class="group-count">${escapeHtml(groupCounts.get(it.reportGroup.label))}</span></td></tr>`
+          : "";
+        previousGroup = it.reportGroup.label;
+        const badge = it.reportStatus === "low"
+          ? '<span class="status-low">قريب من النفاد</span>'
+          : (it.reportStatus === "active" ? '<span class="status-active">متوفّر</span>' : (INV_STATUS_BADGE[it.reportStatus] || INV_STATUS_BADGE.active));
+        return `${groupHeader}<tr><td>${escapeHtml(pdfAr(it.name || ""))}</td><td>${escapeHtml(pdfAr(formatQtyCartons(it)))}</td><td>${badge}</td></tr>`;
       }).join("")
     : `<tr><td colspan="3" class="muted">لا توجد مواد</td></tr>`;
-  return `${REPORT_STYLE}<div class="ozk-rpt">
-    <div class="rhead"><div class="brand">OZK TOBACCO<small>تقرير المخزون</small></div>
-      <div class="rtitle"><h2>المخزون</h2><span>بتاريخ ${escapeHtml(todayIsoDate())}</span></div></div>
+  return `${REPORT_STYLE}${INVENTORY_REPORT_STYLE}<div class="ozk-rpt inventory-rpt">
+    <div class="rhead"><div class="brand">OZK TOBACCO<small>تقرير المخزون التشغيلي</small></div>
+      <div class="rtitle"><h2>المخزون — حسب ترتيب النشرة</h2><span>بتاريخ ${escapeHtml(todayIsoDate())}</span></div></div>
     <div class="cards">
-      <div class="rcard"><div class="v gold">${escapeHtml(all.length)}</div><div class="l">أصناف القائمة (المتداولة)</div></div>
-      <div class="rcard"><div class="v red">${escapeHtml(low.length)}</div><div class="l">قارب على النفاد (حدود الأمين)</div></div>
-      <div class="rcard"><div class="v red">${escapeHtml(out.length)}</div><div class="l">نافد — يلزم طلبه</div></div>
+      <div class="rcard"><div class="v gold">${escapeHtml(classified.length)}</div><div class="l">أصناف فعلية ومتداولة</div></div>
+      <div class="rcard"><div class="v red">${escapeHtml(low.length)}</div><div class="l">قريب من النفاد حسب حركة المبيع</div></div>
+      <div class="rcard"><div class="v red">${escapeHtml(out.length)}</div><div class="l">نافد وله طلب حديث</div></div>
     </div>
-    <div class="sec">أصناف المخزون المتداولة (${escapeHtml(list.length)} صنف)</div>
-    <table><tr><th>الصنف</th><th>الكمية</th><th>الحالة</th></tr>${rows}</table>
-    ${excludedCount > 0 ? `<p class="muted" style="margin-top:8px">استُبعد ${escapeHtml(excludedCount)} صنفاً لا مخزون له ولا طلب عليه (مواد غير متداولة).</p>` : ""}
+    <div class="sec">تفاصيل المخزون — كل صنف مستقل (${escapeHtml(list.length)} صنف)</div>
+    <table><thead><tr><th>الصنف</th><th>الكمية الفعلية</th><th>الحالة</th></tr></thead><tbody>${rows}</tbody></table>
+    <p class="muted" style="margin-top:8px">الحالة محسوبة على تغطية المبيع خلال ${escapeHtml(periodDays)} يوماً${hasSalesReport ? "" : " (لم تصل حركة المبيع؛ استُخدم تصنيف المزامنة مؤقتاً)"}. لا تُدمج أصناف المعسل في هذا التقرير.${review.length ? ` يوجد ${escapeHtml(review.length)} صنف يحتاج مراجعة جرد.` : ""}</p>
+    ${excludedCount > 0 ? `<p class="muted">استُبعد ${escapeHtml(excludedCount)} صنفاً نافداً بلا مبيع حديث، حتى لا تمتلئ القائمة بمواد قديمة غير متداولة.</p>` : ""}
   </div>`;
 }
 
@@ -4163,7 +4263,7 @@ function reportsPage() {
       <details class="acc-group">
         <summary class="acc-summary"><span class="acc-title">📦 تقرير المخزون</span><span class="acc-count">PDF</span></summary>
         <div class="acc-body report-card">
-          <p class="muted">المواد النافدة وشبه النافدة والمنخفضة في المخزون.</p>
+          <p class="muted">تقرير فاتح مرتب مثل النشرة: الغلواز والماستر أولاً، وكل صنف بكمّيته الفعلية من دون دمج. حالة النفاد تُحسب من المخزون وحركة المبيع الحديثة.</p>
           <button class="button primary" type="button" data-action="report-inventory">📦 تنزيل تقرير المخزون PDF</button>
         </div>
       </details>
