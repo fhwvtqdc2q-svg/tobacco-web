@@ -68,6 +68,21 @@ for (const contract of newsletterContracts) {
   }
 }
 
+for (const contract of [
+  "function isWazariPriceItem",
+  "function hasFullSecondUnit",
+  "function consolidateGeneralPriceItems",
+  "function generalPricingWorklistItems",
+  "const items = generalPricingWorklistItems();",
+  "data-source-keys=",
+  "sourceKeys: [item.key].filter(Boolean)"
+]) {
+  if (!app.includes(contract)) {
+    console.error(`General pricing list contract is missing: ${contract}`);
+    failed = true;
+  }
+}
+
 const generatedNewsletterPages = [
   "public/downloads/price-list-usd.html",
   "public/downloads/price-list-syp-14050.html",
