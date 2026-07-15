@@ -539,6 +539,15 @@ function Sync-Once {
   }
 
   Write-AgentLog ("Synced {0} items. PriceListFullUnitChanges={1}, Low={2}, Out={3}, Customers={4}" -f $report.Items.Count, $priceListStockChanges, $report.Summary.lowStockItems, $report.Summary.outOfStockItems, $customerCount)
+
+  # حدّث تقرير الربح من نفس دورة الأمين الجارية. يبقى مستقلاً عن تقرير
+  # المخزون، وفشله لا يلغي مزامنة المخزون التي اكتملت بالفعل.
+  try {
+    & "$PSScriptRoot\push-daily-profit.ps1"
+    if ($LASTEXITCODE -ne 0) { Write-AgentLog "Daily profit sync returned a failure code." }
+  } catch {
+    Write-AgentLog ("Daily profit sync failed: {0}" -f $_.Exception.Message)
+  }
 }
 
 do {

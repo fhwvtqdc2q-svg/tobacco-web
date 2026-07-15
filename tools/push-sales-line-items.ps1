@@ -183,6 +183,11 @@ try {
     }
 
     Write-Log "tem raf3 $($rows.Count) satr b-najah ✓"
+
+    # نفس المهمة المجدولة تحدّث تقرير الربح بعد تحديث حركة المبيعات، حتى
+    # يبقى أمر «ربح اليوم» قريباً من الأمين من دون مهمة Windows إضافية.
+    & "$PSScriptRoot\push-daily-profit.ps1" -EnvFile $EnvFile
+    if ($LASTEXITCODE -ne 0) { throw "daily_profit_sync_failed_after_sales_upload" }
     exit 0
 
 } catch {
