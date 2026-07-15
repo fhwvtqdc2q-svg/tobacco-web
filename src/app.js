@@ -3661,16 +3661,47 @@ function inventoryReportStatus(it, sales, periodDays, hasSalesReport) {
 
 const INVENTORY_REPORT_STYLE = `<style>
 .ozk-rpt.inventory-rpt{color-scheme:light!important;color:#221808!important;background:#fffdf8!important}
-.ozk-rpt.inventory-rpt .rhead{background:#fffdf8!important}
-.ozk-rpt.inventory-rpt .rcard{background:#f7efd9!important;color:#221808!important}
-.ozk-rpt.inventory-rpt th{background:#ece1c4!important;color:#221808!important}
-.ozk-rpt.inventory-rpt td{background:#fffdf8!important;color:#221808!important}
+.ozk-rpt.inventory-rpt .inventory-page{background:#fffdf8!important;break-after:page;page-break-after:always}
+.ozk-rpt.inventory-rpt .inventory-page:last-child{break-after:auto;page-break-after:auto}
+.ozk-rpt.inventory-rpt .rhead{background:#fffdf8!important;margin-bottom:7px;padding-bottom:5px}
+.ozk-rpt.inventory-rpt .rhead .brand{font-size:15px}.ozk-rpt.inventory-rpt .rtitle h2{font-size:13px}
+.ozk-rpt.inventory-rpt .cards{gap:6px;margin-bottom:7px}.ozk-rpt.inventory-rpt .rcard{background:#f7efd9!important;color:#221808!important;padding:5px 7px}
+.ozk-rpt.inventory-rpt .rcard .v{font-size:16px}.ozk-rpt.inventory-rpt .rcard .l{font-size:8.5px}
+.ozk-rpt.inventory-rpt .inventory-columns{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:7px;align-items:start;direction:rtl}
+.ozk-rpt.inventory-rpt .inventory-column{min-width:0}
+.ozk-rpt.inventory-rpt .inventory-group{margin:0 0 5px;break-inside:avoid;page-break-inside:avoid}
+.ozk-rpt.inventory-rpt table{font-size:9.2px;table-layout:fixed}
+.ozk-rpt.inventory-rpt th{background:#ece1c4!important;color:#221808!important;padding:3px 5px;font-size:8.8px}
+.ozk-rpt.inventory-rpt td{background:#fffdf8!important;color:#221808!important;padding:3px 5px;line-height:1.25}
 .ozk-rpt.inventory-rpt tr:nth-child(even) td{background:#faf4e6!important}
-.ozk-rpt.inventory-rpt .inventory-group-row td{background:#6b4309!important;color:#f4ca62!important;border-color:#b8892a!important;font-weight:900;padding:6px 8px}
+.ozk-rpt.inventory-rpt .inventory-group-row td{background:#6b4309!important;color:#f4ca62!important;border-color:#b8892a!important;font-weight:900;padding:4px 6px;font-size:10px}
 .ozk-rpt.inventory-rpt .inventory-group-row .group-count{float:left;background:#f4ca62;color:#4d2d04;border-radius:999px;padding:1px 7px;font-size:10px}
 .ozk-rpt.inventory-rpt .status-low{color:#9a6100!important;font-weight:800}.ozk-rpt.inventory-rpt .status-active{color:#16794f!important;font-weight:800}
-@media print{html,body,.ozk-rpt.inventory-rpt{background:#fffdf8!important;color:#221808!important}}
+@media print{html,body,.ozk-rpt.inventory-rpt,.ozk-rpt.inventory-rpt .inventory-page{background:#fffdf8!important;color:#221808!important}.ozk-rpt.inventory-rpt{padding:0!important}}
 </style>`;
+
+// تقسيم فعلي إلى صفحات وعمودين. كل مجموعة تبقى كتلة واحدة، وتذهب المجموعة التالية
+// إلى العمود الأقصر؛ لذلك تبدأ الغلواز يميناً والماستر يساراً وتختفي الفراغات الكبيرة.
+function inventoryTwoColumnPages(groups, columnCapacity = 48) {
+  const pages = [];
+  const newPage = () => ({ columns: [[], []], weights: [0, 0] });
+  let page = newPage();
+  pages.push(page);
+  for (const group of groups) {
+    const weight = group.items.length + 1;
+    let column = page.weights[0] <= page.weights[1] ? 0 : 1;
+    const other = column === 0 ? 1 : 0;
+    if (page.weights[column] + weight > columnCapacity && page.weights[other] + weight <= columnCapacity) column = other;
+    if (page.weights[column] + weight > columnCapacity) {
+      page = newPage();
+      pages.push(page);
+      column = 0;
+    }
+    page.columns[column].push(group);
+    page.weights[column] += weight;
+  }
+  return pages;
+}
 
 function inventoryReportPdfMarkup() {
   // كل كمية موجبة تظهر. الصنف النافد لا يظهر إلا إذا كان عليه مبيع حقيقي حديث؛
@@ -3698,34 +3729,38 @@ function inventoryReportPdfMarkup() {
     String(a.reportGroup.label).localeCompare(String(b.reportGroup.label), "ar") ||
     String(a.name || "").localeCompare(String(b.name || ""), "ar")
   );
-  const groupCounts = new Map();
-  list.forEach((it) => groupCounts.set(it.reportGroup.label, (groupCounts.get(it.reportGroup.label) || 0) + 1));
-  let previousGroup = null;
-  const rows = list.length
-    ? list.map((it) => {
-        const groupHeader = it.reportGroup.label !== previousGroup
-          ? `<tr class="inventory-group-row"><td colspan="3">${escapeHtml(pdfAr(it.reportGroup.label))}<span class="group-count">${escapeHtml(groupCounts.get(it.reportGroup.label))}</span></td></tr>`
-          : "";
-        previousGroup = it.reportGroup.label;
-        const badge = it.reportStatus === "low"
-          ? '<span class="status-low">قريب من النفاد</span>'
-          : (it.reportStatus === "active" ? '<span class="status-active">متوفّر</span>' : (INV_STATUS_BADGE[it.reportStatus] || INV_STATUS_BADGE.active));
-        return `${groupHeader}<tr><td>${escapeHtml(pdfAr(it.name || ""))}</td><td>${escapeHtml(pdfAr(formatQtyCartons(it)))}</td><td>${badge}</td></tr>`;
-      }).join("")
-    : `<tr><td colspan="3" class="muted">لا توجد مواد</td></tr>`;
-  return `${REPORT_STYLE}${INVENTORY_REPORT_STYLE}<div class="ozk-rpt inventory-rpt">
+  const grouped = [];
+  for (const it of list) {
+    let group = grouped[grouped.length - 1];
+    if (!group || group.label !== it.reportGroup.label) {
+      group = { label: it.reportGroup.label, items: [] };
+      grouped.push(group);
+    }
+    group.items.push(it);
+  }
+  const badgeOf = (it) => it.reportStatus === "low"
+    ? '<span class="status-low">قريب من النفاد</span>'
+    : (it.reportStatus === "active" ? '<span class="status-active">متوفّر</span>' : (INV_STATUS_BADGE[it.reportStatus] || INV_STATUS_BADGE.active));
+  const groupMarkup = (group) => `<div class="inventory-group"><table><tbody>
+    <tr class="inventory-group-row"><td colspan="3">${escapeHtml(pdfAr(group.label))}<span class="group-count">${escapeHtml(group.items.length)}</span></td></tr>
+    ${group.items.map((it) => `<tr><td style="width:48%">${escapeHtml(pdfAr(it.name || ""))}</td><td style="width:29%">${escapeHtml(pdfAr(formatQtyCartons(it)))}</td><td style="width:23%">${badgeOf(it)}</td></tr>`).join("")}
+  </tbody></table></div>`;
+  const pages = inventoryTwoColumnPages(grouped);
+  const pagesMarkup = pages.map((page, pageIndex) => `<section class="inventory-page">
     <div class="rhead"><div class="brand">OZK TOBACCO<small>تقرير المخزون التشغيلي</small></div>
-      <div class="rtitle"><h2>المخزون — حسب ترتيب النشرة</h2><span>بتاريخ ${escapeHtml(todayIsoDate())}</span></div></div>
-    <div class="cards">
+      <div class="rtitle"><h2>المخزون — حسب ترتيب النشرة</h2><span>بتاريخ ${escapeHtml(todayIsoDate())} · صفحة ${escapeHtml(pageIndex + 1)} من ${escapeHtml(pages.length)}</span></div></div>
+    ${pageIndex === 0 ? `<div class="cards">
       <div class="rcard"><div class="v gold">${escapeHtml(classified.length)}</div><div class="l">أصناف فعلية ومتداولة</div></div>
       <div class="rcard"><div class="v red">${escapeHtml(low.length)}</div><div class="l">قريب من النفاد حسب حركة المبيع</div></div>
       <div class="rcard"><div class="v red">${escapeHtml(out.length)}</div><div class="l">نافد وله طلب حديث</div></div>
+    </div>` : ""}
+    <div class="inventory-columns">
+      <div class="inventory-column">${page.columns[0].map(groupMarkup).join("") || '<p class="muted">—</p>'}</div>
+      <div class="inventory-column">${page.columns[1].map(groupMarkup).join("") || '<p class="muted">—</p>'}</div>
     </div>
-    <div class="sec">تفاصيل المخزون — كل صنف مستقل (${escapeHtml(list.length)} صنف)</div>
-    <table><thead><tr><th>الصنف</th><th>الكمية الفعلية</th><th>الحالة</th></tr></thead><tbody>${rows}</tbody></table>
-    <p class="muted" style="margin-top:8px">الحالة محسوبة على تغطية المبيع خلال ${escapeHtml(periodDays)} يوماً${hasSalesReport ? "" : " (لم تصل حركة المبيع؛ استُخدم تصنيف المزامنة مؤقتاً)"}. لا تُدمج أصناف المعسل في هذا التقرير.${review.length ? ` يوجد ${escapeHtml(review.length)} صنف يحتاج مراجعة جرد.` : ""}</p>
-    ${excludedCount > 0 ? `<p class="muted">استُبعد ${escapeHtml(excludedCount)} صنفاً نافداً بلا مبيع حديث، حتى لا تمتلئ القائمة بمواد قديمة غير متداولة.</p>` : ""}
-  </div>`;
+    ${pageIndex === pages.length - 1 ? `<p class="muted" style="margin-top:6px">الحالة محسوبة على تغطية المبيع خلال ${escapeHtml(periodDays)} يوماً${hasSalesReport ? "" : " (لم تصل حركة المبيع؛ استُخدم تصنيف المزامنة مؤقتاً)"}. لا تُدمج أصناف المعسل.${review.length ? ` يوجد ${escapeHtml(review.length)} صنف يحتاج مراجعة جرد.` : ""}${excludedCount > 0 ? ` استُبعد ${escapeHtml(excludedCount)} صنفاً نافداً بلا مبيع حديث.` : ""}</p>` : ""}
+  </section>`).join("");
+  return `${REPORT_STYLE}${INVENTORY_REPORT_STYLE}<div class="ozk-rpt inventory-rpt">${pagesMarkup}</div>`;
 }
 
 async function exportInventoryReportPdf() {
