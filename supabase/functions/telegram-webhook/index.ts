@@ -513,10 +513,10 @@ async function handlePriceQuery(chatId: number, name: string) {
   for (const s of scored) {
     const r = s.r;
     msg += `💵 ${r.item_name ?? r.item_key}\n`;
-    if (r.sale_price != null) msg += `السعر: ${fmtNum(r.sale_price)}\n`;
+    if (r.sale_price != null) msg += `السعر: ${fmtUSD(r.sale_price)}\n`;
     if (r._priceVariants) msg += `⚠️ مسجّلة بسعرين مختلفين بالأمين (نسختين مكرّرتين لنفس المادة): ${r._priceVariants.map(fmtNum).join(" و ")}\n`;
-    if (r.unit1_price != null && r.unit1_name) msg += `${r.unit1_name}: ${fmtNum(r.unit1_price)}\n`;
-    if (r.unit2_price != null && r.unit2_name) msg += `${r.unit2_name}: ${fmtNum(r.unit2_price)}\n`;
+    if (r.unit1_price != null && r.unit1_name) msg += `${r.unit1_name}: ${fmtUSD(r.unit1_price)}\n`;
+    if (r.unit2_price != null && r.unit2_name) msg += `${r.unit2_name}: ${fmtUSD(r.unit2_price)}\n`;
     if (r.stock_qty != null) msg += `المخزون: ${fmtNum(r.stock_qty)}\n`;
     msg += "\n";
   }
@@ -785,8 +785,8 @@ async function buildBusinessContext(question: string): Promise<string> {
       lines.push("نتائج بحث دقيقة عن مواد وردت بالسؤال (استخدمها إذا كانت مطابقة لقصد السائل):");
       for (const r of mentioned) {
         const priceNote = r._priceVariants
-          ? `، أسعار مختلفة مسجّلة (نسختين مكرّرتين لنفس المادة بالأمين): ${r._priceVariants.map(fmtNum).join(" و ")} ل.س`
-          : r.sale_price != null ? `، السعر ${fmtNum(r.sale_price)} ل.س` : "";
+          ? `، أسعار مختلفة مسجّلة (نسختين مكرّرتين لنفس المادة بالأمين): ${r._priceVariants.map(fmtUSD).join(" و ")}`
+          : r.sale_price != null ? `، السعر ${fmtUSD(r.sale_price)}` : "";
         lines.push(`- ${r.item_name ?? r.item_key}: المخزون ${stockInCartons(r)}${priceNote}`);
       }
     }

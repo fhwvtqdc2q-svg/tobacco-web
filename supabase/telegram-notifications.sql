@@ -649,8 +649,6 @@ returns void
 language plpgsql security definer set search_path = public
 as $$
 declare
-  sales record;
-  line_sales record;
   bal_report record;
   total_debt numeric := 0;
   debtor_count int := 0;
@@ -665,18 +663,6 @@ declare
   chunk_lines text := '';
   line_no int := 0;
 begin
-  select total_sales, total_cash, total_credit, created_at
-  into sales
-  from public.daily_sales_summary
-  order by created_at desc limit 1;
-
-  -- daily_sales_summary ما بينزّه أي سكريبت فعلياً — نستخدم أمس من حركة
-  -- الفواتير التفصيلية (sales_line_items) كبديل موثوق لو الجدول فاضي
-  select count(*) as cnt, coalesce(sum(line_total),0) as rev
-  into line_sales
-  from public.sales_line_items
-  where sale_date = current_date - 1;
-
   select summary, items, created_at into bal_report
   from public.inventory_reports
   where source = 'ameen_customer_balances'
@@ -708,17 +694,6 @@ begin
 
   -- 1) رسالة الملخص
   msg := '☀️ التقرير الصباحي — ' || today || chr(10) || chr(10);
-
-  if sales.created_at is not null then
-    msg := msg || '📊 آخر مبيعات (' || to_char(sales.created_at, 'YYYY-MM-DD') || ')' || chr(10)
-        || 'الإجمالي: ' || to_char(sales.total_sales, 'FM999,999,990.00') || ' $'
-        || ' — نقدي: ' || to_char(sales.total_cash, 'FM999,999,990.00') || ' $'
-        || ' — آجل: ' || to_char(sales.total_credit, 'FM999,999,990.00') || ' $' || chr(10) || chr(10);
-  elsif line_sales.cnt > 0 then
-    msg := msg || '📊 مبيعات أمس (من حركة الفواتير التفصيلية)' || chr(10)
-        || 'المبيعات: ' || to_char(line_sales.rev, 'FM999,999,990.00') || ' $'
-        || ' — عدد حركات البيع: ' || line_sales.cnt || chr(10) || chr(10);
-  end if;
 
   msg := msg || '💰 الديون: ' || debtor_count || ' زبون مدين — الإجمالي ' || to_char(total_debt, 'FM999,999,990.00') || ' $';
   if over_limit_count > 0 then msg := msg || chr(10) || '🚫 ' || over_limit_count || ' زبون متجاوز لحد الائتمان'; end if;
@@ -1072,8 +1047,7 @@ begin
     perform public.notify_telegram('evening_report_orders', chunk_lines, 'evening-req:' || today || ':' || chunk_no, 720);
   end if;
 
-  -- 4) قائمة تغييرات الأسعار اليوم (مقسّمة كل 20) — الأسعار هون هي أسعار
-  -- اللائحة الموجّهة للزبائن (نفس منطق سعر <مادة>) فبتضل بالليرة عمداً
+  -- 4) قائمة تغييرات الأسعار اليوم (مقسّمة كل 20) — أسعار اللائحة بالدولار.
   line_no := 0; chunk_no := 0; chunk_lines := '';
   for r in
     select item_name, old_price, new_price
@@ -1086,8 +1060,8 @@ begin
       chunk_lines := '💰 تفاصيل تغييرات الأسعار (' || chunk_no || ') — ' || today || chr(10) || chr(10);
     end if;
     chunk_lines := chunk_lines || '• ' || coalesce(r.item_name, 'غير معروف')
-        || ': ' || coalesce(to_char(r.old_price, 'FM999,999,999,990.##'), '—') || ' ل.س'
-        || ' ← ' || coalesce(to_char(r.new_price, 'FM999,999,999,990.##'), '—') || ' ل.س'
+        || ': ' || coalesce(to_char(r.old_price, 'FM999,999,999,990.##'), '—') || ' $'
+        || ' ← ' || coalesce(to_char(r.new_price, 'FM999,999,999,990.##'), '—') || ' $'
         || chr(10);
     line_no := line_no + 1;
     if line_no >= 20 then
