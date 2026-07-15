@@ -1,13 +1,13 @@
 {
     "schemaVersion":  1,
-    "status":  "active",
-    "owner":  "Codex",
-    "task":  "إضافة أمر حالة النظام إلى بوت تيليغرام",
-    "branch":  "task branch pending for: إضافة أمر حالة النظام إلى بوت تيليغرام",
+    "status":  "idle",
+    "owner":  null,
+    "task":  null,
+    "branch":  null,
     "files":  [
-                  "supabase/functions/telegram-webhook/index.ts,CLAUDE.md"
+
               ],
-    "startedAt":  "2026-07-15T10:14:28Z",
-    "updatedAt":  "2026-07-15T10:14:28Z",
-    "note":  "Work in progress. Do not edit the reserved files."
+    "startedAt":  null,
+    "updatedAt":  "2026-07-15T10:17:23Z",
+    "note":  "No active task. Read AI_HANDOFF.md before starting work."
 }
