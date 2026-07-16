@@ -551,6 +551,15 @@ function customerCurrency(item) {
   return "$";
 }
 
+// ترتيب الديون يجب أن يقارن قيمة موحّدة، لا الرقم الخام بين الدولار والليرة.
+// يبقى الرصيد معروضاً بعملته الأصلية، ونحوّل السوري إلى دولار للمقارنة فقط.
+function customerBalanceSortValue(item) {
+  const balance = customerBalance(item);
+  if (customerCurrency(item) !== "ل.س") return balance;
+  const rate = Number(state.syriaExchangeRate || 0);
+  return rate > 0 ? balance / rate : balance;
+}
+
 function docNumber(prefix) {
   return prefix + "-" + todayIsoDate().replace(/-/g, "") + "-" + String(Math.floor(1000 + Math.random() * 9000));
 }
@@ -2957,7 +2966,7 @@ function sortCustomerItems(items, sort) {
   } else if (sort === "nameAsc") {
     sorted.sort((a, b) => String(a.name || "").localeCompare(String(b.name || ""), "ar"));
   } else {
-    sorted.sort((a, b) => customerBalance(b) - customerBalance(a));
+    sorted.sort((a, b) => customerBalanceSortValue(b) - customerBalanceSortValue(a));
   }
   return sorted;
 }
@@ -3656,7 +3665,7 @@ function receivablesPdfMarkup() {
   // كل الزبائن أصحاب رصيد (مدين موجب أو دائن سالب) — بلا قصّ. المدينون أولاً ثم الدائنون.
   const withBalance = items
     .filter((i) => Math.abs(customerBalance(i)) > 0.009)
-    .sort((a, b) => customerBalance(b) - customerBalance(a));
+    .sort((a, b) => customerBalanceSortValue(b) - customerBalanceSortValue(a));
   const rows = withBalance.length
     ? withBalance.map((it, idx) => {
         const bal = customerBalance(it);

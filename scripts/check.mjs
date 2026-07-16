@@ -202,6 +202,13 @@ if (!appJs.includes("قيمة آخر دفعة") || !/receivablesPdfMarkup[\s\S]*
   failed = true;
 }
 
+// ترتيب الذمم يجب أن يوحّد الدولار والليرة بالقيمة المرجعية قبل المقارنة.
+if (!/function customerBalanceSortValue\(item\)[\s\S]*customerCurrency\(item\)[\s\S]*balance \/ rate/.test(appJs)
+  || !/receivablesPdfMarkup[\s\S]*customerBalanceSortValue\(b\) - customerBalanceSortValue\(a\)/.test(appJs)) {
+  console.error("Receivables must sort mixed-currency balances by their normalized value.");
+  failed = true;
+}
+
 // أرصدة الزبائن صفحة مستقلة وليست جزءاً من تبويب الأمين.
 for (const contract of [
   'navButton("balances", "💳 أرصدة الزبائن")',
