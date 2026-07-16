@@ -3,7 +3,8 @@
 --
 -- Expected output for the sync agent:
 --   customer_name   : customer display name
---   balance         : current customer balance, debit minus credit
+--   balance         : current customer balance in Al-Ameen base currency (USD),
+--                     from the linked account ac000, debit minus credit
 --   credit_limit    : allowed debit limit from cu000.MaxDebit
 --   remaining_limit : credit_limit minus balance
 --   last_payment_amount : last credit movement on the customer account
@@ -13,9 +14,9 @@
 
 select
   cu.CustomerName as customer_name,
-  cast(coalesce(cu.Debit, 0) - coalesce(cu.Credit, 0) as decimal(18, 3)) as balance,
+  cast(coalesce(ac.Debit, 0) - coalesce(ac.Credit, 0) as decimal(18, 3)) as balance,
   cast(coalesce(nullif(cu.MaxDebit, 0), nullif(ac.MaxDebit, 0), 0) as decimal(18, 3)) as credit_limit,
-  cast(coalesce(nullif(cu.MaxDebit, 0), nullif(ac.MaxDebit, 0), 0) - (coalesce(cu.Debit, 0) - coalesce(cu.Credit, 0)) as decimal(18, 3)) as remaining_limit,
+  cast(coalesce(nullif(cu.MaxDebit, 0), nullif(ac.MaxDebit, 0), 0) - (coalesce(ac.Debit, 0) - coalesce(ac.Credit, 0)) as decimal(18, 3)) as remaining_limit,
   cu.GUID as customer_guid,
   cu.AccountGUID as customer_account_guid,
   cast(coalesce(last_payment.last_payment_amount, 0) as decimal(18, 3)) as last_payment_amount,

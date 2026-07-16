@@ -551,13 +551,10 @@ function customerCurrency(item) {
   return "$";
 }
 
-// ترتيب الديون يجب أن يقارن قيمة موحّدة، لا الرقم الخام بين الدولار والليرة.
-// يبقى الرصيد معروضاً بعملته الأصلية، ونحوّل السوري إلى دولار للمقارنة فقط.
+// تقرير مزامنة الذمم يرسل رصيد ac000 بعملة الأساس (الدولار) لكل الزبائن.
+// لا نعيد تحويله حسب عملة الفاتورة أو إعداد الوصل كي لا نصغّر حساباً دولارياً خطأً.
 function customerBalanceSortValue(item) {
-  const balance = customerBalance(item);
-  if (customerCurrency(item) !== "ل.س") return balance;
-  const rate = Number(state.syriaExchangeRate || 0);
-  return rate > 0 ? balance / rate : balance;
+  return customerBalance(item);
 }
 
 function docNumber(prefix) {

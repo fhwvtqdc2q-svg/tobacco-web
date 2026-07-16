@@ -202,10 +202,13 @@ if (!appJs.includes("قيمة آخر دفعة") || !/receivablesPdfMarkup[\s\S]*
   failed = true;
 }
 
-// ترتيب الذمم يجب أن يوحّد الدولار والليرة بالقيمة المرجعية قبل المقارنة.
-if (!/function customerBalanceSortValue\(item\)[\s\S]*customerCurrency\(item\)[\s\S]*balance \/ rate/.test(appJs)
+// أرصدة الذمم تأتي موحّدة بالدولار من ac000 ولا يجوز تحويلها ثانية حسب تصنيف الزبون.
+const balanceQuery = readFileSync("tools/ameen-customer-balances-query.sql", "utf8");
+if (!/coalesce\(ac\.Debit, 0\) - coalesce\(ac\.Credit, 0\)/i.test(balanceQuery)
+  || /as balance[\s\S]{0,120}cu\.Debit/i.test(balanceQuery)
+  || !/function customerBalanceSortValue\(item\)\s*\{\s*return customerBalance\(item\);\s*\}/.test(appJs)
   || !/receivablesPdfMarkup[\s\S]*customerBalanceSortValue\(b\) - customerBalanceSortValue\(a\)/.test(appJs)) {
-  console.error("Receivables must sort mixed-currency balances by their normalized value.");
+  console.error("Receivables must use and sort the USD base balance from ac000 without a second conversion.");
   failed = true;
 }
 
