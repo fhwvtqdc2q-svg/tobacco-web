@@ -9,6 +9,13 @@
 - المسؤول: Codex
 - آخر تحديث: 2026-07-14
 
+## 2026-07-16 - Codex - تصحيح مصدر أرصدة الذمم إلى ac000 بالدولار
+
+- Status: completed
+- Branch: task branch pending for: تصحيح مصدر أرصدة الذمم إلى ac000 بالدولار
+- Files: tools/ameen-customer-balances-query.sql,src/app.js,scripts/check.mjs,AI_WORK_SYNC.md,index.html,public/service-worker.js
+- Result: أصبحت المزامنة تستخدم ac000 بالدولار، أزيل التحويل الثاني من الترتيب، وشُغلت مزامنة حية ناجحة لـ284 زبوناً.
+- Handoff UTC: 2026-07-16T10:31:09Z
 ## 2026-07-16 - Codex - تصحيح ترتيب تقرير الذمم حسب قيمة الدين بعد توحيد العملة
 
 - Status: completed
