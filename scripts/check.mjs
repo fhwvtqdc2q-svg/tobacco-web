@@ -93,6 +93,7 @@ for (const contract of [
   "function consolidateGeneralPriceItems",
   "function generalPricingWorklistItems",
   "const items = generalPricingWorklistItems();",
+  "pricingWorklistItems({ ignoreSearch: true })",
   "data-source-keys=",
   "sourceKeys: [item.key].filter(Boolean)"
 ]) {
@@ -101,12 +102,18 @@ for (const contract of [
     failed = true;
   }
 }
+for (const contract of ["const merged = new Map();", "counts.set(price", "findLast((candidate)"]) {
+  if (!priceGenerator.includes(contract)) {
+    console.error(`Merged bulletin price selection contract is missing: ${contract}`);
+    failed = true;
+  }
+}
 
 if (app.includes("سعّر الجملة أولاً")) {
   console.error("Retail-only pricing must not require a wholesale USD price first.");
   failed = true;
 }
-for (const contract of ["data-published-exchange-rate", "inputs: { rate: String(rate) }", "loadPublishedExchangeRate"] ) {
+for (const contract of ["data-published-exchange-rate", "inputs: { rate: String(rate) }", "loadPublishedExchangeRate", "تم اعتماد صرف", "scheduleBulletinPublish();"] ) {
   if (!app.includes(contract)) {
     console.error(`Daily exchange-rate contract is missing: ${contract}`);
     failed = true;

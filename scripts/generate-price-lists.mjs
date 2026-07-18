@@ -168,18 +168,32 @@ const shishaLabel = (item) => {
 
 const consolidateGeneral = (items, mode) => {
   const result = [];
-  const seen = new Set();
+  const merged = new Map();
   for (const item of items.filter(item => !isWazari(item))) {
     const isShisha = ["معسل", "مزايا", "نخلة"].includes(item.group);
     if (!isShisha) { result.push(item); continue; }
     // عبوات 100غ لا تدخل أي نشرة معسل عامة مهما كانت العلامة.
     if (/100\s*غ/.test(item.name)) continue;
     const name = shishaLabel(item);
-    // كل تسمية مجمعة تظهر مرة واحدة فقط؛ الأسعار ستعدّل من لوحة الأسعار لاحقاً.
-    const key = name;
-    if (seen.has(key)) continue;
-    seen.add(key);
-    result.push({ ...item, name, group: "معسل" });
+    const candidates = merged.get(name) || [];
+    candidates.push(item);
+    merged.set(name, candidates);
+  }
+
+  // إذا بقي صنف قديم بسعر مختلف، لا نسمح لترتيب البيانات أن يعيده إلى النشرة.
+  // نعتمد السعر الأكثر تكراراً داخل المجموعة، وعند التعادل نأخذ آخر قيمة ظاهرة.
+  for (const [name, candidates] of merged) {
+    const counts = new Map();
+    for (const candidate of candidates) {
+      const price = mode === "syp" ? Number(candidate.retailCarton || 0) : Number(candidate.usd || 0);
+      if (price > 0) counts.set(price, (counts.get(price) || 0) + 1);
+    }
+    const selectedPrice = [...counts.entries()]
+      .sort((a, b) => b[1] - a[1] || b[0] - a[0])[0]?.[0];
+    const selected = candidates.findLast((candidate) =>
+      (mode === "syp" ? Number(candidate.retailCarton || 0) : Number(candidate.usd || 0)) === selectedPrice
+    ) || candidates.at(-1);
+    result.push({ ...selected, name, group: "معسل" });
   }
   return result;
 };

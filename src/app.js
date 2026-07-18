@@ -2117,7 +2117,7 @@ function isSameIsoDay(value, isoDay = todayIsoDate()) {
   return date.toISOString().slice(0, 10) === isoDay;
 }
 
-function pricingWorklistItems() {
+function pricingWorklistItems({ ignoreSearch = false } = {}) {
   const prices = approvedPriceMap();
   const query = normalizeItemName(state.pricingSearch);
   return liveAvailableItems()
@@ -2137,7 +2137,7 @@ function pricingWorklistItems() {
       };
     })
     .filter((item) => {
-      if (!query) return true;
+      if (ignoreSearch || !query) return true;
       return String(item.key || "").includes(query) || normalizeItemName(item.name).includes(query);
     })
     .sort((a, b) => Number(a.hasApprovedPrice) - Number(b.hasApprovedPrice) || String(a.name || "").localeCompare(String(b.name || ""), "ar"));
@@ -2146,9 +2146,28 @@ function pricingWorklistItems() {
 // قائمة العمل داخل الموقع تطابق النشرة العامة: الوزاري منفصل والدمج ظاهر كما يراه الزبون.
 // حد الوحدة الثانية يخص الجملة فقط؛ المفرق السوري يبقى متاحاً لأي مخزون موجب حسب القاعدة المعتمدة.
 function generalPricingWorklistItems() {
+  const allItems = pricingWorklistItems({ ignoreSearch: true });
   const items = pricingWorklistItems()
     .filter((item) => state.priceMode === "mufrak" ? itemQty(item) > 0 : hasFullSecondUnit(item));
-  return consolidateGeneralPriceItems(items);
+  const consolidated = consolidateGeneralPriceItems(items);
+
+  // شرط الكرتونة الكاملة يحدد ظهور الصنف في نشرة الجملة فقط، ولا يجوز أن
+  // يمنع تحديث سعر بقية أصناف المجموعة المدمجة ذات المخزون الموجب.
+  return consolidated.map((item) => {
+    if (!Array.isArray(item.sourceKeys) || !item.sourceKeys.length) return item;
+    const label = normalizeItemName(item.name || item.itemName || "");
+    const groupKeys = allItems
+      .filter((candidate) => {
+        const candidateName = normalizeItemName(candidate.name || candidate.itemName || "");
+        return !isWazariPriceItem(candidate) &&
+          isGeneralShishaPriceItem(candidate) &&
+          !/100\s*غ/u.test(candidateName) &&
+          normalizeItemName(shishaPriceLabel(candidate)) === label;
+      })
+      .map((candidate) => candidate.key)
+      .filter(Boolean);
+    return { ...item, sourceKeys: [...new Set([...item.sourceKeys, ...groupKeys])] };
+  });
 }
 
 function downloadDailyPricingWorklist() {
@@ -5955,6 +5974,9 @@ function render() {
     if (rate > 0) {
       state.syriaExchangeRate = rate;
       writeJson("syria-exchange-rate", rate);
+      state.bulletinStatus = { type: "muted", msg: `تم اعتماد صرف ${rate.toLocaleString()} — ستُحدّث نشرة السوري تلقائياً.` };
+      scheduleBulletinPublish();
+      render();
     }
   });
   app.querySelector("[data-action='download-approved-prices']")?.addEventListener("click", downloadApprovedPricesForAccounting);
