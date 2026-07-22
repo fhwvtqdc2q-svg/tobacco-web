@@ -1,5 +1,5 @@
 (() => {
-  const selector = "input[name='salePrice'], input[name='creditLimit'], input[name='lowThreshold']";
+  const selector = "input[name='salePrice'], input[name='creditLimit'], input[name='lowThreshold'], input[data-inv-field='qty'], input[data-inv-field='price']";
   const arabicDigits = "٠١٢٣٤٥٦٧٨٩";
   const persianDigits = "۰۱۲۳۴۵۶۷۸۹";
   const normalizeNumber = (value, input) => {

@@ -1,4 +1,4 @@
-param(
+﻿param(
   [Alias("nce")]
   [switch]$Once,
   [int]$IntervalSeconds = 60,
@@ -50,7 +50,12 @@ function Normalize-ItemName($Value) {
   $text = $text.Replace("أ", "ا").Replace("إ", "ا").Replace("آ", "ا").Replace("ى", "ي").Replace("ة", "ه")
   $text = [regex]::Replace($text, "[^\p{L}\p{N}]+", " ")
   $text = [regex]::Replace($text, "\s+", " ")
-  return $text.Trim().ToLowerInvariant()
+  $normalized = $text.Trim().ToLowerInvariant()
+  switch ($normalized) {
+    "كابتن بلاك كوين ازرق" { return "كابتن بلاك كور ازرق جديد" }
+    "كابتن بلاك كوين اسود" { return "كابتن بلاك كور اسود جديد" }
+    default { return $normalized }
+  }
 }
 
 function To-Number($Value) {
@@ -378,6 +383,7 @@ function Build-CustomerBalanceReport($Rows) {
       status = $status
       customerGuid = [string]$row.customer_guid
       customerAccountGuid = [string]$row.customer_account_guid
+      isSupplier = ((To-Number $row.is_supplier) -eq 1)
     }
   }
 
@@ -462,42 +468,46 @@ function Sync-PriceListStockOnFullUnitChange($SupabaseUrl, $ApiKey, $Session, $R
   $publishedByKey = @{}
   foreach ($row in $published) {
     $matchKey = Normalize-ItemName $row.item_name
-    if ($matchKey) { $publishedByKey[$matchKey] = $row }
+    if (-not $matchKey) { continue }
+    if (-not $publishedByKey.ContainsKey($matchKey)) { $publishedByKey[$matchKey] = @() }
+    $publishedByKey[$matchKey] = @($publishedByKey[$matchKey]) + @($row)
   }
 
   $changed = 0
   $matched = 0
   foreach ($item in $Report.Items) {
     $key = Normalize-ItemName $item.name
-    $current = $publishedByKey[$key]
-    if ($null -eq $current) { continue }
-    $matched++
+    $currents = @($publishedByKey[$key])
+    if (-not $currents.Count) { continue }
+    $matched += $currents.Count
 
-    $oldQty = To-Number $current.stock_qty
-    $oldFactor = To-Number $current.unit2_factor
-    if ($oldFactor -le 0) { $oldFactor = To-Number $item.unit2Factor }
-    if ($oldFactor -le 0) { $oldFactor = 1 }
-    $newQty = To-Number $item.stockQty
-    $newFactor = To-Number $item.unit2Factor
-    if ($newFactor -le 0) { $newFactor = 1 }
+    foreach ($current in $currents) {
+      $oldQty = To-Number $current.stock_qty
+      $oldFactor = To-Number $current.unit2_factor
+      if ($oldFactor -le 0) { $oldFactor = To-Number $item.unit2Factor }
+      if ($oldFactor -le 0) { $oldFactor = 1 }
+      $newQty = To-Number $item.stockQty
+      $newFactor = To-Number $item.unit2Factor
+      if ($newFactor -le 0) { $newFactor = 1 }
 
-    $oldFullUnits = [math]::Floor($oldQty / $oldFactor)
-    $newFullUnits = [math]::Floor($newQty / $newFactor)
-    $availabilityChanged = (($oldQty -gt 0) -ne ($newQty -gt 0))
-    if ($oldFullUnits -eq $newFullUnits -and -not $availabilityChanged) { continue }
+      $oldFullUnits = [math]::Floor($oldQty / $oldFactor)
+      $newFullUnits = [math]::Floor($newQty / $newFactor)
+      $availabilityChanged = (($oldQty -gt 0) -ne ($newQty -gt 0))
+      if ($oldFullUnits -eq $newFullUnits -and -not $availabilityChanged) { continue }
 
-    $payload = ConvertTo-JsonText -Value @{
-      stock_qty = [math]::Round($newQty, 3)
-      stock_status = [string]$item.status
-      unit1_name = [string]$item.unit1Name
-      unit2_name = [string]$item.unit2Name
-      unit2_factor = [math]::Round($newFactor, 3)
-      source_synced_at = (Get-Date).ToUniversalTime().ToString("o")
-      updated_at = (Get-Date).ToUniversalTime().ToString("o")
-    } -Depth 5
-    $encodedKey = [uri]::EscapeDataString([string]$current.item_key)
-    Invoke-RestMethodWithRetry -Method Patch -Uri "$endpoint`?item_key=eq.$encodedKey" -Headers ($headers + @{ Prefer = "return=minimal" }) -ContentType "application/json; charset=utf-8" -Body $payload | Out-Null
-    $changed++
+      $payload = ConvertTo-JsonText -Value @{
+        stock_qty = [math]::Round($newQty, 3)
+        stock_status = [string]$item.status
+        unit1_name = [string]$item.unit1Name
+        unit2_name = [string]$item.unit2Name
+        unit2_factor = [math]::Round($newFactor, 3)
+        source_synced_at = (Get-Date).ToUniversalTime().ToString("o")
+        updated_at = (Get-Date).ToUniversalTime().ToString("o")
+      } -Depth 5
+      $encodedKey = [uri]::EscapeDataString([string]$current.item_key)
+      Invoke-RestMethodWithRetry -Method Patch -Uri "$endpoint`?item_key=eq.$encodedKey" -Headers ($headers + @{ Prefer = "return=minimal" }) -ContentType "application/json; charset=utf-8" -Body $payload | Out-Null
+      $changed++
+    }
   }
   Write-AgentLog ("Price-list stock comparison: Published={0}, Matched={1}, BoundaryChanges={2}" -f $published.Count, $matched, $changed)
   return $changed
@@ -547,6 +557,15 @@ function Sync-Once {
     if ($LASTEXITCODE -ne 0) { Write-AgentLog "Daily profit sync returned a failure code." }
   } catch {
     Write-AgentLog ("Daily profit sync failed: {0}" -f $_.Exception.Message)
+  }
+
+  # Keep the Telegram daily-payment and cashbox snapshot fresh. The helper is
+  # read-only on Al-Ameen and rate-limits its Supabase uploads to one per five
+  # minutes, even though this main agent normally runs every minute.
+  try {
+    & "$PSScriptRoot\push-daily-movement.ps1" -MinimumIntervalMinutes 5
+  } catch {
+    Write-AgentLog ("Daily movement sync failed: {0}" -f $_.Exception.Message)
   }
 }
 

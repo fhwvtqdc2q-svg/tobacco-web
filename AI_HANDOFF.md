@@ -4,11 +4,26 @@
 
 ## الحالة الحالية
 
-- الحالة: جاهز للدمج والنشر
-- المهمة المفتوحة: اعتماد نشرات الأسعار الجديدة
-- المسؤول: Codex
-- آخر تحديث: 2026-07-14
+- الحالة: متزامن مع GitHub — لا مهمة نشطة
+- المهمة المفتوحة: لا شيء
+- المسؤول: —
+- آخر تحديث: 2026-07-22
 
+## 2026-07-22 - Claude - حفظ أعمال Codex غير المحفوظة ومزامنة main مع GitHub
+
+- Status: completed
+- Branch: main (عملية حفظ ومزامنة تنظيمية بطلب صريح من المستخدم، ليست مهمة كود جديدة)
+- Files: كل تعديلات Codex المتراكمة 2026-07-15 → 2026-07-21 (17 ملفاً معدّلاً) + الملف الجديد supabase/telegram-daily-cash-report.sql
+- Result: أعمال Codex الموثقة أدناه كمكتملة كانت كلها بلا أي commit، والنسخة المحلية متأخرة 31 كوميتاً عن origin/main. حُفظت بكوميت واحد ثم rebase على origin/main؛ التعارض الوحيد كان سطر CACHE_NAME في public/service-worker.js (v309 محلياً مقابل v339 على GitHub) وحُلّ برفعه إلى v340. نجح npm run check قبل الدفع. ملفات tmp/ و‎*.bak تُركت خارج Git عمداً.
+- Handoff UTC: 2026-07-22T13:56:00Z
+
+## 2026-07-21 - Codex - إصلاح تفاصيل الدفعات اليومية وحركة الصناديق في بوت تيليغرام
+
+- Status: completed
+- Branch: task branch pending for: إصلاح تفاصيل الدفعات اليومية وحركة الصناديق في بوت تيليغرام
+- Files: supabase/functions/telegram-webhook/index.ts,tools/push-daily-movement.ps1,tools/ameen-sync-agent.ps1,supabase/telegram-notifications.sql,CLAUDE.md
+- Result: نُشر telegram-webhook v40، أضيف أمر دفعات اليوم وحركة الصندوق، فُعّلت مزامنة كل 5 دقائق والتقرير المسائي 23:02، وصُحح توافق PowerShell 5.1. نجح npm check والاختبار الحي وحالة HTTP 200.
+- Handoff UTC: 2026-07-21T01:13:10Z
 ## 2026-07-16 - Codex - تصحيح مصدر أرصدة الذمم إلى ac000 بالدولار
 
 - Status: completed

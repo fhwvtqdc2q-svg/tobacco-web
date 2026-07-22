@@ -32,6 +32,12 @@ const isoDate   = today.toISOString().slice(0, 10);
 // price-data.json يبقى مرجعًا لأسماء المجموعات وكاحتياط إذا تعذّر الاتصال.
 const jsonItems = JSON.parse(readFileSync(resolve(root, "scripts/price-data.json"), "utf8"));
 const groupByName = new Map(jsonItems.map(i => [String(i.name).trim(), i.group]));
+const canonicalDisplayName = (value) => {
+  const name = String(value || "").trim();
+  if (name === "كابتن بلاك كوين ازرق") return "كابتن بلاك كور ازرق جديد";
+  if (name === "كابتن بلاك كوين اسود") return "كابتن بلاك كور اسود جديد";
+  return name;
+};
 
 // حسم مؤقت لتعارض aliases القديمة في Supabase. يُطبّق فقط عندما توجد أسعار
 // مختلفة للاسم نفسه؛ بعد أن يوحّد حفظ الموقع كل aliases تتوقف هذه القاعدة تلقائياً.
@@ -75,7 +81,8 @@ if (feed.length) {
     const latest = new Map();
     const candidatesByName = new Map();
     for (const row of feed) {
-      const displayName = String(row.item_name || "").trim();
+      const sourceName = String(row.item_name || "").trim();
+      const displayName = canonicalDisplayName(sourceName);
       if (!displayName || !isEligible(row)) continue;
       if (!candidatesByName.has(displayName)) candidatesByName.set(displayName, []);
       candidatesByName.get(displayName).push(row);
@@ -84,8 +91,9 @@ if (feed.length) {
       const previousTime = Date.parse(previous?.updated_at || "") || 0;
       // وقت السعر هو المرجع الأول. عند تساوي الوقت نفضّل المفتاح المطابق حرفياً
       // لاسم صنف الأمين حتى لا يفوز alias قديم بلا همزة/تاء مربوطة.
-      const exactKey = String(row.item_key || "").trim() === displayName;
-      const previousExactKey = String(previous?.item_key || "").trim() === displayName;
+      const exactKey = String(row.item_key || "").trim() === sourceName;
+      const previousSourceName = String(previous?.item_name || "").trim();
+      const previousExactKey = String(previous?.item_key || "").trim() === previousSourceName;
       if (!previous || rowTime > previousTime || (rowTime === previousTime && exactKey && !previousExactKey)) {
         latest.set(displayName, row);
       }
@@ -105,7 +113,7 @@ if (feed.length) {
   };
 
   const mapRow = (r) => {
-    const name = String(r.item_name || "").trim();
+    const name = canonicalDisplayName(r.item_name);
     return {
       name,
       group: groupByName.get(name) ?? name.split(" ")[0],

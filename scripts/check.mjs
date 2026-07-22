@@ -54,6 +54,23 @@ if (!html.includes("number-normalizer.js")) {
 
 const app = readFileSync("src/app.js", "utf8");
 const priceGenerator = readFileSync("scripts/generate-price-lists.mjs", "utf8");
+const ameenSyncAgent = readFileSync("tools/ameen-sync-agent.ps1", "utf8");
+const ameenPriceApply = readFileSync("tools/apply-approved-prices-to-ameen.ps1", "utf8");
+const ameenPriceVerify = readFileSync("tools/verify-prices.ps1", "utf8");
+for (const contract of ["كابتن بلاك كوين ازرق", "كابتن بلاك كور ازرق جديد", "كابتن بلاك كوين اسود", "كابتن بلاك كور اسود جديد"]) {
+  for (const [label, source] of [
+    ["site normalization", app],
+    ["inventory synchronization", ameenSyncAgent],
+    ["price application", ameenPriceApply],
+    ["price verification", ameenPriceVerify],
+    ["bulletin generation", priceGenerator]
+  ]) {
+    if (!source.includes(contract)) {
+      console.error(`Captain Black Core alias contract is missing from ${label}: ${contract}`);
+      failed = true;
+    }
+  }
+}
 for (const contract of ['["ماستر كوين أبيض", 340]', '["1970 كوين أبيض", 275]', "distinctPrices.size < 2"]) {
   if (!priceGenerator.includes(contract)) {
     console.error(`Corrected bulletin price contract is missing: ${contract}`);
@@ -186,6 +203,26 @@ if (cacheVersion < 272) {
 // عقد تقرير المخزون: ترتيب النشرة، تصنيف حسب حركة المبيع، مجموعات ظاهرة،
 // وتصميم فاتح ثابت في الشاشة والطباعة.
 const appJs = readFileSync("src/app.js", "utf8");
+
+// نموذج الفاتورة يجب أن يبقي التركيز أثناء كتابة اسم الزبون، وأن يستخدم
+// أرقاماً إنجليزية في حقول الكمية والسعر مهما كانت لغة عرض ويندوز.
+if (/state\.invCustomer = e\.currentTarget\.value;\s*render\(\);/.test(appJs)) {
+  console.error("Invoice customer input must not rerender and lose focus after every character.");
+  failed = true;
+}
+for (const field of ["qty", "price"]) {
+  const invoiceInput = new RegExp(`data-inv-field="${field}"[^>]*type="text"[^>]*inputmode="decimal"[^>]*dir="ltr"`);
+  if (!invoiceInput.test(appJs)) {
+    console.error(`Invoice ${field} input must use English decimal text entry.`);
+    failed = true;
+  }
+}
+const numberNormalizer = readFileSync("src/number-normalizer.js", "utf8");
+if (!numberNormalizer.includes("input[data-inv-field='qty']") || !numberNormalizer.includes("input[data-inv-field='price']")) {
+  console.error("Invoice numeric fields must be covered by the English-number normalizer.");
+  failed = true;
+}
+
 for (const contract of [
   "INVENTORY_GROUP_SEQUENCE",
   "inventoryReportStatus",

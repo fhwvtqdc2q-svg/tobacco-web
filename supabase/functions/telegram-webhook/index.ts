@@ -19,6 +19,8 @@ const WELCOME = `أهلاً 👋 أنا مساعدك الشخصي.
 • الديون
 • مبيعات اليوم
 • ربح اليوم
+• دفعات اليوم
+• حركة الصندوق
 • رسم المبيعات
 
 🤖 اسأل أي سؤال عن العمل:
@@ -37,6 +39,7 @@ const WELCOME = `أهلاً 👋 أنا مساعدك الشخصي.
 const MENU_KEYBOARD = {
   inline_keyboard: [
     [{ text: "📊 مبيعات اليوم", callback_data: "sales" }, { text: "🧮 ربح اليوم", callback_data: "profit" }],
+    [{ text: "💵 دفعات وصناديق اليوم", callback_data: "daily_cash" }],
     [{ text: "⚠️ شو ناقص", callback_data: "low" }],
     [{ text: "💰 الديون", callback_data: "debts" }, { text: "📈 رسم المبيعات", callback_data: "chart" }],
     [{ text: "🔄 فحص الأسعار", callback_data: "price_sync" }],
@@ -105,6 +108,7 @@ function normalizeDigits(s: string) {
 }
 function localNow() { return new Date(Date.now() + TZ_OFFSET_HOURS * 3600000); }
 function localToUtc(d: Date) { return new Date(d.getTime() - TZ_OFFSET_HOURS * 3600000); }
+function localDateIso() { return localNow().toISOString().slice(0, 10); }
 
 // ============================================================
 // استعلامات الزبائن: رصيد / كشف حساب
@@ -151,6 +155,31 @@ type CustomerEntry = {
   recentMovements?: { date?: string; debit?: number; credit?: number; notes?: string }[];
 };
 
+type DailyPayment = { customer?: string; amount?: number; paid?: number; notes?: string; number?: number };
+type DailyCashbox = {
+  code?: string; name?: string; currency?: string; rateToUsd?: number;
+  opening?: number; incoming?: number; outgoing?: number; closing?: number;
+  externalIncoming?: number; externalOutgoing?: number; transferIn?: number; transferOut?: number;
+  entries?: number;
+};
+type DailyMovementPayload = {
+  date?: string; generatedAt?: string;
+  payments?: DailyPayment[];
+  usdPayments?: DailyPayment[];
+  paymentSummary?: { count?: number; totalUsd?: number };
+  cashboxes?: DailyCashbox[];
+};
+
+async function loadDailyMovementReport(date = localDateIso()): Promise<{ payload: DailyMovementPayload; reportDate: string; createdAt: string } | null> {
+  const rows = await restGet(`daily_movement_reports?report_date=eq.${encodeURIComponent(date)}&order=created_at.desc&limit=1&select=payload,report_date,created_at`);
+  if (!Array.isArray(rows) || !rows.length) return null;
+  return {
+    payload: (rows[0].payload ?? {}) as DailyMovementPayload,
+    reportDate: String(rows[0].report_date ?? date),
+    createdAt: String(rows[0].created_at ?? ""),
+  };
+}
+
 async function loadBalancesReport(): Promise<{ items: CustomerEntry[]; reportDate: string } | null> {
   const rows = await restGet(`inventory_reports?source=eq.ameen_customer_balances&order=created_at.desc&limit=1&select=items,summary,created_at`);
   if (!Array.isArray(rows) || !rows.length) return null;
@@ -193,6 +222,13 @@ function fmtUSD(amount: unknown): string {
   const n = Number(amount);
   if (!isFinite(n)) return "—";
   return `${n.toLocaleString("en-US", { maximumFractionDigits: 2 })} $`;
+}
+function fmtCashAmount(amount: unknown, currency?: string): string {
+  const n = Number(amount);
+  if (!isFinite(n)) return "—";
+  const code = String(currency ?? "$").trim();
+  const maximumFractionDigits = code.includes("ل.س") ? 0 : 2;
+  return `${n.toLocaleString("en-US", { maximumFractionDigits })} ${code || "$"}`;
 }
 function fmtDate(s?: string): string {
   if (!s) return "—";
@@ -492,6 +528,69 @@ async function handleDebts(chatId: number) {
   await tg("sendMessage", { chat_id: chatId, text: msg });
 }
 
+async function handleDailyCash(chatId: number) {
+  const report = await loadDailyMovementReport();
+  if (!report) {
+    await tg("sendMessage", { chat_id: chatId, text: "ما وصل تقرير دفعات وصناديق اليوم من جهاز الأمين بعد 😕" });
+    return;
+  }
+
+  const payload = report.payload ?? {};
+  const payments: DailyPayment[] = Array.isArray(payload.payments)
+    ? payload.payments
+    : Array.isArray(payload.usdPayments)
+      ? payload.usdPayments.map((p) => ({ ...p, amount: Number(p.amount ?? p.paid ?? 0) }))
+      : [];
+  const cashboxes = Array.isArray(payload.cashboxes) ? payload.cashboxes : [];
+  const paymentTotal = payments.reduce((sum, p) => sum + Number(p.amount ?? p.paid ?? 0), 0);
+  const reportAge = ageMinutes(report.createdAt);
+
+  let summary = `💵 دفعات وحركة الصناديق — ${report.reportDate}\n`;
+  summary += `دفعات الزبائن: ${payments.length} — الإجمالي ${fmtUSD(paymentTotal)}\n`;
+  summary += `آخر تحديث: ${ageLabel(reportAge)}`;
+  if (reportAge > 10) summary += " ⚠️";
+  await tg("sendMessage", { chat_id: chatId, text: summary });
+
+  if (payments.length) {
+    const chunkSize = 20;
+    for (let i = 0; i < payments.length; i += chunkSize) {
+      const part = payments.slice(i, i + chunkSize);
+      const chunkNo = Math.floor(i / chunkSize) + 1;
+      const chunkCount = Math.ceil(payments.length / chunkSize);
+      let msg = `👥 تفاصيل دفعات الزبائن (${chunkNo}/${chunkCount})\n\n`;
+      for (const payment of part) {
+        const amount = Number(payment.amount ?? payment.paid ?? 0);
+        const note = String(payment.notes ?? "").trim();
+        msg += `• ${payment.customer ?? "غير محدد"} — ${fmtUSD(amount)}`;
+        if (note) msg += ` (${note.slice(0, 60)})`;
+        msg += "\n";
+      }
+      await tg("sendMessage", { chat_id: chatId, text: msg.trim() });
+    }
+  } else {
+    await tg("sendMessage", { chat_id: chatId, text: "👥 لا توجد دفعات زبائن مسجلة اليوم." });
+  }
+
+  if (!cashboxes.length) {
+    await tg("sendMessage", { chat_id: chatId, text: "⚠️ التقرير الموجود قديم ولا يحتوي تفاصيل الصناديق. ستظهر تلقائياً بعد دورة المزامنة الجديدة." });
+    return;
+  }
+
+  let cashMessage = `🏦 حركة الصناديق — ${report.reportDate}\n`;
+  for (const box of cashboxes) {
+    const currency = box.currency ?? "$";
+    cashMessage += `\n${box.name ?? box.code ?? "صندوق"}\n`;
+    cashMessage += `• بداية اليوم: ${fmtCashAmount(box.opening, currency)}\n`;
+    cashMessage += `• الوارد من العمل: ${fmtCashAmount(box.externalIncoming, currency)}\n`;
+    if (Number(box.transferIn ?? 0) !== 0) cashMessage += `• مناقلات داخلة: ${fmtCashAmount(box.transferIn, currency)}\n`;
+    cashMessage += `• الصادر للعمل: ${fmtCashAmount(box.externalOutgoing, currency)}\n`;
+    if (Number(box.transferOut ?? 0) !== 0) cashMessage += `• مناقلات خارجة: ${fmtCashAmount(box.transferOut, currency)}\n`;
+    cashMessage += `• نهاية الصندوق: ${fmtCashAmount(box.closing, currency)}\n`;
+  }
+  cashMessage += "\nالمناقلات مفصولة حتى لا تُحتسب مرتين ضمن الوارد والصادر.";
+  await tg("sendMessage", { chat_id: chatId, text: cashMessage });
+}
+
 async function handlePriceQuery(chatId: number, name: string) {
   const rawRows = await restGet(`approved_price_items?select=item_name,item_key,sale_price,unit1_name,unit1_price,unit2_name,unit2_price,stock_qty&limit=1000`);
   if (!Array.isArray(rawRows) || !rawRows.length) {
@@ -571,7 +670,7 @@ function ageLabel(minutes: number): string {
 }
 
 async function handleSystemStatus(chatId: number) {
-  const [inventoryRaw, balancesRaw, priceSyncRaw, movementsRaw, invoicesRaw, latestPriceRaw, latestSalesRaw] = await Promise.all([
+  const [inventoryRaw, balancesRaw, priceSyncRaw, movementsRaw, invoicesRaw, latestPriceRaw, latestSalesRaw, dailyCashRaw] = await Promise.all([
     restGet(`inventory_reports?source=eq.ameen_sql_agent&order=created_at.desc&select=source,summary,created_at&limit=1`),
     restGet(`inventory_reports?source=eq.ameen_customer_balances&order=created_at.desc&select=source,summary,created_at&limit=1`),
     restGet(`inventory_reports?source=eq.ameen_price_sync_status&order=created_at.desc&select=source,summary,created_at&limit=1`),
@@ -579,6 +678,7 @@ async function handleSystemStatus(chatId: number) {
     restGet(`inventory_reports?source=eq.ameen_customer_invoices&order=created_at.desc&select=source,summary,created_at&limit=1`),
     restGet(`approved_price_items?select=updated_at&order=updated_at.desc&limit=1`),
     restGet(`sales_line_items?select=created_at&order=created_at.desc&limit=1`),
+    restGet(`daily_movement_reports?order=created_at.desc&select=created_at&limit=1`),
   ]);
   const reports = [inventoryRaw, balancesRaw, priceSyncRaw, movementsRaw, invoicesRaw]
     .flatMap((rows) => Array.isArray(rows) ? rows.slice(0, 1) : []);
@@ -615,6 +715,11 @@ async function handleSystemStatus(chatId: number) {
   const salesOk = salesAge <= 15;
   if (!salesOk) warnings++;
   lines.push(`${salesOk ? "🟢" : "🔴"} حركة المبيعات: ${ageLabel(salesAge)}`);
+
+  const dailyCashAge = ageMinutes(Array.isArray(dailyCashRaw) ? dailyCashRaw[0]?.created_at : null);
+  const dailyCashOk = dailyCashAge <= 10;
+  if (!dailyCashOk) warnings++;
+  lines.push(`${dailyCashOk ? "🟢" : "🔴"} دفعات وصناديق اليوم: ${ageLabel(dailyCashAge)}`);
 
   const headline = warnings === 0 ? "✅ كل الأنظمة تعمل بشكل طبيعي" : `⚠️ يوجد ${warnings} تنبيه يحتاج متابعة`;
   await tg("sendMessage", { chat_id: chatId, text: `🩺 حالة النظام\n${headline}\n\n${lines.join("\n")}\n\nآخر فحص: ${fmtDate(new Date().toISOString())}` });
@@ -822,8 +927,8 @@ function findMentionedItems(question: string, items: any[]): any[] {
 
 async function buildBusinessContext(question: string): Promise<string> {
   const lines: string[] = [];
-  lines.push(`التاريخ: ${new Date().toISOString().slice(0, 10)}`);
-  lines.push(`كل المبالغ بهالسياق بالدولار مباشرة (حسابات الأمين ممسوكة بالدولار أصلاً) — جاوب دايماً بالدولار، ولا تذكر أرقام بالليرة.`);
+  lines.push(`التاريخ المحلي: ${localDateIso()}`);
+  lines.push(`المبيعات والأرصدة ودفعات الزبائن معروضة بالدولار الأساس. حركة كل صندوق معروضة بعملته المكتوبة بجانب الرقم؛ لا تحوّل بين الدولار والليرة ولا تخلطهما.`);
 
   try {
     const sales = await restGet(`daily_sales_summary?order=created_at.desc&limit=1&select=total_sales,total_cash,total_credit,created_at`);
@@ -860,6 +965,39 @@ async function buildBusinessContext(question: string): Promise<string> {
       lines.push("لا يوجد بيانات أرصدة زبائن متزامنة بعد.");
     }
   } catch { lines.push("تعذّر جلب بيانات الأرصدة."); }
+
+  try {
+    const movement = await loadDailyMovementReport();
+    if (movement) {
+      const p = movement.payload ?? {};
+      const payments: DailyPayment[] = Array.isArray(p.payments)
+        ? p.payments
+        : Array.isArray(p.usdPayments)
+          ? p.usdPayments.map((x) => ({ ...x, amount: Number(x.amount ?? x.paid ?? 0) }))
+          : [];
+      const totalPayments = payments.reduce((sum, x) => sum + Number(x.amount ?? x.paid ?? 0), 0);
+      lines.push(`دفعات الزبائن اليوم (${movement.reportDate}): ${payments.length} دفعة، الإجمالي ${fmtUSD(totalPayments)}.`);
+      if (payments.length) {
+        lines.push("تفاصيل دفعات اليوم:");
+        payments.slice(0, 50).forEach((x, i) => {
+          const note = String(x.notes ?? "").trim();
+          lines.push(`${i + 1}. ${x.customer ?? "غير محدد"}: ${fmtUSD(x.amount ?? x.paid ?? 0)}${note ? ` — ${note.slice(0, 60)}` : ""}`);
+        });
+      }
+      const boxes = Array.isArray(p.cashboxes) ? p.cashboxes : [];
+      if (boxes.length) {
+        lines.push("حركة الصناديق اليوم (كل صندوق بعملته، والمناقلات الداخلية مفصولة):");
+        boxes.forEach((box) => {
+          const currency = box.currency ?? "$";
+          lines.push(`- ${box.name ?? box.code}: بداية ${fmtCashAmount(box.opening, currency)}، وارد من العمل ${fmtCashAmount(box.externalIncoming, currency)}، مناقلات داخلة ${fmtCashAmount(box.transferIn, currency)}، صادر للعمل ${fmtCashAmount(box.externalOutgoing, currency)}، مناقلات خارجة ${fmtCashAmount(box.transferOut, currency)}، نهاية ${fmtCashAmount(box.closing, currency)}.`);
+        });
+      } else {
+        lines.push("تقرير اليوم الموجود لا يحتوي تفاصيل الصناديق بعد.");
+      }
+    } else {
+      lines.push("لم يصل تقرير دفعات وصناديق اليوم من جهاز الأمين بعد.");
+    }
+  } catch { lines.push("تعذّر جلب تقرير دفعات وصناديق اليوم."); }
 
   let priceItems: any[] = [];
   try {
@@ -911,7 +1049,7 @@ async function askClaude(question: string, context: string): Promise<string> {
 
   const system = `أنت مساعد ذكي لصاحب محل دخان (OZK TOBACCO) وبترد بالعربية العامية السورية المختصرة والمباشرة، بدون مقدمات طويلة.
 عندك بيانات حقيقية عن حالة العمل الآن — استخدمها فقط للإجابة على سؤال المستخدم، ولا تختلق أي رقم أو اسم مش موجود بالبيانات المعطاة.
-كل الأرقام المالية بالسياق بالدولار أصلاً — جاوب دايماً بالدولار (رمز $)، ولا تذكر أي رقم بالليرة السورية إطلاقاً.
+المبيعات والأرصدة ودفعات الزبائن بالدولار الأساس. أما حركة الصناديق فكل رقم معها عملته صراحةً؛ حافظ على الدولار والليرة منفصلين ولا تحوّل بينهما.
 إذا بالسياق قسم "نتائج بحث دقيقة عن مواد" وفيه مادة تناسب سؤال المستخدم، استخدم رقمها بالضبط
 (الكمية أو السعر) بدل ما تقول "ما عندي بيانات" — هاي بيانات حقيقية من المخزون مباشرة.
 إذا السؤال بيحتاج بيانات مش متوفرة عندك بالسياق فعلاً، قول هيك بوضوح بدل ما تخمّن.
@@ -1039,6 +1177,7 @@ async function handleCommand(chatId: number, text: string): Promise<boolean> {
   if (["رسم المبيعات", "الرسم البياني", "رسم بياني", "مخطط المبيعات", "شارت المبيعات"].includes(norm)) { await handleSalesChart(chatId); return true; }
   if (text === "/low" || ["شو ناقص", "النواقص", "نواقص", "ناقص", "المخزون الناقص", "المخزون"].includes(norm)) { await handleLowStock(chatId); return true; }
   if (text === "/debts" || ["الديون", "ديون", "المديونيات"].includes(norm)) { await handleDebts(chatId); return true; }
+  if (text === "/cash" || ["دفعات اليوم", "الدفعات اليوم", "الدفعات اليوميه", "حركه الصندوق", "حركه الصناديق", "صندوق اليوم", "الصندوق", "نهايه الصندوق"].includes(norm)) { await handleDailyCash(chatId); return true; }
   if (text === "/pricesync" || ["فحص الاسعار", "مزامنه الاسعار", "حاله الاسعار", "تزامن الاسعار"].includes(norm)) { await handlePriceSyncStatus(chatId); return true; }
   if (text === "/status" || ["حاله النظام", "فحص النظام", "وضع النظام", "النظام"].includes(norm)) { await handleSystemStatus(chatId); return true; }
   if (["ربح اليوم", "الربح", "شو ربحنا", "ربحنا اليوم", "صافي الربح", "قديش ربحنا", "كم ربحنا اليوم"].includes(norm)) { await handleProfitToday(chatId); return true; }
@@ -1163,6 +1302,7 @@ Deno.serve(async (req) => {
     try {
       if (data === "sales") await handleSales(cqChatId);
       else if (data === "profit") await handleProfitToday(cqChatId);
+      else if (data === "daily_cash") await handleDailyCash(cqChatId);
       else if (data === "low") await handleLowStock(cqChatId);
       else if (data === "debts") await handleDebts(cqChatId);
       else if (data === "chart") await handleSalesChart(cqChatId);

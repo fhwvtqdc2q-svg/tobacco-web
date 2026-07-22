@@ -43,6 +43,15 @@ if (-not $retailListGuid) { $retailListGuid = "938cd3b0-75fd-4533-bad8-0fe42e6f7
 $timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
 Write-Host "[$timestamp] تطبيق الأسعار على الأمين..." -ForegroundColor Cyan
 
+function Resolve-AmeenItemName($ItemName) {
+    $trimmed = ([string]$ItemName).Trim()
+    switch ($trimmed) {
+        "كابتن بلاك كوين ازرق" { return "كابتن بلاك كور ازرق جديد" }
+        "كابتن بلاك كوين اسود" { return "كابتن بلاك كور اسود جديد" }
+        default { return $trimmed }
+    }
+}
+
 # يحدّث سعر مادة في قائمة أسعار؛ وإن لم يكن لها سطر في القائمة يضيفه.
 # يرجع عدد أسطر المادة في القائمة بعد التطبيق (0 = المادة غير موجودة في mt000).
 function Apply-ListPrice($conn, $listGuid, $itemName, $unit1Price, $unit2Price) {
@@ -76,7 +85,7 @@ try {
     $prices = Import-Csv -Path $CsvFile -Encoding UTF8
     $sourceCount = $prices.Count
     $arabicCulture = [Globalization.CultureInfo]::GetCultureInfo("ar-SY")
-    $prices = @($prices | Group-Object { ([string]$_.item_name).Trim() } | ForEach-Object {
+    $prices = @($prices | Group-Object { Resolve-AmeenItemName $_.item_name } | ForEach-Object {
         $_.Group | Sort-Object {
             try { [datetime]::Parse([string]$_.updated_at, $arabicCulture) }
             catch { [datetime]::MinValue }
@@ -97,6 +106,7 @@ try {
     foreach ($price in $prices) {
         $itemName = $price.item_name
         if (-not $itemName) { $skipped++; continue }
+        $ameenItemName = Resolve-AmeenItemName $itemName
 
         $jumlaCarton = 0.0; $jumlaUnit1 = 0.0
         if ($price.unit2_price) { $jumlaCarton = [double]$price.unit2_price }
@@ -110,18 +120,18 @@ try {
 
         # الجملة → قائمة "جملة الجملة"
         if ($jumlaCarton -gt 0) {
-            $found = Apply-ListPrice $conn $jumlaListGuid $itemName $jumlaUnit1 $jumlaCarton
+            $found = Apply-ListPrice $conn $jumlaListGuid $ameenItemName $jumlaUnit1 $jumlaCarton
             if ($found -gt 0) { $jumlaApplied++; $matched = $true }
         }
 
         # المفرق → قائمة "كروزات مركز"
         if ($retailCarton -gt 0) {
-            $found = Apply-ListPrice $conn $retailListGuid $itemName $retailUnit1 $retailCarton
+            $found = Apply-ListPrice $conn $retailListGuid $ameenItemName $retailUnit1 $retailCarton
             if ($found -gt 0) { $retailApplied++; $matched = $true }
         }
 
         if (-not $matched) {
-            if ($jumlaCarton -gt 0 -or $retailCarton -gt 0) { $notFound += $itemName } else { $skipped++ }
+            if ($jumlaCarton -gt 0 -or $retailCarton -gt 0) { $notFound += $ameenItemName } else { $skipped++ }
         }
     }
 

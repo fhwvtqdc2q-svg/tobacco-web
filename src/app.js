@@ -57,7 +57,7 @@ function csvCell(value) {
 }
 
 function normalizeItemName(value) {
-  return String(value ?? "")
+  const normalized = String(value ?? "")
     .trim()
     .replace(/^\d{2,}\s*[-–—]\s*/u, "")
     .replace(/[ـًٌٍَُِّْ]/gu, "")
@@ -68,6 +68,14 @@ function normalizeItemName(value) {
     .replace(/\s+/g, " ")
     .trim()
     .toLowerCase();
+
+  // الاسمان القديمان في الموقع يقابلان الاسمين الجديدين في الأمين.
+  // إبقاء alias هنا يمنع انقطاع المخزون أو السعر عند وجود سجل قديم في Supabase.
+  const aliases = new Map([
+    ["كابتن بلاك كوين ازرق", "كابتن بلاك كور ازرق جديد"],
+    ["كابتن بلاك كوين اسود", "كابتن بلاك كور اسود جديد"]
+  ]);
+  return aliases.get(normalized) || normalized;
 }
 
 function normalizeNumericText(value, options = {}) {
@@ -4928,8 +4936,8 @@ function invoice() {
   const rowsHtml = rows.map((r, i) => `
     <tr class="inv-row">
       <td><input class="inv-input" data-inv-field="name" data-inv-index="${i}" value="${escapeHtml(r.name)}" placeholder="اسم المادة" dir="auto"></td>
-      <td><input class="inv-input inv-num" data-inv-field="qty" data-inv-index="${i}" value="${escapeHtml(r.qty)}" placeholder="0" type="number" min="0" step="any"></td>
-      <td><input class="inv-input inv-num" data-inv-field="price" data-inv-index="${i}" value="${escapeHtml(r.price)}" placeholder="0.00" type="number" min="0" step="any"></td>
+      <td><input class="inv-input inv-num" data-inv-field="qty" data-inv-index="${i}" value="${escapeHtml(r.qty)}" placeholder="0" type="text" inputmode="decimal" dir="ltr"></td>
+      <td><input class="inv-input inv-num" data-inv-field="price" data-inv-index="${i}" value="${escapeHtml(r.price)}" placeholder="0.00" type="text" inputmode="decimal" dir="ltr"></td>
       <td class="inv-line-total">$${(toNumber(r.qty) * toNumber(r.price)).toFixed(2)}</td>
       <td>${rows.length > 1 ? `<button class="inv-remove" data-inv-remove="${i}" title="حذف">✕</button>` : ""}</td>
     </tr>
@@ -5787,7 +5795,13 @@ function render() {
   // Invoice handlers
   app.querySelector("#inv-customer")?.addEventListener("input", (e) => {
     state.invCustomer = e.currentTarget.value;
-    render();
+    const printButton = app.querySelector("[data-action='inv-print']");
+    if (printButton) {
+      const customerMissing = !state.invCustomer.trim();
+      printButton.disabled = customerMissing;
+      if (customerMissing) printButton.title = "أدخل اسم العميل أولاً";
+      else printButton.removeAttribute("title");
+    }
   });
   app.querySelector("#inv-notes")?.addEventListener("input", (e) => {
     state.invNotes = e.currentTarget.value;
@@ -5796,6 +5810,10 @@ function render() {
     input.addEventListener("input", (e) => {
       const i = Number(e.currentTarget.dataset.invIndex);
       const field = e.currentTarget.dataset.invField;
+      if (field === "qty" || field === "price") {
+        const normalized = normalizeNumericText(e.currentTarget.value, { allowNegative: false, allowDecimal: true });
+        if (normalized !== e.currentTarget.value) e.currentTarget.value = normalized;
+      }
       state.invRows[i][field] = e.currentTarget.value;
       const tbody = document.getElementById("inv-body");
       if (tbody) {
