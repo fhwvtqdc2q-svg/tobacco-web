@@ -30,3 +30,8 @@ tools/logs/
 
 # Python cache from ios-sideload lab
 ios-sideload-lab/__pycache__/
+
+# مسودات ونسخ احتياطية مؤقتة — لا تدخل Git
+tmp/
+*.bak
+*.bak[0-9]

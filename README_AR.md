@@ -21,7 +21,7 @@ https://fhwvtqdc2q-svg.github.io/
 ## التشغيل على Windows
 
 ```powershell
-cd "C:\Users\DELL\Documents\New project\web-platform"
+cd "C:\Users\LOQ\Documents\OZK-TOBACCO\tobacco-web"
 npm run dev
 ```
 

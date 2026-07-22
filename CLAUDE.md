@@ -13,11 +13,11 @@
 
 | البيئة | المسار | الوصول |
 |---|---|---|
-| **السحابة (هذه البيئة)** | `/home/user/tobacco-web` | GitHub, Supabase, تعديل الكود |
-| **Windows المحلي** | `C:\Users\DELL\Desktop\OZK-TOBACCO-web-platform` | قاعدة الأمين SQL، PowerShell، Task Scheduler |
+| **السحابة** | `/home/user/tobacco-web` | GitHub, Supabase, تعديل الكود |
+| **Windows المحلي (جهاز LOQ)** | `C:\Users\LOQ\Documents\OZK-TOBACCO\tobacco-web` | قاعدة الأمين SQL، PowerShell، Task Scheduler، Claude Code |
 
-> Claude Code (cloud) لا يستطيع الوصول لجهاز Windows المحلي أبداً.
-> Cursor أو PowerShell على جهاز DELL هو المسار الوحيد للتفاعل مع الأمين.
+> جلسات السحابة لا تستطيع الوصول لقاعدة الأمين المحلية أبداً.
+> Claude Code أو PowerShell على جهاز Windows المحلي (LOQ) هو المسار للتفاعل مع الأمين.
 
 ---
 
@@ -132,7 +132,7 @@ curl -s "https://dyxbirfpxeocqffnfdeb.supabase.co/rest/v1/" \
 | User | `tobacco_sync_reader` (للقراءة) |
 | متغير البيئة | `AMEEN_SQL_CONNECTION_STRING` |
 
-> لا يمكن الوصول لها من السحابة. فقط من جهاز DELL مباشرة.
+> لا يمكن الوصول لها من السحابة. فقط من جهاز Windows المحلي (LOQ) مباشرة.
 
 **مفتاح المطابقة بين Supabase والأمين:** `item_key`
 
