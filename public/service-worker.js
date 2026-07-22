@@ -1,18 +1,21 @@
-const CACHE_NAME = "web-platform-tobacco-v341";
+const CACHE_NAME = "web-platform-tobacco-v342";
+// المسارات نسبية لملف الجذر service-worker.js الذي يستورد هذا الملف —
+// النطاق الجذري ضروري كي يفتح التطبيق من الكاش حتى لو كان السيرفر المحلي واقفاً.
 const ASSETS = [
-  "../index.html",
-  "../404.html",
-  "../src/app.js",
-  "../src/config.js",
-  "../src/supabase-client.js",
-  "../src/styles.css",
-  "manifest.webmanifest",
-  "icons/app-icon.png",
-  "icons/ozk-logo.png",
-  "icons/workspace-pattern.svg",
-  "vendor/html2pdf.bundle.min.js",
-  "vendor/supabase.js",
-  "vendor/xlsx.full.min.js"
+  "./",
+  "index.html",
+  "404.html",
+  "src/app.js",
+  "src/config.js",
+  "src/supabase-client.js",
+  "src/styles.css",
+  "public/manifest.webmanifest",
+  "public/icons/app-icon.png",
+  "public/icons/ozk-logo.png",
+  "public/icons/workspace-pattern.svg",
+  "public/vendor/html2pdf.bundle.min.js",
+  "public/vendor/supabase.js",
+  "public/vendor/xlsx.full.min.js"
 ];
 
 self.addEventListener("install", (event) => {
@@ -53,7 +56,7 @@ self.addEventListener("fetch", (event) => {
         return response;
       })
       .catch(() =>
-        caches.match(event.request).then((cached) => cached || caches.match("../index.html"))
+        caches.match(event.request).then((cached) => cached || caches.match("index.html"))
       )
   );
 });

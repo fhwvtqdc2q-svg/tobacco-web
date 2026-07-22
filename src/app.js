@@ -264,7 +264,11 @@ window.addEventListener("beforeinstallprompt", (event) => {
 
 if ("serviceWorker" in navigator && location.protocol !== "file:") {
   window.addEventListener("load", () => {
-    navigator.serviceWorker.register("public/service-worker.js").catch(() => {});
+    // التسجيل من الجذر ليغطي النطاق الموقع كاملاً؛ التسجيل القديم بنطاق public/ يُزال
+    navigator.serviceWorker.getRegistrations()
+      .then((regs) => regs.forEach((reg) => { if (reg.scope.includes("/public/")) reg.unregister(); }))
+      .catch(() => {});
+    navigator.serviceWorker.register("service-worker.js").catch(() => {});
   });
 }
 

@@ -26,6 +26,7 @@
 ```
 tobacco-web/
 ├── index.html                   # الصفحة الرئيسية الوحيدة (SPA)
+├── service-worker.js            # غلاف جذري يستورد public/service-worker.js — نطاق كامل ليفتح التطبيق من الكاش حتى لو السيرفر واقف
 ├── privacy-policy.html
 ├── terms-of-use.html
 ├── 404.html
