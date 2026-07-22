@@ -1,4 +1,4 @@
-# يسجّل مهمة مجدولة تتفقد سيرفر الموقع المحلي كل 5 دقائق وتعيد تشغيله إذا توقف.
+﻿# يسجّل مهمة مجدولة تتفقد سيرفر الموقع المحلي كل 5 دقائق وتعيد تشغيله إذا توقف.
 # التشغيل: .\tools\register-local-server-watchdog.ps1
 param(
   [string]$TaskName = "TOBACCO Local Web Server",

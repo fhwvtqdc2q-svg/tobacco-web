@@ -1,4 +1,4 @@
-# يسجّل مهمة مجدولة تسحب آخر نسخة من GitHub يومياً (عندما يكون المستودع نظيفاً فقط).
+﻿# يسجّل مهمة مجدولة تسحب آخر نسخة من GitHub يومياً (عندما يكون المستودع نظيفاً فقط).
 # التشغيل: .\tools\register-daily-git-pull-task.ps1
 param(
   [string]$TaskName = "TOBACCO Daily Git Pull",
