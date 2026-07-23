@@ -142,6 +142,20 @@ for (const contract of ["scheduleBulletinPublish", "normalizedTargets", "aliasKe
     failed = true;
   }
 }
+if (app.includes("state.inventoryReports[0]")) {
+  console.error("Inventory views must select the latest real stock report instead of the newest mixed report row.");
+  failed = true;
+}
+for (const contract of ["function latestStockReport()", "const latest = latestStockReport();", "reportItems(latestStockReport())"]) {
+  if (!app.includes(contract)) {
+    console.error(`Latest stock-report selection contract is missing: ${contract}`);
+    failed = true;
+  }
+}
+if (/function latestStockReport\(\)[\s\S]*?\|\| reports\[0\]/.test(app)) {
+  console.error("Latest stock-report selection must not fall back to a non-stock report.");
+  failed = true;
+}
 if (!app.includes("unit2Price > 0 ? unit2Price : entered")) {
   console.error("Retail-only pricing fallback is missing.");
   failed = true;
