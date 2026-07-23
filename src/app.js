@@ -243,6 +243,7 @@ const state = {
   salesPaid: "",
   salesInvoiceNo: "",
   salesSavedNo: "",
+  salesSaving: false,
   salesRows: [{ q: "", key: "", name: "", num: "", unit: "unit2", qty: "1", price: "", edited: false }],
   purchaseInvoices: [],
   poSupplier: "",
@@ -5170,22 +5171,49 @@ function salesResolvedRows() {
   return (state.salesRows || []).filter((row) => row.key && toNumber(row.qty) > 0 && toNumber(row.price) > 0);
 }
 
-// رقم تسلسلي شهري: SAL-YYMM-0001 ثم 0002… ويبدأ من ٠٠٠١ مع كل شهر جديد.
+// ترقيم الفواتير: SAL-YYMM-0001 تسلسلياً، ويبدأ من ٠٠٠١ مع كل شهر جديد.
 // العدّاد محفوظ محلياً على الجهاز. عند تفعيل خصم المخزون وتقييد الذمم يجب ترقيته
 // إلى عدّاد مركزي في Supabase كي لا يتكرّر الرقم إذا فُوتِر من أكثر من جهاز.
-function generateSalesInvoiceNumber() {
+//
+// قاعدة أساسية: الرقم يُعرض بلا حجز، ولا يُحجز إلا بعد نجاح الحفظ. لذلك فتح الشاشة
+// أو إعادة تحميلها أو فشل الحفظ لا يستهلك رقماً ولا يترك فجوة في تسلسل الفواتير.
+
+// قراءة العدّاد بأمان: أي قيمة تالفة (نص، سالب، NaN، أو شهر قديم) تُعامل كصفر.
+function salesSeqState() {
   const now = new Date();
-  const yy = String(now.getFullYear()).slice(-2);
-  const mm = String(now.getMonth() + 1).padStart(2, "0");
-  const period = `${yy}${mm}`;
+  const period = `${String(now.getFullYear()).slice(-2)}${String(now.getMonth() + 1).padStart(2, "0")}`;
   const saved = readJson("sales-invoice-seq", null);
-  const next = saved && saved.period === period ? Number(saved.seq || 0) + 1 : 1;
-  writeJson("sales-invoice-seq", { period, seq: next });
-  return `SAL-${period}-${String(next).padStart(4, "0")}`;
+  const raw = saved && saved.period === period ? Number(saved.seq) : 0;
+  const seq = Number.isFinite(raw) && raw > 0 ? Math.floor(raw) : 0;
+  return { period, seq };
+}
+
+function salesFormatInvoiceNo(period, seq) {
+  return `SAL-${period}-${String(seq).padStart(4, "0")}`;
+}
+
+const SALES_INVOICE_NO_RE = /^SAL-(\d{4})-(\d+)$/;
+
+// الرقم المعروض على الشاشة: التالي المتوقّع، بلا أي كتابة على العدّاد.
+function peekSalesInvoiceNumber() {
+  const { period, seq } = salesSeqState();
+  return salesFormatInvoiceNo(period, seq + 1);
+}
+
+// الحجز الفعلي بعد نجاح الحفظ: يرفع العدّاد ليشمل هذه الفاتورة، ولا يُنقصه أبداً.
+function salesReserveInvoiceNo(no) {
+  const parsed = SALES_INVOICE_NO_RE.exec(String(no || ""));
+  if (!parsed) return;
+  const period = parsed[1];
+  const seq = Number(parsed[2]);
+  if (!Number.isFinite(seq) || seq <= 0) return;
+  const current = salesSeqState();
+  if (current.period === period && current.seq >= seq) return;
+  writeJson("sales-invoice-seq", { period, seq });
 }
 
 function ensureSalesInvoiceNo() {
-  if (!state.salesInvoiceNo) state.salesInvoiceNo = generateSalesInvoiceNumber();
+  if (!state.salesInvoiceNo) state.salesInvoiceNo = peekSalesInvoiceNumber();
   return state.salesInvoiceNo;
 }
 
@@ -5431,7 +5459,7 @@ function salesNewInvoice() {
   state.salesDiscount = "";
   state.salesPaid = "";
   state.salesPayMethod = "cash";
-  state.salesInvoiceNo = generateSalesInvoiceNumber();
+  state.salesInvoiceNo = peekSalesInvoiceNumber();
   state.salesSavedNo = "";
   setNotice("success", "بدأت فاتورة مبيعات جديدة.");
   render();
@@ -5450,6 +5478,18 @@ async function salesSaveInvoice() {
     render();
     return;
   }
+  // نقرة ثانية أثناء تنفيذ الحفظ: الفحص أعلاه وحده لا يكفي، لأن salesSavedNo لا
+  // يُضبط إلا بعد انتهاء await، فتمرّ النقرتان معاً وتُحفظ الفاتورة مرتين.
+  if (state.salesSaving) return;
+
+  // الرقم يُحسم لحظة الحفظ: لو كان المعروض قد استُهلك فعلاً (فاتورة أخرى، أو تبويب
+  // آخر، أو تغيّر الشهر والشاشة مفتوحة) نأخذ التالي بدل تكرار رقم محجوز.
+  const seqState = salesSeqState();
+  const shownNo = SALES_INVOICE_NO_RE.exec(ensureSalesInvoiceNo());
+  if (!shownNo || shownNo[1] !== seqState.period || Number(shownNo[2]) <= seqState.seq) {
+    state.salesInvoiceNo = peekSalesInvoiceNumber();
+  }
+
   const mode = salesCurrentMode();
   const totals = salesTotals();
   const roundValue = (value) => (mode === "mufrak" ? Math.round(Number(value || 0)) : roundPrice(Number(value || 0)));
@@ -5482,13 +5522,21 @@ async function salesSaveInvoice() {
     paid: roundValue(totals.paid),
     remaining: roundValue(totals.remaining)
   };
+  state.salesSaving = true;
+  const saveBtn = document.querySelector("[data-action='sales-save']");
+  if (saveBtn) saveBtn.disabled = true;
   try {
     await dataStore.createSharedDocument(doc);
+    // الحجز بعد النجاح فقط: فشل الحفظ يجب ألا يستهلك رقماً ولا يترك فجوة.
+    salesReserveInvoiceNo(doc.no);
     state.salesSavedNo = doc.no;
     // TODO: عند تفعيل النواة الكاملة يُخصم المخزون ويُقيَّد على ذمة الزبون هنا.
     setNotice("success", `تم حفظ فاتورة المبيعات ${doc.no} بالنظام والأرشيف ✓`);
   } catch (error) {
     setNotice("error", "تعذّر حفظ الفاتورة: " + safeErrorMessage(error));
+  } finally {
+    state.salesSaving = false;
+    if (saveBtn) saveBtn.disabled = false;
   }
   render();
 }
