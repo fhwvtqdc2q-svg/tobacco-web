@@ -1238,7 +1238,7 @@ async function importAmeenReport(form) {
     const threshold = Math.max(0, toNumber(form.elements.lowThreshold?.value || 50));
 
     if (!stockFile) throw new Error("اختر ملف جرد الأمين أولا.");
-    const report = await buildInventoryReport(stockFile, priceFile, threshold, state.inventoryReports[0]);
+    const report = await buildInventoryReport(stockFile, priceFile, threshold, latestStockReport());
     state.priceExport = report.priceExport;
     await dataStore.createInventoryReport(report);
     await loadInventoryReports();
@@ -1315,7 +1315,6 @@ function downloadFilteredPriceList() {
 function latestStockReport() {
   const reports = Array.isArray(state.inventoryReports) ? state.inventoryReports : [];
   return reports.find((r) => reportItems(r).some((it) => it && ("stockQty" in it || "stockQtyPositive" in it)))
-    || reports[0]
     || null;
 }
 
@@ -1388,7 +1387,7 @@ function uuidOrNull(value) {
 }
 
 function downloadLivePriceTemplate() {
-  const latest = state.inventoryReports[0];
+  const latest = latestStockReport();
   const availableItems = liveAvailableItems();
   if (!latest || !availableItems.length) {
     setNotice("error", "لا يوجد جرد حي يحتوي مواد متوفرة لإنشاء قالب تسعير.");
@@ -1425,7 +1424,7 @@ function downloadLivePriceTemplate() {
 
 async function importLivePriceList(form) {
   try {
-    const latest = state.inventoryReports[0];
+    const latest = latestStockReport();
     const availableItems = liveAvailableItems();
     const priceFile = form.elements.livePrice?.files?.[0];
 
@@ -2013,7 +2012,7 @@ async function publishBulletin(options = {}) {
 
 // يجهّز عناصر النشرة (مع التحقق وتحويل العملة) — يرجع null إذا تعذّر المتابعة
 function prepareBulletinItems(useSyria = false) {
-  const latest = state.inventoryReports[0];
+  const latest = latestStockReport();
   let items = customerPriceListItems();
 
   if (!useSyria) items = items.filter(hasFullSecondUnit);
@@ -2183,7 +2182,7 @@ function generalPricingWorklistItems() {
 }
 
 function downloadDailyPricingWorklist() {
-  const latest = state.inventoryReports[0];
+  const latest = latestStockReport();
   const items = generalPricingWorklistItems();
   if (!latest || !items.length) {
     setNotice("error", "لا توجد مواد متوفرة لإنشاء قائمة تسعير اليوم.");
@@ -2222,7 +2221,7 @@ function downloadDailyPricingWorklist() {
 
 async function savePricingItem(form) {
   try {
-    const latest = state.inventoryReports[0];
+    const latest = latestStockReport();
     const itemKey = form.dataset.itemKey || "";
     const sourceKeys = JSON.parse(form.dataset.sourceKeys || "[]").filter(Boolean);
     const itemName = form.dataset.itemName || "";
@@ -2321,7 +2320,7 @@ async function savePricingItem(form) {
 }
 
 function downloadLatestInventoryReport() {
-  const latest = state.inventoryReports[0];
+  const latest = latestStockReport();
   const items = reportItems(latest);
   if (!latest || !items.length) {
     setNotice("error", "لا يوجد تقرير جرد حي جاهز للتصدير.");
@@ -2349,7 +2348,7 @@ function downloadLatestInventoryReport() {
 }
 
 function downloadFilteredInventoryReport() {
-  const latest = state.inventoryReports[0];
+  const latest = latestStockReport();
   const items = ameenFilteredItems(reportItems(latest));
   if (!latest || !items.length) {
     setNotice("error", "لا توجد مواد معروضة للتصدير حسب البحث والفلتر الحالي.");
@@ -3150,7 +3149,7 @@ function pricingRow(item) {
 }
 
 function pricing() {
-  const latest = state.inventoryReports[0];
+  const latest = latestStockReport();
   const items = generalPricingWorklistItems();
   const allAvailable = liveAvailableItems();
   const approvedCount = items.filter((item) => item.hasApprovedPrice || item.unit2Price > 0 || item.salePrice > 0).length;
@@ -4310,7 +4309,7 @@ function customerBalanceSection(report) {
 }
 
 function ameen() {
-  const latest = state.inventoryReports[0];
+  const latest = latestStockReport();
   const summary = latest?.summary || {};
   const items = reportItems(latest);
   const approvedPrices = state.approvedPriceItems || [];
@@ -4604,7 +4603,7 @@ function searchPage() {
       results.push({ type: "طلب", label: `${r.publicId || r.id} — ${r.customer}`, sub: (r.note || "").slice(0, 50), route: "requests" });
     }
   });
-  const invItems = Array.isArray(state.inventoryReports[0]?.items) ? state.inventoryReports[0].items : [];
+  const invItems = reportItems(latestStockReport());
   invItems.forEach((i) => {
     if ((i.name || "").toLowerCase().includes(q)) {
       results.push({ type: "مخزون", label: i.name, sub: `الكمية: ${i.qty ?? "—"}`, route: "ameen" });
@@ -5518,7 +5517,7 @@ function requestCard(request) {
 }
 
 function updateAmeenBrowserResults() {
-  const latest = state.inventoryReports[0];
+  const latest = latestStockReport();
   const items = reportItems(latest);
   const filtered = ameenFilteredItems(items);
   const results = app.querySelector("[data-ameen-results]");
