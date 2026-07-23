@@ -235,6 +235,14 @@ const state = {
   invCustomer: "",
   invNotes: "",
   invRows: [{ name: "", qty: "1", price: "" }],
+  // ===== فاتورة مبيعات (route: sales) — نواة MVP مستقلة تماماً عن route invoice =====
+  salesMode: readJson("sales-mode", "jumla"),        // "jumla" جملة/دولار | "mufrak" مفرق/سوري
+  salesCustomer: "",                                    // فارغ = زبون نقدي
+  salesPayMethod: "cash",                               // "cash" نقدي | "credit" أجل
+  salesDiscount: "",
+  salesPaid: "",
+  salesInvoiceNo: "",
+  salesRows: [{ q: "", key: "", name: "", num: "", unit: "unit2", qty: "1", price: "", edited: false }],
   purchaseInvoices: [],
   poSupplier: "",
   poDate: "",
@@ -311,11 +319,11 @@ function initKeyboardShortcuts() {
   document.addEventListener("keydown", (event) => {
     const typing = document.activeElement?.matches("input, textarea, select, [contenteditable]");
     if (event.altKey && !event.ctrlKey && !event.metaKey) {
-      const routeMap = { "1": "overview", "2": "dashboard", "3": "requests", "4": "ameen", "5": "pricing", "6": "invoice", "7": "purchases", "8": "balances" };
+      const routeMap = { "1": "overview", "2": "dashboard", "3": "requests", "4": "ameen", "5": "pricing", "6": "invoice", "7": "purchases", "8": "balances", "9": "sales" };
       const target = routeMap[event.key];
       if (target) {
         event.preventDefault();
-        if ((target === "dashboard" || target === "invoice" || target === "purchases") && !state.session) return;
+        if ((target === "dashboard" || target === "invoice" || target === "purchases" || target === "sales") && !state.session) return;
         setRoute(target);
         render();
         return;
@@ -2433,6 +2441,7 @@ function shell(content) {
           ${state.session ? navButton("balances", "💳 أرصدة الزبائن") : ""}
           ${navButton("pricing", "نشرة الأسعار")}
           ${state.session ? navButton("invoice", "📄 الفواتير") : ""}
+          ${state.session ? navButton("sales", "🧮 فاتورة مبيعات") : ""}
           ${state.session ? navButton("purchases", "🧾 فواتير مشتريات") : ""}
           ${state.session ? navButton("staff", "👥 الموظفون") : ""}
           ${state.session ? navButton("ai", "🤖 المساعد الذكي") : ""}
@@ -2499,6 +2508,7 @@ function pageTitle() {
     payments: "الدفع",
     ai: "المساعد الذكي",
     invoice: "الفواتير بالدولار",
+    sales: "فاتورة مبيعات",
     purchases: "فواتير المشتريات",
     dashboard: "التقارير",
     staff: "إدارة الموظفين",
@@ -4994,6 +5004,565 @@ function invoice() {
   `);
 }
 
+// ============================================================================
+// ===== فاتورة مبيعات (route: sales) — نواة MVP =====
+// وحدة مستقلة تماماً عن route/دالة invoice. تنشئ فاتورة جملة (دولار) أو مفرق
+// (ليرة سورية)، تُحفظ عبر dataStore.createSharedDocument كمستند sales_invoice،
+// وتُطبع بإعادة استخدام قالب طباعة الفاتورة.
+// TODO (خارج النواة الحالية عمداً): خصم المخزون، تقييد الذمم، صلاحيات المدير/
+// المحاسب، المرتجعات، آخر سعر للزبون، رصيد الزبون الحيّ، معلومات المستودعات،
+// ومزامنة رقم الفاتورة التسلسلي مع الأمين.
+// ============================================================================
+
+function salesEmptyRow() {
+  return { q: "", key: "", name: "", num: "", unit: "unit2", qty: "1", price: "", edited: false };
+}
+
+function salesToEnglishDigits(value) {
+  return String(value ?? "")
+    .replace(/[٠-٩]/g, (digit) => String("٠١٢٣٤٥٦٧٨٩".indexOf(digit)))
+    .replace(/[۰-۹]/g, (digit) => String("۰۱۲۳۴۵۶۷۸۹".indexOf(digit)));
+}
+
+function salesCurrentMode() {
+  return state.salesMode === "mufrak" ? "mufrak" : "jumla";
+}
+
+function salesCurrencySymbol(mode) {
+  return mode === "mufrak" ? "ل.س" : "$";
+}
+
+function salesItemByKey(key) {
+  if (!key) return null;
+  return (state.approvedPriceItems || []).find((item) => item.itemKey === key) || null;
+}
+
+function salesUnit2Factor(item) {
+  const factor = Number(item?.unit2Factor || 1);
+  return Number.isFinite(factor) && factor > 0 ? factor : 1;
+}
+
+function salesRetailPrice(item) {
+  const retail = item?.pricePayload?.retail;
+  return Number((retail && retail.price) || 0);
+}
+
+function salesUnitLabel(item, unit) {
+  if (!item) return unit === "unit1" ? "كروز" : "كرتونة";
+  if (unit === "unit1") return item.unit1Name || "كروز";
+  return item.unit2Name || "كرتونة";
+}
+
+// حساب الإفرادي التلقائي حسب الوضع والوحدة (المرجع: تعليمات المهمة):
+//   جملة  → كرتونة = unit2_price ، كروز = unit1_price (بالدولار)
+//   مفرق  → كرتونة = round(retail × rate) ، كروز = round(retail ÷ factor × rate) (بالليرة)
+function salesAutoUnitPrice(item, unit, mode) {
+  if (!item) return 0;
+  if (mode === "mufrak") {
+    const retail = salesRetailPrice(item);
+    const rate = Number(state.syriaExchangeRate) || 0;
+    if (!(retail > 0) || !(rate > 0)) return 0;
+    if (unit === "unit1") return Math.round((retail / salesUnit2Factor(item)) * rate);
+    return Math.round(retail * rate);
+  }
+  if (unit === "unit1") return roundPrice(Number(item.unit1Price || 0));
+  return roundPrice(Number(item.unit2Price || 0));
+}
+
+// تنسيق رقم للعرض: جملة بخانتين عشريتين، مفرق بأرقام صحيحة وفواصل آلاف — إنجليزية دائماً.
+function salesFmt(value, mode) {
+  const number = Number(value || 0);
+  if (mode === "mufrak") {
+    return new Intl.NumberFormat("en-US", { maximumFractionDigits: 0 }).format(Math.round(number));
+  }
+  return new Intl.NumberFormat("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(number);
+}
+
+// رقم خام بلا فواصل آلاف (لحقول الإدخال كي لا يعبث بها مُطبِّع الأرقام).
+function salesFmtPlain(value, mode) {
+  const number = Number(value || 0);
+  if (mode === "mufrak") return String(Math.round(number));
+  return (Math.round((number + Number.EPSILON) * 100) / 100).toFixed(2);
+}
+
+function salesMoney(value, mode) {
+  if (mode === "mufrak") return `${salesFmt(value, "mufrak")} ل.س`;
+  return `$${salesFmt(value, "jumla")}`;
+}
+
+// بحث/مطابقة جزئية على رقم الصنف (item_number) والاسم (item_name) معاً.
+function salesSearchItems(query, limit = 8) {
+  const raw = String(query || "").trim();
+  if (!raw) return [];
+  const list = state.approvedPriceItems || [];
+  if (!list.length) return [];
+  const normalizedQuery = normalizeItemName(raw);
+  const digits = normalizeNumericText(raw, { allowNegative: false, allowDecimal: false });
+  const scored = [];
+  for (const item of list) {
+    const number = String(item.itemNumber || "");
+    const normalizedName = normalizeItemName(item.itemName || "");
+    let score = -1;
+    if (digits && number) {
+      if (number === digits) score = 100;
+      else if (number.startsWith(digits)) score = 92;
+      else if (number.includes(digits)) score = 74;
+    }
+    if (normalizedQuery) {
+      if (normalizedName === normalizedQuery) score = Math.max(score, 96);
+      else if (normalizedName.startsWith(normalizedQuery)) score = Math.max(score, 86);
+      else if (normalizedName.includes(normalizedQuery)) score = Math.max(score, 62);
+    }
+    if (score >= 0) scored.push({ item, score });
+  }
+  scored.sort((a, b) => b.score - a.score || String(a.item.itemName || "").localeCompare(String(b.item.itemName || ""), "ar"));
+  return scored.slice(0, limit).map((entry) => entry.item);
+}
+
+function salesSuggestionsHtml(rowIndex, query) {
+  const matches = salesSearchItems(query, 8);
+  if (!matches.length) return "";
+  const mode = salesCurrentMode();
+  return matches
+    .map((item) => {
+      const number = item.itemNumber
+        ? `<span class="sales-suggest-num" dir="ltr">${escapeHtml(item.itemNumber)}</span>`
+        : `<span class="sales-suggest-num muted">—</span>`;
+      const auto = salesAutoUnitPrice(item, "unit2", mode);
+      const priceHint = auto > 0
+        ? `<span class="sales-suggest-price" dir="ltr">${escapeHtml(salesMoney(auto, mode))}</span>`
+        : `<span class="sales-suggest-price muted">بلا سعر</span>`;
+      return `<button type="button" class="sales-suggest-item" data-sales-pick="${escapeHtml(item.itemKey)}" data-sales-row="${rowIndex}">${number}<span class="sales-suggest-name">${escapeHtml(item.itemName)}</span>${priceHint}</button>`;
+    })
+    .join("");
+}
+
+function salesRowComputed(row) {
+  const item = row && row.key ? salesItemByKey(row.key) : null;
+  const qty = toNumber(row?.qty);
+  const price = toNumber(row?.price);
+  return { item, qty, price, lineTotal: qty * price };
+}
+
+function salesTotals() {
+  const grand = (state.salesRows || []).reduce(
+    (sum, row) => sum + (row.key ? toNumber(row.qty) * toNumber(row.price) : 0),
+    0
+  );
+  const discount = Math.max(0, toNumber(state.salesDiscount));
+  const net = Math.max(0, grand - discount);
+  const paid = state.salesPayMethod === "cash" ? net : Math.max(0, toNumber(state.salesPaid));
+  const remaining = net - paid;
+  return { grand, discount, net, paid, remaining };
+}
+
+function salesResolvedRows() {
+  return (state.salesRows || []).filter((row) => row.key && toNumber(row.qty) > 0 && toNumber(row.price) > 0);
+}
+
+function generateSalesInvoiceNumber() {
+  const now = new Date();
+  const yy = String(now.getFullYear()).slice(-2);
+  const mm = String(now.getMonth() + 1).padStart(2, "0");
+  const rand = String(Math.floor(Math.random() * 9000) + 1000);
+  // TODO: رقم تسلسلي حقيقي متزامن مع الأمين — خارج النواة الحالية.
+  return `SAL-${yy}${mm}-${rand}`;
+}
+
+function ensureSalesInvoiceNo() {
+  if (!state.salesInvoiceNo) state.salesInvoiceNo = generateSalesInvoiceNumber();
+  return state.salesInvoiceNo;
+}
+
+function salesEnsureTrailingRow() {
+  const rows = state.salesRows;
+  if (!rows.length || rows[rows.length - 1].key) rows.push(salesEmptyRow());
+}
+
+function salesInvoice() {
+  if (!state.session) {
+    return shell(`
+      <section class="panel">
+        <h2>فاتورة مبيعات</h2>
+        <p class="muted">سجّل الدخول أولاً للوصول إلى فاتورة المبيعات.</p>
+      </section>
+    `);
+  }
+
+  const mode = salesCurrentMode();
+  const symbol = salesCurrencySymbol(mode);
+  const invNo = ensureSalesInvoiceNo();
+  const totals = salesTotals();
+  const rows = state.salesRows;
+  const priceLoaded = (state.approvedPriceItems || []).length > 0;
+
+  const rowsHtml = rows
+    .map((row, i) => {
+      const computed = salesRowComputed(row);
+      const resolved = !!computed.item;
+      const unitLabel = salesUnitLabel(computed.item, row.unit);
+      const otherLabel = salesUnitLabel(computed.item, row.unit === "unit1" ? "unit2" : "unit1");
+      return `
+    <tr class="inv-row sales-row">
+      <td class="sales-cell-search">
+        <input class="inv-input sales-search" data-sales-field="q" data-sales-index="${i}" value="${escapeHtml(row.q)}" placeholder="رقم الصنف أو الاسم" dir="auto" autocomplete="off">
+        <div class="sales-suggest" data-sales-suggest="${i}"></div>
+      </td>
+      <td class="sales-cell-name">${resolved ? `<strong>${escapeHtml(computed.item.itemName)}</strong>${computed.item.itemNumber ? `<small class="muted" dir="ltr"> #${escapeHtml(computed.item.itemNumber)}</small>` : ""}` : '<span class="muted">—</span>'}</td>
+      <td class="sales-cell-unit">
+        <button type="button" class="sales-unit-toggle" data-sales-unit="${i}" ${resolved ? "" : "disabled"} title="${resolved ? `تبديل إلى ${escapeHtml(otherLabel)}` : "اختر صنفاً أولاً"}">${escapeHtml(unitLabel)}</button>
+      </td>
+      <td><input class="inv-input inv-num sales-qty" data-sales-field="qty" data-sales-num data-sales-index="${i}" value="${escapeHtml(row.qty)}" placeholder="0" type="text" inputmode="decimal" dir="ltr"></td>
+      <td><input class="inv-input inv-num sales-price" data-sales-field="price" data-sales-num data-sales-index="${i}" value="${escapeHtml(row.price)}" placeholder="0" type="text" inputmode="decimal" dir="ltr"></td>
+      <td class="inv-line-total sales-line-total" data-sales-linetotal="${i}">${resolved ? salesMoney(computed.lineTotal, mode) : "—"}</td>
+      <td>${rows.length > 1 && resolved ? `<button class="inv-remove" data-sales-remove="${i}" title="حذف">✕</button>` : ""}</td>
+    </tr>`;
+    })
+    .join("");
+
+  const paidValue = state.salesPayMethod === "cash" ? salesFmtPlain(totals.paid, mode) : state.salesPaid;
+
+  return shell(`
+    <section class="panel wide inv-panel sales-panel">
+      <div class="inv-form-area">
+        <div class="sales-toolbar">
+          <div class="sales-mode-switch" role="group" aria-label="وضع التسعير">
+            <button type="button" class="sales-mode-btn ${mode === "jumla" ? "active" : ""}" data-sales-mode="jumla">جملة · دولار</button>
+            <button type="button" class="sales-mode-btn ${mode === "mufrak" ? "active" : ""}" data-sales-mode="mufrak">مفرق · سوري</button>
+          </div>
+          ${mode === "mufrak" ? `<span class="sales-rate-chip" dir="ltr">${escapeHtml(formatMoney(state.syriaExchangeRate))} ل.س / $</span>` : ""}
+        </div>
+
+        <div class="sales-header-grid">
+          <label class="inv-label">رقم الفاتورة
+            <input class="inv-input-main" value="${escapeHtml(invNo)}" readonly dir="ltr">
+          </label>
+          <label class="inv-label">التاريخ
+            <input class="inv-input-main" value="${escapeHtml(todayIsoDate())}" readonly dir="ltr">
+          </label>
+          <label class="inv-label">اسم الزبون (اختياري)
+            <input class="inv-input-main" id="sales-customer" value="${escapeHtml(state.salesCustomer)}" placeholder="فارغ = نقدي" maxlength="120" dir="auto">
+          </label>
+          <label class="inv-label">طريقة الدفع
+            <div class="sales-pay-switch">
+              <button type="button" class="sales-pay-btn ${state.salesPayMethod === "cash" ? "active" : ""}" data-sales-pay="cash">نقدي</button>
+              <button type="button" class="sales-pay-btn ${state.salesPayMethod === "credit" ? "active" : ""}" data-sales-pay="credit">أجل</button>
+            </div>
+          </label>
+        </div>
+
+        ${priceLoaded ? "" : '<p class="muted sales-hint">لم تُحمّل لائحة الأسعار بعد — لن تظهر اقتراحات المواد حتى تُحمّل.</p>'}
+
+        <div class="inv-table-wrap">
+          <table class="inv-table sales-table">
+            <thead>
+              <tr>
+                <th style="width:180px">رقم الصنف / الاسم</th>
+                <th>الصنف</th>
+                <th style="width:92px">الوحدة</th>
+                <th style="width:80px">الكمية</th>
+                <th style="width:120px">الإفرادي ${escapeHtml(symbol)}</th>
+                <th style="width:120px">الإجمالي ${escapeHtml(symbol)}</th>
+                <th style="width:34px"></th>
+              </tr>
+            </thead>
+            <tbody id="sales-body">${rowsHtml}</tbody>
+          </table>
+        </div>
+
+        <div class="sales-summary">
+          <div class="sales-summary-row"><span>الإجمالي</span><strong data-sales-total dir="ltr">${salesMoney(totals.grand, mode)}</strong></div>
+          <div class="sales-summary-row"><span>حسم (${escapeHtml(symbol)})</span>
+            <input class="inv-input-main sales-amount-input" id="sales-discount" data-sales-num value="${escapeHtml(state.salesDiscount)}" placeholder="0" type="text" inputmode="decimal" dir="ltr">
+          </div>
+          <div class="sales-summary-row sales-summary-net"><span>الصافي</span><strong data-sales-net dir="ltr">${salesMoney(totals.net, mode)}</strong></div>
+          <div class="sales-summary-row"><span>المدفوع (${escapeHtml(symbol)})</span>
+            <input class="inv-input-main sales-amount-input" id="sales-paid" data-sales-num value="${escapeHtml(paidValue)}" placeholder="0" type="text" inputmode="decimal" dir="ltr" ${state.salesPayMethod === "cash" ? "readonly" : ""}>
+          </div>
+          <div class="sales-summary-row sales-summary-remaining"><span>المتبقّي</span><strong data-sales-remaining dir="ltr">${salesMoney(totals.remaining, mode)}</strong></div>
+        </div>
+
+        <div class="inv-actions sales-actions">
+          <button class="button primary" data-action="sales-save">💾 حفظ الفاتورة</button>
+          <button class="button secondary" data-action="sales-print">🖨 طباعة / PDF</button>
+          <button class="button secondary" data-action="sales-new">＋ فاتورة جديدة</button>
+        </div>
+      </div>
+    </section>
+  `);
+}
+
+// تحديث جراحي للإجماليات وأسطر المجاميع دون إعادة رسم الصفحة (حفاظاً على تركيز الإدخال).
+function refreshSalesTotals() {
+  const mode = salesCurrentMode();
+  (state.salesRows || []).forEach((row, i) => {
+    const cell = document.querySelector(`[data-sales-linetotal="${i}"]`);
+    if (!cell) return;
+    cell.textContent = row.key ? salesMoney(toNumber(row.qty) * toNumber(row.price), mode) : "—";
+  });
+  const totals = salesTotals();
+  const totalEl = document.querySelector("[data-sales-total]");
+  if (totalEl) totalEl.textContent = salesMoney(totals.grand, mode);
+  const netEl = document.querySelector("[data-sales-net]");
+  if (netEl) netEl.textContent = salesMoney(totals.net, mode);
+  const remainingEl = document.querySelector("[data-sales-remaining]");
+  if (remainingEl) remainingEl.textContent = salesMoney(totals.remaining, mode);
+  if (state.salesPayMethod === "cash") {
+    const paidInput = document.getElementById("sales-paid");
+    if (paidInput) paidInput.value = salesFmtPlain(totals.paid, mode);
+  }
+}
+
+// قائمة الاقتراحات تُعرض position:fixed كي لا يقصّها overflow جدول الأسطر.
+function positionSalesSuggest(input, box) {
+  const rect = input.getBoundingClientRect();
+  box.style.top = `${rect.bottom + 2}px`;
+  box.style.left = `${rect.left}px`;
+  box.style.width = `${Math.max(rect.width, 240)}px`;
+}
+
+function salesPickItem(rowIndex, key) {
+  const row = state.salesRows[rowIndex];
+  const item = salesItemByKey(key);
+  if (!row || !item) return;
+  const mode = salesCurrentMode();
+  row.key = item.itemKey;
+  row.name = item.itemName;
+  row.num = item.itemNumber || "";
+  row.q = item.itemNumber ? String(item.itemNumber) : item.itemName;
+  if (row.unit !== "unit1" && row.unit !== "unit2") row.unit = "unit2";
+  const auto = salesAutoUnitPrice(item, row.unit, mode);
+  row.price = auto > 0 ? String(auto) : "";
+  row.edited = false;
+  if (!(toNumber(row.qty) > 0)) row.qty = "1";
+  salesEnsureTrailingRow();
+  render();
+}
+
+function salesToggleUnit(rowIndex) {
+  const row = state.salesRows[rowIndex];
+  if (!row || !row.key) return;
+  const item = salesItemByKey(row.key);
+  const mode = salesCurrentMode();
+  row.unit = row.unit === "unit1" ? "unit2" : "unit1";
+  // تغيّر الوحدة يغيّر أساس السعر ⇐ نعيد حساب الإفرادي التلقائي ونلغي أي تعديل يدوي سابق.
+  const auto = salesAutoUnitPrice(item, row.unit, mode);
+  row.price = auto > 0 ? String(auto) : "";
+  row.edited = false;
+  render();
+}
+
+function salesSetMode(mode) {
+  const next = mode === "mufrak" ? "mufrak" : "jumla";
+  state.salesMode = next;
+  writeJson("sales-mode", next);
+  // تغيّر الوضع يغيّر العملة والأساس ⇐ نعيد تسعير كل الأسطر تلقائياً ونلغي التعديلات اليدوية.
+  (state.salesRows || []).forEach((row) => {
+    if (!row.key) return;
+    const auto = salesAutoUnitPrice(salesItemByKey(row.key), row.unit, next);
+    row.price = auto > 0 ? String(auto) : "";
+    row.edited = false;
+  });
+  render();
+}
+
+function salesNewInvoice() {
+  state.salesRows = [salesEmptyRow()];
+  state.salesCustomer = "";
+  state.salesDiscount = "";
+  state.salesPaid = "";
+  state.salesPayMethod = "cash";
+  state.salesInvoiceNo = generateSalesInvoiceNumber();
+  setNotice("success", "بدأت فاتورة مبيعات جديدة.");
+  render();
+}
+
+async function salesSaveInvoice() {
+  const resolved = salesResolvedRows();
+  if (!resolved.length) {
+    setNotice("error", "أضف صنفاً واحداً على الأقل بكمية وسعر أكبر من صفر.");
+    render();
+    return;
+  }
+  const mode = salesCurrentMode();
+  const totals = salesTotals();
+  const roundValue = (value) => (mode === "mufrak" ? Math.round(Number(value || 0)) : roundPrice(Number(value || 0)));
+  const doc = {
+    t: "sales_invoice",
+    no: ensureSalesInvoiceNo(),
+    date: todayIsoDate(),
+    name: state.salesCustomer.trim(),
+    payMethod: state.salesPayMethod,
+    mode,
+    cur: salesCurrencySymbol(mode),
+    rate: mode === "mufrak" ? Number(state.syriaExchangeRate) || 0 : null,
+    items: resolved.map((row) => {
+      const item = salesItemByKey(row.key);
+      const qty = toNumber(row.qty);
+      const price = toNumber(row.price);
+      return {
+        num: item?.itemNumber || row.num || "",
+        name: item?.itemName || row.name || "",
+        unit: salesUnitLabel(item, row.unit),
+        unitKey: row.unit,
+        qty,
+        price: roundValue(price),
+        total: roundValue(qty * price)
+      };
+    }),
+    total: roundValue(totals.grand),
+    discount: roundValue(totals.discount),
+    net: roundValue(totals.net),
+    paid: roundValue(totals.paid),
+    remaining: roundValue(totals.remaining)
+  };
+  try {
+    await dataStore.createSharedDocument(doc);
+    // TODO: عند تفعيل النواة الكاملة يُخصم المخزون ويُقيَّد على ذمة الزبون هنا.
+    setNotice("success", `تم حفظ فاتورة المبيعات ${doc.no} بالنظام والأرشيف ✓`);
+  } catch (error) {
+    setNotice("error", "تعذّر حفظ الفاتورة: " + safeErrorMessage(error));
+  }
+  render();
+}
+
+// إعادة استخدام قالب طباعة الفاتورة (نفس CSS) مع تكييف بسيط: أعمدة الوحدة/الرقم
+// وكتلة مجاميع (إجمالي/حسم/صافي/مدفوع/متبقٍّ) ودعم عملة الليرة في وضع المفرق.
+function printSalesInvoice() {
+  const resolved = salesResolvedRows();
+  if (!resolved.length) {
+    setNotice("error", "أضف صنفاً واحداً على الأقل بكمية وسعر قبل الطباعة.");
+    render();
+    return;
+  }
+  const mode = salesCurrentMode();
+  const invNo = ensureSalesInvoiceNo();
+  const totals = salesTotals();
+  const today = new Intl.DateTimeFormat("ar-SA-u-nu-latn", { dateStyle: "long" }).format(new Date());
+  const customer = state.salesCustomer.trim() || "زبون نقدي";
+  const payLabel = state.salesPayMethod === "credit" ? "أجل" : "نقدي";
+  const curLabel = mode === "mufrak"
+    ? `ليرة سورية (SYP) — صرف ${formatMoney(state.syriaExchangeRate)}`
+    : "دولار أمريكي (USD)";
+
+  const rowsHtml = resolved
+    .map((row, i) => {
+      const item = salesItemByKey(row.key);
+      const qty = toNumber(row.qty);
+      const price = toNumber(row.price);
+      return `
+    <tr>
+      <td class="col-num">${i + 1}</td>
+      <td dir="ltr">${escapeHtml(item?.itemNumber || row.num || "")}</td>
+      <td>${escapeHtml(item?.itemName || row.name || "")}</td>
+      <td>${escapeHtml(salesUnitLabel(item, row.unit))}</td>
+      <td>${escapeHtml(formatMoney(qty))}</td>
+      <td class="col-price">${escapeHtml(salesMoney(price, mode))}</td>
+      <td class="col-total">${escapeHtml(salesMoney(qty * price, mode))}</td>
+    </tr>`;
+    })
+    .join("");
+
+  const summaryHtml = `
+    <tr><td>الإجمالي</td><td class="col-total">${escapeHtml(salesMoney(totals.grand, mode))}</td></tr>
+    ${totals.discount > 0 ? `<tr><td>حسم</td><td class="col-total">− ${escapeHtml(salesMoney(totals.discount, mode))}</td></tr>` : ""}
+    <tr class="sum-strong"><td>الصافي</td><td class="col-total">${escapeHtml(salesMoney(totals.net, mode))}</td></tr>
+    <tr><td>المدفوع (${escapeHtml(payLabel)})</td><td class="col-total">${escapeHtml(salesMoney(totals.paid, mode))}</td></tr>
+    <tr class="sum-strong"><td>المتبقّي</td><td class="col-total">${escapeHtml(salesMoney(totals.remaining, mode))}</td></tr>`;
+
+  const html = `<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<title>فاتورة مبيعات ${invNo}</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: 'Segoe UI', Tahoma, Arial, sans-serif; font-size: 13px; color: #1a1a1a; background: #fff; padding: 40px; direction: rtl; }
+  .inv-head { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 36px; border-bottom: 3px solid #b8860b; padding-bottom: 20px; }
+  .inv-company { font-size: 22px; font-weight: 700; color: #5c3d00; letter-spacing: 1px; }
+  .inv-company small { display: block; font-size: 12px; font-weight: 400; color: #888; margin-top: 4px; }
+  .inv-meta { text-align: left; direction: ltr; }
+  .inv-meta p { margin: 3px 0; font-size: 12px; color: #555; }
+  .inv-meta strong { color: #1a1a1a; }
+  .doc-type { font-size: 14px; font-weight: 700; color: #5c3d00; }
+  .inv-num { font-size: 16px; font-weight: 700; color: #b8860b; }
+  .inv-customer { background: #faf7f0; border: 1px solid #e8dfc8; border-radius: 6px; padding: 14px 18px; margin-bottom: 28px; display: flex; justify-content: space-between; gap: 12px; }
+  .inv-customer p { font-size: 12px; color: #888; margin-bottom: 4px; }
+  .inv-customer strong { font-size: 15px; }
+  table { width: 100%; border-collapse: collapse; margin-bottom: 20px; }
+  th { background: #5c3d00; color: #fff; padding: 10px 12px; text-align: right; font-size: 12px; }
+  td { padding: 9px 12px; border-bottom: 1px solid #eee; font-size: 13px; }
+  tr:nth-child(even) td { background: #fdf9f3; }
+  .col-num { width: 36px; text-align: center; color: #aaa; }
+  .col-price, .col-total { text-align: left; direction: ltr; font-family: monospace; }
+  .summary-wrap { display: flex; justify-content: flex-start; }
+  .summary-table { width: 320px; margin-bottom: 24px; }
+  .summary-table td { border-bottom: 1px solid #eee; }
+  .summary-table tr:nth-child(even) td { background: transparent; }
+  .summary-table .sum-strong td { border-top: 2px solid #b8860b; font-weight: 700; font-size: 14px; background: #faf7f0; }
+  .notes { font-size: 12px; color: #666; margin-bottom: 28px; padding: 10px 14px; border-right: 3px solid #b8860b; background: #fdfaf5; }
+  .inv-foot { text-align: center; font-size: 11px; color: #aaa; margin-top: 40px; border-top: 1px solid #eee; padding-top: 16px; }
+  @media print { body { padding: 24px; } @page { margin: 1.5cm; } }
+</style>
+</head>
+<body>
+<div class="inv-head">
+  <div>
+    <div class="inv-company">${escapeHtml(appConfig.name)}${appConfig.tagline ? `<small>${escapeHtml(appConfig.tagline)}</small>` : ""}</div>
+  </div>
+  <div class="inv-meta">
+    <p class="doc-type">فاتورة مبيعات</p>
+    <p class="inv-num">${escapeHtml(invNo)}</p>
+    <p><strong>التاريخ:</strong> ${today}</p>
+    <p><strong>طريقة الدفع:</strong> ${escapeHtml(payLabel)}</p>
+    <p><strong>العملة:</strong> ${escapeHtml(curLabel)}</p>
+  </div>
+</div>
+
+<div class="inv-customer">
+  <div>
+    <p>فاتورة إلى</p>
+    <strong>${escapeHtml(customer)}</strong>
+  </div>
+</div>
+
+<table>
+  <thead>
+    <tr>
+      <th class="col-num">#</th>
+      <th style="width:70px">الرقم</th>
+      <th>المادة</th>
+      <th style="width:70px">الوحدة</th>
+      <th style="width:60px">الكمية</th>
+      <th style="width:110px" class="col-price">الإفرادي</th>
+      <th style="width:120px" class="col-total">الإجمالي</th>
+    </tr>
+  </thead>
+  <tbody>${rowsHtml}</tbody>
+</table>
+
+<div class="summary-wrap">
+  <table class="summary-table">
+    <tbody>${summaryHtml}</tbody>
+  </table>
+</div>
+
+<div class="inv-foot">${escapeHtml(appConfig.name)} &mdash; ${escapeHtml(appConfig.supportEmail)}</div>
+
+</body></html>`;
+
+  const win = window.open("", "_blank", "width=850,height=1100");
+  if (win) {
+    win.document.write(html);
+    win.document.close();
+    win.focus();
+    win.print();
+  } else {
+    setNotice("error", "يرجى السماح بالنوافذ المنبثقة لطباعة الفاتورة.");
+    render();
+  }
+}
+
 // ===== فواتير المشتريات (طلبات الشراء من الموردين) =====
 // تسجيل داخلي فقط: لا طباعة ولا تصدير ولا مزامنة مع الأمين أو أي جهة أخرى.
 function purchases() {
@@ -5751,6 +6320,7 @@ function render() {
     monitoring,
     payments,
     invoice,
+    sales: salesInvoice,
     purchases,
     dashboard: reportsPage,
     staff: staffPage,
@@ -5921,6 +6491,88 @@ function render() {
   app.querySelectorAll("[data-po-copy]").forEach((btn) => {
     btn.addEventListener("click", () => copyPurchaseInvoiceText(btn.dataset.poCopy));
   });
+
+  // ===== فاتورة مبيعات (route: sales) =====
+  app.querySelector("#sales-customer")?.addEventListener("input", (e) => {
+    state.salesCustomer = e.currentTarget.value; // بلا render حفاظاً على التركيز
+  });
+  app.querySelector("#sales-discount")?.addEventListener("input", (e) => {
+    const normalized = normalizeNumericText(e.currentTarget.value, { allowNegative: false, allowDecimal: true });
+    if (normalized !== e.currentTarget.value) e.currentTarget.value = normalized;
+    state.salesDiscount = e.currentTarget.value;
+    refreshSalesTotals();
+  });
+  app.querySelector("#sales-paid")?.addEventListener("input", (e) => {
+    if (state.salesPayMethod === "cash") return; // النقدي تلقائي = الصافي
+    const normalized = normalizeNumericText(e.currentTarget.value, { allowNegative: false, allowDecimal: true });
+    if (normalized !== e.currentTarget.value) e.currentTarget.value = normalized;
+    state.salesPaid = e.currentTarget.value;
+    refreshSalesTotals();
+  });
+  app.querySelectorAll("[data-sales-field]").forEach((input) => {
+    input.addEventListener("input", (e) => {
+      const i = Number(e.currentTarget.dataset.salesIndex);
+      const field = e.currentTarget.dataset.salesField;
+      if (!state.salesRows[i]) return;
+      if (field === "qty" || field === "price") {
+        const normalized = normalizeNumericText(e.currentTarget.value, { allowNegative: false, allowDecimal: true });
+        if (normalized !== e.currentTarget.value) e.currentTarget.value = normalized;
+        state.salesRows[i][field] = e.currentTarget.value;
+        if (field === "price") state.salesRows[i].edited = true;
+        refreshSalesTotals();
+      } else if (field === "q") {
+        const eng = salesToEnglishDigits(e.currentTarget.value);
+        if (eng !== e.currentTarget.value) e.currentTarget.value = eng;
+        state.salesRows[i].q = e.currentTarget.value;
+        const box = app.querySelector(`[data-sales-suggest="${i}"]`);
+        if (box) {
+          const html = salesSuggestionsHtml(i, e.currentTarget.value);
+          box.innerHTML = html;
+          if (html) positionSalesSuggest(e.currentTarget, box);
+        }
+      }
+    });
+  });
+  app.querySelectorAll("[data-sales-field='q']").forEach((input) => {
+    input.addEventListener("blur", (e) => {
+      const i = Number(e.currentTarget.dataset.salesIndex);
+      // تأخير بسيط كي تُسجَّل نقرة الاقتراح قبل إخفاء القائمة.
+      setTimeout(() => {
+        const box = app.querySelector(`[data-sales-suggest="${i}"]`);
+        if (box) box.innerHTML = "";
+      }, 180);
+    });
+  });
+  // تفويض حدث للاقتراحات لأنها تُحقن ديناميكياً؛ mousedown+preventDefault يمنع blur المبكر.
+  app.querySelector("#sales-body")?.addEventListener("mousedown", (e) => {
+    const pick = e.target.closest("[data-sales-pick]");
+    if (!pick) return;
+    e.preventDefault();
+    salesPickItem(Number(pick.dataset.salesRow), pick.dataset.salesPick);
+  });
+  app.querySelectorAll("[data-sales-unit]").forEach((btn) => {
+    btn.addEventListener("click", () => salesToggleUnit(Number(btn.dataset.salesUnit)));
+  });
+  app.querySelectorAll("[data-sales-remove]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      state.salesRows.splice(Number(btn.dataset.salesRemove), 1);
+      salesEnsureTrailingRow();
+      render();
+    });
+  });
+  app.querySelectorAll("[data-sales-mode]").forEach((btn) => {
+    btn.addEventListener("click", () => salesSetMode(btn.dataset.salesMode));
+  });
+  app.querySelectorAll("[data-sales-pay]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      state.salesPayMethod = btn.dataset.salesPay === "credit" ? "credit" : "cash";
+      if (state.salesPayMethod === "cash") state.salesPaid = "";
+      render();
+    });
+  });
+  app.querySelector("[data-action='sales-save']")?.addEventListener("click", salesSaveInvoice);
+  app.querySelector("[data-action='sales-print']")?.addEventListener("click", printSalesInvoice);
+  app.querySelector("[data-action='sales-new']")?.addEventListener("click", salesNewInvoice);
 
   app.querySelector("[data-action='ai-clear']")?.addEventListener("click", () => {
     state.aiMessages = [];
