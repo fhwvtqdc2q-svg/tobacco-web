@@ -9,6 +9,25 @@
 - المسؤول: —
 - آخر تحديث: 2026-07-22
 
+## 2026-07-23 - Codex - مراجعة سلامة حفظ تحسين اقتراحات فاتورة المبيعات
+
+- Status: reviewed and verified — عملية الحفظ سليمة ولا توجد ملاحظة مانعة؛ لا commit أو push أو merge من Codex.
+- Branch/worktree: `feat/invoice-module` في `.claude/worktrees/agent-aba8cb3159c146563`
+- commit reviewed: `564dcc4` «حفظ تحسين تموضع اقتراحات فاتورة المبيعات على iPhone»
+- نطاق الحفظ:
+  1. `git show 564dcc4 --stat` و`diff-tree` أكدا أن الـcommit يغيّر ملفين فقط: `src/app.js` و`AI_HANDOFF.md`.
+  2. فرق `src/app.js` عبارة عن hunk واحد داخل `positionSalesSuggest` من بدايتها حتى قبل `salesPickItem`; لا سطر مضافاً أو محذوفاً في `salesPickItem` أو التسعير أو المجاميع.
+  3. فرق `AI_HANDOFF.md` يضيف سجلّي التسليم السابقين فقط: مراجعة نواة الفاتورة، واعتماد تموضع اقتراحات iPhone.
+- مطابقة Git بعد `git fetch origin --prune`: `HEAD` و`origin/feat/invoice-module` متطابقان تماماً عند `564dcc42c1a1ffb2d4ebb1cb6b07d52825581f26`، والتباعد `0/0`. قبل إضافة سجل المراجعة الحالي كان `git status -sb` نظيفاً ويعرض `feat/invoice-module...origin/feat/invoice-module`. بقي `origin/main` عند `695b69d`، وهو Merge PR #17.
+- إعادة برهان متصفح معزول 390×844:
+  1. الحافة اليمنى RTL: عرض 240px وحدود `left=142`, `right=382`.
+  2. الحافة اليسرى: `left=8`, `right=248`.
+  3. الحقل قرب الأسفل (`top=780`): انقلبت القائمة فوقه إلى `top=458`, `bottom=738`.
+  الحالات الثلاث بقيت ضمن viewport أفقياً وعمودياً؛ الاختبار لم يفتح بيانات أو خدمات الإنتاج.
+- Checks: `npm.cmd run check` ناجح (`Project check passed`)؛ `git diff --check` نظيف؛ وفحص patch الـcommit نفسه `git diff --check 564dcc4^ 564dcc4` نظيف.
+- Boundaries: لم تُشغّل مزامنة فعلية، ولم تُلمس أسعار، ولم يحدث commit/push/merge. التغيير الوحيد بعد الفحوص هو سجل المراجعة الحالي غير المثبّت في `AI_HANDOFF.md` حسب طلب المستخدم.
+- Handoff UTC: 2026-07-23T20:04:27Z
+
 ## 2026-07-23 - Codex - اعتماد تموضع اقتراحات فاتورة المبيعات على iPhone
 
 - Status: reviewed and verified — تعديل `positionSalesSuggest` يحقق حدود العرض والتموضع والانقلاب العمودي المطلوبة.
