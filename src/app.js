@@ -5316,9 +5316,33 @@ function refreshSalesTotals() {
 // قائمة الاقتراحات تُعرض position:fixed كي لا يقصّها overflow جدول الأسطر.
 function positionSalesSuggest(input, box) {
   const rect = input.getBoundingClientRect();
-  box.style.top = `${rect.bottom + 2}px`;
-  box.style.left = `${rect.left}px`;
-  box.style.width = `${Math.max(rect.width, 240)}px`;
+  const vw = document.documentElement.clientWidth;
+  // visualViewport يعكس المساحة الفعلية عند فتح كيبورد الآيفون (أدق من clientHeight).
+  const vh = (window.visualViewport && window.visualViewport.height) || document.documentElement.clientHeight;
+  const margin = 8;
+
+  // العرض: لا يتجاوز عرض الشاشة أبداً (كان يفرض 240px فيخرج على الشاشات الضيقة).
+  const width = Math.min(Math.max(rect.width, 240), vw - margin * 2);
+  box.style.width = `${width}px`;
+
+  // الأفقي: ابدأ من يسار الحقل ثم اضبطه ضمن حدود الشاشة يميناً ويساراً (مهم في RTL).
+  let left = rect.left;
+  if (left + width > vw - margin) left = vw - margin - width;
+  if (left < margin) left = margin;
+  box.style.left = `${left}px`;
+
+  // العمودي: تحت الحقل افتراضياً؛ فإن ضاقت المساحة تحته (كيبورد الآيفون) اقلبها فوقه لتبقى مرئية.
+  const spaceBelow = vh - rect.bottom;
+  const spaceAbove = rect.top;
+  if (spaceBelow < 160 && spaceAbove > spaceBelow) {
+    const h = Math.min(320, spaceAbove - margin);
+    box.style.maxHeight = `${Math.max(120, h)}px`;
+    box.style.top = `${Math.max(margin, rect.top - h - 2)}px`;
+  } else {
+    const h = Math.min(320, spaceBelow - margin);
+    box.style.maxHeight = `${Math.max(120, h)}px`;
+    box.style.top = `${rect.bottom + 2}px`;
+  }
 }
 
 function salesPickItem(rowIndex, key) {
