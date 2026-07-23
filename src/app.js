@@ -247,6 +247,8 @@ const state = {
   globalSearch: "",
   syriaCurrency: "USD",
   syriaExchangeRate: readJson("syria-exchange-rate", 14050),
+  publishedExchangeRate: null,
+  publishedExchangeRateError: null,
   syriaRateConfirmed: false,
   openSections: {},
   priceMode: readJson("price-mode", "jumla"),
@@ -374,14 +376,20 @@ async function boot() {
 async function loadPublishedExchangeRate() {
   try {
     const response = await fetch(`scripts/exchange-rate.json?v=${Date.now()}`, { cache: "no-store" });
-    if (!response.ok) return;
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
     const payload = await response.json();
     const rate = Number(payload.sypPerUsd || 0);
     if (rate > 0) {
-      state.syriaExchangeRate = rate;
-      writeJson("syria-exchange-rate", rate);
+      state.publishedExchangeRate = rate;
+      state.publishedExchangeRateError = null;
+      if (!localStorage.getItem("syria-exchange-rate")) {
+        state.syriaExchangeRate = rate;
+        writeJson("syria-exchange-rate", rate);
+      }
     }
-  } catch {}
+  } catch {
+    state.publishedExchangeRateError = "تعذر التحقق من سعر النشرة العامة حالياً.";
+  }
 }
 
 async function refreshSession() {
@@ -1949,7 +1957,7 @@ let bulletinPublishTimer = null;
 function scheduleBulletinPublish() {
   clearTimeout(bulletinPublishTimer);
   if (!localStorage.getItem("gh_publish_token")) {
-    state.bulletinStatus = { type: "muted", msg: "حُفظ السعر. اضغط «اعتماد ونشر» مرة واحدة لتفعيل النشر التلقائي على هذا الجهاز." };
+    state.bulletinStatus = { type: "muted", msg: "حُفظ التعديل محلياً فقط. اضغط «اعتماد ونشر للزبائن» لنشره على الرابط العام." };
     return;
   }
   state.bulletinStatus = { type: "muted", msg: "حُفظ السعر — ستُحدّث النشرة تلقائياً بعد انتهاء تعديلاتك." };
@@ -1971,10 +1979,19 @@ async function publishBulletin(options = {}) {
 
   let token = localStorage.getItem("gh_publish_token");
   if (!token) {
-    if (options.storedTokenOnly) return;
+    if (options.storedTokenOnly) {
+      state.bulletinStatus = { type: "muted", msg: "حُفظ التعديل محلياً فقط. اضغط «اعتماد ونشر للزبائن» لنشره على الرابط العام." };
+      render();
+      return;
+    }
     token = prompt("أدخل GitHub Token لنشر النشرة (يُحفظ مرة واحدة على هذا الجهاز):");
-    if (!token) return;
-    localStorage.setItem("gh_publish_token", token.trim());
+    token = token?.trim();
+    if (!token) {
+      state.bulletinStatus = { type: "error", msg: "لم يتم النشر: يلزم GitHub Token ثم الضغط على «اعتماد ونشر للزبائن»." };
+      render();
+      return;
+    }
+    localStorage.setItem("gh_publish_token", token);
   }
 
   state.bulletinStatus = { type: "muted", msg: "⏳ جارٍ إرسال طلب التوليد..." };
@@ -1997,16 +2014,19 @@ async function publishBulletin(options = {}) {
     if (resp.status === 204) {
       state.bulletinStatus = {
         type: "success",
-        msg: "✅ تم الطلب — النشرة ستكون جاهزة للزبائن خلال دقيقتين على الرابط الثابت.",
+        msg: "✅ تم إرسال طلب النشر بنجاح — ستتحدّث النشرة خلال دقيقتين على الرابط الثابت.",
       };
-    } else if (resp.status === 401 || resp.status === 403) {
+    } else if (resp.status === 401) {
       localStorage.removeItem("gh_publish_token");
-      state.bulletinStatus = { type: "error", msg: "❌ Token غير صحيح أو منتهي — أعد المحاولة وأدخل token جديد." };
+      state.bulletinStatus = { type: "error", msg: "❌ فشل النشر (401): GitHub Token غير صحيح أو منتهي. أعد المحاولة وأدخل token جديداً." };
+    } else if (resp.status === 403) {
+      localStorage.removeItem("gh_publish_token");
+      state.bulletinStatus = { type: "error", msg: "❌ فشل النشر (403): GitHub Token لا يملك صلاحية تشغيل workflow. أعد المحاولة برمز ذي صلاحية مناسبة." };
     } else {
-      state.bulletinStatus = { type: "error", msg: `❌ خطأ ${resp.status} — تحقق من صلاحيات Token.` };
+      state.bulletinStatus = { type: "error", msg: `❌ فشل نشر النشرة (HTTP ${resp.status}). حاول مجدداً أو تحقق من إعدادات GitHub.` };
     }
-  } catch {
-    state.bulletinStatus = { type: "error", msg: "❌ تعذر الاتصال بـ GitHub. تحقق من الإنترنت." };
+  } catch (error) {
+    state.bulletinStatus = { type: "error", msg: `❌ تعذر إرسال طلب النشر إلى GitHub: ${safeErrorMessage(error)}` };
   }
   render();
 }
@@ -3165,7 +3185,18 @@ function pricing() {
       ? '<p class="muted">سجل الدخول حتى تحفظ الأسعار في Supabase وتصل إلى جهاز المحاسبة.</p>'
       : "";
   const generalCount = customerPriceListItems().length;
-  const publishState = state.bulletinStatus?.type === "error" ? "تحتاج مراجعة" : "جاهزة للنشر";
+  const enteredRate = Number(state.syriaExchangeRate || 0);
+  const publishedRate = Number(state.publishedExchangeRate || 0);
+  const rateIsPending = publishedRate > 0 && enteredRate > 0 && publishedRate !== enteredRate;
+  const publishState = state.bulletinStatus?.type === "error" || rateIsPending ? "تحتاج نشر" : "منشورة";
+  const publishedRateLabel = publishedRate > 0 ? publishedRate.toLocaleString("en-US") : "غير متاح";
+  const enteredRateLabel = enteredRate > 0 ? enteredRate.toLocaleString("en-US") : "غير صالح";
+  const ratePublishWarning = rateIsPending
+    ? `<p class="bulletin-status error">⚠️ السعر لم يُنشر بعد — النشرة العامة ما زالت على ${escapeHtml(publishedRateLabel)}. اضغط اعتماد ونشر</p>`
+    : "";
+  const rateVerificationWarning = state.publishedExchangeRateError
+    ? `<p class="bulletin-status error">${escapeHtml(state.publishedExchangeRateError)}</p>`
+    : "";
 
   return shell(`
     <section class="newsletter-hub">
@@ -3231,10 +3262,14 @@ function pricing() {
           <label style="display:flex;align-items:center;gap:8px;font-weight:700">سعر الصرف اليوم
             <input data-published-exchange-rate type="number" min="1" step="1" value="${escapeHtml(state.syriaExchangeRate)}" style="width:120px;padding:8px;border:1px solid var(--line);border-radius:8px" aria-label="سعر صرف الليرة السورية مقابل الدولار">
           </label>
+          <span class="status-chip">المُدخل: ${escapeHtml(enteredRateLabel)}</span>
+          <span class="status-chip">المنشور فعلياً: ${escapeHtml(publishedRateLabel)}</span>
           <a class="button primary" href="public/downloads/price-list-usd.html">اختيار وطباعة الدولار</a>
           <a class="button primary" href="public/downloads/price-list-syp-14050.html">اختيار وطباعة السوري</a>
           <button class="button success" type="button" data-action="publish-bulletin" ${state.session ? "" : "disabled"}>اعتماد ونشر للزبائن</button>
         </div>
+        ${ratePublishWarning}
+        ${rateVerificationWarning}
         ${state.bulletinStatus ? `<p class="bulletin-status ${state.bulletinStatus.type}">${escapeHtml(state.bulletinStatus.msg)}</p>` : ""}
       </section>
 
@@ -3243,7 +3278,7 @@ function pricing() {
         <div>
           <span class="newsletter-section-label">مراجعة المواد</span>
           <h3>أسعار النشرة</h3>
-          <p class="muted">تظهر هنا النشرة العامة فقط بعد استبعاد الوزاري ودمج الأصناف المتشابهة. بعد حفظ الأسعار تُحدّث النشرة تلقائياً خلال لحظات.</p>
+          <p class="muted">تظهر هنا النشرة العامة فقط بعد استبعاد الوزاري ودمج الأصناف المتشابهة. الحفظ محلي، والنشر العام يتطلب «اعتماد ونشر» ما لم يكن رمز النشر محفوظاً على هذا الجهاز.</p>
         </div>
         <span class="status-chip">${escapeHtml(approvedCount)} سعر معتمد</span>
       </div>
@@ -5996,7 +6031,6 @@ function render() {
     if (rate > 0) {
       state.syriaExchangeRate = rate;
       writeJson("syria-exchange-rate", rate);
-      state.bulletinStatus = { type: "muted", msg: `تم اعتماد صرف ${rate.toLocaleString()} — ستُحدّث نشرة السوري تلقائياً.` };
       scheduleBulletinPublish();
       render();
     }
