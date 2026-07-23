@@ -130,9 +130,15 @@ if (app.includes("سعّر الجملة أولاً")) {
   console.error("Retail-only pricing must not require a wholesale USD price first.");
   failed = true;
 }
-for (const contract of ["data-published-exchange-rate", "inputs: { rate: String(rate) }", "loadPublishedExchangeRate", "تم اعتماد صرف", "scheduleBulletinPublish();"] ) {
+for (const contract of ["data-published-exchange-rate", "inputs: { rate: String(rate) }", "loadPublishedExchangeRate", "publishedExchangeRate", "السعر لم يُنشر بعد", "المنشور فعلياً", "scheduleBulletinPublish();"] ) {
   if (!app.includes(contract)) {
     console.error(`Daily exchange-rate contract is missing: ${contract}`);
+    failed = true;
+  }
+}
+for (const misleadingMessage of ["لتفعيل النشر التلقائي على هذا الجهاز", "تم اعتماد صرف"]) {
+  if (app.includes(misleadingMessage)) {
+    console.error(`Bulletin status must not imply automatic publishing without a stored token: ${misleadingMessage}`);
     failed = true;
   }
 }
