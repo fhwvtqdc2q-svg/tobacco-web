@@ -177,7 +177,7 @@ function syncFreshnessLabel(value) {
   return `قبل ${Math.round(minutes / 60)} ساعة`;
 }
 
-const allowedRoutes = new Set(["overview", "login", "requests", "ameen", "balances", "pricing", "remote", "monitoring", "payments", "purchases"]);
+const allowedRoutes = new Set(["overview", "login", "requests", "ameen", "balances", "pricing", "remote", "monitoring", "payments", "purchases", "sales"]);
 
 const customerPriceContacts = [
   { label: "هاتف المبيعات", value: "0985000771" },
@@ -242,6 +242,7 @@ const state = {
   salesDiscount: "",
   salesPaid: "",
   salesInvoiceNo: "",
+  salesSavedNo: "",
   salesRows: [{ q: "", key: "", name: "", num: "", unit: "unit2", qty: "1", price: "", edited: false }],
   purchaseInvoices: [],
   poSupplier: "",
@@ -5156,17 +5157,31 @@ function salesTotals() {
   return { grand, discount, net, paid, remaining };
 }
 
+// حالة المتبقّي بلغة المحاسبة: موجب = على الزبون، سالب = له عندنا، وصفر = مسدّد.
+// العتبة تختلف بالعملة: الليرة أرقام صحيحة، والدولار خانتان عشريتان.
+function salesRemainingState(remaining, mode) {
+  const epsilon = mode === "mufrak" ? 0.5 : 0.005;
+  if (Math.abs(remaining) < epsilon) return { status: "settled", label: "مسدّد" };
+  if (remaining > 0) return { status: "due", label: "عليه" };
+  return { status: "credit", label: "له" };
+}
+
 function salesResolvedRows() {
   return (state.salesRows || []).filter((row) => row.key && toNumber(row.qty) > 0 && toNumber(row.price) > 0);
 }
 
+// رقم تسلسلي شهري: SAL-YYMM-0001 ثم 0002… ويبدأ من ٠٠٠١ مع كل شهر جديد.
+// العدّاد محفوظ محلياً على الجهاز. عند تفعيل خصم المخزون وتقييد الذمم يجب ترقيته
+// إلى عدّاد مركزي في Supabase كي لا يتكرّر الرقم إذا فُوتِر من أكثر من جهاز.
 function generateSalesInvoiceNumber() {
   const now = new Date();
   const yy = String(now.getFullYear()).slice(-2);
   const mm = String(now.getMonth() + 1).padStart(2, "0");
-  const rand = String(Math.floor(Math.random() * 9000) + 1000);
-  // TODO: رقم تسلسلي حقيقي متزامن مع الأمين — خارج النواة الحالية.
-  return `SAL-${yy}${mm}-${rand}`;
+  const period = `${yy}${mm}`;
+  const saved = readJson("sales-invoice-seq", null);
+  const next = saved && saved.period === period ? Number(saved.seq || 0) + 1 : 1;
+  writeJson("sales-invoice-seq", { period, seq: next });
+  return `SAL-${period}-${String(next).padStart(4, "0")}`;
 }
 
 function ensureSalesInvoiceNo() {
@@ -5279,7 +5294,7 @@ function salesInvoice() {
           <div class="sales-summary-row"><span>المدفوع (${escapeHtml(symbol)})</span>
             <input class="inv-input-main sales-amount-input" id="sales-paid" data-sales-num value="${escapeHtml(paidValue)}" placeholder="0" type="text" inputmode="decimal" dir="ltr" ${state.salesPayMethod === "cash" ? "readonly" : ""}>
           </div>
-          <div class="sales-summary-row sales-summary-remaining"><span>المتبقّي</span><strong data-sales-remaining dir="ltr">${salesMoney(totals.remaining, mode)}</strong></div>
+          <div class="sales-summary-row sales-summary-remaining"><span>المتبقّي <small class="sales-remaining-tag" data-sales-remaining-tag>${escapeHtml(salesRemainingState(totals.remaining, mode).label)}</small></span><strong data-sales-remaining dir="ltr">${salesMoney(Math.abs(totals.remaining), mode)}</strong></div>
         </div>
 
         <div class="inv-actions sales-actions">
@@ -5306,7 +5321,9 @@ function refreshSalesTotals() {
   const netEl = document.querySelector("[data-sales-net]");
   if (netEl) netEl.textContent = salesMoney(totals.net, mode);
   const remainingEl = document.querySelector("[data-sales-remaining]");
-  if (remainingEl) remainingEl.textContent = salesMoney(totals.remaining, mode);
+  if (remainingEl) remainingEl.textContent = salesMoney(Math.abs(totals.remaining), mode);
+  const remainingTagEl = document.querySelector("[data-sales-remaining-tag]");
+  if (remainingTagEl) remainingTagEl.textContent = salesRemainingState(totals.remaining, mode).label;
   if (state.salesPayMethod === "cash") {
     const paidInput = document.getElementById("sales-paid");
     if (paidInput) paidInput.value = salesFmtPlain(totals.paid, mode);
@@ -5345,6 +5362,22 @@ function positionSalesSuggest(input, box) {
   }
 }
 
+// إعادة التركيز إلى حقل محدّد بعد إعادة الرسم (render يبني DOM جديداً كلياً).
+// أساس العمل بلا ماوس: بعد اختيار الصنف ننتقل للكمية، وEnter ينقل بين الحقول.
+function salesFocusField(rowIndex, field) {
+  const focusNow = () => {
+    const el = document.querySelector(`[data-sales-field="${field}"][data-sales-index="${rowIndex}"]`);
+    if (!el) return false;
+    el.focus();
+    if (typeof el.select === "function") el.select();
+    return true;
+  };
+  // المحاولة الفورية مقصودة: تبقى داخل سياق لمسة المستخدم، وهو شرط iOS لفتح الكيبورد.
+  // rAF احتياط فقط لو لم يكن العنصر قد رُسم بعد.
+  if (focusNow()) return;
+  requestAnimationFrame(focusNow);
+}
+
 function salesPickItem(rowIndex, key) {
   const row = state.salesRows[rowIndex];
   const item = salesItemByKey(key);
@@ -5361,6 +5394,8 @@ function salesPickItem(rowIndex, key) {
   if (!(toNumber(row.qty) > 0)) row.qty = "1";
   salesEnsureTrailingRow();
   render();
+  // بعد اختيار الصنف ينتقل التركيز تلقائياً إلى الكمية (متطلب العمل بلا ماوس).
+  salesFocusField(rowIndex, "qty");
 }
 
 function salesToggleUnit(rowIndex) {
@@ -5397,6 +5432,7 @@ function salesNewInvoice() {
   state.salesPaid = "";
   state.salesPayMethod = "cash";
   state.salesInvoiceNo = generateSalesInvoiceNumber();
+  state.salesSavedNo = "";
   setNotice("success", "بدأت فاتورة مبيعات جديدة.");
   render();
 }
@@ -5405,6 +5441,12 @@ async function salesSaveInvoice() {
   const resolved = salesResolvedRows();
   if (!resolved.length) {
     setNotice("error", "أضف صنفاً واحداً على الأقل بكمية وسعر أكبر من صفر.");
+    render();
+    return;
+  }
+  // منع حفظ الفاتورة نفسها مرتين (ضغط مزدوج أو إعادة ضغط بعد نجاح الحفظ).
+  if (state.salesSavedNo && state.salesSavedNo === state.salesInvoiceNo) {
+    setNotice("error", `الفاتورة ${state.salesSavedNo} محفوظة مسبقاً — اضغط «＋ فاتورة جديدة» لإصدار فاتورة أخرى.`);
     render();
     return;
   }
@@ -5442,6 +5484,7 @@ async function salesSaveInvoice() {
   };
   try {
     await dataStore.createSharedDocument(doc);
+    state.salesSavedNo = doc.no;
     // TODO: عند تفعيل النواة الكاملة يُخصم المخزون ويُقيَّد على ذمة الزبون هنا.
     setNotice("success", `تم حفظ فاتورة المبيعات ${doc.no} بالنظام والأرشيف ✓`);
   } catch (error) {
@@ -5492,7 +5535,7 @@ function printSalesInvoice() {
     ${totals.discount > 0 ? `<tr><td>حسم</td><td class="col-total">− ${escapeHtml(salesMoney(totals.discount, mode))}</td></tr>` : ""}
     <tr class="sum-strong"><td>الصافي</td><td class="col-total">${escapeHtml(salesMoney(totals.net, mode))}</td></tr>
     <tr><td>المدفوع (${escapeHtml(payLabel)})</td><td class="col-total">${escapeHtml(salesMoney(totals.paid, mode))}</td></tr>
-    <tr class="sum-strong"><td>المتبقّي</td><td class="col-total">${escapeHtml(salesMoney(totals.remaining, mode))}</td></tr>`;
+    <tr class="sum-strong"><td>المتبقّي (${escapeHtml(salesRemainingState(totals.remaining, mode).label)})</td><td class="col-total">${escapeHtml(salesMoney(Math.abs(totals.remaining), mode))}</td></tr>`;
 
   const html = `<!DOCTYPE html>
 <html lang="ar" dir="rtl">
@@ -6555,6 +6598,30 @@ function render() {
           if (html) positionSalesSuggest(e.currentTarget, box);
         }
       }
+    });
+  });
+  // اختصارات كيبورد للعمل بلا ماوس: Enter ينتقل بحث ← كمية ← سعر ← بحث السطر التالي،
+  // وفي حقل البحث يعتمد أول اقتراح ظاهر مباشرة بدل النقر عليه.
+  app.querySelectorAll("[data-sales-field]").forEach((input) => {
+    input.addEventListener("keydown", (e) => {
+      if (e.key !== "Enter") return;
+      e.preventDefault();
+      const i = Number(e.currentTarget.dataset.salesIndex);
+      const field = e.currentTarget.dataset.salesField;
+      if (field === "q") {
+        const first = app.querySelector(`[data-sales-suggest="${i}"] [data-sales-pick]`);
+        if (first) {
+          salesPickItem(i, first.dataset.salesPick);
+          return;
+        }
+        salesFocusField(i, "qty");
+        return;
+      }
+      if (field === "qty") {
+        salesFocusField(i, "price");
+        return;
+      }
+      if (field === "price") salesFocusField(i + 1, "q");
     });
   });
   app.querySelectorAll("[data-sales-field='q']").forEach((input) => {
