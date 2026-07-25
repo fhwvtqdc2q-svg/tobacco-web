@@ -21,7 +21,8 @@ $SB = GS "TOBACCO_SUPABASE_URL"; if (-not $SB) { $SB = "https://dyxbirfpxeocqffn
 $KEY = GS "TOBACCO_SUPABASE_PUBLIC_KEY"; if (-not $KEY) { $KEY = GS "SUPABASE_PUBLIC_KEY" }
 $EMAIL = GS "TOBACCO_SYNC_EMAIL"; $PW = GS "TOBACCO_SYNC_PASSWORD"
 $TO = "963984000662"
-$SITE = "https://fhwvtqdc2q-svg.github.io/tobacco-web/receipt.html?id="
+# الرابط يُبنى من public_token لا من id (انظر supabase/shared-documents-anon-lockdown.sql)
+$SITE = "https://fhwvtqdc2q-svg.github.io/tobacco-web/receipt.html?t="
 if (-not $KEY -or -not $EMAIL -or -not $PW) { Write-Log "khata: env Supabase nawaqis."; exit 1 }
 
 # كروم
@@ -80,7 +81,9 @@ $doc = @{ t = "daily"; period = $Period; no = ("D-" + (Get-Date).ToString("yyyyM
 $payload = (@{ doc = $doc }) | ConvertTo-Json -Depth 8 -Compress
 $ins = Invoke-RestMethod -Method Post -Uri "$SB/rest/v1/shared_documents" -Headers @{ apikey = $KEY; Authorization = "Bearer $tok"; "Content-Type" = "application/json"; "Accept-Profile" = "public"; "Content-Profile" = "public"; Prefer = "return=representation" } -Body ([Text.Encoding]::UTF8.GetBytes($payload))
 $id = $ins[0].id
-$link = $SITE + $id
+$token = $ins[0].public_token
+if (-not $token) { throw "لم ترجع القاعدة public_token — لا تُبنَ روابط بالـid بعد إغلاق قراءة anon." }
+$link = $SITE + $token
 Write-Log "shared_document id=$id"
 
 # حفظ PDF
