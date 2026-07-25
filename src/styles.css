@@ -2571,6 +2571,14 @@ code {
   border: 1px solid var(--line);
   font-size: 0.82rem;
 }
+/* سطر مصدر رقم الفاتورة (أي سلسلة أمين وعمر المزامنة) — تحت الحقل مباشرة */
+.sales-inv-no-hint {
+  margin: -2px 0 0;
+  font-size: 0.72rem;
+  font-weight: 500;
+  line-height: 1.4;
+}
+
 
 /* الجدول يتمرّر داخل .inv-table-wrap بدل أن ينضغط: مجموع الأعمدة الثابتة
    ~626px، فلو تُرك للانكماش (بعد min-width:0 على الحاوية) لضُغط عمود الصنف حتى

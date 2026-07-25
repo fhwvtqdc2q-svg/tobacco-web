@@ -200,6 +200,7 @@ const state = {
   customerBalanceReports: [],
   customerMovementsReport: null,
   customerInvoicesReport: null,
+  invoiceSeriesReport: null,   // آخر رقم فاتورة لكل سلسلة ترقيم في الأمين
   customerWhatsapp: [],
   broadcastType: "",
   broadcastText: "",
@@ -242,6 +243,7 @@ const state = {
   salesDiscount: "",
   salesPaid: "",
   salesInvoiceNo: "",
+  salesInvoiceNoMode: "",  // الوضع الذي حُسب له الرقم — تبديل الوضع يبدّل السلسلة
   salesSavedNo: "",
   salesSaving: false,
   salesInfoKey: "",        // مفتاح الصنف المفتوحة بطاقته (فارغ = مغلقة)
@@ -684,6 +686,13 @@ async function loadCustomerBalanceReports() {
       : null;
   } catch {
     state.customerInvoicesReport = null;
+  }
+  try {
+    state.invoiceSeriesReport = dataStore.getInvoiceSeriesReport
+      ? await dataStore.getInvoiceSeriesReport()
+      : null;
+  } catch {
+    state.invoiceSeriesReport = null;
   }
   await loadCustomerWhatsapp();
 }
@@ -5300,50 +5309,96 @@ function salesResolvedRows() {
   return (state.salesRows || []).filter((row) => row.key && toNumber(row.qty) > 0 && toNumber(row.price) > 0);
 }
 
-// ترقيم الفواتير: SAL-YYMM-0001 تسلسلياً، ويبدأ من ٠٠٠١ مع كل شهر جديد.
-// العدّاد محفوظ محلياً على الجهاز. عند تفعيل خصم المخزون وتقييد الذمم يجب ترقيته
-// إلى عدّاد مركزي في Supabase كي لا يتكرّر الرقم إذا فُوتِر من أكثر من جهاز.
+// ترقيم الفواتير مأخوذ من سلاسل ترقيم الأمين نفسها، لا من عدّاد محلي مستقل:
+// وضع الجملة يتابع سلسلة «مبيعات»، ووضع المفرق يتابع سلسلة «مبيعات مركز».
+// المصدر تقرير ameen_invoice_series الذي يرفعه tools/push-invoice-series.ps1.
 //
-// قاعدة أساسية: الرقم يُعرض بلا حجز، ولا يُحجز إلا بعد نجاح الحفظ. لذلك فتح الشاشة
-// أو إعادة تحميلها أو فشل الحفظ لا يستهلك رقماً ولا يترك فجوة في تسلسل الفواتير.
+// لماذا ليس من ameen_customer_invoices: ذاك التقرير يشترط اسم زبون غير فارغ،
+// ومعظم فواتير «مبيعات مركز» بلا اسم — فأكبر رقم فيه ليس آخر رقم فعلي. كما أنه
+// لا يحمل نوع الفاتورة أصلاً، والأمين يستعمل سلسلة مستقلة لكل نوع (ست سلاسل:
+// ثلاث للمبيعات وثلاث للمرتجعات)، فخلطها يعطي رقم أكبر سلسلة لكل الأوضاع.
+//
+// قاعدة أساسية باقية كما كانت: الرقم يُعرض بلا حجز، ولا يُحجز إلا بعد نجاح الحفظ.
+// لذلك فتح الشاشة أو إعادة تحميلها أو فشل الحفظ لا يستهلك رقماً ولا يترك فجوة.
 
-// قراءة العدّاد بأمان: أي قيمة تالفة (نص، سالب، NaN، أو شهر قديم) تُعامل كصفر.
-function salesSeqState() {
-  const now = new Date();
-  const period = `${String(now.getFullYear()).slice(-2)}${String(now.getMonth() + 1).padStart(2, "0")}`;
-  const saved = readJson("sales-invoice-seq", null);
-  const raw = saved && saved.period === period ? Number(saved.seq) : 0;
-  const seq = Number.isFinite(raw) && raw > 0 ? Math.floor(raw) : 0;
-  return { period, seq };
+// سلسلة الأمين المقابلة لكل وضع. المعرّف هو المفتاح الثابت (لا يتغيّر بإعادة
+// تسمية نوع الفاتورة في الأمين)، والاسم احتياط عند استبدال قاعدة السنة.
+const SALES_AMEEN_SERIES = {
+  jumla: { guid: "7f5b0921-61f3-4f23-a1f4-fbfae4144bf4", name: "مبيعات" },
+  mufrak: { guid: "cc1097b1-662d-4d80-8e4e-3b493249591c", name: "مبيعات مركز" }
+};
+
+function salesSeriesTarget(mode) {
+  return SALES_AMEEN_SERIES[mode === "mufrak" ? "mufrak" : "jumla"];
 }
 
-function salesFormatInvoiceNo(period, seq) {
-  return `SAL-${period}-${String(seq).padStart(4, "0")}`;
+// سلسلة الترقيم الحيّة من تقرير الأمين — بالمعرّف أولاً ثم بالاسم بعد التطبيع.
+function salesAmeenSeries(mode) {
+  const target = salesSeriesTarget(mode);
+  const items = Array.isArray(state.invoiceSeriesReport?.items) ? state.invoiceSeriesReport.items : [];
+  const byGuid = items.find((s) => String(s?.typeGuid || "").toLowerCase() === target.guid);
+  if (byGuid) return byGuid;
+  const wanted = normalizeItemName(target.name);
+  return items.find((s) => normalizeItemName(s?.typeName || "") === wanted) || null;
 }
 
-const SALES_INVOICE_NO_RE = /^SAL-(\d{4})-(\d+)$/;
+// العدّاد المحلي صار طبقة فوق رقم الأمين لا بديلاً عنه: يمنع تكرار الرقم بين
+// فاتورتين أُصدرتا من الموقع قبل وصول المزامنة التالية. مفتاح مستقل لكل سلسلة.
+function salesSeqState(mode) {
+  const key = "sales-invoice-seq-" + (mode === "mufrak" ? "mufrak" : "jumla");
+  const raw = Number(readJson(key, 0));
+  return { key, seq: Number.isFinite(raw) && raw > 0 ? Math.floor(raw) : 0 };
+}
 
-// الرقم المعروض على الشاشة: التالي المتوقّع، بلا أي كتابة على العدّاد.
-function peekSalesInvoiceNumber() {
-  const { period, seq } = salesSeqState();
-  return salesFormatInvoiceNo(period, seq + 1);
+// الرقم المعروض: الأكبر بين «تالي الأمين» و«تالي العدّاد المحلي»، بلا أي حجز.
+// يرجع نصاً فارغاً إذا لم تصل المزامنة — ولا يخمّن رقماً أبداً، لأن رقماً مخترَعاً
+// قد يصطدم بفاتورة قائمة في الأمين.
+function peekSalesInvoiceNumber(mode) {
+  const m = mode || salesCurrentMode();
+  const series = salesAmeenSeries(m);
+  const ameenNext = Math.floor(Number(series?.nextNo) || 0);
+  if (!(ameenNext > 0)) return "";
+  const local = salesSeqState(m).seq;
+  return String(Math.max(ameenNext, local + 1));
 }
 
 // الحجز الفعلي بعد نجاح الحفظ: يرفع العدّاد ليشمل هذه الفاتورة، ولا يُنقصه أبداً.
-function salesReserveInvoiceNo(no) {
-  const parsed = SALES_INVOICE_NO_RE.exec(String(no || ""));
-  if (!parsed) return;
-  const period = parsed[1];
-  const seq = Number(parsed[2]);
+function salesReserveInvoiceNo(no, mode) {
+  const seq = Number(String(no ?? "").trim());
   if (!Number.isFinite(seq) || seq <= 0) return;
-  const current = salesSeqState();
-  if (current.period === period && current.seq >= seq) return;
-  writeJson("sales-invoice-seq", { period, seq });
+  const current = salesSeqState(mode || salesCurrentMode());
+  if (current.seq >= seq) return;
+  writeJson(current.key, Math.floor(seq));
 }
 
 function ensureSalesInvoiceNo() {
-  if (!state.salesInvoiceNo) state.salesInvoiceNo = peekSalesInvoiceNumber();
+  const mode = salesCurrentMode();
+  // تبديل الوضع يبدّل السلسلة، فالرقم المخبّأ لوضعٍ آخر لا يصلح.
+  if (!state.salesInvoiceNo || state.salesInvoiceNoMode !== mode) {
+    state.salesInvoiceNo = peekSalesInvoiceNumber(mode);
+    state.salesInvoiceNoMode = mode;
+  }
   return state.salesInvoiceNo;
+}
+
+// سطر توضيحي تحت رقم الفاتورة: أي سلسلة، وآخر رقم بالأمين، وعمر المزامنة —
+// كي يرى المستخدم بنفسه إن كان الرقم مبنياً على قراءة قديمة.
+function salesInvoiceNoHint() {
+  const mode = salesCurrentMode();
+  const target = salesSeriesTarget(mode);
+  const series = salesAmeenSeries(mode);
+  if (!series) {
+    return `⚠️ لم تصل مزامنة ترقيم الأمين بعد — سلسلة «${target.name}». لا يمكن إصدار رقم.`;
+  }
+  const stamp = state.invoiceSeriesReport?.summary?.syncedAt || state.invoiceSeriesReport?.created_at || "";
+  let age = "";
+  const ms = stamp ? Date.now() - new Date(stamp).getTime() : NaN;
+  if (Number.isFinite(ms) && ms >= 0) {
+    const mins = Math.floor(ms / 60000);
+    age = mins < 1 ? "الآن" : mins < 60 ? `قبل ${mins} دقيقة` : `قبل ${Math.floor(mins / 60)} ساعة`;
+  }
+  const stale = Number.isFinite(ms) && ms > 20 * 60000 ? "⚠️ " : "";
+  return `${stale}سلسلة «${series.typeName}» — آخر رقم بالأمين ${series.lastNo}${age ? ` (مزامنة ${age})` : ""}`;
 }
 
 function salesEnsureTrailingRow() {
@@ -5664,7 +5719,8 @@ function salesInvoice() {
 
         <div class="sales-header-grid">
           <label class="inv-label">رقم الفاتورة
-            <input class="inv-input-main" value="${escapeHtml(invNo)}" readonly dir="ltr">
+            <input class="inv-input-main" value="${escapeHtml(invNo || "—")}" readonly dir="ltr">
+            <small class="muted sales-inv-no-hint">${escapeHtml(salesInvoiceNoHint())}</small>
           </label>
           <label class="inv-label">التاريخ
             <input class="inv-input-main" value="${escapeHtml(todayIsoDate())}" readonly dir="ltr">
@@ -5861,7 +5917,8 @@ function salesNewInvoice() {
   state.salesDiscount = "";
   state.salesPaid = "";
   state.salesPayMethod = "cash";
-  state.salesInvoiceNo = peekSalesInvoiceNumber();
+  state.salesInvoiceNoMode = salesCurrentMode();
+  state.salesInvoiceNo = peekSalesInvoiceNumber(state.salesInvoiceNoMode);
   state.salesSavedNo = "";
   setNotice("success", "بدأت فاتورة مبيعات جديدة.");
   render();
@@ -5885,11 +5942,16 @@ async function salesSaveInvoice() {
   if (state.salesSaving) return;
 
   // الرقم يُحسم لحظة الحفظ: لو كان المعروض قد استُهلك فعلاً (فاتورة أخرى، أو تبويب
-  // آخر، أو تغيّر الشهر والشاشة مفتوحة) نأخذ التالي بدل تكرار رقم محجوز.
-  const seqState = salesSeqState();
-  const shownNo = SALES_INVOICE_NO_RE.exec(ensureSalesInvoiceNo());
-  if (!shownNo || shownNo[1] !== seqState.period || Number(shownNo[2]) <= seqState.seq) {
-    state.salesInvoiceNo = peekSalesInvoiceNumber();
+  // آخر، أو وصلت مزامنة أحدث من الأمين) نأخذ التالي بدل تكرار رقم محجوز.
+  const freshNo = peekSalesInvoiceNumber();
+  if (!freshNo) {
+    setNotice("error", "لم تصل مزامنة ترقيم الأمين بعد — لا يمكن إصدار رقم فاتورة. انتظر دقائق ثم أعد المحاولة.");
+    render();
+    return;
+  }
+  const shownNo = Number(ensureSalesInvoiceNo());
+  if (!Number.isFinite(shownNo) || shownNo < Number(freshNo)) {
+    state.salesInvoiceNo = freshNo;
   }
 
   const mode = salesCurrentMode();
@@ -5954,6 +6016,12 @@ function printSalesInvoice() {
   }
   const mode = salesCurrentMode();
   const invNo = ensureSalesInvoiceNo();
+  // لا تُطبع فاتورة بلا رقم: الورقة المطبوعة مستند يُسلَّم للزبون.
+  if (!invNo) {
+    setNotice("error", "لم تصل مزامنة ترقيم الأمين بعد — لا يمكن طباعة فاتورة بلا رقم.");
+    render();
+    return;
+  }
   const totals = salesTotals();
   const today = new Intl.DateTimeFormat("ar-SA-u-nu-latn", { dateStyle: "long" }).format(new Date());
   const customer = state.salesCustomer.trim() || "زبون نقدي";
