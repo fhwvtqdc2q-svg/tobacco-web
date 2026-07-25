@@ -1284,7 +1284,9 @@ async function refreshAmeenReports() {
 async function saveCustomerLimit(form) {
   try {
     const customerName = form.dataset.customerName || "";
-    const customerKeyValue = form.dataset.customerKey || normalizeItemName(customerName);
+    // نطبّع دائماً — حتى مفتاح dataset — كي لا يتكرّر خلل عدم الارتباط
+    // الذي جعل حد «مركز شريفة» لا يُطبَّق (ة مقابل ه).
+    const customerKeyValue = normalizeItemName(form.dataset.customerKey || customerName);
     const creditLimit = Math.max(0, toNumber(formValue(form, "creditLimit")));
 
     if (!customerKeyValue) throw new Error("لم أستطع تحديد الزبون لحفظ الحد.");
@@ -2827,12 +2829,19 @@ function customerLimitSourceLabel(source) {
   }[source] || "بلا حد";
 }
 
+// التطبيع على الطرفين إلزامي: مفاتيح الحدود المحفوظة سابقاً غير مطبّعة أحياناً
+// (مثال حقيقي: «مركز شريفة اسعد شريفة» بالتاء المربوطة) بينما مزامنة الأرصدة
+// تطبّع (ة←ه)، فكان الحد لا يرتبط بصاحبه أبداً ويظهر «بلا حد محدّد».
+// التطبيع هنا يُصلح السجلات القديمة بلا ترحيل بيانات.
 function customerLimitMap() {
-  return new Map(
-    state.customerCreditLimits
-      .filter((limit) => limit.customerKey)
-      .map((limit) => [String(limit.customerKey), limit])
-  );
+  const map = new Map();
+  (state.customerCreditLimits || []).forEach((limit) => {
+    const raw = limit && (limit.customerKey || limit.customerName);
+    if (!raw) return;
+    const key = normalizeItemName(String(raw));
+    if (key && !map.has(key)) map.set(key, limit);
+  });
+  return map;
 }
 
 function deriveCustomerStatus(balance, limit) {
@@ -2847,7 +2856,7 @@ function applyCustomerLimits(items) {
   const limits = customerLimitMap();
   return items.map((item) => {
     const key = customerKey(item);
-    const savedLimit = limits.get(key);
+    const savedLimit = limits.get(normalizeItemName(key)); // الطرف الآخر مطبّع أيضاً
     const ameenLimit = Number(item?.creditLimit || 0);
     const internalLimit = Number(savedLimit?.creditLimit || 0);
     const effectiveLimit = internalLimit > 0 ? internalLimit : ameenLimit;
