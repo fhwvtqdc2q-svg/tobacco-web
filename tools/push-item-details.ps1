@@ -1,5 +1,9 @@
-# يرفع تفاصيل الصنف (التكلفة + توزيع المخزون على المستودعات) إلى Supabase
-# ليعرضها زر معلومات الصنف (i) داخل فاتورة المبيعات.
+﻿# يرفع توزيع مخزون الصنف على المستودعات إلى Supabase ليعرضه زر معلومات
+# الصنف (i) داخل فاتورة المبيعات.
+#
+# لا يرفع التكلفة إطلاقاً: inventory_reports يقرأه كل موظف مسجّل، بينما التكلفة
+# والربح للمدير فقط. مصدر التكلفة الوحيد هو جدول item_costs المحمي بـRLS
+# (is_owner) الذي يملؤه tools/push-item-costs.ps1.
 #
 # قراءة فقط من الأمين. يكتب في inventory_reports بمصدر ameen_item_details فقط —
 # لا يمسّ الأسعار ولا approved_price_items ولا مزامنة الإنتاج (ameen-sync-agent.ps1).
@@ -33,9 +37,6 @@ function Get-EnvVar($name) {
 }
 
 # ── قراءة الأمين ──────────────────────────────────────────────────────────────
-# التكلفة: mt000.AvgPrice متوسط تكلفة الوحدة الأولى (كروز) بعملة الأساس (دولار).
-#   تحقق 2026-07-25: ماستر طويل ورق avg=7.044 × 50 = 352$ مقابل بيع 354$ — منطقي.
-#   عند AvgPrice = 0 (صنف بلا مشتريات) نرجع إلى LastPrice.
 # المخزون حسب المستودع: نفس منطق ameen-stock-query.sql (v2 من الفواتير بأعلام
 #   bIsInput/bIsOutput) — لا يُقرأ من ms000 بعد تدوير السنة.
 $sql = @'
@@ -52,8 +53,6 @@ with per_store as (
 select
   cast(mt.Number as nvarchar(32))            as item_number,
   mt.Name                                    as item_name,
-  cast(isnull(mt.AvgPrice, 0) as decimal(18,4))  as avg_cost,
-  cast(isnull(mt.LastPrice, 0) as decimal(18,4)) as last_cost,
   cast(isnull(mt.Unit2Fact, 1) as decimal(18,3)) as unit2_factor,
   isnull(st.Name, '')                        as store_name,
   cast(ps.qty as decimal(18,3))              as store_qty
@@ -86,8 +85,6 @@ while ($rd.Read()) {
       key        = $key
       num        = [string]$rd["item_number"]
       name       = $name
-      avgCost    = [double]$rd["avg_cost"]
-      lastCost   = [double]$rd["last_cost"]
       unit2Factor= [double]$rd["unit2_factor"]
       stores     = @()
     }
@@ -100,9 +97,8 @@ while ($rd.Read()) {
 $rd.Close(); $cn.Close()
 
 $items = @($byKey.Values)
-$withCost = @($items | Where-Object { $_.avgCost -gt 0 -or $_.lastCost -gt 0 }).Count
 $withStores = @($items | Where-Object { $_.stores.Count -gt 0 }).Count
-Write-Host "أصناف الأمين: $($items.Count) — لها تكلفة: $withCost — لها مخزون بمستودعات: $withStores"
+Write-Host "أصناف الأمين: $($items.Count) — لها مخزون بمستودعات: $withStores"
 
 if ($items.Count -eq 0) { throw "لم تُقرأ أي أصناف — أوقفت الرفع." }
 
@@ -110,7 +106,7 @@ if ($WhatIf) {
   Write-Host "[تجربة] لن يُكتب شيء. عيّنة:" -ForegroundColor Cyan
   $items | Where-Object { $_.stores.Count -gt 0 } | Select-Object -First 5 | ForEach-Object {
     $s = ($_.stores | ForEach-Object { "$($_.name)=$($_.qty)" }) -join " ، "
-    Write-Host ("  #{0} {1} | تكلفة كروز={2} | كرتونة={3} | {4}" -f $_.num, $_.name, $_.avgCost, ($_.avgCost * $_.unit2Factor), $s)
+    Write-Host ("  #{0} {1} | {2}" -f $_.num, $_.name, $s)
   }
   exit 0
 }
@@ -132,9 +128,8 @@ $body = @{
     source       = "ameen_item_details"
     generated_at = (Get-Date).ToUniversalTime().ToString("o")
     item_count   = $items.Count
-    with_cost    = $withCost
     with_stores  = $withStores
-    cost_basis   = "avg_unit1_usd"   # التكلفة لوحدة الكروز بالدولار؛ الكرتونة = × unit2Factor
+    note         = "stores_only_no_cost"   # التكلفة في item_costs المحمي، ليست هنا
   }
   items = $items
 } | ConvertTo-Json -Depth 6 -Compress

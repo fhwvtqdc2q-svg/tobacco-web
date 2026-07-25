@@ -5055,14 +5055,14 @@ function salesDetailsFor(item) {
   );
 }
 
-// تكلفة الكروز: AvgPrice، وعند غيابها (صنف بلا مشتريات) نرجع إلى آخر سعر شراء.
-function salesUnitCost(details) {
-  if (!details) return { value: 0, basis: "" };
-  const avg = Number(details.avgCost || 0);
-  if (avg > 0) return { value: avg, basis: "متوسط" };
-  const last = Number(details.lastCost || 0);
-  if (last > 0) return { value: last, basis: "آخر شراء" };
-  return { value: 0, basis: "" };
+// التكلفة تُقرأ حصراً من item_costs المحمي بـRLS (is_owner) عبر itemCostFor —
+// لا من تقرير المستودعات، لأن inventory_reports يقرأه كل موظف مسجّل بينما
+// التكلفة والربح للمدير فقط (متطلبا 17 و20). غير المدير يرجع له null دائماً،
+// والحماية على مستوى قاعدة البيانات لا مجرد إخفاء بالواجهة.
+function salesUnitCost(item) {
+  const row = itemCostFor({ name: item?.itemName, key: item?.itemKey });
+  const value = Number(row?.avg_cost || 0);
+  return value > 0 ? { value, basis: "متوسط" } : { value: 0, basis: "" };
 }
 
 function salesEmptyRow() {
@@ -5286,22 +5286,35 @@ function salesInfoCard() {
   const u2 = salesUnitLabel(item, "unit2");
 
   const details = salesDetailsFor(item);
-  const cost = salesUnitCost(details);
+  const cost = salesUnitCost(item);
   const cartonCost = cost.value > 0 ? cost.value * factor : 0;
   const cartonPrice = Number(item.unit2Price || 0);
   const profit = cartonCost > 0 && cartonPrice > 0 ? cartonPrice - cartonCost : null;
   const margin = profit !== null && cartonPrice > 0 ? (profit / cartonPrice) * 100 : null;
 
+  // مجموع المستودعات يُعرض من التقرير نفسه بوقته، ولا يُقارن بمخزون النشرة:
+  // مخزون النشرة (approved_price_items.stock_qty) لا يُحدَّث إلا عند تغيّر عدد
+  // الكراتين الكاملة، وقد يتأخر ساعات؛ كما أن حسابه يجمع الموجب فقط بينما قد
+  // يكون لمستودعٍ رصيد سالب في الأمين. فعرضهما كرقم واحد يوهم بتناقض.
   const stores = details && Array.isArray(details.stores) ? details.stores.filter((s) => Number(s.qty) !== 0) : [];
+  const fmtQty = (q) => {
+    const neg = q < 0;
+    const abs = Math.abs(q);
+    const c = Math.floor(abs / factor);
+    const l = Math.round(abs - c * factor);
+    return `${neg ? "−" : ""}${c} ${u2}${l > 0 ? ` + ${l} ${u1}` : ""}`;
+  };
+  const storesSum = stores.reduce((t, s) => t + Number(s.qty || 0), 0);
+  const hasNegative = stores.some((s) => Number(s.qty) < 0);
   const storesHtml = stores.length
-    ? stores
+    ? `${stores
         .map((s) => {
           const sq = Number(s.qty || 0);
-          const sc = Math.floor(sq / factor);
-          const sl = Math.round(sq - sc * factor);
-          return `<div class="sales-info-store"><span>${escapeHtml(s.name)}</span><strong dir="ltr">${sc} ${escapeHtml(u2)}${sl > 0 ? ` + ${sl} ${escapeHtml(u1)}` : ""}</strong></div>`;
+          return `<div class="sales-info-store ${sq < 0 ? "neg" : ""}"><span>${escapeHtml(s.name)}</span><strong dir="ltr">${escapeHtml(fmtQty(sq))}</strong></div>`;
         })
-        .join("")
+        .join("")}
+       <div class="sales-info-store sales-info-store-sum"><span>مجموع المستودعات</span><strong dir="ltr">${escapeHtml(fmtQty(storesSum))}</strong></div>
+       ${hasNegative ? '<p class="muted sales-info-empty">مستودع برصيد سالب في الأمين (صرف أكثر من الوارد) — يُطرح من المجموع.</p>' : ""}`
     : `<p class="muted sales-info-empty">${details ? "لا يوجد مخزون موزّع على المستودعات." : "تفاصيل المستودعات غير متاحة — شغّل tools\\push-item-details.ps1."}</p>`;
 
   const costHtml = cost.value > 0
@@ -5343,7 +5356,7 @@ function salesInfoCard() {
         <button type="button" class="sales-info-close" data-sales-info-close aria-label="إغلاق">✕</button>
       </div>
       <div class="sales-info-body">
-        <div class="sales-info-row"><span>المخزون</span><strong dir="ltr">${cartons} ${escapeHtml(u2)}${loose > 0 ? ` + ${loose} ${escapeHtml(u1)}` : ""}</strong></div>
+        <div class="sales-info-row"><span>مخزون النشرة</span><strong dir="ltr">${cartons} ${escapeHtml(u2)}${loose > 0 ? ` + ${loose} ${escapeHtml(u1)}` : ""}</strong></div>
         <div class="sales-info-row"><span>سعر ${escapeHtml(u2)} (جملة)</span><strong dir="ltr">${cartonPrice > 0 ? `$${salesFmt(cartonPrice, "jumla")}` : "—"}</strong></div>
         ${pricedAtHtml}
         ${costHtml}
@@ -6831,10 +6844,11 @@ function render() {
     btn.addEventListener("click", async () => {
       state.salesInfoKey = btn.dataset.salesInfo;
       render();
-      if (!state.itemDetails) {
-        await loadItemDetails();
-        if (state.salesInfoKey) render(); // أعد الرسم بعد وصول التفاصيل
-      }
+      let changed = false;
+      if (!state.itemDetails) { await loadItemDetails(); changed = true; }
+      // التكاليف للمدير فقط — loadItemCosts يرجع [] لغيره (وRLS يمنعها أصلاً).
+      if (isOwner() && !(state.itemCosts || []).length) { await loadItemCosts(); changed = true; }
+      if (changed && state.salesInfoKey) render();
     });
   });
   app.querySelectorAll("[data-sales-info-close]").forEach((el) => {
