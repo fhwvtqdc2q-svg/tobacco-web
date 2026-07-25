@@ -2572,6 +2572,17 @@ code {
   font-size: 0.82rem;
 }
 
+/* الجدول يتمرّر داخل .inv-table-wrap بدل أن ينضغط: مجموع الأعمدة الثابتة
+   ~626px، فلو تُرك للانكماش (بعد min-width:0 على الحاوية) لضُغط عمود الصنف حتى
+   يختفي اسمه على الهاتف. min-width يضمن العرض الطبيعي والتمرير الأفقي الداخلي. */
+.sales-table {
+  min-width: 700px;
+}
+
+.sales-cell-name {
+  min-width: 170px;
+}
+
 .sales-table th {
   white-space: nowrap;
 }
