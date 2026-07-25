@@ -5280,8 +5280,6 @@ function salesInfoCard() {
 
   const factor = salesUnit2Factor(item);
   const qty = Number(item.stockQty || 0);
-  const cartons = Math.floor(qty / factor);
-  const loose = Math.round(qty - cartons * factor);
   const u1 = salesUnitLabel(item, "unit1");
   const u2 = salesUnitLabel(item, "unit2");
 
@@ -5304,7 +5302,9 @@ function salesInfoCard() {
   const fmtQty = (q) => {
     const abs = Math.abs(q);
     const c = Math.floor(abs / factor);
-    const l = Math.round(abs - c * factor);
+    // الباقي قد يكون كسرياً (كميات موزونة). التقريب إلى صحيح كان يغيّر القيمة
+    // فعلياً: 53.88 تظهر 54 و0.8 تظهر 1. نبقيه بخانتين ونحذف الأصفار الزائدة.
+    const l = Math.round((abs - c * factor) * 100) / 100;
     const parts = [];
     if (c > 0) parts.push(`${c} ${u2}`);
     if (l > 0) parts.push(`${l} ${u1}`);
@@ -5363,7 +5363,7 @@ function salesInfoCard() {
         <button type="button" class="sales-info-close" data-sales-info-close aria-label="إغلاق">✕</button>
       </div>
       <div class="sales-info-body">
-        <div class="sales-info-row"><span>مخزون النشرة</span><strong dir="ltr">${cartons} ${escapeHtml(u2)}${loose > 0 ? ` + ${loose} ${escapeHtml(u1)}` : ""}</strong></div>
+        <div class="sales-info-row"><span>مخزون النشرة</span><strong dir="ltr">${escapeHtml(fmtQty(qty))}</strong></div>
         <div class="sales-info-row"><span>سعر ${escapeHtml(u2)} (جملة)</span><strong dir="ltr">${cartonPrice > 0 ? `$${salesFmt(cartonPrice, "jumla")}` : "—"}</strong></div>
         ${pricedAtHtml}
         ${costHtml}
