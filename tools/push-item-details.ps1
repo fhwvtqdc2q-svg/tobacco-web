@@ -127,6 +127,7 @@ $hdr = @{ apikey = $key; Authorization = ("Bearer " + $auth.access_token); "Acce
 $body = @{
   report_date = (Get-Date).ToString("yyyy-MM-dd")
   source      = "ameen_item_details"
+  created_by  = $auth.user.id
   summary     = @{
     source       = "ameen_item_details"
     generated_at = (Get-Date).ToUniversalTime().ToString("o")

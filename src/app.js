@@ -5029,9 +5029,13 @@ async function loadItemDetails() {
   try {
     const report = await dataStore.getLatestItemDetailsReport();
     if (!report || !Array.isArray(report.items)) return;
+    // التطبيع على الطرفين إلزامي: item_key في Supabase غير متسق أحياناً
+    // (همزات/تاء مربوطة)، فالمطابقة الخام تُسقط ~85 صنفاً من 316.
     const map = {};
     for (const entry of report.items) {
-      if (entry && entry.key) map[entry.key] = entry;
+      if (!entry) continue;
+      const k = normalizeItemName(entry.name || entry.key || "");
+      if (k && !map[k]) map[k] = entry;
     }
     state.itemDetails = map;
     state.itemDetailsAt = report.created_at || "";
@@ -5042,7 +5046,13 @@ async function loadItemDetails() {
 
 function salesDetailsFor(item) {
   if (!item || !state.itemDetails) return null;
-  return state.itemDetails[item.itemKey] || null;
+  // نطابق بالاسم المطبّع أولاً (الأوثق)، ثم بالمفتاح المطبّع، ثم بالمفتاح الخام.
+  return (
+    state.itemDetails[normalizeItemName(item.itemName || "")] ||
+    state.itemDetails[normalizeItemName(item.itemKey || "")] ||
+    state.itemDetails[item.itemKey] ||
+    null
+  );
 }
 
 // تكلفة الكروز: AvgPrice، وعند غيابها (صنف بلا مشتريات) نرجع إلى آخر سعر شراء.
