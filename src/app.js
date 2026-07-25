@@ -2303,9 +2303,21 @@ async function savePricingItem(form) {
       .filter(Boolean);
     const targetKeys = [...new Set([...requestedKeys, ...aliasKeys])];
     const records = targetKeys.map((targetKey) => {
-      const sourceItem = reportItems(latest).find((item) => (item.key || normalizeItemName(item.name)) === targetKey) || latestItem;
+      // مطابقة المفتاح أولاً بالمطابقة الحرفية ثم بالتطبيع (همزة/تاء مربوطة/نقاط).
+      // لا نسقط أبداً على الصنف المدمج (latestItem) إلا لمفتاح الصنف المطلوب نفسه:
+      // السقوط عليه لبقية أصناف السطر المدمج ينسخ اسمه ووحدته ومخزونه فوقها
+      // (عطل «معسل مزايا بولو» 2026-07-25 الذي شوّه ثمانية أصناف مزايا).
+      const liveItems = reportItems(latest);
+      const normalizedTarget = normalizeItemName(targetKey);
+      const sourceItem = liveItems.find((item) => (item.key || normalizeItemName(item.name)) === targetKey)
+        || liveItems.find((item) => normalizeItemName(item.key || item.name) === normalizedTarget
+          || normalizeItemName(item.name) === normalizedTarget)
+        || (targetKey === itemKey ? latestItem : null);
       const sourceExisting = approvedPriceMap().get(targetKey);
-      const sourceFactor = Math.max(1, itemUnit2Factor(sourceItem));
+      // عند غياب الصنف من الجرد الحي نُبقي بيانات صفّه المحفوظ كما هي ولا نغيّر إلا السعر.
+      const sourceFactor = Math.max(1, sourceItem
+        ? itemUnit2Factor(sourceItem)
+        : Number(sourceExisting?.unit2Factor) || unit2Factor);
       const sourceUnit2Price = mode === "mufrak" ? Number(sourceExisting?.unit2Price || unit2Price) : entered;
       const sourceSalePrice = Number(
         sourceExisting?.salePrice || roundPrice((sourceUnit2Price > 0 ? sourceUnit2Price : entered) / sourceFactor)
@@ -2315,15 +2327,15 @@ async function savePricingItem(form) {
         : payloadObj;
       return {
         itemKey: targetKey,
-        itemName: sourceItem?.name || itemName,
-        unit1Name: itemUnit1Name(sourceItem) || unit1Name,
-        unit2Name: itemUnit2Name(sourceItem) || unit2Name,
+        itemName: sourceItem?.name || sourceExisting?.itemName || itemName,
+        unit1Name: (sourceItem ? itemUnit1Name(sourceItem) : sourceExisting?.unit1Name) || unit1Name,
+        unit2Name: (sourceItem ? itemUnit2Name(sourceItem) : sourceExisting?.unit2Name) || unit2Name,
         unit2Factor: sourceFactor,
         unit2Price: sourceUnit2Price,
         unit1Price: mode === "mufrak" ? sourceSalePrice : roundPrice(entered / sourceFactor),
         salePrice: mode === "mufrak" ? sourceSalePrice : roundPrice(entered / sourceFactor),
-        stockQty: itemQty(sourceItem),
-        stockStatus: sourceItem?.status || stockStatus,
+        stockQty: sourceItem ? itemQty(sourceItem) : Number(sourceExisting?.stockQty || 0),
+        stockStatus: (sourceItem ? sourceItem.status : sourceExisting?.stockStatus) || stockStatus,
         sourceReportId: uuidOrNull(latest.id),
         sourceSyncedAt: reportSyncedAt(latest),
         pricePayload: sourcePayload
