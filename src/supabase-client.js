@@ -676,9 +676,29 @@
       }
 
       const user = await requireUser();
+
+      // احفظ أرقام الأصناف الحالية (item_number) كي لا يمسحها الـ upsert.
+      // بيانات الموقع لا تحمل رقم الأمين، فنُعيد ربطه من الصفوف الحالية عبر item_key.
+      let numberByKey = null; // null = تعذّر الجلب → لا نلمس item_number (نفس السلوك السابق)
+      try {
+        const { data: existingRows, error: fetchErr } = await client
+          .from(approvedPricesTable)
+          .select("item_key, item_number")
+          .limit(5000);
+        if (!fetchErr) {
+          numberByKey = {};
+          for (const row of existingRows || []) {
+            if (row && row.item_key && row.item_number != null && String(row.item_number) !== "") {
+              numberByKey[row.item_key] = row.item_number;
+            }
+          }
+        }
+      } catch (_) { numberByKey = null; }
+
       const withUser = (items || [])
         .map((item) => normalizeApprovedPriceInput(item, user.id))
-        .filter((item) => item.item_key && item.item_name && item.sale_price > 0);
+        .filter((item) => item.item_key && item.item_name && item.sale_price > 0)
+        .map((rec) => (numberByKey ? { ...rec, item_number: numberByKey[rec.item_key] ?? null } : rec));
       const { data, error } = await client
         .from(approvedPricesTable)
         .upsert(withUser, { onConflict: "item_key" })
@@ -710,9 +730,36 @@
       }
 
       const user = await requireUser();
+
+      // احفظ أرقام الأصناف الحالية (item_number) قبل الحذف كي لا تُمسح عند إعادة الإدخال.
+      // بيانات الموقع لا تحمل رقم الأمين، فنُعيد ربطه من الصفوف الحالية عبر item_key.
+      let numberByKey = null; // null = تعذّر الجلب → لا نلمس item_number (نفس السلوك السابق)
+      try {
+        const { data: existingRows, error: fetchErr } = await client
+          .from(approvedPricesTable)
+          .select("item_key, item_number")
+          .limit(5000);
+        if (!fetchErr) {
+          numberByKey = {};
+          for (const row of existingRows || []) {
+            if (row && row.item_key && row.item_number != null && String(row.item_number) !== "") {
+              numberByKey[row.item_key] = row.item_number;
+            }
+          }
+        }
+      } catch (_) { numberByKey = null; }
+
+      // أمان حاسم: هذا المسار يحذف كل الصفوف ثم يعيدها. إن فشل جلب الأرقام الحالية فسيمحو
+      // الحذفُ item_number بلا رجعة — لذا نُوقف الحفظ بأمان بدل تنفيذ حذف أعمى. الأسعار
+      // والأرقام القديمة تبقى سليمة، ويظهر تحذيرٌ للمستخدم ليعيد المحاولة.
+      if (!numberByKey) {
+        throw new Error("تعذّر تحضير الحفظ الآمن (فشل قراءة أرقام الأصناف الحالية). لم يُحذف شيء — حاول مجدداً.");
+      }
+
       const withUser = (items || [])
         .map((item) => normalizeApprovedPriceInput(item, user.id))
-        .filter((item) => item.item_key && item.item_name && item.sale_price > 0);
+        .filter((item) => item.item_key && item.item_name && item.sale_price > 0)
+        .map((rec) => ({ ...rec, item_number: numberByKey[rec.item_key] ?? null }));
 
       const { error: deleteError } = await client.from(approvedPricesTable).delete().neq("item_key", "__never__");
       if (deleteError) throw new Error(deleteError.message);
