@@ -550,6 +550,29 @@
       return (data && data[0]) || null;
     },
 
+    async getInvoiceSeriesReport() {
+      // آخر رقم فاتورة لكل سلسلة ترقيم في الأمين (يكتبها push-invoice-series.ps1).
+      // مصدر مستقل عن ameen_customer_invoices لأن ذاك يُسقِط الفواتير بلا اسم زبون
+      // ولا يحمل نوع الفاتورة، فلا يصلح لمعرفة آخر رقم فعلي في كل سلسلة.
+      if (!client) {
+        const local = readJson(INVENTORY_REPORTS_KEY, []).filter((report) => report.source === "ameen_invoice_series");
+        return local[0] || null;
+      }
+
+      const session = await getSupabaseSession();
+      if (!session) return null;
+
+      const { data, error } = await client
+        .from(inventoryReportsTable)
+        .select("id, report_date, source, summary, items, created_at")
+        .eq("source", "ameen_invoice_series")
+        .order("created_at", { ascending: false })
+        .limit(1);
+
+      if (error) throw new Error(translateDbError(error.message));
+      return (data && data[0]) || null;
+    },
+
     async getDailyMovementReport(date) {
       // تقرير ملخص الحركة اليومية ليوم محدد (أحدث نسخة لذلك اليوم). يحتاج جلسة.
       if (!client) return null;

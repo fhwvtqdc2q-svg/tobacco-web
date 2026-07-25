@@ -200,6 +200,7 @@ const state = {
   customerBalanceReports: [],
   customerMovementsReport: null,
   customerInvoicesReport: null,
+  invoiceSeriesReport: null,   // آخر رقم فاتورة لكل سلسلة ترقيم في الأمين
   customerWhatsapp: [],
   broadcastType: "",
   broadcastText: "",
@@ -242,6 +243,7 @@ const state = {
   salesDiscount: "",
   salesPaid: "",
   salesInvoiceNo: "",
+  salesInvoiceNoMode: "",  // الوضع الذي حُسب له الرقم — تبديل الوضع يبدّل السلسلة
   salesSavedNo: "",
   salesSaving: false,
   salesInfoKey: "",        // مفتاح الصنف المفتوحة بطاقته (فارغ = مغلقة)
@@ -684,6 +686,13 @@ async function loadCustomerBalanceReports() {
       : null;
   } catch {
     state.customerInvoicesReport = null;
+  }
+  try {
+    state.invoiceSeriesReport = dataStore.getInvoiceSeriesReport
+      ? await dataStore.getInvoiceSeriesReport()
+      : null;
+  } catch {
+    state.invoiceSeriesReport = null;
   }
   await loadCustomerWhatsapp();
 }
@@ -3390,17 +3399,67 @@ const REPORT_STYLE = `<style>
 .ozk-rpt .seal .s-addr{font-size:11px;font-weight:700;border-top:1px solid #16357a;margin-top:4px;padding-top:3px}
 </style>`;
 
+// الطباعة تتم داخل الصفحة نفسها عبر iframe مخفي، لا عبر window.open.
+// السبب: التطبيق مثبَّت كـPWA (display: standalone في manifest.webmanifest)،
+// وفي هذا الوضع تفتح window.open على iOS نافذةً بلا شريط متصفح — بلا زر رجوع
+// ولا طباعة ولا مشاركة — فتظهر للمستخدم «شاشة جامدة» لا مخرج منها. أما الـiframe
+// فيفتح ورقة الطباعة الأصلية للنظام (وفيها «حفظ بصيغة PDF» وزر إلغاء)، ويعمل
+// على iOS وأندرويد وويندوز معاً بلا حاجة للسماح بالنوافذ المنبثقة.
+function printHtmlDocument(html, options = {}) {
+  const previous = document.querySelector("iframe[data-print-frame]");
+  if (previous) previous.remove();
+
+  const frame = document.createElement("iframe");
+  frame.setAttribute("data-print-frame", "");
+  frame.setAttribute("aria-hidden", "true");
+  frame.setAttribute("title", options.title || "طباعة");
+  // خارج الشاشة لا display:none — Safari لا يطبع الإطارات المخفية بـdisplay.
+  // القياس بمقاس A4 عند 96dpi كي يخرج تنسيق الصفحة مطابقاً للمعاينة.
+  frame.style.cssText =
+    "position:fixed;left:-10000px;top:0;width:794px;height:1123px;opacity:0;border:0;pointer-events:none;";
+
+  let finished = false;
+  const cleanup = () => {
+    if (finished) return;
+    finished = true;
+    setTimeout(() => frame.remove(), 1000);
+  };
+
+  frame.addEventListener("load", () => {
+    const win = frame.contentWindow;
+    if (!win) {
+      cleanup();
+      return;
+    }
+    try {
+      win.addEventListener("afterprint", cleanup, { once: true });
+    } catch {
+      // بعض المتصفحات تمنع الاستماع داخل الإطار — تكفي المهلة الاحتياطية أدناه.
+    }
+    // مهلة قصيرة كي تكتمل الخطوط والرسم قبل فتح ورقة الطباعة.
+    setTimeout(() => {
+      try {
+        win.focus();
+        win.print();
+      } catch {
+        cleanup();
+        if (typeof options.onError === "function") options.onError();
+        return;
+      }
+      // احتياط: إن لم يصل afterprint (شائع على iOS) نحذف الإطار بعد مهلة.
+      setTimeout(cleanup, 60000);
+    }, 250);
+  }, { once: true });
+
+  document.body.appendChild(frame);
+  frame.srcdoc = html;
+}
+
 // نستعمل طباعة المتصفح الأصلية (حفظ بصيغة PDF) بدل html2canvas —
 // المحرّك القديم صار يطلّع صفحات بيضا بعد تحديثات كروم. الطباعة الأصلية
 // ترسم التقرير مثل الشاشة تماماً (عربي وألوان مظبوطة) ومستحيل تطلع فاضية.
 async function exportReportPdf(bodyHtml, filename) {
   const title = String(filename || "تقرير").replace(/\.pdf$/i, "");
-  const win = window.open("", "_blank");
-  if (!win) {
-    setNotice("error", "المتصفح منع فتح نافذة الطباعة. اسمح بالنوافذ المنبثقة لهذا الموقع ثم جرّب مجددًا.");
-    render();
-    return;
-  }
   const doc =
     '<!doctype html><html lang="ar" dir="rtl"><head><meta charset="utf-8">' +
     '<base href="' + window.location.href + '">' +
@@ -3410,12 +3469,15 @@ async function exportReportPdf(bodyHtml, filename) {
     'img{max-width:100%}table{page-break-inside:auto}tr{page-break-inside:avoid}thead{display:table-header-group}tfoot{display:table-footer-group}' +
     '@media print{.ozk-rpt{padding:0}}</style>' +
     '</head><body>' + bodyHtml +
-    '<scr' + 'ipt>window.onload=function(){setTimeout(function(){window.focus();window.print();},450);};</scr' + 'ipt>' +
     '</body></html>';
-  win.document.open();
-  win.document.write(doc);
-  win.document.close();
-  setNotice("success", "افتح نافذة الطباعة واختر «حفظ بصيغة PDF».");
+  printHtmlDocument(doc, {
+    title,
+    onError: () => {
+      setNotice("error", "تعذّر فتح نافذة الطباعة. أغلق التطبيق وافتحه ثم جرّب مجدداً.");
+      render();
+    }
+  });
+  setNotice("success", "اختر «حفظ بصيغة PDF» من نافذة الطباعة.");
   render();
 }
 
@@ -5247,50 +5309,137 @@ function salesResolvedRows() {
   return (state.salesRows || []).filter((row) => row.key && toNumber(row.qty) > 0 && toNumber(row.price) > 0);
 }
 
-// ترقيم الفواتير: SAL-YYMM-0001 تسلسلياً، ويبدأ من ٠٠٠١ مع كل شهر جديد.
-// العدّاد محفوظ محلياً على الجهاز. عند تفعيل خصم المخزون وتقييد الذمم يجب ترقيته
-// إلى عدّاد مركزي في Supabase كي لا يتكرّر الرقم إذا فُوتِر من أكثر من جهاز.
+// ترقيم الفواتير مأخوذ من سلاسل ترقيم الأمين نفسها، لا من عدّاد محلي مستقل:
+// وضع الجملة يتابع سلسلة «مبيعات»، ووضع المفرق يتابع سلسلة «مبيعات مركز».
+// المصدر تقرير ameen_invoice_series الذي يرفعه tools/push-invoice-series.ps1.
 //
-// قاعدة أساسية: الرقم يُعرض بلا حجز، ولا يُحجز إلا بعد نجاح الحفظ. لذلك فتح الشاشة
-// أو إعادة تحميلها أو فشل الحفظ لا يستهلك رقماً ولا يترك فجوة في تسلسل الفواتير.
+// لماذا ليس من ameen_customer_invoices: ذاك التقرير يشترط اسم زبون غير فارغ،
+// ومعظم فواتير «مبيعات مركز» بلا اسم — فأكبر رقم فيه ليس آخر رقم فعلي. كما أنه
+// لا يحمل نوع الفاتورة أصلاً، والأمين يستعمل سلسلة مستقلة لكل نوع (ست سلاسل:
+// ثلاث للمبيعات وثلاث للمرتجعات)، فخلطها يعطي رقم أكبر سلسلة لكل الأوضاع.
+//
+// قاعدة أساسية باقية كما كانت: الرقم يُعرض بلا حجز، ولا يُحجز إلا بعد نجاح الحفظ.
+// لذلك فتح الشاشة أو إعادة تحميلها أو فشل الحفظ لا يستهلك رقماً ولا يترك فجوة.
 
-// قراءة العدّاد بأمان: أي قيمة تالفة (نص، سالب، NaN، أو شهر قديم) تُعامل كصفر.
-function salesSeqState() {
-  const now = new Date();
-  const period = `${String(now.getFullYear()).slice(-2)}${String(now.getMonth() + 1).padStart(2, "0")}`;
-  const saved = readJson("sales-invoice-seq", null);
-  const raw = saved && saved.period === period ? Number(saved.seq) : 0;
-  const seq = Number.isFinite(raw) && raw > 0 ? Math.floor(raw) : 0;
-  return { period, seq };
+// سلسلة الأمين المقابلة لكل وضع. المعرّف هو المفتاح الثابت (لا يتغيّر بإعادة
+// تسمية نوع الفاتورة في الأمين)، والاسم احتياط عند استبدال قاعدة السنة.
+const SALES_AMEEN_SERIES = {
+  jumla: { guid: "7f5b0921-61f3-4f23-a1f4-fbfae4144bf4", name: "مبيعات" },
+  mufrak: { guid: "cc1097b1-662d-4d80-8e4e-3b493249591c", name: "مبيعات مركز" }
+};
+
+function salesSeriesTarget(mode) {
+  return SALES_AMEEN_SERIES[mode === "mufrak" ? "mufrak" : "jumla"];
 }
 
-function salesFormatInvoiceNo(period, seq) {
-  return `SAL-${period}-${String(seq).padStart(4, "0")}`;
+// سلسلة الترقيم الحيّة من تقرير الأمين — بالمعرّف أولاً ثم بالاسم بعد التطبيع.
+function salesAmeenSeries(mode) {
+  const target = salesSeriesTarget(mode);
+  const items = Array.isArray(state.invoiceSeriesReport?.items) ? state.invoiceSeriesReport.items : [];
+  const byGuid = items.find((s) => String(s?.typeGuid || "").toLowerCase() === target.guid);
+  if (byGuid) return byGuid;
+  const wanted = normalizeItemName(target.name);
+  return items.find((s) => normalizeItemName(s?.typeName || "") === wanted) || null;
 }
 
-const SALES_INVOICE_NO_RE = /^SAL-(\d{4})-(\d+)$/;
+// العدّاد المحلي صار طبقة فوق رقم الأمين لا بديلاً عنه: يمنع تكرار الرقم بين
+// فاتورتين أُصدرتا من الموقع قبل وصول المزامنة التالية. مفتاح مستقل لكل سلسلة.
+function salesSeqState(mode) {
+  const key = "sales-invoice-seq-" + (mode === "mufrak" ? "mufrak" : "jumla");
+  const raw = Number(readJson(key, 0));
+  return { key, seq: Number.isFinite(raw) && raw > 0 ? Math.floor(raw) : 0 };
+}
 
-// الرقم المعروض على الشاشة: التالي المتوقّع، بلا أي كتابة على العدّاد.
-function peekSalesInvoiceNumber() {
-  const { period, seq } = salesSeqState();
-  return salesFormatInvoiceNo(period, seq + 1);
+// الرقم المعروض: الأكبر بين «تالي الأمين» و«تالي العدّاد المحلي»، بلا أي حجز.
+// يرجع نصاً فارغاً إذا لم تصل المزامنة — ولا يخمّن رقماً أبداً، لأن رقماً مخترَعاً
+// قد يصطدم بفاتورة قائمة في الأمين.
+function peekSalesInvoiceNumber(mode) {
+  const st = salesSeriesState(mode);
+  if (!st.usable) return "";
+  const ameenNext = Math.floor(Number(st.series?.nextNo) || 0);
+  if (!(ameenNext > 0)) return "";
+  const local = salesSeqState(st.mode).seq;
+  return String(Math.max(ameenNext, local + 1));
 }
 
 // الحجز الفعلي بعد نجاح الحفظ: يرفع العدّاد ليشمل هذه الفاتورة، ولا يُنقصه أبداً.
-function salesReserveInvoiceNo(no) {
-  const parsed = SALES_INVOICE_NO_RE.exec(String(no || ""));
-  if (!parsed) return;
-  const period = parsed[1];
-  const seq = Number(parsed[2]);
+function salesReserveInvoiceNo(no, mode) {
+  const seq = Number(String(no ?? "").trim());
   if (!Number.isFinite(seq) || seq <= 0) return;
-  const current = salesSeqState();
-  if (current.period === period && current.seq >= seq) return;
-  writeJson("sales-invoice-seq", { period, seq });
+  const current = salesSeqState(mode || salesCurrentMode());
+  if (current.seq >= seq) return;
+  writeJson(current.key, Math.floor(seq));
 }
 
 function ensureSalesInvoiceNo() {
-  if (!state.salesInvoiceNo) state.salesInvoiceNo = peekSalesInvoiceNumber();
+  const mode = salesCurrentMode();
+  // تبديل الوضع يبدّل السلسلة، فالرقم المخبّأ لوضعٍ آخر لا يصلح.
+  if (!state.salesInvoiceNo || state.salesInvoiceNoMode !== mode) {
+    state.salesInvoiceNo = peekSalesInvoiceNumber(mode);
+    state.salesInvoiceNoMode = mode;
+  }
   return state.salesInvoiceNo;
+}
+
+// عمر المزامنة المسموح به قبل منع إصدار رقم. المهمة المجدولة تعمل كل 5 دقائق،
+// فـ15 دقيقة تعني ثلاث دورات فائتة — أي أن المزامنة متوقفة فعلاً لا متأخرة.
+const SALES_SERIES_MAX_AGE_MS = 15 * 60000;
+
+// إعادة جلب تقرير السلاسل عند الطلب. لا يرمي أبداً: فشل الشبكة يترك القراءة
+// السابقة كما هي، ويتكفّل فحص العمر بعده بمنع الإصدار إن كانت قديمة.
+async function refreshInvoiceSeries() {
+  try {
+    if (!dataStore.getInvoiceSeriesReport) return;
+    const report = await dataStore.getInvoiceSeriesReport();
+    if (report) state.invoiceSeriesReport = report;
+  } catch {
+    // تُترك القراءة السابقة — فحص العمر هو خط الدفاع.
+  }
+}
+
+// حالة مصدر الترقيم: السلسلة، وعمر القراءة، وهل تصلح لإصدار رقم أصلاً.
+// المنع لا التحذير فقط: رقم مبني على قراءة قديمة قد يكون مستهلكاً في الأمين،
+// والفاتورة المطبوعة برقم مكرر خطأ محاسبي لا يُصلَح بعد تسليمها للزبون.
+function salesSeriesState(mode) {
+  const m = mode || salesCurrentMode();
+  const target = salesSeriesTarget(m);
+  const series = salesAmeenSeries(m);
+  const stamp = state.invoiceSeriesReport?.summary?.syncedAt || state.invoiceSeriesReport?.created_at || "";
+  const ageMs = stamp ? Date.now() - new Date(stamp).getTime() : NaN;
+  const hasAge = Number.isFinite(ageMs) && ageMs >= 0;
+  const stale = !hasAge || ageMs > SALES_SERIES_MAX_AGE_MS;
+  return { mode: m, target, series, ageMs: hasAge ? ageMs : NaN, stale, usable: !!series && !stale };
+}
+
+function salesSeriesAgeText(ageMs) {
+  if (!Number.isFinite(ageMs)) return "";
+  const mins = Math.floor(ageMs / 60000);
+  if (mins < 1) return "الآن";
+  if (mins < 60) return `قبل ${mins} دقيقة`;
+  const hours = Math.floor(mins / 60);
+  return hours < 24 ? `قبل ${hours} ساعة` : `قبل ${Math.floor(hours / 24)} يوم`;
+}
+
+// رسالة المنع الموحّدة — تُستعمل عند الحفظ وعند الطباعة معاً.
+function salesSeriesBlockReason(st) {
+  if (!st.series) {
+    return `لم تصل مزامنة ترقيم الأمين بعد (سلسلة «${st.target.name}») — لا يمكن إصدار رقم فاتورة.`;
+  }
+  if (st.stale) {
+    const age = salesSeriesAgeText(st.ageMs);
+    return `مزامنة ترقيم الأمين متوقفة${age ? ` (آخر قراءة ${age})` : ""} — لا يمكن إصدار رقم قد يكون مستهلكاً. `
+      + `شغّل مهمة «TOBACCO Invoice Series Push» ثم أعد المحاولة.`;
+  }
+  return "";
+}
+
+// سطر توضيحي تحت رقم الفاتورة: أي سلسلة، وآخر رقم بالأمين، وعمر المزامنة —
+// كي يرى المستخدم بنفسه إن كان الرقم مبنياً على قراءة قديمة.
+function salesInvoiceNoHint() {
+  const st = salesSeriesState();
+  if (!st.usable) return `⚠️ ${salesSeriesBlockReason(st)}`;
+  const age = salesSeriesAgeText(st.ageMs);
+  return `سلسلة «${st.series.typeName}» — آخر رقم بالأمين ${st.series.lastNo}${age ? ` (مزامنة ${age})` : ""}`;
 }
 
 function salesEnsureTrailingRow() {
@@ -5558,6 +5707,20 @@ function salesInvoice() {
   const rows = state.salesRows;
   const priceLoaded = (state.approvedPriceItems || []).length > 0;
 
+  // اقتراحات اسم الزبون من أسماء تقرير أرصدة الأمين نفسه — نفس مصدر صفحة
+  // التقارير، كي يكتب الاسم مطابقاً لما هو مسجّل بالنظام فتنجح مطابقة الرصيد
+  // وحد الائتمان وآخر سعر بيع. التكرار يُزال لأن التقرير قد يحمل الاسم مرتين.
+  const salesCustomerNames = Array.from(
+    new Set(
+      latestCustomerBalanceItems()
+        .map((it) => String(it.name || "").trim())
+        .filter(Boolean)
+    )
+  ).sort((a, b) => a.localeCompare(b, "ar"));
+  const salesCustomerOptions = salesCustomerNames
+    .map((name) => `<option value="${escapeHtml(name)}"></option>`)
+    .join("");
+
   const rowsHtml = rows
     .map((row, i) => {
       const computed = salesRowComputed(row);
@@ -5597,13 +5760,15 @@ function salesInvoice() {
 
         <div class="sales-header-grid">
           <label class="inv-label">رقم الفاتورة
-            <input class="inv-input-main" value="${escapeHtml(invNo)}" readonly dir="ltr">
+            <input class="inv-input-main" value="${escapeHtml(invNo || "—")}" readonly dir="ltr">
+            <small class="muted sales-inv-no-hint">${escapeHtml(salesInvoiceNoHint())}</small>
           </label>
           <label class="inv-label">التاريخ
             <input class="inv-input-main" value="${escapeHtml(todayIsoDate())}" readonly dir="ltr">
           </label>
           <label class="inv-label">اسم الزبون (اختياري)
-            <input class="inv-input-main" id="sales-customer" value="${escapeHtml(state.salesCustomer)}" placeholder="فارغ = نقدي" maxlength="120" dir="auto">
+            <input class="inv-input-main" id="sales-customer" list="sales-customer-list" autocomplete="off" value="${escapeHtml(state.salesCustomer)}" placeholder="${salesCustomerNames.length ? "اكتب أول حرفين واختَر من القائمة" : "فارغ = نقدي"}" maxlength="120" dir="auto">
+            <datalist id="sales-customer-list">${salesCustomerOptions}</datalist>
           </label>
           <label class="inv-label">طريقة الدفع
             <div class="sales-pay-switch">
@@ -5793,76 +5958,117 @@ function salesNewInvoice() {
   state.salesDiscount = "";
   state.salesPaid = "";
   state.salesPayMethod = "cash";
-  state.salesInvoiceNo = peekSalesInvoiceNumber();
+  state.salesInvoiceNoMode = salesCurrentMode();
+  state.salesInvoiceNo = peekSalesInvoiceNumber(state.salesInvoiceNoMode);
   state.salesSavedNo = "";
   setNotice("success", "بدأت فاتورة مبيعات جديدة.");
   render();
 }
 
 async function salesSaveInvoice() {
-  const resolved = salesResolvedRows();
-  if (!resolved.length) {
+  // نقرة ثانية أثناء تنفيذ الحفظ. هذا الفحص أولاً وقبل أي شيء، ورفعُ القفل بعده
+  // مباشرةً وقبل أي await: عندما كان القفل يُرفع قبل الكتابة فقط، كانت النقرة
+  // الثانية تمرّ أثناء جلب المزامنة فيُحفظ مستندان بالرقم نفسه (مانع أكّدته
+  // المراجعة). كل خروج بعد هذه النقطة يمرّ عبر finally الذي يخفض القفل.
+  if (state.salesSaving) return;
+
+  if (!salesResolvedRows().length) {
     setNotice("error", "أضف صنفاً واحداً على الأقل بكمية وسعر أكبر من صفر.");
     render();
     return;
   }
-  // منع حفظ الفاتورة نفسها مرتين (ضغط مزدوج أو إعادة ضغط بعد نجاح الحفظ).
+  // منع حفظ الفاتورة نفسها مرتين (إعادة ضغط بعد نجاح الحفظ).
   if (state.salesSavedNo && state.salesSavedNo === state.salesInvoiceNo) {
     setNotice("error", `الفاتورة ${state.salesSavedNo} محفوظة مسبقاً — اضغط «＋ فاتورة جديدة» لإصدار فاتورة أخرى.`);
     render();
     return;
   }
-  // نقرة ثانية أثناء تنفيذ الحفظ: الفحص أعلاه وحده لا يكفي، لأن salesSavedNo لا
-  // يُضبط إلا بعد انتهاء await، فتمرّ النقرتان معاً وتُحفظ الفاتورة مرتين.
-  if (state.salesSaving) return;
 
-  // الرقم يُحسم لحظة الحفظ: لو كان المعروض قد استُهلك فعلاً (فاتورة أخرى، أو تبويب
-  // آخر، أو تغيّر الشهر والشاشة مفتوحة) نأخذ التالي بدل تكرار رقم محجوز.
-  const seqState = salesSeqState();
-  const shownNo = SALES_INVOICE_NO_RE.exec(ensureSalesInvoiceNo());
-  if (!shownNo || shownNo[1] !== seqState.period || Number(shownNo[2]) <= seqState.seq) {
-    state.salesInvoiceNo = peekSalesInvoiceNumber();
-  }
-
+  // الوضع يُثبَّت مرة واحدة ويُمرَّر صراحةً لكل ما يلي (الرقم، الحجز، المستند).
   const mode = salesCurrentMode();
-  const totals = salesTotals();
-  const roundValue = (value) => (mode === "mufrak" ? Math.round(Number(value || 0)) : roundPrice(Number(value || 0)));
-  const doc = {
-    t: "sales_invoice",
-    no: ensureSalesInvoiceNo(),
-    date: todayIsoDate(),
-    name: state.salesCustomer.trim(),
-    payMethod: state.salesPayMethod,
-    mode,
-    cur: salesCurrencySymbol(mode),
-    rate: mode === "mufrak" ? Number(state.syriaExchangeRate) || 0 : null,
-    items: resolved.map((row) => {
-      const item = salesItemByKey(row.key);
-      const qty = toNumber(row.qty);
-      const price = toNumber(row.price);
-      return {
-        num: salesItemCode(item) || row.num || "",
-        name: item?.itemName || row.name || "",
-        unit: salesUnitLabel(item, row.unit),
-        unitKey: row.unit,
-        qty,
-        price: roundValue(price),
-        total: roundValue(qty * price)
-      };
-    }),
-    total: roundValue(totals.grand),
-    discount: roundValue(totals.discount),
-    net: roundValue(totals.net),
-    paid: roundValue(totals.paid),
-    remaining: roundValue(totals.remaining)
-  };
+
   state.salesSaving = true;
   const saveBtn = document.querySelector("[data-action='sales-save']");
   if (saveBtn) saveBtn.disabled = true;
+
   try {
+    // مصدر الترقيم يُعاد جلبه قبل الحفظ لا يُؤخذ من قراءة فتح الشاشة: قد تكون
+    // مرّت ساعات وسُجّلت فواتير في الأمين.
+    await refreshInvoiceSeries();
+
+    // تبديل الوضع أثناء الجلب يغيّر العملة وأسعار الأسطر معاً، فيخرج مستند
+    // بعملة وضعٍ وأسعار وضعٍ آخر (المراجعة رصدت فاتورة جملة بالدولار وفيها سعر
+    // مفرق 500000 ل.س). لا نحاول التوفيق بين الوضعين — نلغي الحفظ ونطلب مراجعة
+    // الأسعار، لأن أي تخمين هنا يكتب مستنداً محاسبياً خاطئاً.
+    if (salesCurrentMode() !== mode) {
+      setNotice("error", "تبدّل وضع الفاتورة (جملة/مفرق) أثناء الحفظ — أُلغي الحفظ ولم يُستهلك رقم. راجع الأسعار ثم احفظ مجدداً.");
+      return;
+    }
+
+    const seriesState = salesSeriesState(mode);
+    if (!seriesState.usable) {
+      setNotice("error", salesSeriesBlockReason(seriesState));
+      return;
+    }
+
+    // الرقم يُحسم لحظة الحفظ: لو كان المعروض قد استُهلك فعلاً (فاتورة أخرى، أو
+    // تبويب آخر، أو وصلت مزامنة أحدث من الأمين) نأخذ التالي بدل تكرار رقم محجوز.
+    const freshNo = peekSalesInvoiceNumber(mode);
+    if (!freshNo) {
+      setNotice("error", salesSeriesBlockReason(salesSeriesState(mode)));
+      return;
+    }
+    const shownNo = Number(state.salesInvoiceNoMode === mode ? state.salesInvoiceNo : "");
+    if (!Number.isFinite(shownNo) || shownNo < Number(freshNo)) {
+      state.salesInvoiceNo = freshNo;
+      state.salesInvoiceNoMode = mode;
+    }
+
+    // الأسطر تُقرأ بعد الجلب لا قبله: القراءة المسبقة تحمل مراجع الأسطر نفسها،
+    // فأي تعديل حصل أثناء الانتظار يجب أن يظهر في المستند أو يُلغى الحفظ.
+    const resolved = salesResolvedRows();
+    if (!resolved.length) {
+      setNotice("error", "أضف صنفاً واحداً على الأقل بكمية وسعر أكبر من صفر.");
+      return;
+    }
+
+    const totals = salesTotals();
+    const roundValue = (value) => (mode === "mufrak" ? Math.round(Number(value || 0)) : roundPrice(Number(value || 0)));
+    const doc = {
+      t: "sales_invoice",
+      // الرقم من الحالة مباشرةً لا عبر ensureSalesInvoiceNo: تلك تقرأ الوضع الحالي.
+      no: state.salesInvoiceNo,
+      date: todayIsoDate(),
+      name: state.salesCustomer.trim(),
+      payMethod: state.salesPayMethod,
+      mode,
+      cur: salesCurrencySymbol(mode),
+      rate: mode === "mufrak" ? Number(state.syriaExchangeRate) || 0 : null,
+      items: resolved.map((row) => {
+        const item = salesItemByKey(row.key);
+        const qty = toNumber(row.qty);
+        const price = toNumber(row.price);
+        return {
+          num: salesItemCode(item) || row.num || "",
+          name: item?.itemName || row.name || "",
+          unit: salesUnitLabel(item, row.unit),
+          unitKey: row.unit,
+          qty,
+          price: roundValue(price),
+          total: roundValue(qty * price)
+        };
+      }),
+      total: roundValue(totals.grand),
+      discount: roundValue(totals.discount),
+      net: roundValue(totals.net),
+      paid: roundValue(totals.paid),
+      remaining: roundValue(totals.remaining)
+    };
+
     await dataStore.createSharedDocument(doc);
     // الحجز بعد النجاح فقط: فشل الحفظ يجب ألا يستهلك رقماً ولا يترك فجوة.
-    salesReserveInvoiceNo(doc.no);
+    // الوضع يُمرَّر صراحةً (doc.mode) لا يُقرأ من الحالة.
+    salesReserveInvoiceNo(doc.no, doc.mode);
     state.salesSavedNo = doc.no;
     // TODO: عند تفعيل النواة الكاملة يُخصم المخزون ويُقيَّد على ذمة الزبون هنا.
     setNotice("success", `تم حفظ فاتورة المبيعات ${doc.no} بالنظام والأرشيف ✓`);
@@ -5871,8 +6077,8 @@ async function salesSaveInvoice() {
   } finally {
     state.salesSaving = false;
     if (saveBtn) saveBtn.disabled = false;
+    render();
   }
-  render();
 }
 
 // إعادة استخدام قالب طباعة الفاتورة (نفس CSS) مع تكييف بسيط: أعمدة الوحدة/الرقم
@@ -5885,7 +6091,22 @@ function printSalesInvoice() {
     return;
   }
   const mode = salesCurrentMode();
+  // لا تُطبع فاتورة برقم غير موثوق: الورقة المطبوعة مستند يُسلَّم للزبون، ورقم
+  // مبني على مزامنة متوقفة قد يكون مستهلكاً في الأمين. لا نعيد الجلب هنا (بخلاف
+  // الحفظ) كي تبقى الطباعة داخل إيماءة المستخدم مباشرةً على iOS؛ والفاتورة
+  // المحفوظة تكون قد جُلبت لها قراءة طازجة أصلاً لحظة الحفظ.
+  const printSeries = salesSeriesState(mode);
+  if (!printSeries.usable) {
+    setNotice("error", salesSeriesBlockReason(printSeries));
+    render();
+    return;
+  }
   const invNo = ensureSalesInvoiceNo();
+  if (!invNo) {
+    setNotice("error", salesSeriesBlockReason(salesSeriesState(mode)));
+    render();
+    return;
+  }
   const totals = salesTotals();
   const today = new Intl.DateTimeFormat("ar-SA-u-nu-latn", { dateStyle: "long" }).format(new Date());
   const customer = state.salesCustomer.trim() || "زبون نقدي";
@@ -6000,16 +6221,13 @@ function printSalesInvoice() {
 
 </body></html>`;
 
-  const win = window.open("", "_blank", "width=850,height=1100");
-  if (win) {
-    win.document.write(html);
-    win.document.close();
-    win.focus();
-    win.print();
-  } else {
-    setNotice("error", "يرجى السماح بالنوافذ المنبثقة لطباعة الفاتورة.");
-    render();
-  }
+  printHtmlDocument(html, {
+    title: `فاتورة مبيعات ${invNo}`,
+    onError: () => {
+      setNotice("error", "تعذّر فتح نافذة الطباعة. أغلق التطبيق وافتحه ثم جرّب مجدداً.");
+      render();
+    }
+  });
 }
 
 // ===== فواتير المشتريات (طلبات الشراء من الموردين) =====
@@ -6356,16 +6574,13 @@ ${po.notes ? `<div class="notes"><strong>ملاحظة:</strong> ${escapeHtml(po.
 
 </body></html>`;
 
-  const win = window.open("", "_blank", "width=850,height=1100");
-  if (win) {
-    win.document.write(html);
-    win.document.close();
-    win.focus();
-    win.print();
-  } else {
-    setNotice("error", "يرجى السماح بالنوافذ المنبثقة لطباعة طلب الشراء.");
-    render();
-  }
+  printHtmlDocument(html, {
+    title: "طلب شراء",
+    onError: () => {
+      setNotice("error", "تعذّر فتح نافذة طباعة طلب الشراء. أغلق التطبيق وافتحه ثم جرّب مجدداً.");
+      render();
+    }
+  });
 }
 
 function generateInvoiceNumber() {
@@ -6473,16 +6688,13 @@ ${notes ? `<div class="notes"><strong>ملاحظة:</strong> ${escapeHtml(notes)
 
 </body></html>`;
 
-  const win = window.open("", "_blank", "width=850,height=1100");
-  if (win) {
-    win.document.write(html);
-    win.document.close();
-    win.focus();
-    win.print();
-  } else {
-    setNotice("error", "يرجى السماح بالنوافذ المنبثقة لطباعة الفاتورة.");
-    render();
-  }
+  printHtmlDocument(html, {
+    title: `فاتورة ${invNum}`,
+    onError: () => {
+      setNotice("error", "تعذّر فتح نافذة الطباعة. أغلق التطبيق وافتحه ثم جرّب مجدداً.");
+      render();
+    }
+  });
   // حفظ الفاتورة بالنظام (للأرشفة على اللابتوب) + إرسالها واتساب للزبون
   sendInvoiceWhatsapp(customer, rows, notes, grandTotal, invNum);
 }
