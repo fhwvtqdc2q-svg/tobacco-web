@@ -1682,7 +1682,13 @@ code {
 
 @media (max-width: 900px) {
   .app-shell {
-    grid-template-columns: 1fr;
+    /* minmax(0,1fr): يسمح للعمود بالانكماش تحت min-content المحتوى بدل تتبّعه،
+       فيبقى ضمن عرض الشاشة ويتمرّر الجدول العريض داخل .inv-table-wrap. */
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .main {
+    min-width: 0;
   }
 
   .sidebar {
