@@ -218,6 +218,8 @@
       itemKey: row.item_key,
       itemName: row.item_name || "",
       itemNumber: row.item_number == null ? "" : String(row.item_number),
+      // كود الأمين (mt000.Code) هو ما يقرأه المستخدم على البطاقة؛ itemNumber ترقيم داخلي.
+      itemCode: row.item_code == null ? "" : String(row.item_code),
       salePrice: unit1Price,
       stockQty: parseNumber(row.stock_qty || 0),
       stockStatus: row.stock_status || "",
@@ -664,7 +666,7 @@
 
       const { data, error } = await client
         .from(approvedPricesTable)
-        .select("id, item_key, item_name, item_number, sale_price, stock_qty, stock_status, unit1_name, unit2_name, unit2_factor, unit2_price, unit1_price, source_report_id, source_synced_at, price_payload, notes, approved_at, updated_at")
+        .select("id, item_key, item_name, item_number, item_code, sale_price, stock_qty, stock_status, unit1_name, unit2_name, unit2_factor, unit2_price, unit1_price, source_report_id, source_synced_at, price_payload, notes, approved_at, updated_at")
         .order("item_name", { ascending: true })
         .limit(5000);
 
@@ -695,28 +697,38 @@
 
       const user = await requireUser();
 
-      // احفظ أرقام الأصناف الحالية (item_number) كي لا يمسحها الـ upsert.
-      // بيانات الموقع لا تحمل رقم الأمين، فنُعيد ربطه من الصفوف الحالية عبر item_key.
-      let numberByKey = null; // null = تعذّر الجلب → لا نلمس item_number (نفس السلوك السابق)
+      // احفظ أرقام وأكواد الأصناف الحالية كي لا يمسحها الـ upsert.
+      // بيانات الموقع لا تحمل أرقام الأمين، فنُعيد ربطها من الصفوف الحالية عبر item_key.
+      let numberByKey = null; // null = تعذّر الجلب → لا نلمس item_number/item_code (نفس السلوك السابق)
+      let codeByKey = null;
       try {
         const { data: existingRows, error: fetchErr } = await client
           .from(approvedPricesTable)
-          .select("item_key, item_number")
+          .select("item_key, item_number, item_code")
           .limit(5000);
         if (!fetchErr) {
           numberByKey = {};
+          codeByKey = {};
           for (const row of existingRows || []) {
-            if (row && row.item_key && row.item_number != null && String(row.item_number) !== "") {
+            if (!row || !row.item_key) continue;
+            if (row.item_number != null && String(row.item_number) !== "") {
               numberByKey[row.item_key] = row.item_number;
+            }
+            if (row.item_code != null && String(row.item_code) !== "") {
+              codeByKey[row.item_key] = row.item_code;
             }
           }
         }
-      } catch (_) { numberByKey = null; }
+      } catch (_) { numberByKey = null; codeByKey = null; }
 
       const withUser = (items || [])
         .map((item) => normalizeApprovedPriceInput(item, user.id))
         .filter((item) => item.item_key && item.item_name && item.sale_price > 0)
-        .map((rec) => (numberByKey ? { ...rec, item_number: numberByKey[rec.item_key] ?? null } : rec));
+        .map((rec) =>
+          numberByKey
+            ? { ...rec, item_number: numberByKey[rec.item_key] ?? null, item_code: codeByKey[rec.item_key] ?? null }
+            : rec
+        );
       const { data, error } = await client
         .from(approvedPricesTable)
         .upsert(withUser, { onConflict: "item_key" })
@@ -749,35 +761,45 @@
 
       const user = await requireUser();
 
-      // احفظ أرقام الأصناف الحالية (item_number) قبل الحذف كي لا تُمسح عند إعادة الإدخال.
-      // بيانات الموقع لا تحمل رقم الأمين، فنُعيد ربطه من الصفوف الحالية عبر item_key.
-      let numberByKey = null; // null = تعذّر الجلب → لا نلمس item_number (نفس السلوك السابق)
+      // احفظ أرقام وأكواد الأصناف الحالية قبل الحذف كي لا تُمسح عند إعادة الإدخال.
+      // بيانات الموقع لا تحمل أرقام الأمين، فنُعيد ربطها من الصفوف الحالية عبر item_key.
+      let numberByKey = null; // null = تعذّر الجلب → لا نلمس item_number/item_code (نفس السلوك السابق)
+      let codeByKey = null;
       try {
         const { data: existingRows, error: fetchErr } = await client
           .from(approvedPricesTable)
-          .select("item_key, item_number")
+          .select("item_key, item_number, item_code")
           .limit(5000);
         if (!fetchErr) {
           numberByKey = {};
+          codeByKey = {};
           for (const row of existingRows || []) {
-            if (row && row.item_key && row.item_number != null && String(row.item_number) !== "") {
+            if (!row || !row.item_key) continue;
+            if (row.item_number != null && String(row.item_number) !== "") {
               numberByKey[row.item_key] = row.item_number;
+            }
+            if (row.item_code != null && String(row.item_code) !== "") {
+              codeByKey[row.item_key] = row.item_code;
             }
           }
         }
-      } catch (_) { numberByKey = null; }
+      } catch (_) { numberByKey = null; codeByKey = null; }
 
       // أمان حاسم: هذا المسار يحذف كل الصفوف ثم يعيدها. إن فشل جلب الأرقام الحالية فسيمحو
-      // الحذفُ item_number بلا رجعة — لذا نُوقف الحفظ بأمان بدل تنفيذ حذف أعمى. الأسعار
-      // والأرقام القديمة تبقى سليمة، ويظهر تحذيرٌ للمستخدم ليعيد المحاولة.
-      if (!numberByKey) {
+      // الحذفُ item_number وitem_code بلا رجعة — لذا نُوقف الحفظ بأمان بدل تنفيذ حذف أعمى.
+      // الأسعار والأرقام القديمة تبقى سليمة، ويظهر تحذيرٌ للمستخدم ليعيد المحاولة.
+      if (!numberByKey || !codeByKey) {
         throw new Error("تعذّر تحضير الحفظ الآمن (فشل قراءة أرقام الأصناف الحالية). لم يُحذف شيء — حاول مجدداً.");
       }
 
       const withUser = (items || [])
         .map((item) => normalizeApprovedPriceInput(item, user.id))
         .filter((item) => item.item_key && item.item_name && item.sale_price > 0)
-        .map((rec) => ({ ...rec, item_number: numberByKey[rec.item_key] ?? null }));
+        .map((rec) => ({
+          ...rec,
+          item_number: numberByKey[rec.item_key] ?? null,
+          item_code: codeByKey[rec.item_key] ?? null
+        }));
 
       const { error: deleteError } = await client.from(approvedPricesTable).delete().neq("item_key", "__never__");
       if (deleteError) throw new Error(deleteError.message);
