@@ -217,6 +217,7 @@
       id: row.id,
       itemKey: row.item_key,
       itemName: row.item_name || "",
+      itemNumber: row.item_number == null ? "" : String(row.item_number),
       salePrice: unit1Price,
       stockQty: parseNumber(row.stock_qty || 0),
       stockStatus: row.stock_status || "",
@@ -645,7 +646,7 @@
 
       const { data, error } = await client
         .from(approvedPricesTable)
-        .select("id, item_key, item_name, sale_price, stock_qty, stock_status, unit1_name, unit2_name, unit2_factor, unit2_price, unit1_price, source_report_id, source_synced_at, price_payload, notes, approved_at, updated_at")
+        .select("id, item_key, item_name, item_number, sale_price, stock_qty, stock_status, unit1_name, unit2_name, unit2_factor, unit2_price, unit1_price, source_report_id, source_synced_at, price_payload, notes, approved_at, updated_at")
         .order("item_name", { ascending: true })
         .limit(5000);
 
