@@ -5611,6 +5611,20 @@ function salesInvoice() {
   const rows = state.salesRows;
   const priceLoaded = (state.approvedPriceItems || []).length > 0;
 
+  // اقتراحات اسم الزبون من أسماء تقرير أرصدة الأمين نفسه — نفس مصدر صفحة
+  // التقارير، كي يكتب الاسم مطابقاً لما هو مسجّل بالنظام فتنجح مطابقة الرصيد
+  // وحد الائتمان وآخر سعر بيع. التكرار يُزال لأن التقرير قد يحمل الاسم مرتين.
+  const salesCustomerNames = Array.from(
+    new Set(
+      latestCustomerBalanceItems()
+        .map((it) => String(it.name || "").trim())
+        .filter(Boolean)
+    )
+  ).sort((a, b) => a.localeCompare(b, "ar"));
+  const salesCustomerOptions = salesCustomerNames
+    .map((name) => `<option value="${escapeHtml(name)}"></option>`)
+    .join("");
+
   const rowsHtml = rows
     .map((row, i) => {
       const computed = salesRowComputed(row);
@@ -5656,7 +5670,8 @@ function salesInvoice() {
             <input class="inv-input-main" value="${escapeHtml(todayIsoDate())}" readonly dir="ltr">
           </label>
           <label class="inv-label">اسم الزبون (اختياري)
-            <input class="inv-input-main" id="sales-customer" value="${escapeHtml(state.salesCustomer)}" placeholder="فارغ = نقدي" maxlength="120" dir="auto">
+            <input class="inv-input-main" id="sales-customer" list="sales-customer-list" autocomplete="off" value="${escapeHtml(state.salesCustomer)}" placeholder="${salesCustomerNames.length ? "اكتب أول حرفين واختَر من القائمة" : "فارغ = نقدي"}" maxlength="120" dir="auto">
+            <datalist id="sales-customer-list">${salesCustomerOptions}</datalist>
           </label>
           <label class="inv-label">طريقة الدفع
             <div class="sales-pay-switch">
