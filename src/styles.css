@@ -2747,6 +2747,136 @@ code {
   }
 }
 
+/* ── بطاقة معلومات الصنف داخل فاتورة المبيعات ── */
+.sales-info-btn {
+  margin-inline-start: 6px;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  border: 1px solid var(--line);
+  background: var(--surface-soft);
+  color: var(--primary);
+  font-family: inherit;
+  font-size: 0.72rem;
+  font-weight: 800;
+  line-height: 1;
+  cursor: pointer;
+  vertical-align: middle;
+}
+
+.sales-info-btn:hover {
+  border-color: var(--primary);
+  background: var(--primary);
+  color: #fff;
+}
+
+.sales-info-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.45);
+  z-index: 1300;
+}
+
+.sales-info-card {
+  position: fixed;
+  z-index: 1301;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: min(360px, calc(100vw - 32px));
+  max-height: min(70vh, 560px);
+  overflow-y: auto;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  box-shadow: var(--shadow);
+}
+
+.sales-info-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--line);
+}
+
+.sales-info-close {
+  border: none;
+  background: transparent;
+  color: var(--muted);
+  font-size: 1rem;
+  cursor: pointer;
+  padding: 0 4px;
+  line-height: 1;
+}
+
+.sales-info-body {
+  padding: 12px 16px 16px;
+}
+
+.sales-info-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 6px 0;
+  font-size: 0.88rem;
+  color: var(--muted);
+}
+
+.sales-info-row strong {
+  color: var(--ink);
+  font-family: monospace;
+}
+
+.sales-info-profit strong {
+  color: var(--primary);
+}
+
+.sales-info-profit.loss strong {
+  color: var(--danger);
+}
+
+.sales-info-warn {
+  margin: 4px 0 0;
+  padding: 6px 10px;
+  border-radius: 8px;
+  background: var(--surface-soft);
+  color: var(--danger);
+  font-size: 0.8rem;
+}
+
+.sales-info-sep {
+  margin-top: 12px;
+  padding-top: 10px;
+  border-top: 1px solid var(--line);
+  font-size: 0.82rem;
+  font-weight: 700;
+  color: var(--primary);
+}
+
+.sales-info-store {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 5px 0;
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+
+.sales-info-store strong {
+  color: var(--ink);
+  font-family: monospace;
+}
+
+.sales-info-empty,
+.sales-info-stamp {
+  margin: 6px 0 0;
+  font-size: 0.78rem;
+}
+
 /* ── فواتير المشتريات (تسجيل داخلي فقط) ── */
 .po-list {
   display: flex;

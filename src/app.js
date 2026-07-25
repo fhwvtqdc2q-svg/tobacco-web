@@ -244,6 +244,9 @@ const state = {
   salesInvoiceNo: "",
   salesSavedNo: "",
   salesSaving: false,
+  salesInfoKey: "",        // مفتاح الصنف المفتوحة بطاقته (فارغ = مغلقة)
+  itemDetails: null,       // خريطة مفتاح ← تفاصيل (تكلفة/مستودعات) من تقرير الأمين
+  itemDetailsAt: "",       // وقت التقرير — يُعرض كي يعرف المستخدم حداثة الأرقام
   salesRows: [{ q: "", key: "", name: "", num: "", unit: "unit2", qty: "1", price: "", edited: false }],
   purchaseInvoices: [],
   poSupplier: "",
@@ -5016,6 +5019,42 @@ function invoice() {
 // ومزامنة رقم الفاتورة التسلسلي مع الأمين.
 // ============================================================================
 
+// ── تفاصيل الصنف (تكلفة + مستودعات) — متطلبا 9 و16 ────────────────────────────
+// المصدر: تقرير ameen_item_details الذي يرفعه tools/push-item-details.ps1.
+// التكلفة في الأمين (mt000.AvgPrice) هي متوسط تكلفة **الوحدة الأولى (كروز)**
+// بالدولار؛ تكلفة الكرتونة = التكلفة × معامل الوحدة الثانية.
+// تحقق 2026-07-25: ماستر طويل ورق 7.044 × 50 = 352$ مقابل بيع 354$.
+async function loadItemDetails() {
+  if (state.itemDetails || !dataStore.getLatestItemDetailsReport) return;
+  try {
+    const report = await dataStore.getLatestItemDetailsReport();
+    if (!report || !Array.isArray(report.items)) return;
+    const map = {};
+    for (const entry of report.items) {
+      if (entry && entry.key) map[entry.key] = entry;
+    }
+    state.itemDetails = map;
+    state.itemDetailsAt = report.created_at || "";
+  } catch (_) {
+    // ميزة عرض فقط — تجاهل الفشل بصمت ولا تعطّل الفاتورة
+  }
+}
+
+function salesDetailsFor(item) {
+  if (!item || !state.itemDetails) return null;
+  return state.itemDetails[item.itemKey] || null;
+}
+
+// تكلفة الكروز: AvgPrice، وعند غيابها (صنف بلا مشتريات) نرجع إلى آخر سعر شراء.
+function salesUnitCost(details) {
+  if (!details) return { value: 0, basis: "" };
+  const avg = Number(details.avgCost || 0);
+  if (avg > 0) return { value: avg, basis: "متوسط" };
+  const last = Number(details.lastCost || 0);
+  if (last > 0) return { value: last, basis: "آخر شراء" };
+  return { value: 0, basis: "" };
+}
+
 function salesEmptyRow() {
   return { q: "", key: "", name: "", num: "", unit: "unit2", qty: "1", price: "", edited: false };
 }
@@ -5222,6 +5261,78 @@ function salesEnsureTrailingRow() {
   if (!rows.length || rows[rows.length - 1].key) rows.push(salesEmptyRow());
 }
 
+// بطاقة معلومات الصنف: المخزون بالكرتونة/الكروز، التكلفة، ربح الكرتونة،
+// وتوزيع المخزون على المستودعات (نظير «وحدة المعلومات» في الأمين).
+function salesInfoCard() {
+  if (!state.salesInfoKey) return "";
+  const item = salesItemByKey(state.salesInfoKey);
+  if (!item) return "";
+
+  const factor = salesUnit2Factor(item);
+  const qty = Number(item.stockQty || 0);
+  const cartons = Math.floor(qty / factor);
+  const loose = Math.round(qty - cartons * factor);
+  const u1 = salesUnitLabel(item, "unit1");
+  const u2 = salesUnitLabel(item, "unit2");
+
+  const details = salesDetailsFor(item);
+  const cost = salesUnitCost(details);
+  const cartonCost = cost.value > 0 ? cost.value * factor : 0;
+  const cartonPrice = Number(item.unit2Price || 0);
+  const profit = cartonCost > 0 && cartonPrice > 0 ? cartonPrice - cartonCost : null;
+  const margin = profit !== null && cartonPrice > 0 ? (profit / cartonPrice) * 100 : null;
+
+  const stores = details && Array.isArray(details.stores) ? details.stores.filter((s) => Number(s.qty) !== 0) : [];
+  const storesHtml = stores.length
+    ? stores
+        .map((s) => {
+          const sq = Number(s.qty || 0);
+          const sc = Math.floor(sq / factor);
+          const sl = Math.round(sq - sc * factor);
+          return `<div class="sales-info-store"><span>${escapeHtml(s.name)}</span><strong dir="ltr">${sc} ${escapeHtml(u2)}${sl > 0 ? ` + ${sl} ${escapeHtml(u1)}` : ""}</strong></div>`;
+        })
+        .join("")
+    : `<p class="muted sales-info-empty">${details ? "لا يوجد مخزون موزّع على المستودعات." : "تفاصيل المستودعات غير متاحة — شغّل tools\\push-item-details.ps1."}</p>`;
+
+  const costHtml = cost.value > 0
+    ? `<div class="sales-info-row"><span>تكلفة ${escapeHtml(u1)} (${escapeHtml(cost.basis)})</span><strong dir="ltr">$${salesFmt(cost.value, "jumla")}</strong></div>
+       <div class="sales-info-row"><span>تكلفة ${escapeHtml(u2)}</span><strong dir="ltr">$${salesFmt(cartonCost, "jumla")}</strong></div>`
+    : `<p class="muted sales-info-empty">${details ? "لا توجد تكلفة مسجّلة لهذا الصنف في الأمين." : "التكلفة غير متاحة — شغّل tools\\push-item-details.ps1."}</p>`;
+
+  const profitHtml = profit !== null
+    ? `<div class="sales-info-row sales-info-profit ${profit < 0 ? "loss" : ""}">
+         <span>ربح ${escapeHtml(u2)}</span>
+         <strong dir="ltr">${profit < 0 ? "−" : ""}$${salesFmt(Math.abs(profit), "jumla")}${margin !== null ? ` (${margin.toFixed(1)}%)` : ""}</strong>
+       </div>
+       ${profit < 0 ? '<p class="sales-info-warn">⚠ سعر البيع أقل من التكلفة — راجع السعر أو التكلفة في الأمين.</p>' : ""}`
+    : "";
+
+  const stamp = state.itemDetailsAt
+    ? `<p class="muted sales-info-stamp">تفاصيل الأمين بتاريخ ${escapeHtml(formatDateTime(state.itemDetailsAt))}</p>`
+    : "";
+
+  return `
+    <div class="sales-info-backdrop" data-sales-info-close></div>
+    <aside class="sales-info-card" role="dialog" aria-label="معلومات الصنف">
+      <div class="sales-info-head">
+        <div>
+          <strong>${escapeHtml(item.itemName)}</strong>
+          ${item.itemNumber ? `<small class="muted" dir="ltr"> #${escapeHtml(item.itemNumber)}</small>` : ""}
+        </div>
+        <button type="button" class="sales-info-close" data-sales-info-close aria-label="إغلاق">✕</button>
+      </div>
+      <div class="sales-info-body">
+        <div class="sales-info-row"><span>المخزون</span><strong dir="ltr">${cartons} ${escapeHtml(u2)}${loose > 0 ? ` + ${loose} ${escapeHtml(u1)}` : ""}</strong></div>
+        <div class="sales-info-row"><span>سعر ${escapeHtml(u2)} (جملة)</span><strong dir="ltr">${cartonPrice > 0 ? `$${salesFmt(cartonPrice, "jumla")}` : "—"}</strong></div>
+        ${costHtml}
+        ${profitHtml}
+        <div class="sales-info-sep">توزيع المستودعات</div>
+        ${storesHtml}
+        ${stamp}
+      </div>
+    </aside>`;
+}
+
 function salesInvoice() {
   if (!state.session) {
     return shell(`
@@ -5251,7 +5362,7 @@ function salesInvoice() {
         <input class="inv-input sales-search" data-sales-field="q" data-sales-index="${i}" value="${escapeHtml(row.q)}" placeholder="رقم الصنف أو الاسم" dir="auto" autocomplete="off">
         <div class="sales-suggest" data-sales-suggest="${i}"></div>
       </td>
-      <td class="sales-cell-name">${resolved ? `<strong>${escapeHtml(computed.item.itemName)}</strong>${computed.item.itemNumber ? `<small class="muted" dir="ltr"> #${escapeHtml(computed.item.itemNumber)}</small>` : ""}` : '<span class="muted">—</span>'}</td>
+      <td class="sales-cell-name">${resolved ? `<strong>${escapeHtml(computed.item.itemName)}</strong>${computed.item.itemNumber ? `<small class="muted" dir="ltr"> #${escapeHtml(computed.item.itemNumber)}</small>` : ""}<button type="button" class="sales-info-btn" data-sales-info="${escapeHtml(computed.item.itemKey)}" title="معلومات الصنف: المخزون والتكلفة والربح والمستودعات">i</button>` : '<span class="muted">—</span>'}</td>
       <td class="sales-cell-unit">
         <button type="button" class="sales-unit-toggle" data-sales-unit="${i}" ${resolved ? "" : "disabled"} title="${resolved ? `تبديل إلى ${escapeHtml(otherLabel)}` : "اختر صنفاً أولاً"}">${escapeHtml(unitLabel)}</button>
       </td>
@@ -5331,6 +5442,7 @@ function salesInvoice() {
           <button class="button secondary" data-action="sales-new">＋ فاتورة جديدة</button>
         </div>
       </div>
+      ${salesInfoCard()}
     </section>
   `);
 }
@@ -6691,6 +6803,23 @@ function render() {
   });
   app.querySelectorAll("[data-sales-unit]").forEach((btn) => {
     btn.addEventListener("click", () => salesToggleUnit(Number(btn.dataset.salesUnit)));
+  });
+  // بطاقة معلومات الصنف: تُحمَّل التفاصيل عند أول فتح فقط (تقرير كبير).
+  app.querySelectorAll("[data-sales-info]").forEach((btn) => {
+    btn.addEventListener("click", async () => {
+      state.salesInfoKey = btn.dataset.salesInfo;
+      render();
+      if (!state.itemDetails) {
+        await loadItemDetails();
+        if (state.salesInfoKey) render(); // أعد الرسم بعد وصول التفاصيل
+      }
+    });
+  });
+  app.querySelectorAll("[data-sales-info-close]").forEach((el) => {
+    el.addEventListener("click", () => {
+      state.salesInfoKey = "";
+      render();
+    });
   });
   app.querySelectorAll("[data-sales-remove]").forEach((btn) => {
     btn.addEventListener("click", () => {

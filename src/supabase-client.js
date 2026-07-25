@@ -454,6 +454,24 @@
       if (error) throw new Error(translateDbError(error.message));
     },
 
+    // تفاصيل الصنف (تكلفة + توزيع المستودعات) يرفعها tools/push-item-details.ps1.
+    // جلب مستقل لأن listInventoryReports محدود بآخر 12 تقريراً وتقارير المزامنة
+    // المتكررة كل 5 دقائق تزيح هذا التقرير خارجها.
+    async getLatestItemDetailsReport() {
+      if (!client) return null;
+      const session = await getSupabaseSession();
+      if (!session) return null;
+      const { data, error } = await client
+        .from(inventoryReportsTable)
+        .select("summary, items, created_at")
+        .eq("source", "ameen_item_details")
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      if (error) return null; // ميزة عرض فقط — لا تُفشل تحميل الصفحة
+      return data || null;
+    },
+
     async listInventoryReports() {
       if (!client) {
         return readJson(INVENTORY_REPORTS_KEY, []).filter((report) => !["ameen_customer_balances", "ameen_customer_movements", "ameen_customer_invoices", "ameen_expenses"].includes(report.source));
