@@ -2866,6 +2866,17 @@ code {
   color: var(--muted);
 }
 
+.sales-info-store.neg strong {
+  color: var(--danger);
+}
+
+.sales-info-store-sum {
+  margin-top: 4px;
+  padding-top: 6px;
+  border-top: 1px dashed var(--line);
+  font-weight: 700;
+}
+
 .sales-info-store strong {
   color: var(--ink);
   font-family: monospace;

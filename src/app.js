@@ -5297,12 +5297,16 @@ function salesInfoCard() {
   // الكراتين الكاملة، وقد يتأخر ساعات؛ كما أن حسابه يجمع الموجب فقط بينما قد
   // يكون لمستودعٍ رصيد سالب في الأمين. فعرضهما كرقم واحد يوهم بتناقض.
   const stores = details && Array.isArray(details.stores) ? details.stores.filter((s) => Number(s.qty) !== 0) : [];
+  // نبني الأجزاء الموجودة فقط: «−0 كرتونة + 9 كروز» ملتبسة، والصحيح «− 9 كروز».
   const fmtQty = (q) => {
-    const neg = q < 0;
     const abs = Math.abs(q);
     const c = Math.floor(abs / factor);
     const l = Math.round(abs - c * factor);
-    return `${neg ? "−" : ""}${c} ${u2}${l > 0 ? ` + ${l} ${u1}` : ""}`;
+    const parts = [];
+    if (c > 0) parts.push(`${c} ${u2}`);
+    if (l > 0) parts.push(`${l} ${u1}`);
+    if (!parts.length) parts.push(`0 ${u2}`);
+    return `${q < 0 ? "− " : ""}${parts.join(" + ")}`;
   };
   const storesSum = stores.reduce((t, s) => t + Number(s.qty || 0), 0);
   const hasNegative = stores.some((s) => Number(s.qty) < 0);
