@@ -5354,11 +5354,11 @@ function salesSeqState(mode) {
 // يرجع نصاً فارغاً إذا لم تصل المزامنة — ولا يخمّن رقماً أبداً، لأن رقماً مخترَعاً
 // قد يصطدم بفاتورة قائمة في الأمين.
 function peekSalesInvoiceNumber(mode) {
-  const m = mode || salesCurrentMode();
-  const series = salesAmeenSeries(m);
-  const ameenNext = Math.floor(Number(series?.nextNo) || 0);
+  const st = salesSeriesState(mode);
+  if (!st.usable) return "";
+  const ameenNext = Math.floor(Number(st.series?.nextNo) || 0);
   if (!(ameenNext > 0)) return "";
-  const local = salesSeqState(m).seq;
+  const local = salesSeqState(st.mode).seq;
   return String(Math.max(ameenNext, local + 1));
 }
 
@@ -5381,24 +5381,65 @@ function ensureSalesInvoiceNo() {
   return state.salesInvoiceNo;
 }
 
+// عمر المزامنة المسموح به قبل منع إصدار رقم. المهمة المجدولة تعمل كل 5 دقائق،
+// فـ15 دقيقة تعني ثلاث دورات فائتة — أي أن المزامنة متوقفة فعلاً لا متأخرة.
+const SALES_SERIES_MAX_AGE_MS = 15 * 60000;
+
+// إعادة جلب تقرير السلاسل عند الطلب. لا يرمي أبداً: فشل الشبكة يترك القراءة
+// السابقة كما هي، ويتكفّل فحص العمر بعده بمنع الإصدار إن كانت قديمة.
+async function refreshInvoiceSeries() {
+  try {
+    if (!dataStore.getInvoiceSeriesReport) return;
+    const report = await dataStore.getInvoiceSeriesReport();
+    if (report) state.invoiceSeriesReport = report;
+  } catch {
+    // تُترك القراءة السابقة — فحص العمر هو خط الدفاع.
+  }
+}
+
+// حالة مصدر الترقيم: السلسلة، وعمر القراءة، وهل تصلح لإصدار رقم أصلاً.
+// المنع لا التحذير فقط: رقم مبني على قراءة قديمة قد يكون مستهلكاً في الأمين،
+// والفاتورة المطبوعة برقم مكرر خطأ محاسبي لا يُصلَح بعد تسليمها للزبون.
+function salesSeriesState(mode) {
+  const m = mode || salesCurrentMode();
+  const target = salesSeriesTarget(m);
+  const series = salesAmeenSeries(m);
+  const stamp = state.invoiceSeriesReport?.summary?.syncedAt || state.invoiceSeriesReport?.created_at || "";
+  const ageMs = stamp ? Date.now() - new Date(stamp).getTime() : NaN;
+  const hasAge = Number.isFinite(ageMs) && ageMs >= 0;
+  const stale = !hasAge || ageMs > SALES_SERIES_MAX_AGE_MS;
+  return { mode: m, target, series, ageMs: hasAge ? ageMs : NaN, stale, usable: !!series && !stale };
+}
+
+function salesSeriesAgeText(ageMs) {
+  if (!Number.isFinite(ageMs)) return "";
+  const mins = Math.floor(ageMs / 60000);
+  if (mins < 1) return "الآن";
+  if (mins < 60) return `قبل ${mins} دقيقة`;
+  const hours = Math.floor(mins / 60);
+  return hours < 24 ? `قبل ${hours} ساعة` : `قبل ${Math.floor(hours / 24)} يوم`;
+}
+
+// رسالة المنع الموحّدة — تُستعمل عند الحفظ وعند الطباعة معاً.
+function salesSeriesBlockReason(st) {
+  if (!st.series) {
+    return `لم تصل مزامنة ترقيم الأمين بعد (سلسلة «${st.target.name}») — لا يمكن إصدار رقم فاتورة.`;
+  }
+  if (st.stale) {
+    const age = salesSeriesAgeText(st.ageMs);
+    return `مزامنة ترقيم الأمين متوقفة${age ? ` (آخر قراءة ${age})` : ""} — لا يمكن إصدار رقم قد يكون مستهلكاً. `
+      + `شغّل مهمة «TOBACCO Invoice Series Push» ثم أعد المحاولة.`;
+  }
+  return "";
+}
+
 // سطر توضيحي تحت رقم الفاتورة: أي سلسلة، وآخر رقم بالأمين، وعمر المزامنة —
 // كي يرى المستخدم بنفسه إن كان الرقم مبنياً على قراءة قديمة.
 function salesInvoiceNoHint() {
-  const mode = salesCurrentMode();
-  const target = salesSeriesTarget(mode);
-  const series = salesAmeenSeries(mode);
-  if (!series) {
-    return `⚠️ لم تصل مزامنة ترقيم الأمين بعد — سلسلة «${target.name}». لا يمكن إصدار رقم.`;
-  }
-  const stamp = state.invoiceSeriesReport?.summary?.syncedAt || state.invoiceSeriesReport?.created_at || "";
-  let age = "";
-  const ms = stamp ? Date.now() - new Date(stamp).getTime() : NaN;
-  if (Number.isFinite(ms) && ms >= 0) {
-    const mins = Math.floor(ms / 60000);
-    age = mins < 1 ? "الآن" : mins < 60 ? `قبل ${mins} دقيقة` : `قبل ${Math.floor(mins / 60)} ساعة`;
-  }
-  const stale = Number.isFinite(ms) && ms > 20 * 60000 ? "⚠️ " : "";
-  return `${stale}سلسلة «${series.typeName}» — آخر رقم بالأمين ${series.lastNo}${age ? ` (مزامنة ${age})` : ""}`;
+  const st = salesSeriesState();
+  if (!st.usable) return `⚠️ ${salesSeriesBlockReason(st)}`;
+  const age = salesSeriesAgeText(st.ageMs);
+  return `سلسلة «${st.series.typeName}» — آخر رقم بالأمين ${st.series.lastNo}${age ? ` (مزامنة ${age})` : ""}`;
 }
 
 function salesEnsureTrailingRow() {
@@ -5941,25 +5982,44 @@ async function salesSaveInvoice() {
   // يُضبط إلا بعد انتهاء await، فتمرّ النقرتان معاً وتُحفظ الفاتورة مرتين.
   if (state.salesSaving) return;
 
-  // الرقم يُحسم لحظة الحفظ: لو كان المعروض قد استُهلك فعلاً (فاتورة أخرى، أو تبويب
-  // آخر، أو وصلت مزامنة أحدث من الأمين) نأخذ التالي بدل تكرار رقم محجوز.
-  const freshNo = peekSalesInvoiceNumber();
-  if (!freshNo) {
-    setNotice("error", "لم تصل مزامنة ترقيم الأمين بعد — لا يمكن إصدار رقم فاتورة. انتظر دقائق ثم أعد المحاولة.");
+  // الوضع يُثبَّت هنا مرة واحدة ويُمرَّر صراحةً لكل ما يلي (الرقم، الحجز، المستند).
+  // بدون ذلك: تبديل الوضع أثناء انتظار الحفظ يجعل salesReserveInvoiceNo بعد
+  // الـawait يكتب رقم الجملة في عدّاد المفرق، فيبقى عدّاد الجملة فارغاً ويعود
+  // الرقم نفسه للفاتورة التالية (مانع أكّدته المراجعة).
+  const mode = salesCurrentMode();
+
+  // مصدر الترقيم يُعاد جلبه قبل الحفظ لا يُؤخذ من قراءة فتح الشاشة: قد تكون مرّت
+  // ساعات وسُجّلت فواتير في الأمين. الجلب قبل تعطيل الزر كي لا يعلق عند الفشل.
+  await refreshInvoiceSeries();
+
+  const seriesState = salesSeriesState(mode);
+  if (!seriesState.usable) {
+    setNotice("error", salesSeriesBlockReason(seriesState));
     render();
     return;
   }
-  const shownNo = Number(ensureSalesInvoiceNo());
+
+  // الرقم يُحسم لحظة الحفظ: لو كان المعروض قد استُهلك فعلاً (فاتورة أخرى، أو تبويب
+  // آخر، أو وصلت مزامنة أحدث من الأمين) نأخذ التالي بدل تكرار رقم محجوز.
+  const freshNo = peekSalesInvoiceNumber(mode);
+  if (!freshNo) {
+    setNotice("error", salesSeriesBlockReason(salesSeriesState(mode)));
+    render();
+    return;
+  }
+  const shownNo = Number(state.salesInvoiceNoMode === mode ? state.salesInvoiceNo : "");
   if (!Number.isFinite(shownNo) || shownNo < Number(freshNo)) {
     state.salesInvoiceNo = freshNo;
+    state.salesInvoiceNoMode = mode;
   }
 
-  const mode = salesCurrentMode();
   const totals = salesTotals();
   const roundValue = (value) => (mode === "mufrak" ? Math.round(Number(value || 0)) : roundPrice(Number(value || 0)));
   const doc = {
     t: "sales_invoice",
-    no: ensureSalesInvoiceNo(),
+    // الرقم من الحالة مباشرةً لا عبر ensureSalesInvoiceNo: تلك تقرأ الوضع الحالي،
+    // وقد يكون تبدّل أثناء انتظار جلب المزامنة أعلاه.
+    no: state.salesInvoiceNo,
     date: todayIsoDate(),
     name: state.salesCustomer.trim(),
     payMethod: state.salesPayMethod,
@@ -5992,7 +6052,9 @@ async function salesSaveInvoice() {
   try {
     await dataStore.createSharedDocument(doc);
     // الحجز بعد النجاح فقط: فشل الحفظ يجب ألا يستهلك رقماً ولا يترك فجوة.
-    salesReserveInvoiceNo(doc.no);
+    // الوضع يُمرَّر صراحةً (doc.mode) لا يُقرأ من الحالة: قد يكون المستخدم بدّله
+    // أثناء انتظار الحفظ، فيُكتب رقم سلسلة في عدّاد السلسلة الأخرى.
+    salesReserveInvoiceNo(doc.no, doc.mode);
     state.salesSavedNo = doc.no;
     // TODO: عند تفعيل النواة الكاملة يُخصم المخزون ويُقيَّد على ذمة الزبون هنا.
     setNotice("success", `تم حفظ فاتورة المبيعات ${doc.no} بالنظام والأرشيف ✓`);
@@ -6015,10 +6077,19 @@ function printSalesInvoice() {
     return;
   }
   const mode = salesCurrentMode();
+  // لا تُطبع فاتورة برقم غير موثوق: الورقة المطبوعة مستند يُسلَّم للزبون، ورقم
+  // مبني على مزامنة متوقفة قد يكون مستهلكاً في الأمين. لا نعيد الجلب هنا (بخلاف
+  // الحفظ) كي تبقى الطباعة داخل إيماءة المستخدم مباشرةً على iOS؛ والفاتورة
+  // المحفوظة تكون قد جُلبت لها قراءة طازجة أصلاً لحظة الحفظ.
+  const printSeries = salesSeriesState(mode);
+  if (!printSeries.usable) {
+    setNotice("error", salesSeriesBlockReason(printSeries));
+    render();
+    return;
+  }
   const invNo = ensureSalesInvoiceNo();
-  // لا تُطبع فاتورة بلا رقم: الورقة المطبوعة مستند يُسلَّم للزبون.
   if (!invNo) {
-    setNotice("error", "لم تصل مزامنة ترقيم الأمين بعد — لا يمكن طباعة فاتورة بلا رقم.");
+    setNotice("error", salesSeriesBlockReason(salesSeriesState(mode)));
     render();
     return;
   }
