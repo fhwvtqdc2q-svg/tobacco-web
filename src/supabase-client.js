@@ -732,7 +732,10 @@
       const { data, error } = await client
         .from(approvedPricesTable)
         .upsert(withUser, { onConflict: "item_key" })
-        .select("id, item_key, item_name, sale_price, stock_qty, stock_status, unit1_name, unit2_name, unit2_factor, unit2_price, unit1_price, source_report_id, source_synced_at, price_payload, notes, approved_at, updated_at");
+        // item_number وitem_code إلزاميان في الراجع: المتصل يستبدل الصنف في الذاكرة
+        // بالكائن الراجع (app.js: priceMap.set)، فغيابهما يُفرغ الرقمين حتى إعادة
+        // تحميل الصفحة فيتوقف البحث بالكود وبالرقم الداخلي (مانع رصدته المراجعة).
+        .select("id, item_key, item_name, item_number, item_code, sale_price, stock_qty, stock_status, unit1_name, unit2_name, unit2_factor, unit2_price, unit1_price, source_report_id, source_synced_at, price_payload, notes, approved_at, updated_at");
 
       if (error) throw new Error(translateDbError(error.message));
       return (data || []).map(normalizeDbApprovedPrice);
@@ -807,7 +810,8 @@
       const { data, error } = await client
         .from(approvedPricesTable)
         .insert(withUser)
-        .select("id, item_key, item_name, sale_price, stock_qty, stock_status, unit1_name, unit2_name, unit2_factor, unit2_price, unit1_price, source_report_id, source_synced_at, price_payload, notes, approved_at, updated_at");
+        // نفس سبب المسار الآخر: الرقمان إلزاميان في الراجع وإلا فُرّغا في الذاكرة.
+        .select("id, item_key, item_name, item_number, item_code, sale_price, stock_qty, stock_status, unit1_name, unit2_name, unit2_factor, unit2_price, unit1_price, source_report_id, source_synced_at, price_payload, notes, approved_at, updated_at");
 
       if (error) throw new Error(translateDbError(error.message));
       return (data || []).map(normalizeDbApprovedPrice);
