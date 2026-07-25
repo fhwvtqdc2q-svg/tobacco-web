@@ -5966,94 +5966,108 @@ function salesNewInvoice() {
 }
 
 async function salesSaveInvoice() {
-  const resolved = salesResolvedRows();
-  if (!resolved.length) {
+  // نقرة ثانية أثناء تنفيذ الحفظ. هذا الفحص أولاً وقبل أي شيء، ورفعُ القفل بعده
+  // مباشرةً وقبل أي await: عندما كان القفل يُرفع قبل الكتابة فقط، كانت النقرة
+  // الثانية تمرّ أثناء جلب المزامنة فيُحفظ مستندان بالرقم نفسه (مانع أكّدته
+  // المراجعة). كل خروج بعد هذه النقطة يمرّ عبر finally الذي يخفض القفل.
+  if (state.salesSaving) return;
+
+  if (!salesResolvedRows().length) {
     setNotice("error", "أضف صنفاً واحداً على الأقل بكمية وسعر أكبر من صفر.");
     render();
     return;
   }
-  // منع حفظ الفاتورة نفسها مرتين (ضغط مزدوج أو إعادة ضغط بعد نجاح الحفظ).
+  // منع حفظ الفاتورة نفسها مرتين (إعادة ضغط بعد نجاح الحفظ).
   if (state.salesSavedNo && state.salesSavedNo === state.salesInvoiceNo) {
     setNotice("error", `الفاتورة ${state.salesSavedNo} محفوظة مسبقاً — اضغط «＋ فاتورة جديدة» لإصدار فاتورة أخرى.`);
     render();
     return;
   }
-  // نقرة ثانية أثناء تنفيذ الحفظ: الفحص أعلاه وحده لا يكفي، لأن salesSavedNo لا
-  // يُضبط إلا بعد انتهاء await، فتمرّ النقرتان معاً وتُحفظ الفاتورة مرتين.
-  if (state.salesSaving) return;
 
-  // الوضع يُثبَّت هنا مرة واحدة ويُمرَّر صراحةً لكل ما يلي (الرقم، الحجز، المستند).
-  // بدون ذلك: تبديل الوضع أثناء انتظار الحفظ يجعل salesReserveInvoiceNo بعد
-  // الـawait يكتب رقم الجملة في عدّاد المفرق، فيبقى عدّاد الجملة فارغاً ويعود
-  // الرقم نفسه للفاتورة التالية (مانع أكّدته المراجعة).
+  // الوضع يُثبَّت مرة واحدة ويُمرَّر صراحةً لكل ما يلي (الرقم، الحجز، المستند).
   const mode = salesCurrentMode();
 
-  // مصدر الترقيم يُعاد جلبه قبل الحفظ لا يُؤخذ من قراءة فتح الشاشة: قد تكون مرّت
-  // ساعات وسُجّلت فواتير في الأمين. الجلب قبل تعطيل الزر كي لا يعلق عند الفشل.
-  await refreshInvoiceSeries();
-
-  const seriesState = salesSeriesState(mode);
-  if (!seriesState.usable) {
-    setNotice("error", salesSeriesBlockReason(seriesState));
-    render();
-    return;
-  }
-
-  // الرقم يُحسم لحظة الحفظ: لو كان المعروض قد استُهلك فعلاً (فاتورة أخرى، أو تبويب
-  // آخر، أو وصلت مزامنة أحدث من الأمين) نأخذ التالي بدل تكرار رقم محجوز.
-  const freshNo = peekSalesInvoiceNumber(mode);
-  if (!freshNo) {
-    setNotice("error", salesSeriesBlockReason(salesSeriesState(mode)));
-    render();
-    return;
-  }
-  const shownNo = Number(state.salesInvoiceNoMode === mode ? state.salesInvoiceNo : "");
-  if (!Number.isFinite(shownNo) || shownNo < Number(freshNo)) {
-    state.salesInvoiceNo = freshNo;
-    state.salesInvoiceNoMode = mode;
-  }
-
-  const totals = salesTotals();
-  const roundValue = (value) => (mode === "mufrak" ? Math.round(Number(value || 0)) : roundPrice(Number(value || 0)));
-  const doc = {
-    t: "sales_invoice",
-    // الرقم من الحالة مباشرةً لا عبر ensureSalesInvoiceNo: تلك تقرأ الوضع الحالي،
-    // وقد يكون تبدّل أثناء انتظار جلب المزامنة أعلاه.
-    no: state.salesInvoiceNo,
-    date: todayIsoDate(),
-    name: state.salesCustomer.trim(),
-    payMethod: state.salesPayMethod,
-    mode,
-    cur: salesCurrencySymbol(mode),
-    rate: mode === "mufrak" ? Number(state.syriaExchangeRate) || 0 : null,
-    items: resolved.map((row) => {
-      const item = salesItemByKey(row.key);
-      const qty = toNumber(row.qty);
-      const price = toNumber(row.price);
-      return {
-        num: salesItemCode(item) || row.num || "",
-        name: item?.itemName || row.name || "",
-        unit: salesUnitLabel(item, row.unit),
-        unitKey: row.unit,
-        qty,
-        price: roundValue(price),
-        total: roundValue(qty * price)
-      };
-    }),
-    total: roundValue(totals.grand),
-    discount: roundValue(totals.discount),
-    net: roundValue(totals.net),
-    paid: roundValue(totals.paid),
-    remaining: roundValue(totals.remaining)
-  };
   state.salesSaving = true;
   const saveBtn = document.querySelector("[data-action='sales-save']");
   if (saveBtn) saveBtn.disabled = true;
+
   try {
+    // مصدر الترقيم يُعاد جلبه قبل الحفظ لا يُؤخذ من قراءة فتح الشاشة: قد تكون
+    // مرّت ساعات وسُجّلت فواتير في الأمين.
+    await refreshInvoiceSeries();
+
+    // تبديل الوضع أثناء الجلب يغيّر العملة وأسعار الأسطر معاً، فيخرج مستند
+    // بعملة وضعٍ وأسعار وضعٍ آخر (المراجعة رصدت فاتورة جملة بالدولار وفيها سعر
+    // مفرق 500000 ل.س). لا نحاول التوفيق بين الوضعين — نلغي الحفظ ونطلب مراجعة
+    // الأسعار، لأن أي تخمين هنا يكتب مستنداً محاسبياً خاطئاً.
+    if (salesCurrentMode() !== mode) {
+      setNotice("error", "تبدّل وضع الفاتورة (جملة/مفرق) أثناء الحفظ — أُلغي الحفظ ولم يُستهلك رقم. راجع الأسعار ثم احفظ مجدداً.");
+      return;
+    }
+
+    const seriesState = salesSeriesState(mode);
+    if (!seriesState.usable) {
+      setNotice("error", salesSeriesBlockReason(seriesState));
+      return;
+    }
+
+    // الرقم يُحسم لحظة الحفظ: لو كان المعروض قد استُهلك فعلاً (فاتورة أخرى، أو
+    // تبويب آخر، أو وصلت مزامنة أحدث من الأمين) نأخذ التالي بدل تكرار رقم محجوز.
+    const freshNo = peekSalesInvoiceNumber(mode);
+    if (!freshNo) {
+      setNotice("error", salesSeriesBlockReason(salesSeriesState(mode)));
+      return;
+    }
+    const shownNo = Number(state.salesInvoiceNoMode === mode ? state.salesInvoiceNo : "");
+    if (!Number.isFinite(shownNo) || shownNo < Number(freshNo)) {
+      state.salesInvoiceNo = freshNo;
+      state.salesInvoiceNoMode = mode;
+    }
+
+    // الأسطر تُقرأ بعد الجلب لا قبله: القراءة المسبقة تحمل مراجع الأسطر نفسها،
+    // فأي تعديل حصل أثناء الانتظار يجب أن يظهر في المستند أو يُلغى الحفظ.
+    const resolved = salesResolvedRows();
+    if (!resolved.length) {
+      setNotice("error", "أضف صنفاً واحداً على الأقل بكمية وسعر أكبر من صفر.");
+      return;
+    }
+
+    const totals = salesTotals();
+    const roundValue = (value) => (mode === "mufrak" ? Math.round(Number(value || 0)) : roundPrice(Number(value || 0)));
+    const doc = {
+      t: "sales_invoice",
+      // الرقم من الحالة مباشرةً لا عبر ensureSalesInvoiceNo: تلك تقرأ الوضع الحالي.
+      no: state.salesInvoiceNo,
+      date: todayIsoDate(),
+      name: state.salesCustomer.trim(),
+      payMethod: state.salesPayMethod,
+      mode,
+      cur: salesCurrencySymbol(mode),
+      rate: mode === "mufrak" ? Number(state.syriaExchangeRate) || 0 : null,
+      items: resolved.map((row) => {
+        const item = salesItemByKey(row.key);
+        const qty = toNumber(row.qty);
+        const price = toNumber(row.price);
+        return {
+          num: salesItemCode(item) || row.num || "",
+          name: item?.itemName || row.name || "",
+          unit: salesUnitLabel(item, row.unit),
+          unitKey: row.unit,
+          qty,
+          price: roundValue(price),
+          total: roundValue(qty * price)
+        };
+      }),
+      total: roundValue(totals.grand),
+      discount: roundValue(totals.discount),
+      net: roundValue(totals.net),
+      paid: roundValue(totals.paid),
+      remaining: roundValue(totals.remaining)
+    };
+
     await dataStore.createSharedDocument(doc);
     // الحجز بعد النجاح فقط: فشل الحفظ يجب ألا يستهلك رقماً ولا يترك فجوة.
-    // الوضع يُمرَّر صراحةً (doc.mode) لا يُقرأ من الحالة: قد يكون المستخدم بدّله
-    // أثناء انتظار الحفظ، فيُكتب رقم سلسلة في عدّاد السلسلة الأخرى.
+    // الوضع يُمرَّر صراحةً (doc.mode) لا يُقرأ من الحالة.
     salesReserveInvoiceNo(doc.no, doc.mode);
     state.salesSavedNo = doc.no;
     // TODO: عند تفعيل النواة الكاملة يُخصم المخزون ويُقيَّد على ذمة الزبون هنا.
@@ -6063,8 +6077,8 @@ async function salesSaveInvoice() {
   } finally {
     state.salesSaving = false;
     if (saveBtn) saveBtn.disabled = false;
+    render();
   }
-  render();
 }
 
 // إعادة استخدام قالب طباعة الفاتورة (نفس CSS) مع تكييف بسيط: أعمدة الوحدة/الرقم
