@@ -9,6 +9,57 @@
 - المسؤول: —
 - آخر تحديث: 2026-07-25
 
+## 2026-07-25 - Codex - اعتماد إغلاق مانعَي حاجز جدول الأسعار (`c7ed069`)
+
+- Status: **جاهز للدمج؛ لا يوجد مانع متبقٍ.** المراجعة فقط عند
+  `c7ed069bc87a167b21b3b447035f8fcc5f2e6015` المطابق لـ
+  `origin/fix/sql-guard-prices`، بلا commit/push/merge أو تعديل أسعار أو تنفيذ
+  DDL على الإنتاج أو تجربة هاتف.
+- نطاق الفرع فوق `main` محصور في `supabase/approved-prices-table.sql` وسجل
+  المراجعة السابقة في `AI_HANDOFF.md`.
+
+### إغلاق المانعين
+
+- بعد استبعاد أسطر التعليقات، عدد أوامر `drop` القابلة للتنفيذ **صفر**. التطابقات
+  الباقية الثلاثة في الملف توثيق تاريخي ضمن تعليقات فقط. أُزيل
+  `drop table ... cascade` فعلياً، ولا توجد صيغة ديناميكية بديلة له.
+- السياسات الأربع تطابق `pg_policies` الحيّة في الإنتاج:
+  - `select`: الدور `authenticated` و`qual=is_staff()`.
+  - `insert`: الدور `authenticated` و`with_check=is_staff()`.
+  - `update`: الدور `authenticated` و`qual/with_check=is_staff()`.
+  - `delete`: الدور `authenticated` و`qual=is_staff()`.
+  الفحص الساكن أعطى أربع سياسات، وصفر `using(true)` أو `with check(true)`
+  قابل للتنفيذ.
+
+### محاكاة PostgreSQL المحلية
+
+- استُخرجت كتلة المتطلب وكتلة الحاجز من الملف نفسه وشُغّلتا محلياً، بلا أي
+  تنفيذ على الإنتاج:
+  - غياب `public.is_staff()`: `MISSING_IS_STAFF=BLOCKED`.
+  - وجود الدالة وغياب الجدول: `MISSING_TABLE=PASS`.
+  - جدول موجود فارغ: `EMPTY_TABLE=BLOCKED_COUNT_0 REMAINS=0`.
+  - جدول موجود وفيه 316 صفاً:
+    `POPULATED_TABLE=BLOCKED_COUNT_316 REMAINS=316`.
+- شُغّل الملف كاملاً على قاعدة محلية جديدة بعد تجهيز دور `authenticated`
+  ودالة `is_staff()`: `FIRST_BUILD=PASS`, `COLUMNS=20`, `REQUIRED=2`,
+  `ITEM_CODE_INDEX=1`, `POLICIES=4`. أي أن `item_code` و`item_number`
+  موجودان، وفهرس `idx_item_code` يُنشأ فعلياً.
+
+### التوثيق والفحوص
+
+- الملف يسمي التوابع الستة المطابقة للفحص القرائي الحي: الواجهات
+  `approved_price_sync_feed` و`available_price_sync_feed` و
+  `bot_health_alerts`، وtriggers المسماة `trg_notify_price_changes` و
+  `trg_notify_new_price_items` و`trg_notify_stock_alerts`. ويوجّه صراحةً إلى
+  ملف ترحيل إضافي لأي تعديل على قاعدة عاملة.
+- `npm.cmd run check` ناجح (`Project check passed`). `git diff --check` وفرق
+  `c7ed069^..c7ed069` نظيفان. نهايات الأسطر قبل هذا السجل:
+  `supabase/approved-prices-table.sql CR=0` و`AI_HANDOFF.md CR=0`.
+- لا ملاحظة جديدة. صياغة الرسائل والتعليقات وترتيب الكتل لا تؤثر في القبول.
+- Boundaries: التغيير الوحيد بعد المراجعة هو هذا السجل غير المثبّت في
+  `AI_HANDOFF.md`.
+- Handoff UTC: 2026-07-25T10:19:24.4886347Z
+
 ## 2026-07-25 - Codex - مراجعة حاجز جدول الأسعار (`fix/sql-guard-prices`، `7352104`)
 
 - Status: **غير جاهز للدمج — مانعان في ملف الحماية نفسه.** المراجعة فقط عند
