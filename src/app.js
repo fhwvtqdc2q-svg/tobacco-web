@@ -5375,6 +5375,61 @@ function salesInfoCard() {
     </aside>`;
 }
 
+// لوحة رصيد الزبون داخل الفاتورة (متطلب 23) — تعيد استعمال بنية الأرصدة الموجودة:
+// findBalanceCustomerByText / customerBalance / customerLimit / deriveCustomerStatus.
+//
+// الرصيد المتوقّع = الرصيد الحالي + **المتبقّي** على الفاتورة (لا الإجمالي):
+// دَين الزبون يزيد بالجزء غير المدفوع فقط، فالفاتورة النقدية المسدَّدة لا تغيّره.
+// الأرصدة بالدولار (ac000 بعملة الأساس)، فنحوّل متبقّي فاتورة المفرق بسعر الصرف.
+function salesCustomerPanel() {
+  const typed = String(state.salesCustomer || "").trim();
+  if (!typed) return "";
+
+  const cust = findBalanceCustomerByText(typed);
+  if (!cust) {
+    return `<div class="sales-cust-panel"><span class="muted">زبون غير مطابق في كشف الأرصدة — لن يظهر رصيد سابق.</span></div>`;
+  }
+
+  const mode = salesCurrentMode();
+  const totals = salesTotals();
+  const rate = Number(state.syriaExchangeRate) || 0;
+  // متبقّي الفاتورة بالدولار كي يتوافق مع عملة الأرصدة
+  const remainingUsd = mode === "mufrak" ? (rate > 0 ? totals.remaining / rate : 0) : totals.remaining;
+
+  const balance = customerBalance(cust);
+  const limit = customerLimit(cust);
+  const projected = balance + remainingUsd;
+
+  const money = (v) => `$${salesFmt(Math.abs(v), "jumla")}`;
+  const side = (v) => (Math.abs(v) < 0.005 ? "مسدّد" : v > 0 ? "عليه" : "له");
+
+  // التحذير يعتمد الرصيد المتوقّع لا الحالي — الغاية أن يعرف البائع قبل الإتمام.
+  // الحد صفر/غائب يعني «لا حد محدّد» فلا تحذير (معظم الزبائن بلا حد مسجّل).
+  let warn = "";
+  if (limit > 0) {
+    if (projected > limit) {
+      warn = `<p class="sales-cust-warn over">⛔ سيتجاوز حدّه الائتماني (${money(limit)}) بـ${money(projected - limit)}</p>`;
+    } else if (projected >= limit * 0.9) {
+      warn = `<p class="sales-cust-warn near">⚠ سيقترب من حدّه الائتماني (${money(limit)}) — المتاح ${money(limit - projected)}</p>`;
+    }
+  }
+
+  const lastAmt = customerLastPaymentAmount(cust);
+  const lastDate = customerLastPaymentDate(cust);
+
+  return `
+    <div class="sales-cust-panel">
+      <div class="sales-cust-head">
+        <strong>${escapeHtml(cust.name || typed)}</strong>
+        ${limit > 0 ? `<small class="muted">الحد: ${money(limit)}</small>` : '<small class="muted">بلا حد محدّد</small>'}
+      </div>
+      <div class="sales-cust-row"><span>رصيده الحالي</span><strong dir="ltr">${money(balance)} <small>${side(balance)}</small></strong></div>
+      <div class="sales-cust-row sales-cust-projected"><span>الرصيد بعد هذه الفاتورة</span><strong dir="ltr">${money(projected)} <small>${side(projected)}</small></strong></div>
+      ${lastAmt > 0 ? `<div class="sales-cust-row"><span>آخر دفعة</span><strong dir="ltr">${money(lastAmt)}${lastDate ? ` — ${escapeHtml(String(lastDate).slice(0, 10))}` : ""}</strong></div>` : ""}
+      ${warn}
+    </div>`;
+}
+
 function salesInvoice() {
   if (!state.session) {
     return shell(`
@@ -5475,8 +5530,10 @@ function salesInvoice() {
           <div class="sales-summary-row"><span>المدفوع (${escapeHtml(symbol)})</span>
             <input class="inv-input-main sales-amount-input" id="sales-paid" data-sales-num value="${escapeHtml(paidValue)}" placeholder="0" type="text" inputmode="decimal" dir="ltr" ${state.salesPayMethod === "cash" ? "readonly" : ""}>
           </div>
-          <div class="sales-summary-row sales-summary-remaining"><span>المتبقّي <small class="sales-remaining-tag" data-sales-remaining-tag>${escapeHtml(salesRemainingState(totals.remaining, mode).label)}</small></span><strong data-sales-remaining dir="ltr">${salesMoney(Math.abs(totals.remaining), mode)}</strong></div>
+          <div class="sales-summary-row sales-summary-remaining" data-sales-remaining-row><span>المتبقّي <small class="sales-remaining-tag" data-sales-remaining-tag>${escapeHtml(salesRemainingState(totals.remaining, mode).label)}</small></span><strong data-sales-remaining dir="ltr">${salesMoney(Math.abs(totals.remaining), mode)}</strong></div>
         </div>
+
+        <div data-sales-cust-host>${salesCustomerPanel()}</div>
 
         <div class="inv-actions sales-actions">
           <button class="button primary" data-action="sales-save">💾 حفظ الفاتورة</button>
@@ -5506,6 +5563,9 @@ function refreshSalesTotals() {
   if (remainingEl) remainingEl.textContent = salesMoney(Math.abs(totals.remaining), mode);
   const remainingTagEl = document.querySelector("[data-sales-remaining-tag]");
   if (remainingTagEl) remainingTagEl.textContent = salesRemainingState(totals.remaining, mode).label;
+  // لوحة الزبون تتبع المتبقّي، فتُحدَّث معه جراحياً (بلا render حفاظاً على التركيز).
+  const custHost = document.querySelector("[data-sales-cust-host]");
+  if (custHost) custHost.innerHTML = salesCustomerPanel();
   if (state.salesPayMethod === "cash") {
     const paidInput = document.getElementById("sales-paid");
     if (paidInput) paidInput.value = salesFmtPlain(totals.paid, mode);
@@ -6764,6 +6824,7 @@ function render() {
   // ===== فاتورة مبيعات (route: sales) =====
   app.querySelector("#sales-customer")?.addEventListener("input", (e) => {
     state.salesCustomer = e.currentTarget.value; // بلا render حفاظاً على التركيز
+    refreshSalesTotals(); // يحدّث لوحة رصيد الزبون مع كل حرف
   });
   app.querySelector("#sales-discount")?.addEventListener("input", (e) => {
     const normalized = normalizeNumericText(e.currentTarget.value, { allowNegative: false, allowDecimal: true });
