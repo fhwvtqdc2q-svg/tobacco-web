@@ -744,19 +744,26 @@ function invoicePriceBasis(inv) {
 
 // سعر الوحدة معروضاً دائماً بالوحدة الكبرى (كرتونة/شرحة/طرد): إن كان أساس أسعار الفاتورة
 // الكروز نضرب بمعامل الوحدة (كمية الكروز ÷ كمية الكراتين لنفس السطر)، وإلا نعرضه كما هو.
-function invoiceLinePrice(line, inv) {
+// نواة حسم الوحدة رقماً — مصدر واحد لكل من يحتاج سعر سطر الفاتورة (العرض في كشف
+// الحساب، وآخر سعر للزبون في بطاقة الصنف). تعيد { price, unit, converted } أو null.
+function invoiceLineUnitPrice(line, inv) {
   const price = Number(line?.price || 0);
-  if (!(price > 0)) return "—";
+  if (!(price > 0)) return null;
   const u1 = String(line?.unit1 || "").trim();
   const u2 = String(line?.unit2 || "").trim();
   const qty = Number(line?.qty || 0);
   const qtyUnits = Number(line?.qtyUnits || 0);
   const factor = qty > 0 && qtyUnits > 0 ? qty / qtyUnits : 0;
   if (inv && u2 && factor > 0 && invoicePriceBasis(inv) === "unit1") {
-    return `${formatMoney(roundPrice(price * factor))} $ / ${u2}`;
+    return { price: roundPrice(price * factor), unit: u2, converted: true };
   }
-  const unit = qtyUnits > 0 && u2 ? u2 : u1;
-  return `${formatMoney(price)} $${unit ? " / " + unit : ""}`;
+  return { price, unit: qtyUnits > 0 && u2 ? u2 : u1, converted: false };
+}
+
+function invoiceLinePrice(line, inv) {
+  const resolved = invoiceLineUnitPrice(line, inv);
+  if (!resolved) return "—";
+  return `${formatMoney(resolved.price)} $${resolved.unit ? " / " + resolved.unit : ""}`;
 }
 
 async function loadCustomerCreditLimits() {
@@ -5280,6 +5287,58 @@ function salesEnsureTrailingRow() {
   if (!rows.length || rows[rows.length - 1].key) rows.push(salesEmptyRow());
 }
 
+// آخر سعر بِيع به هذا الصنف لهذا الزبون (متطلب 22) — يعيد استعمال البنية الموجودة:
+// customerInvoicesFor للمطابقة الذكية بالاسم، وinvoiceLineUnitPrice لحسم وحدة السعر.
+//
+// حسم الوحدة إلزامي قبل عرض أي رقم: أساس سعر السطر في الأمين قد يكون الكرتونة أو
+// الكروز ويختلف من فاتورة لأخرى، ويُحسم بمطابقة مجموع الأسطر مع إجمالي الفاتورة.
+// قِيس على بيانات الجهاز (228 فاتورة): النسبة بين الأساسين وسطها 49× وأدناها 5×،
+// وصفر فاتورة يتقارب فيها المرشحان — فالحسم قطعي ولا يقلبه حسم أو خصم.
+//
+// المصدر تقرير ameen_customer_invoices ونافذته محدودة (60 يوماً افتراضاً)، فغياب
+// الرقم يعني «لا بيع خلال النافذة» ولا يجوز إظهاره صفراً أو إخفاء السطر بصمت.
+// المطابقة بالاسم فقط (أسطر التقرير بلا رقم صنف) فالتطبيع على الطرفين إلزامي.
+function salesLastCustomerPrice(item) {
+  const typed = String(state.salesCustomer || "").trim();
+  if (!item || !typed) return { status: "no_customer" };
+  if (!state.customerInvoicesReport) return { status: "no_report" };
+
+  const target = normalizeItemName(item.itemName || "");
+  if (!target) return { status: "none" };
+
+  const invoices = customerInvoicesFor(typed).filter((inv) => inv && !inv.isReturn);
+  if (!invoices.length) return { status: "no_customer_sales" };
+
+  let best = null;
+  for (const inv of invoices) {
+    const lines = Array.isArray(inv.lines) ? inv.lines : [];
+    for (const line of lines) {
+      if (normalizeItemName(line?.material || "") !== target) continue;
+      const resolved = invoiceLineUnitPrice(line, inv);
+      if (!resolved || !(resolved.price > 0)) continue;
+      const date = String(inv.date || "").slice(0, 10);
+      // الأحدث يفوز؛ وعند تساوي التاريخ يفوز الأعلى رقم فاتورة (الأحدث تسلسلاً).
+      const better =
+        !best ||
+        date > best.date ||
+        (date === best.date && Number(inv.number || 0) > Number(best.number || 0));
+      if (better) best = { date, price: resolved.price, unit: resolved.unit, number: inv.number || "" };
+    }
+  }
+  return best ? { status: "ok", ...best } : { status: "none" };
+}
+
+// مستمعو إغلاق البطاقة مربوطون بالعناصر مباشرة لا بالتفويض، فيجب إعادة ربطهم بعد أي
+// استبدال لمحتوى البطاقة (تحديثها الجراحي عند كتابة اسم الزبون) وإلا صار زر ✕ ميتاً.
+function bindSalesInfoClose(root) {
+  root.querySelectorAll("[data-sales-info-close]").forEach((el) => {
+    el.addEventListener("click", () => {
+      state.salesInfoKey = "";
+      render();
+    });
+  });
+}
+
 // بطاقة معلومات الصنف: المخزون بالكرتونة/الكروز، التكلفة، ربح الكرتونة،
 // وتوزيع المخزون على المستودعات (نظير «وحدة المعلومات» في الأمين).
 function salesInfoCard() {
@@ -5357,6 +5416,36 @@ function salesInfoCard() {
     ? `<div class="sales-info-row"><span>آخر تسعير</span><strong class="${staleAge ? "sales-info-stale" : ""}" dir="ltr">${escapeHtml(formatDateTime(pricedAt))}${priceAgeDays !== null ? ` (${priceAgeDays} يوم)` : ""}</strong></div>`
     : "";
 
+  // آخر سعر لهذا الزبون (متطلب 22): نُظهر سبب الغياب صريحاً بدل رقم مضلّل أو سطر مخفي.
+  const lastCust = salesLastCustomerPrice(item);
+  const windowDays = Math.max(1, Number(state.customerInvoicesReport?.summary?.periodDays || 60));
+  const lastCustHtml = (() => {
+    if (lastCust.status === "ok") {
+      // الفرق يُقارن بسعر النشرة فقط عند اتحاد الوحدة، وإلا فمقارنة بلا معنى.
+      const gap = cartonPrice > 0 && lastCust.unit === u2 ? cartonPrice - lastCust.price : null;
+      const gapNote =
+        gap === null || Math.abs(gap) < 0.005
+          ? ""
+          : `<p class="muted sales-info-empty">سعر النشرة الحالي $${salesFmt(cartonPrice, "jumla")} / ${escapeHtml(u2)} — ${gap > 0 ? "أعلى" : "أدنى"} من آخر سعر بِيع له بـ$${salesFmt(Math.abs(gap), "jumla")}.</p>`;
+      return `<div class="sales-info-row">
+          <span>آخر سعر لهذا الزبون</span>
+          <strong dir="ltr">$${salesFmt(lastCust.price, "jumla")}${lastCust.unit ? ` / ${escapeHtml(lastCust.unit)}` : ""}</strong>
+        </div>
+        <div class="sales-info-row">
+          <span>تاريخ آخر بيع له</span>
+          <strong dir="ltr">${escapeHtml(lastCust.date)}${lastCust.number ? ` — فاتورة ${escapeHtml(String(lastCust.number))}` : ""}</strong>
+        </div>
+        ${gapNote}`;
+    }
+    const reason = {
+      no_customer: "اكتب اسم الزبون في الفاتورة ليظهر آخر سعر بِيع له.",
+      no_report: "مزامنة فواتير الأمين لم تصل بعد — لا يمكن معرفة آخر سعر للزبون.",
+      no_customer_sales: `لا فواتير لهذا الزبون خلال آخر ${windowDays} يوماً.`,
+      none: `لم يُبَع هذا الصنف لهذا الزبون خلال آخر ${windowDays} يوماً.`
+    }[lastCust.status];
+    return `<p class="muted sales-info-empty">${escapeHtml(reason || "")}</p>`;
+  })();
+
   const stamp = state.itemDetailsAt
     ? `<p class="muted sales-info-stamp">تفاصيل الأمين بتاريخ ${escapeHtml(formatDateTime(state.itemDetailsAt))}</p>`
     : "";
@@ -5375,6 +5464,8 @@ function salesInfoCard() {
         <div class="sales-info-row"><span>مخزون النشرة</span><strong dir="ltr">${escapeHtml(fmtQty(qty))}</strong></div>
         <div class="sales-info-row"><span>سعر ${escapeHtml(u2)} (جملة)</span><strong dir="ltr">${cartonPrice > 0 ? `$${salesFmt(cartonPrice, "jumla")}` : "—"}</strong></div>
         ${pricedAtHtml}
+        <div class="sales-info-sep">آخر بيع لهذا الزبون</div>
+        ${lastCustHtml}
         ${costHtml}
         ${profitHtml}
         <div class="sales-info-sep">توزيع المستودعات</div>
@@ -5550,7 +5641,7 @@ function salesInvoice() {
           <button class="button secondary" data-action="sales-new">＋ فاتورة جديدة</button>
         </div>
       </div>
-      ${salesInfoCard()}
+      <div data-sales-info-host>${salesInfoCard()}</div>
     </section>
   `);
 }
@@ -5575,6 +5666,15 @@ function refreshSalesTotals() {
   // لوحة الزبون تتبع المتبقّي، فتُحدَّث معه جراحياً (بلا render حفاظاً على التركيز).
   const custHost = document.querySelector("[data-sales-cust-host]");
   if (custHost) custHost.innerHTML = salesCustomerPanel();
+  // وبطاقة الصنف تحتوي «آخر سعر لهذا الزبون»، فتتبع اسم الزبون كذلك — وإلا بقيت
+  // البطاقة المفتوحة تقول «اكتب اسم الزبون» بعد كتابته (لا render حفاظاً على التركيز).
+  if (state.salesInfoKey) {
+    const infoHost = document.querySelector("[data-sales-info-host]");
+    if (infoHost) {
+      infoHost.innerHTML = salesInfoCard();
+      bindSalesInfoClose(infoHost); // العناصر جديدة، فلا مستمعات عليها بعد الاستبدال
+    }
+  }
   if (state.salesPayMethod === "cash") {
     const paidInput = document.getElementById("sales-paid");
     if (paidInput) paidInput.value = salesFmtPlain(totals.paid, mode);
@@ -6928,12 +7028,7 @@ function render() {
       if (changed && state.salesInfoKey) render();
     });
   });
-  app.querySelectorAll("[data-sales-info-close]").forEach((el) => {
-    el.addEventListener("click", () => {
-      state.salesInfoKey = "";
-      render();
-    });
-  });
+  bindSalesInfoClose(app);
   app.querySelectorAll("[data-sales-remove]").forEach((btn) => {
     btn.addEventListener("click", () => {
       state.salesRows.splice(Number(btn.dataset.salesRemove), 1);
