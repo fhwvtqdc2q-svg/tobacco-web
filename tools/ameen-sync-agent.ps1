@@ -473,10 +473,41 @@ function Sync-PriceListStockOnFullUnitChange($SupabaseUrl, $ApiKey, $Session, $R
     $publishedByKey[$matchKey] = @($publishedByKey[$matchKey]) + @($row)
   }
 
-  $changed = 0
-  $matched = 0
+  # تجميع أصناف التقرير حسب المفتاح المطبّع قبل المقارنة: بطاقتا أمين مكررتان
+  # بالاسم نفسه بعد التطبيع (مثل 273/274، الحسم المعروف) كانتا تكتبان قيمتين
+  # متعاكستين على سطر النشرة نفسه بالتناوب كل تشغيلة (تذبذب 136↔0). نجمع كمية
+  # البطاقات المتصادمة في سجل واحد، ويمثّل المجموعةَ السطرُ الأكبر مخزوناً
+  # (لوحداته وحالته). أي تصادم جديد غير 273/274 يُسجَّل بتحذير — لا يُرفض هنا
+  # (فقد يكون سطراً حقيقياً بمخزون يجب أن ينشر) لكن يجب أن يظهر بالسجل ليُراجَع
+  # مثل tools\pull-item-numbers.ps1.
+  $knownCollisionKeys = @("غلواز كوين اصفر اس سبعه")
+  $reportByKey = @{}
   foreach ($item in $Report.Items) {
     $key = Normalize-ItemName $item.name
+    if (-not $key) { continue }
+    if (-not $reportByKey.ContainsKey($key)) {
+      $reportByKey[$key] = @{ Rep = $item; Qty = (To-Number $item.stockQty); Names = @($item.name) }
+    } else {
+      $entry = $reportByKey[$key]
+      $qty = To-Number $item.stockQty
+      $entry.Qty = $entry.Qty + $qty
+      $entry.Names += $item.name
+      if ($qty -gt (To-Number $entry.Rep.stockQty)) { $entry.Rep = $item }
+    }
+  }
+  foreach ($key in @($reportByKey.Keys)) {
+    $entry = $reportByKey[$key]
+    if ($entry.Names.Count -gt 1 -and ($knownCollisionKeys -notcontains $key)) {
+      Write-AgentLog ("تحذير: تصادم تطبيع جديد غير معروف بمزامنة مخزون النشرة — يُجمع تلقائياً، يحتاج مراجعة: [" + $key + "] بطاقات: " + ($entry.Names -join " | "))
+    }
+  }
+
+  $changed = 0
+  $matched = 0
+  foreach ($key in @($reportByKey.Keys)) {
+    if (-not $publishedByKey.ContainsKey($key)) { continue }
+    $entry = $reportByKey[$key]
+    $item = $entry.Rep
     $currents = @($publishedByKey[$key])
     if (-not $currents.Count) { continue }
     $matched += $currents.Count
@@ -486,7 +517,7 @@ function Sync-PriceListStockOnFullUnitChange($SupabaseUrl, $ApiKey, $Session, $R
       $oldFactor = To-Number $current.unit2_factor
       if ($oldFactor -le 0) { $oldFactor = To-Number $item.unit2Factor }
       if ($oldFactor -le 0) { $oldFactor = 1 }
-      $newQty = To-Number $item.stockQty
+      $newQty = To-Number $entry.Qty
       $newFactor = To-Number $item.unit2Factor
       if ($newFactor -le 0) { $newFactor = 1 }
 
