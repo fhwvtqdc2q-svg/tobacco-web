@@ -40,7 +40,9 @@ $SB = $SB.TrimEnd("/")
 $KEY = Get-Setting "TOBACCO_SUPABASE_PUBLIC_KEY"; if (-not $KEY) { $KEY = Get-Setting "SUPABASE_PUBLIC_KEY" }
 $EMAIL = Get-Setting "TOBACCO_SYNC_EMAIL"
 $PW = Get-Setting "TOBACCO_SYNC_PASSWORD"
-$SITE = "https://fhwvtqdc2q-svg.github.io/tobacco-web/receipt.html?id="
+# الرابط يُبنى من public_token لا من id: id مفتاح داخلي بـ40 بت، وقراءة الجدول
+# بدور anon أُغلقت — فرابط ?id= لن يعمل للمستندات المنشأة بعد 2026-07-26.
+$SITE = "https://fhwvtqdc2q-svg.github.io/tobacco-web/receipt.html?t="
 if (-not $KEY -or -not $EMAIL -or -not $PW) { Write-Log "khata: nawaqis env (KEY/EMAIL/PW)."; exit 1 }
 
 # --- ايجاد كروم ---
@@ -71,7 +73,7 @@ $sess = Invoke-RestMethod -Method Post -Uri "$SB/auth/v1/token?grant_type=passwo
     -Headers @{ apikey = $KEY } -ContentType "application/json; charset=utf-8" `
     -Body ([Text.Encoding]::UTF8.GetBytes($login))
 $hdr = @{ apikey = $KEY; Authorization = "Bearer $($sess.access_token)"; "Accept-Profile" = "public" }
-$docs = Invoke-RestMethod -Method Get -Uri "$SB/rest/v1/shared_documents?select=id,doc,created_at&order=created_at.asc" -Headers $hdr
+$docs = Invoke-RestMethod -Method Get -Uri "$SB/rest/v1/shared_documents?select=id,public_token,doc,created_at&order=created_at.asc" -Headers $hdr
 Write-Log "wasal $($docs.Count) mustanad."
 
 function Clean-Name($s) {
@@ -92,7 +94,10 @@ foreach ($d in $docs) {
     $out = Join-Path $folder ("$base.pdf")
     $i = 2
     while (Test-Path $out) { $out = Join-Path $folder ("$base ($i).pdf"); $i++ }
-    $url = $SITE + $d.id
+    # الفشل صريح كما في السكربتين الآخرين: رمز غائب يعني ‎?t=‎ فارغاً ورابطاً ميتاً
+    $token = [string]$d.public_token
+    if (-not $token) { Write-Log "takhatti: $($d.id) bila public_token"; continue }
+    $url = $SITE + $token            # id يبقى للتتبّع المحلي فقط، لا للرابط
     $prof = Join-Path $env:TEMP ("ozk-prof-" + $d.id)
     $cargs = @("--headless", "--disable-gpu", "--no-sandbox", "--user-data-dir=`"$prof`"",
         "--no-margins", "--virtual-time-budget=15000", "--print-to-pdf=`"$out`"", "--print-to-pdf-no-header", "`"$url`"")

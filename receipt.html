@@ -180,13 +180,29 @@
         el.innerHTML = d.t === "daily" ? renderDailyReport(d) : (d.t === "invoice" ? renderInvoice(d) : renderReceipt(d));
       }
       (function () {
-        var id = new URLSearchParams(location.search).get("id");
-        if (id) {
-          fetch(SB_URL + "/rest/v1/shared_documents?id=eq." + encodeURIComponent(id) + "&select=doc", {
-            headers: { apikey: SB_KEY, "Accept-Profile": "public" }
+        // القراءة المباشرة من shared_documents أُلغيت: كانت سياسة SELECT ممنوحة لدور
+        // anon بشرط true، فكان أي حامل للمفتاح العام يسرد الأرشيف كاملاً بطلب واحد
+        // (194 مستنداً بأسماء زبائن ومبالغ). صار الوصول عبر دالة تُرجع مستنداً واحداً
+        // بالرمز ولا تسرد ولا تبحث.
+        //   ?t=<public_token>  ← الرابط المعتمد
+        //   ?id=<id القديم>    ← توافق مؤقت للروابط المرسلة سابقاً، ينتهي 2026-08-24
+        // ‎?t=‎ إن وُجد هو المرجع وحده — حتى لو كان فارغاً — فلا يُخلط مع ‎?id=‎:
+        // ‎?t=&id=<legacy>‎ يجب ألا يرتدّ إلى المسار القديم.
+        var q = new URLSearchParams(location.search);
+        var token = q.has("t") ? q.get("t") : q.get("id");
+        if (token) {
+          fetch(SB_URL + "/rest/v1/rpc/get_shared_document", {
+            method: "POST",
+            headers: {
+              apikey: SB_KEY,
+              "Content-Type": "application/json; charset=utf-8",
+              "Accept-Profile": "public",
+              "Content-Profile": "public"
+            },
+            body: JSON.stringify({ p_token: token })
           })
             .then(function (r) { return r.json(); })
-            .then(function (rows) { render(rows && rows[0] ? rows[0].doc : null); })
+            .then(function (doc) { render(doc && doc.t ? doc : null); })
             .catch(function () { render(null); });
         } else {
           render(decode());

@@ -62,7 +62,7 @@ $g = @{ apikey=$KEY; Authorization=("Bearer " + $auth.access_token); "Accept-Pro
 
 # --- جلب الفواتير والإيصالات ---
 $enc = [uri]::EscapeDataString("in.(invoice,receipt)")
-$rows = Invoke-RestMethod -Method Get -Uri "$SB/rest/v1/shared_documents?doc->>t=$enc&order=created_at.asc&limit=$MaxPerRun&select=id,created_at,doc" -Headers $g
+$rows = Invoke-RestMethod -Method Get -Uri "$SB/rest/v1/shared_documents?doc->>t=$enc&order=created_at.asc&limit=$MaxPerRun&select=id,public_token,created_at,doc" -Headers $g
 Write-Log ("wujida {0} fatura/isal fi al-nizam." -f @($rows).Count)
 
 # --- الحالة (المرفوع سابقاً) ---
@@ -116,7 +116,11 @@ foreach ($r in $picked) {
         $fname = "$base [$shortId].pdf"   # مستند بلا رقم (مفرق نقدي) — نميّزه بالـ id
     }
 
-    $url = "$SiteBase/receipt.html?id=$id"
+    # ?t=public_token لا ?id=: قراءة الجدول بدور anon أُغلقت، وrابط الـid لن يعمل
+    # للمستندات المنشأة بعد 2026-07-26.
+    $token = [string]$r.public_token
+    if (-not $token) { throw "المستند $id بلا public_token — لا يُبنى رابط بالـid." }
+    $url = "$SiteBase/receipt.html?t=$token"
     $pdf = Join-Path $env:TEMP ("ozkdoc-" + $id + ".pdf")
     if (Test-Path $pdf) { Remove-Item $pdf -Force -ErrorAction SilentlyContinue }
     $prof = Join-Path $env:TEMP ("ozkdoc-prof-" + $id)
