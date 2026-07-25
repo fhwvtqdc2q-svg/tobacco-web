@@ -2309,11 +2309,18 @@ async function savePricingItem(form) {
       // (عطل «معسل مزايا بولو» 2026-07-25 الذي شوّه ثمانية أصناف مزايا).
       const liveItems = reportItems(latest);
       const normalizedTarget = normalizeItemName(targetKey);
+      // عند تصادم التطبيع (صنفان مختلفان يتطابقان بعد التطبيع) لا نختار أحدهما
+      // عشوائياً: نتركهما معاً ونعتمد على الصف المحفوظ، كما في قاعدة رفض
+      // التصادمات غير المحسومة في pull-item-numbers.ps1.
+      const normalizedMatches = liveItems.filter((item) => normalizeItemName(item.key || item.name) === normalizedTarget
+        || normalizeItemName(item.name) === normalizedTarget);
       const sourceItem = liveItems.find((item) => (item.key || normalizeItemName(item.name)) === targetKey)
-        || liveItems.find((item) => normalizeItemName(item.key || item.name) === normalizedTarget
-          || normalizeItemName(item.name) === normalizedTarget)
+        || (normalizedMatches.length === 1 ? normalizedMatches[0] : null)
         || (targetKey === itemKey ? latestItem : null);
       const sourceExisting = approvedPriceMap().get(targetKey);
+      // مفتاح تابع مجهول تماماً (لا في الجرد الحي ولا في الأسعار المحفوظة) لا
+      // يُنشأ له صف: أي بيانات نكتبها له ستكون بيانات السطر المدمج المصطنعة.
+      if (!sourceItem && !sourceExisting && targetKey !== itemKey) return null;
       // عند غياب الصنف من الجرد الحي نُبقي بيانات صفّه المحفوظ كما هي ولا نغيّر إلا السعر.
       const sourceFactor = Math.max(1, sourceItem
         ? itemUnit2Factor(sourceItem)
@@ -2340,7 +2347,8 @@ async function savePricingItem(form) {
         sourceSyncedAt: reportSyncedAt(latest),
         pricePayload: sourcePayload
       };
-    });
+    }).filter(Boolean);
+    if (!records.length) throw new Error("لم يُعثر على الصنف في الجرد الحي ولا في الأسعار المحفوظة. حدّث الجرد ثم أعد المحاولة.");
     const saved = await dataStore.upsertApprovedPriceItems(records);
 
     if (!saved || !Array.isArray(saved)) {
