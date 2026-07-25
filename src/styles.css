@@ -1682,7 +1682,13 @@ code {
 
 @media (max-width: 900px) {
   .app-shell {
-    grid-template-columns: 1fr;
+    /* minmax(0,1fr): يسمح للعمود بالانكماش تحت min-content المحتوى بدل تتبّعه،
+       فيبقى ضمن عرض الشاشة ويتمرّر الجدول العريض داخل .inv-table-wrap. */
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .main {
+    min-width: 0;
   }
 
   .sidebar {
@@ -2386,6 +2392,10 @@ code {
 
 .inv-table-wrap {
   overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  /* min-width:0 يسمح لحاوية الجدول بالانكماش داخل عمود flex (.inv-form-area)،
+     فيتمرّر الجدول العريض داخلها بدل أن يمدّ البطاقة خارج شاشة iPhone. */
+  min-width: 0;
   border: 1px solid var(--border);
   border-radius: 10px;
 }
@@ -2722,6 +2732,18 @@ code {
 @media (max-width: 480px) {
   .sales-header-grid {
     grid-template-columns: 1fr;
+  }
+  /* على iPhone: هوامش أصغر وخلايا أضيق كي يقلّ التمرير الجانبي داخل الجدول. */
+  .inv-form-area {
+    padding: 14px;
+    gap: 14px;
+  }
+  .sales-table th,
+  .sales-table td {
+    padding: 6px 6px;
+  }
+  .inv-table {
+    font-size: 0.82rem;
   }
 }
 

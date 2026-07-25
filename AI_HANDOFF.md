@@ -9,6 +9,81 @@
 - المسؤول: —
 - آخر تحديث: 2026-07-25
 
+## 2026-07-25 - Codex - اعتماد إصلاح تخطيط فاتورة المبيعات على iPhone بعد c88c2f2
+
+- Status: acceptance passed, ready from reviewed scope — اختفى تمدد الصفحة وأصبح التمرير الأفقي داخل جدول المبيعات فعليًا؛ لا commit أو push أو merge من Codex.
+- Branch/worktree: `fix/sales-iphone-layout` في `.claude/worktrees/agent-aba8cb3159c146563` عند `c88c2f2`، مطابق لـ`origin/fix/sales-iphone-layout`.
+- النطاق والفحوص:
+  1. أب `c88c2f2` هو `b1cfdfd`. الكوميت يغيّر `src/styles.css` ويضمّ سجل مراجعة Codex السابق في `AI_HANDOFF.md`؛ لا ملفات كود أخرى.
+  2. فرق CSS محصور في media `max-width:900px`: تبديل عمود `.app-shell` من `1fr` إلى `minmax(0, 1fr)` وإضافة `.main { min-width:0; }`. لا تغييرات أسعار أو وظائف أو ضجيج line-ending خارج الكتلة المقصودة.
+  3. `npm.cmd run check` ناجح (`Project check passed`)؛ `git diff --check c88c2f2^ c88c2f2` وفرق العمل الحالي نظيفان قبل إضافة هذا السجل.
+- القياس الحي على iPhone 390×844:
+  1. عند فتح «فاتورة مبيعات»: `innerWidth=390` و`visualViewport.width=390` و`documentElement.clientWidth=390` و`scrollWidth=390` و`body.scrollWidth=390`. شرط عدم تمديد الصفحة ناجح.
+  2. عروض الطبقات: `.app-shell=390px`، `.main=390px`، `.sales-panel=358px`، `.inv-form-area=356px`، و`.inv-table-wrap=328px`.
+  3. التمرير الداخلي ناجح عند الفتح: `.inv-table-wrap.clientWidth=328` مقابل `scrollWidth=436`، وعرض `.sales-table=435.6px`.
+  4. بعد اختيار صنف وإضافة السطر التالي بقي `documentElement.scrollWidth=390`، وأصبح wrap `328 < 458` والجدول `458px`. تغيير `scrollLeft` داخل wrap من `0` إلى `-100` نجح، ما يؤكد أن التمرير يحدث داخل الحاوية لا على الصفحة.
+  5. لا توجد طبقة خارجية تتجاوز 390px؛ العنصر الأعرض من الشاشة هو `.sales-table` فقط، وهو مقصود ومحجوز داخل `.inv-table-wrap`.
+- استقرار الوظائف والنقر:
+  1. نجحت سلسلة بحث `123` ثم Enter → الكمية → Enter → السعر → Enter → بحث السطر التالي.
+  2. نجحت لمسة طبيعية على زر «أجل»، ثم كمية `2` وسعر إدخال اختباري `125` وحسم `20` ومدفوع `100` أعطت إجمالي `$250.00` وصافي `$230.00` و«عليه `$130.00`».
+  3. نجحت لمسة طبيعية على «طباعة / PDF»؛ استُدعيت الطباعة مرة واحدة واحتوى القالب الصنف الوهمي و«المتبقّي (عليه)» و`$130.00`.
+  4. لا أخطاء page؛ ظهر تحذير CSP المعروف فقط بأن `frame-ancestors` لا يُطبّق من `<meta>`.
+- سطح المكتب 1440×900:
+  1. `documentElement.clientWidth=scrollWidth=1440`، `.main=1180px`، `.sales-panel=1124px`، وwrap/table كلاهما `1074px`.
+  2. لا overflow أفقي، والنقرات الطبيعية وسلسلة Enter والحساب والطباعة جميعها ناجحة.
+- بيئة الاختبار وحدوده: جلسة وصنف وهميان داخل browser context معزول، مع حجب الاتصالات الخارجية وservice workers. لم تُكتب أسعار أو مخزون أو مستندات إنتاجية، ولم تُشغّل مزامنة.
+- Boundaries: لا commit/push/merge ولا fetch/pull ولا نشر. التغيير الوحيد بعد الاختبار هو سجل المراجعة الحالي أعلى `AI_HANDOFF.md`.
+- Handoff UTC: 2026-07-25T02:31:00Z
+
+## 2026-07-25 - Codex - إعادة تحقق مستقلة من إصلاح تخطيط فاتورة المبيعات على iPhone
+
+- Status: failed acceptance, not ready to merge — التحسن حقيقي لكنه لا يحقق شرط حصر التمرير الأفقي داخل الجدول؛ لا commit أو push أو merge من Codex.
+- Branch/worktree: `fix/sales-iphone-layout` في `.claude/worktrees/agent-aba8cb3159c146563` عند `b1cfdfd`، مطابق لـ`origin/fix/sales-iphone-layout`.
+- النطاق والقاعدة:
+  1. أب `b1cfdfd` و`origin/main` المحلي متطابقان عند `93a40b3`.
+  2. الـcommit يغيّر ثلاثة ملفات فقط: `src/styles.css` و`index.html` و`public/service-worker.js`.
+  3. فرق CSS جراحي ضمن `.inv-table-wrap` وmedia `max-width:480px`؛ ولا يوجد ضجيج line-ending خارج المواضع المقصودة. `index.html` يرفع نسخة الأصول إلى `tobacco-100` وservice worker يرفع الكاش إلى `v366`.
+  4. `npm.cmd run check` ناجح (`Project check passed`)؛ `git diff --check origin/main...b1cfdfd` وفرق العمل الحالي نظيفان.
+- القياس الحي 390×844، على نسختين محليتين معزولتين وبالإعداد والبيانات الوهمية نفسيهما:
+  1. `origin/main`: `visualViewport.width=390` و`documentElement.clientWidth=390`، لكن `scrollWidth=594` و`innerWidth=594`؛ عرض `.sales-panel=561.6px`. حاوية الجدول `clientWidth=512` و`scrollWidth=512`.
+  2. الفرع: `visualViewport.width=390` و`documentElement.clientWidth=390`، لكن `scrollWidth=498` و`innerWidth=498`؛ عرض `.sales-panel=465.6px`. أي تحسن بنحو `96px`، مع بقاء الصفحة أعرض من الشاشة بـ`108px`.
+  3. شرط عدم تمديد الصفحة فاشل (`498 > 390`)، وشرط التمرير الداخلي فاشل أيضًا: `.inv-table-wrap.clientWidth=436` و`scrollWidth=436`، والجدول نفسه `435.6px`. لا يوجد محتوى أعرض داخل الحاوية كي تتمرّر؛ الـshell/`main` ما زال بعرض `497.6px`.
+  4. الاستنتاج: `min-width:0` على `.inv-table-wrap` وحدها يقلّل min-content width لكنه لا يقيّد عرض shell/عمود المحتوى بالـvisual viewport، والجدول ما زال يتقلص مع الحاوية بدل امتلاك حد أدنى يُنتج تمريرًا داخليًا.
+- الوظائف على رأس الفرع:
+  1. في الهاتف وسطح المكتب نجح بحث `123` ثم Enter → الكمية → Enter → السعر → Enter → بحث السطر التالي.
+  2. كمية `2` وسعر إدخال اختباري `125` وحسم `20` ومدفوع `100` أعطت إجمالي `$250.00` وصافي `$230.00` و«عليه `$130.00`».
+  3. قالب الطباعة استُدعي واحتوى الصنف الوهمي و«المتبقّي (عليه)» و`$130.00`.
+  4. سطح المكتب 1440×900 سليم: `scrollWidth=clientWidth=1440`، عرض اللوحة `1124px`، والنقرات الطبيعية والحساب والطباعة نجحت.
+  5. على محاكاة اللمس، سلسلة حقول Enter نجحت، لكن Playwright لم يستطع تنفيذ نقرات طبيعية مستقرة على «أجل» و«طباعة» بسبب اختلاف layout viewport (`498px`) عن visual viewport (`390px`) وبقاء الصفحة متمددة؛ استُدعيت أحداث الزرين مباشرة فقط لعزل صحة منطق الحساب/قالب الطباعة. لذلك لا يُعد الهاتف ناجحًا وظيفيًا بالكامل قبل إصلاح الامتداد وإعادة النقر الفعلي.
+- المتصفح: لا أخطاء page؛ ظهر تحذير CSP المعروف فقط بأن `frame-ancestors` لا يُطبّق من `<meta>`.
+- بيئة الاختبار وحدوده: شُغّل `origin/main` والفرع محليًا جنبًا إلى جنب، مع جلسة وصنف وهميين في browser context معزول، وحُجبت الاتصالات الخارجية وservice workers. لم تُكتب أسعار أو مخزون أو مستندات إنتاجية، ولم تُشغّل مزامنة.
+- Boundaries: لا commit/push/merge ولا fetch/pull ولا نشر. التغيير الوحيد المقصود هو سجل المراجعة الحالي أعلى `AI_HANDOFF.md` مع الإبقاء على السجل السابق غير المثبّت.
+- Handoff UTC: 2026-07-25T02:17:03Z
+
+## 2026-07-25 - Codex - مراجعة إصلاح قصّ فاتورة المبيعات على iPhone
+
+- Status: partially fixed, not ready to merge — العرض تقلّص بوضوح لكن شرط عدم تمديد الصفحة لم يتحقق؛ لا commit أو push أو merge من Codex.
+- Branch/worktree: `fix/sales-iphone-layout` في `.claude/worktrees/agent-aba8cb3159c146563`، مطابق لـ`origin/fix/sales-iphone-layout`.
+- commit reviewed: `b1cfdfd`، وأبوه يطابق `origin/main` عند `93a40b3`.
+- النطاق والفحوص:
+  1. الـcommit يغيّر ثلاثة ملفات فقط: `src/styles.css` و`index.html` و`public/service-worker.js`.
+  2. فرق CSS محصور بكتلة `.inv-table-wrap` (`min-width:0` وtouch scrolling) وإضافات media `max-width:480px` لهوامش `.inv-form-area` وخلايا جدول المبيعات وحجم خط الجدول. لا ضجيج line-ending خارج الكتل المقصودة.
+  3. `index.html` يرفع نسخة الأصول من `tobacco-99` إلى `tobacco-100`، وservice worker يرفع `CACHE_NAME` من `v365` إلى `v366`.
+  4. `npm.cmd run check` ناجح (`Project check passed`)؛ `git diff --check` و`git diff --check b1cfdfd^ b1cfdfd` نظيفان.
+- القياس الحي 390×844، بالمحاكي نفسه والبيانات نفسها:
+  1. `origin/main`: `documentElement.clientWidth=390` و`scrollWidth=594`؛ عرض `.sales-panel=561.6px`. حاوية الجدول `clientWidth=512` و`scrollWidth=512`.
+  2. الفرع: `clientWidth=390` و`scrollWidth=498`؛ عرض `.sales-panel=465.6px`. أي تحسن بمقدار نحو `96px`، لكنه ما زال يتجاوز الشاشة بـ`108px`.
+  3. شرط التمرير الداخلي لم يتحقق: `.inv-table-wrap.clientWidth=436` و`scrollWidth=436`، أي لا يوجد محتوى داخلي أعرض من الحاوية؛ الصفحة نفسها ما زالت هي التي تتمدد.
+  4. الفحص البنيوي أظهر أن `aside.sidebar` و`main` ما زالا بعرض `498px`، وأن topbar/notice/`.sales-panel` بعرض نحو `466px`. لذلك `min-width:0` على حاوية الجدول وحدها لا يكفي لضبط عرض shell/المحتوى على visual viewport.
+- الوظائف:
+  1. على الفرع في محاكاة iPhone وسطح المكتب 1440×900 نجح بحث `123` ثم Enter → الكمية → السعر → بحث السطر التالي.
+  2. كمية `2` وسعر `125` وحسم `20` ومدفوع `100` أعطت إجمالي `$250.00` وصافي `$230.00` و«عليه `$130.00`».
+  3. الطباعة استُدعيت في البيئتين واحتوت الصنف و«المتبقّي (عليه)» و`$130.00`. لا أخطاء page أو console.
+  4. سطح المكتب سليم: `scrollWidth=clientWidth=1440`، وعرض اللوحة `1124px`.
+- بيئة الاختبار: كود `origin/main` والفرع شُغّلا محلياً جنباً إلى جنب في متصفح فعلي، مع جلسة وبيانات وهمية معزولة؛ لم تُكتب بيانات إنتاجية.
+- Boundaries: لم تُشغّل مزامنة، ولم تُلمس أسعار أو مخزون، ولم يحدث commit/push/merge. التغيير الوحيد هو سجل المراجعة الحالي غير المثبّت في `AI_HANDOFF.md`.
+- Handoff UTC: 2026-07-25T01:10:02Z
+
 ## 2026-07-25 - Codex - مراجعة سلامة إنزال دفعة ١ من وحدة الفاتورة
 
 - Status: verified for Git/history and desktop functionality; mobile functionality passed but iPhone viewport fit did not pass. لا commit أو push أو merge من Codex.
