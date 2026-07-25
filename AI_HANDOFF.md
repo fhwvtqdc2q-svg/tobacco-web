@@ -9,6 +9,32 @@
 - المسؤول: —
 - آخر تحديث: 2026-07-25
 
+## 2026-07-25 - Codex - اعتماد إصلاح تخطيط فاتورة المبيعات على iPhone بعد c88c2f2
+
+- Status: acceptance passed, ready from reviewed scope — اختفى تمدد الصفحة وأصبح التمرير الأفقي داخل جدول المبيعات فعليًا؛ لا commit أو push أو merge من Codex.
+- Branch/worktree: `fix/sales-iphone-layout` في `.claude/worktrees/agent-aba8cb3159c146563` عند `c88c2f2`، مطابق لـ`origin/fix/sales-iphone-layout`.
+- النطاق والفحوص:
+  1. أب `c88c2f2` هو `b1cfdfd`. الكوميت يغيّر `src/styles.css` ويضمّ سجل مراجعة Codex السابق في `AI_HANDOFF.md`؛ لا ملفات كود أخرى.
+  2. فرق CSS محصور في media `max-width:900px`: تبديل عمود `.app-shell` من `1fr` إلى `minmax(0, 1fr)` وإضافة `.main { min-width:0; }`. لا تغييرات أسعار أو وظائف أو ضجيج line-ending خارج الكتلة المقصودة.
+  3. `npm.cmd run check` ناجح (`Project check passed`)؛ `git diff --check c88c2f2^ c88c2f2` وفرق العمل الحالي نظيفان قبل إضافة هذا السجل.
+- القياس الحي على iPhone 390×844:
+  1. عند فتح «فاتورة مبيعات»: `innerWidth=390` و`visualViewport.width=390` و`documentElement.clientWidth=390` و`scrollWidth=390` و`body.scrollWidth=390`. شرط عدم تمديد الصفحة ناجح.
+  2. عروض الطبقات: `.app-shell=390px`، `.main=390px`، `.sales-panel=358px`، `.inv-form-area=356px`، و`.inv-table-wrap=328px`.
+  3. التمرير الداخلي ناجح عند الفتح: `.inv-table-wrap.clientWidth=328` مقابل `scrollWidth=436`، وعرض `.sales-table=435.6px`.
+  4. بعد اختيار صنف وإضافة السطر التالي بقي `documentElement.scrollWidth=390`، وأصبح wrap `328 < 458` والجدول `458px`. تغيير `scrollLeft` داخل wrap من `0` إلى `-100` نجح، ما يؤكد أن التمرير يحدث داخل الحاوية لا على الصفحة.
+  5. لا توجد طبقة خارجية تتجاوز 390px؛ العنصر الأعرض من الشاشة هو `.sales-table` فقط، وهو مقصود ومحجوز داخل `.inv-table-wrap`.
+- استقرار الوظائف والنقر:
+  1. نجحت سلسلة بحث `123` ثم Enter → الكمية → Enter → السعر → Enter → بحث السطر التالي.
+  2. نجحت لمسة طبيعية على زر «أجل»، ثم كمية `2` وسعر إدخال اختباري `125` وحسم `20` ومدفوع `100` أعطت إجمالي `$250.00` وصافي `$230.00` و«عليه `$130.00`».
+  3. نجحت لمسة طبيعية على «طباعة / PDF»؛ استُدعيت الطباعة مرة واحدة واحتوى القالب الصنف الوهمي و«المتبقّي (عليه)» و`$130.00`.
+  4. لا أخطاء page؛ ظهر تحذير CSP المعروف فقط بأن `frame-ancestors` لا يُطبّق من `<meta>`.
+- سطح المكتب 1440×900:
+  1. `documentElement.clientWidth=scrollWidth=1440`، `.main=1180px`، `.sales-panel=1124px`، وwrap/table كلاهما `1074px`.
+  2. لا overflow أفقي، والنقرات الطبيعية وسلسلة Enter والحساب والطباعة جميعها ناجحة.
+- بيئة الاختبار وحدوده: جلسة وصنف وهميان داخل browser context معزول، مع حجب الاتصالات الخارجية وservice workers. لم تُكتب أسعار أو مخزون أو مستندات إنتاجية، ولم تُشغّل مزامنة.
+- Boundaries: لا commit/push/merge ولا fetch/pull ولا نشر. التغيير الوحيد بعد الاختبار هو سجل المراجعة الحالي أعلى `AI_HANDOFF.md`.
+- Handoff UTC: 2026-07-25T02:31:00Z
+
 ## 2026-07-25 - Codex - إعادة تحقق مستقلة من إصلاح تخطيط فاتورة المبيعات على iPhone
 
 - Status: failed acceptance, not ready to merge — التحسن حقيقي لكنه لا يحقق شرط حصر التمرير الأفقي داخل الجدول؛ لا commit أو push أو merge من Codex.
