@@ -9,6 +9,18 @@
 - المسؤول: —
 - آخر تحديث: 2026-07-25
 
+## 2026-07-25 - Claude - إنزال إصلاح عرض iPhone لشاشة الفاتورة (PR #19)
+
+- Status: completed — دُمج في main (`fb458f5`)، Deploy نجح، وسُحب على الجهاز
+- Branch: `fix/sales-iphone-layout` → merged عبر PR #19
+- المشكلة: شاشة «فاتورة مبيعات» كانت تُقصّ أفقياً على iPhone (قياس Codex: عرض الصفحة 594px على viewport 390px).
+- الجذر (اكتُشف بعد أن أثبت قياس Codex أن الإصلاح الأول لم يكفِ — 498px): شبكة `.app-shell` على الموبايل كانت `grid-template-columns: 1fr` = `minmax(auto, 1fr)`، فيتبع العمود min-content الجدول ويتجاوز الشاشة؛ لذلك `min-width:0` على حاوية الجدول وحدها كان عاجزاً.
+- الإصلاح: `minmax(0, 1fr)` لشبكة app-shell (media 900) + `min-width:0` على `.main` و`.inv-table-wrap` + `-webkit-overflow-scrolling:touch` وتضييق هوامش/خلايا تحت 480px.
+- التحقق الحي (Codex، 390×844): `documentElement.scrollWidth = 390` بلا قصّ؛ التمرير الداخلي فعلي (`.inv-table-wrap` clientWidth 328 مقابل scrollWidth 436)؛ اللمسات وسلسلة Enter والطباعة سليمة؛ سطح المكتب 1440×900 بلا overflow.
+- ملاحظة تقنية مهمة للجلسات القادمة: `src/styles.css` و`index.html` مخزّنان بأسطر **مختلطة (LF/CRLF)**، وأدوات التحرير توحّدها فتُنتج ~580 سطر ضجيج في الـdiff. التعديل عليهما يجب أن يتم بسكربت يحفظ البايتات (طُبّق هنا) — ويُستحسن تنظيفها لاحقاً بـ`.gitattributes` موحّد.
+- الفحوص: `npm check` ناجح، `git diff --check` نظيف، `CACHE_NAME → v366`، الأصول `→ tobacco-100`، وDeploy TOBACCO Web نجح.
+- Handoff UTC: 2026-07-25T02:45:00Z
+
 ## 2026-07-25 - Codex - اعتماد إصلاح تخطيط فاتورة المبيعات على iPhone بعد c88c2f2
 
 - Status: acceptance passed, ready from reviewed scope — اختفى تمدد الصفحة وأصبح التمرير الأفقي داخل جدول المبيعات فعليًا؛ لا commit أو push أو merge من Codex.
