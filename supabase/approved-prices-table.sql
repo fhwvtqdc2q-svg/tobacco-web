@@ -1,19 +1,38 @@
 -- ============================================================
--- OZK TOBACCO — جدول الأسعار المعتمدة (بناء من الصفر فقط)
--- شغّل هذا الملف في Supabase → SQL Editor → New query
+-- OZK TOBACCO — جدول الأسعار المعتمدة
+-- بناء **أول مرة فقط** على قاعدة جديدة. شغّله في Supabase → SQL Editor.
 --
--- ⚠️ هذا الملف يبني الجدول من الصفر ويحذف الموجود. لا يُشغَّل على قاعدة فيها
--- أسعار. الحاجز أدناه يوقف التنفيذ تلقائياً إن كان الجدول يحتوي صفوفاً، لأن
--- تشغيله بالخطأ كان سيمحو أسعار كل الأصناف بلا رجعة.
+-- ⚠️ لا يحذف شيئاً ولا يعدّل شيئاً قائماً: إن كان الجدول موجوداً أصلاً يرفض
+-- التنفيذ ويتوقف. لإضافة عمود أو تعديل سياسة على قاعدة عاملة استعمل ملف ترحيل
+-- إضافي (مثال: approved-prices-item-code.sql) ولا تلمس هذا الملف.
 --
--- لإضافة عمود أو تعديل سياسة على قاعدة عاملة: استعمل ملف ترحيل إضافي
--- (مثال: approved-prices-item-code.sql) ولا تلمس هذا الملف.
+-- تاريخ الحاجز: 2026-07-25. قبله كان الملف يبدأ بـ
+--   drop table if exists approved_price_items cascade;
+-- والجدول يحتوي 316 صفاً حياً — فتشغيله بالخطأ كان يمحو أسعار كل الأصناف،
+-- ويحذف معها بـCASCADE توابعَ لا يعيد هذا الملف إنشاءها إطلاقاً:
+--   واجهات:  approved_price_sync_feed · available_price_sync_feed · bot_health_alerts
+--   triggers: trg_notify_price_changes · trg_notify_new_price_items · trg_notify_stock_alerts
+-- أي أن نشرات أسعار الزبائن وإشعارات تيليغرام كانت ستتوقف حتى إعادة بنائها يدوياً.
+-- لذلك أُزيل drop نهائياً، ويرفض الحاجز التنفيذ عند وجود الجدول **مهما كان عدد
+-- صفوفه** — لأن التوابع قائمة بصرف النظر عن الصفوف.
 -- ============================================================
 
--- ── حاجز أمان: يمنع محو أسعار قائمة ────────────────────────────────────────
--- يرفع استثناءً فيُلغى السكربت كله (السكربت يُنفَّذ في معاملة واحدة)، فلا يصل
--- التنفيذ إلى drop table. أُضيف بعد أن تبيّن أن الملف كان بلا أي حاجز
--- ويحتوي 316 صفاً حياً في الإنتاج (2026-07-25).
+-- ── متطلّب مسبق: دالة صلاحية الموظفين ──────────────────────────────────────
+-- سياسات هذا الجدول تعتمد is_staff() التي تقرأ جدول staff_allowlist. على قاعدة
+-- جديدة يجب إنشاؤهما أولاً، وإلا فشل إنشاء السياسات برسالة غامضة.
+do $$
+begin
+  if not exists (
+    select 1 from pg_proc p
+    join pg_namespace n on n.oid = p.pronamespace
+    where p.proname = 'is_staff' and n.nspname = 'public'
+  ) then
+    raise exception
+      'أوقفت التنفيذ: الدالة public.is_staff() غير موجودة. أنشئ جدول staff_allowlist والدالة is_staff() أولاً، فسياسات هذا الجدول تعتمد عليها.';
+  end if;
+end $$;
+
+-- ── حاجز أمان: يرفض التنفيذ إن كان الجدول موجوداً ──────────────────────────
 do $$
 declare
   row_count bigint;
@@ -23,15 +42,11 @@ begin
     where table_schema = 'public' and table_name = 'approved_price_items'
   ) then
     execute 'select count(*) from public.approved_price_items' into row_count;
-    if row_count > 0 then
-      raise exception
-        'أوقفت التنفيذ: الجدول approved_price_items يحتوي % صفاً وتشغيل هذا الملف يمحوها. لبناء قاعدة جديدة من الصفر: خذ نسخة احتياطية أولاً ثم احذف كتلة الحاجز يدوياً.',
-        row_count;
-    end if;
+    raise exception
+      'أوقفت التنفيذ: الجدول approved_price_items موجود مسبقاً (% صفاً). هذا الملف للبناء الأول فقط، وتشغيله على جدول قائم يمحو الأسعار ويحذف واجهات المزامنة وtriggers الإشعارات. لتعديل قاعدة عاملة استعمل ملف ترحيل إضافي.',
+      row_count;
   end if;
 end $$;
-
-drop table if exists approved_price_items cascade;
 
 create table approved_price_items (
   id                uuid          primary key default gen_random_uuid(),
@@ -61,18 +76,18 @@ create table approved_price_items (
 
 alter table approved_price_items enable row level security;
 
--- الموظفون المسجّلون فقط. مطابقة لما في الإنتاج فعلاً (approved_price_items_staff_*):
--- السياسات القديمة في هذا الملف كانت «using (true)» بلا تحديد دور، أي تُمنح لدور
--- public فينكشف الجدول لدور anon عبر REST. الجدول يجب أن يحجب anon؛ ونشر الأسعار
--- للعامة يتم عبر واجهة price_sync_feed المخصّصة لذلك لا عبر هذا الجدول.
+-- الموظفون المسموحون فقط — مطابقة حرفياً لما في الإنتاج (qual = is_staff()).
+-- لا تستعمل «using (true)»: فهي تسمح لأي حساب authenticated بقراءة الأسعار
+-- وتعديلها وحذفها، لا للموظفين المسجّلين في staff_allowlist وحدهم.
+-- ونشر الأسعار للعامة يتم عبر واجهة price_sync_feed المخصّصة لذلك لا عبر الجدول.
 create policy "approved_price_items_staff_select" on approved_price_items
-  for select to authenticated using (true);
+  for select to authenticated using (is_staff());
 create policy "approved_price_items_staff_insert" on approved_price_items
-  for insert to authenticated with check (true);
+  for insert to authenticated with check (is_staff());
 create policy "approved_price_items_staff_update" on approved_price_items
-  for update to authenticated using (true) with check (true);
+  for update to authenticated using (is_staff()) with check (is_staff());
 create policy "approved_price_items_staff_delete" on approved_price_items
-  for delete to authenticated using (true);
+  for delete to authenticated using (is_staff());
 
 create index idx_item_key on approved_price_items(item_key);
 create index idx_item_name on approved_price_items(item_name);
