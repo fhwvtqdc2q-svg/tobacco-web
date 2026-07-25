@@ -5309,12 +5309,23 @@ function salesInfoCard() {
        <div class="sales-info-row"><span>تكلفة ${escapeHtml(u2)}</span><strong dir="ltr">$${salesFmt(cartonCost, "jumla")}</strong></div>`
     : `<p class="muted sales-info-empty">${details ? "لا توجد تكلفة مسجّلة لهذا الصنف في الأمين." : "التكلفة غير متاحة — شغّل tools\\push-item-details.ps1."}</p>`;
 
+  // عمر السعر: سعر أقدم من 30 يوماً بعد شراء جديد هو السبب الشائع لظهور «خسارة»
+  // وهمية — الحالة الحقيقية 2026-07-25: بارسا سعر النشرة 245$ منذ 10 حزيران
+  // بينما تكلفة آخر شراء 260$. لذلك نُظهر تاريخ التسعير ونوجّه لتحديثه.
+  const pricedAt = item.approvedAt || item.updatedAt || "";
+  const priceAgeDays = pricedAt ? Math.floor((Date.now() - new Date(pricedAt).getTime()) / 86400000) : null;
+  const staleAge = priceAgeDays !== null && priceAgeDays >= 30;
+
   const profitHtml = profit !== null
     ? `<div class="sales-info-row sales-info-profit ${profit < 0 ? "loss" : ""}">
          <span>ربح ${escapeHtml(u2)}</span>
          <strong dir="ltr">${profit < 0 ? "−" : ""}$${salesFmt(Math.abs(profit), "jumla")}${margin !== null ? ` (${margin.toFixed(1)}%)` : ""}</strong>
        </div>
-       ${profit < 0 ? '<p class="sales-info-warn">⚠ سعر البيع أقل من التكلفة — راجع السعر أو التكلفة في الأمين.</p>' : ""}`
+       ${profit < 0 ? `<p class="sales-info-warn">⚠ سعر النشرة أقل من التكلفة${staleAge ? ` — وهو مسعّر منذ ${priceAgeDays} يوماً` : ""}. غالباً لم يُحدَّث بعد آخر شراء — حدّثه قبل البيع من النشرة.</p>` : ""}`
+    : "";
+
+  const pricedAtHtml = pricedAt
+    ? `<div class="sales-info-row"><span>آخر تسعير</span><strong class="${staleAge ? "sales-info-stale" : ""}" dir="ltr">${escapeHtml(formatDateTime(pricedAt))}${priceAgeDays !== null ? ` (${priceAgeDays} يوم)` : ""}</strong></div>`
     : "";
 
   const stamp = state.itemDetailsAt
@@ -5334,6 +5345,7 @@ function salesInfoCard() {
       <div class="sales-info-body">
         <div class="sales-info-row"><span>المخزون</span><strong dir="ltr">${cartons} ${escapeHtml(u2)}${loose > 0 ? ` + ${loose} ${escapeHtml(u1)}` : ""}</strong></div>
         <div class="sales-info-row"><span>سعر ${escapeHtml(u2)} (جملة)</span><strong dir="ltr">${cartonPrice > 0 ? `$${salesFmt(cartonPrice, "jumla")}` : "—"}</strong></div>
+        ${pricedAtHtml}
         ${costHtml}
         ${profitHtml}
         <div class="sales-info-sep">توزيع المستودعات</div>

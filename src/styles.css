@@ -2871,6 +2871,10 @@ code {
   font-family: monospace;
 }
 
+.sales-info-stale {
+  color: var(--danger);
+}
+
 .sales-info-empty,
 .sales-info-stamp {
   margin: 6px 0 0;
