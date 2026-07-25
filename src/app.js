@@ -3390,17 +3390,67 @@ const REPORT_STYLE = `<style>
 .ozk-rpt .seal .s-addr{font-size:11px;font-weight:700;border-top:1px solid #16357a;margin-top:4px;padding-top:3px}
 </style>`;
 
+// الطباعة تتم داخل الصفحة نفسها عبر iframe مخفي، لا عبر window.open.
+// السبب: التطبيق مثبَّت كـPWA (display: standalone في manifest.webmanifest)،
+// وفي هذا الوضع تفتح window.open على iOS نافذةً بلا شريط متصفح — بلا زر رجوع
+// ولا طباعة ولا مشاركة — فتظهر للمستخدم «شاشة جامدة» لا مخرج منها. أما الـiframe
+// فيفتح ورقة الطباعة الأصلية للنظام (وفيها «حفظ بصيغة PDF» وزر إلغاء)، ويعمل
+// على iOS وأندرويد وويندوز معاً بلا حاجة للسماح بالنوافذ المنبثقة.
+function printHtmlDocument(html, options = {}) {
+  const previous = document.querySelector("iframe[data-print-frame]");
+  if (previous) previous.remove();
+
+  const frame = document.createElement("iframe");
+  frame.setAttribute("data-print-frame", "");
+  frame.setAttribute("aria-hidden", "true");
+  frame.setAttribute("title", options.title || "طباعة");
+  // خارج الشاشة لا display:none — Safari لا يطبع الإطارات المخفية بـdisplay.
+  // القياس بمقاس A4 عند 96dpi كي يخرج تنسيق الصفحة مطابقاً للمعاينة.
+  frame.style.cssText =
+    "position:fixed;left:-10000px;top:0;width:794px;height:1123px;opacity:0;border:0;pointer-events:none;";
+
+  let finished = false;
+  const cleanup = () => {
+    if (finished) return;
+    finished = true;
+    setTimeout(() => frame.remove(), 1000);
+  };
+
+  frame.addEventListener("load", () => {
+    const win = frame.contentWindow;
+    if (!win) {
+      cleanup();
+      return;
+    }
+    try {
+      win.addEventListener("afterprint", cleanup, { once: true });
+    } catch {
+      // بعض المتصفحات تمنع الاستماع داخل الإطار — تكفي المهلة الاحتياطية أدناه.
+    }
+    // مهلة قصيرة كي تكتمل الخطوط والرسم قبل فتح ورقة الطباعة.
+    setTimeout(() => {
+      try {
+        win.focus();
+        win.print();
+      } catch {
+        cleanup();
+        if (typeof options.onError === "function") options.onError();
+        return;
+      }
+      // احتياط: إن لم يصل afterprint (شائع على iOS) نحذف الإطار بعد مهلة.
+      setTimeout(cleanup, 60000);
+    }, 250);
+  }, { once: true });
+
+  document.body.appendChild(frame);
+  frame.srcdoc = html;
+}
+
 // نستعمل طباعة المتصفح الأصلية (حفظ بصيغة PDF) بدل html2canvas —
 // المحرّك القديم صار يطلّع صفحات بيضا بعد تحديثات كروم. الطباعة الأصلية
 // ترسم التقرير مثل الشاشة تماماً (عربي وألوان مظبوطة) ومستحيل تطلع فاضية.
 async function exportReportPdf(bodyHtml, filename) {
   const title = String(filename || "تقرير").replace(/\.pdf$/i, "");
-  const win = window.open("", "_blank");
-  if (!win) {
-    setNotice("error", "المتصفح منع فتح نافذة الطباعة. اسمح بالنوافذ المنبثقة لهذا الموقع ثم جرّب مجددًا.");
-    render();
-    return;
-  }
   const doc =
     '<!doctype html><html lang="ar" dir="rtl"><head><meta charset="utf-8">' +
     '<base href="' + window.location.href + '">' +
@@ -3410,12 +3460,15 @@ async function exportReportPdf(bodyHtml, filename) {
     'img{max-width:100%}table{page-break-inside:auto}tr{page-break-inside:avoid}thead{display:table-header-group}tfoot{display:table-footer-group}' +
     '@media print{.ozk-rpt{padding:0}}</style>' +
     '</head><body>' + bodyHtml +
-    '<scr' + 'ipt>window.onload=function(){setTimeout(function(){window.focus();window.print();},450);};</scr' + 'ipt>' +
     '</body></html>';
-  win.document.open();
-  win.document.write(doc);
-  win.document.close();
-  setNotice("success", "افتح نافذة الطباعة واختر «حفظ بصيغة PDF».");
+  printHtmlDocument(doc, {
+    title,
+    onError: () => {
+      setNotice("error", "تعذّر فتح نافذة الطباعة. أغلق التطبيق وافتحه ثم جرّب مجدداً.");
+      render();
+    }
+  });
+  setNotice("success", "اختر «حفظ بصيغة PDF» من نافذة الطباعة.");
   render();
 }
 
@@ -6000,16 +6053,13 @@ function printSalesInvoice() {
 
 </body></html>`;
 
-  const win = window.open("", "_blank", "width=850,height=1100");
-  if (win) {
-    win.document.write(html);
-    win.document.close();
-    win.focus();
-    win.print();
-  } else {
-    setNotice("error", "يرجى السماح بالنوافذ المنبثقة لطباعة الفاتورة.");
-    render();
-  }
+  printHtmlDocument(html, {
+    title: `فاتورة مبيعات ${invNo}`,
+    onError: () => {
+      setNotice("error", "تعذّر فتح نافذة الطباعة. أغلق التطبيق وافتحه ثم جرّب مجدداً.");
+      render();
+    }
+  });
 }
 
 // ===== فواتير المشتريات (طلبات الشراء من الموردين) =====
@@ -6356,16 +6406,13 @@ ${po.notes ? `<div class="notes"><strong>ملاحظة:</strong> ${escapeHtml(po.
 
 </body></html>`;
 
-  const win = window.open("", "_blank", "width=850,height=1100");
-  if (win) {
-    win.document.write(html);
-    win.document.close();
-    win.focus();
-    win.print();
-  } else {
-    setNotice("error", "يرجى السماح بالنوافذ المنبثقة لطباعة طلب الشراء.");
-    render();
-  }
+  printHtmlDocument(html, {
+    title: "طلب شراء",
+    onError: () => {
+      setNotice("error", "تعذّر فتح نافذة طباعة طلب الشراء. أغلق التطبيق وافتحه ثم جرّب مجدداً.");
+      render();
+    }
+  });
 }
 
 function generateInvoiceNumber() {
@@ -6473,16 +6520,13 @@ ${notes ? `<div class="notes"><strong>ملاحظة:</strong> ${escapeHtml(notes)
 
 </body></html>`;
 
-  const win = window.open("", "_blank", "width=850,height=1100");
-  if (win) {
-    win.document.write(html);
-    win.document.close();
-    win.focus();
-    win.print();
-  } else {
-    setNotice("error", "يرجى السماح بالنوافذ المنبثقة لطباعة الفاتورة.");
-    render();
-  }
+  printHtmlDocument(html, {
+    title: `فاتورة ${invNum}`,
+    onError: () => {
+      setNotice("error", "تعذّر فتح نافذة الطباعة. أغلق التطبيق وافتحه ثم جرّب مجدداً.");
+      render();
+    }
+  });
   // حفظ الفاتورة بالنظام (للأرشفة على اللابتوب) + إرسالها واتساب للزبون
   sendInvoiceWhatsapp(customer, rows, notes, grandTotal, invNum);
 }
