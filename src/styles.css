@@ -2494,6 +2494,237 @@ code {
   }
 }
 
+/* ── فاتورة مبيعات (route: sales) ── */
+.sales-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.sales-mode-switch,
+.sales-pay-switch {
+  display: inline-flex;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  overflow: hidden;
+  background: var(--surface);
+}
+
+.sales-mode-btn,
+.sales-pay-btn {
+  border: none;
+  background: transparent;
+  color: var(--muted);
+  padding: 8px 16px;
+  font-size: 0.86rem;
+  font-weight: 700;
+  font-family: inherit;
+  cursor: pointer;
+}
+
+.sales-pay-btn {
+  padding: 7px 18px;
+}
+
+.sales-mode-btn.active,
+.sales-pay-btn.active {
+  background: var(--primary);
+  color: var(--primary-ink);
+}
+
+.sales-rate-chip {
+  font-size: 0.8rem;
+  font-weight: 700;
+  color: var(--muted);
+  background: var(--surface-soft);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 5px 12px;
+}
+
+.sales-header-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 14px;
+}
+
+.sales-header-grid .sales-pay-switch {
+  align-self: start;
+}
+
+.sales-hint {
+  margin: 0;
+  padding: 8px 12px;
+  border-radius: 8px;
+  background: var(--surface-soft);
+  border: 1px solid var(--line);
+  font-size: 0.82rem;
+}
+
+.sales-table th {
+  white-space: nowrap;
+}
+
+.sales-cell-search {
+  position: relative;
+}
+
+.sales-cell-name strong {
+  font-weight: 700;
+}
+
+.sales-unit-toggle {
+  border: 1px solid var(--line);
+  background: var(--surface-soft);
+  color: var(--ink);
+  border-radius: 999px;
+  padding: 5px 12px;
+  font-size: 0.82rem;
+  font-weight: 700;
+  font-family: inherit;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.sales-unit-toggle:hover:not(:disabled) {
+  border-color: var(--primary);
+  color: var(--primary);
+}
+
+.sales-unit-toggle:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+/* القائمة تُعرض position:fixed (تُحدَّد إحداثياتها بالـJS) كي لا يقصّها overflow الجدول */
+.sales-suggest {
+  position: fixed;
+  display: none;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  box-shadow: var(--shadow);
+  max-height: 320px;
+  overflow-y: auto;
+  z-index: 1200;
+}
+
+.sales-suggest:not(:empty) {
+  display: block;
+}
+
+.sales-suggest-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  border: none;
+  border-bottom: 1px solid var(--line);
+  background: transparent;
+  color: var(--ink);
+  padding: 8px 12px;
+  font-family: inherit;
+  font-size: 0.85rem;
+  cursor: pointer;
+  text-align: right;
+}
+
+.sales-suggest-item:last-child {
+  border-bottom: none;
+}
+
+.sales-suggest-item:hover {
+  background: var(--surface-soft);
+}
+
+.sales-suggest-num {
+  min-width: 44px;
+  font-size: 0.78rem;
+  color: var(--muted);
+  font-family: monospace;
+}
+
+.sales-suggest-name {
+  flex: 1;
+  font-weight: 600;
+}
+
+.sales-suggest-price {
+  font-size: 0.8rem;
+  color: var(--primary);
+  font-family: monospace;
+  white-space: nowrap;
+}
+
+.sales-suggest-item .muted {
+  color: var(--muted);
+}
+
+.sales-summary {
+  margin-inline-start: auto;
+  width: 320px;
+  max-width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  background: var(--surface-soft);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 14px 16px;
+}
+
+.sales-summary-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 0.9rem;
+  color: var(--muted);
+}
+
+.sales-summary-row strong {
+  color: var(--ink);
+  font-family: monospace;
+  font-size: 1rem;
+}
+
+.sales-summary-net strong {
+  color: var(--primary);
+  font-size: 1.15rem;
+}
+
+.sales-summary-remaining strong {
+  color: var(--danger);
+}
+
+.sales-amount-input {
+  width: 130px;
+  text-align: left;
+  direction: ltr;
+  font-family: monospace;
+  padding: 6px 10px;
+}
+
+.sales-actions {
+  flex-wrap: wrap;
+}
+
+@media (max-width: 720px) {
+  .sales-header-grid {
+    grid-template-columns: 1fr 1fr;
+  }
+  .sales-summary {
+    width: 100%;
+  }
+}
+
+@media (max-width: 480px) {
+  .sales-header-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
 /* ── فواتير المشتريات (تسجيل داخلي فقط) ── */
 .po-list {
   display: flex;
