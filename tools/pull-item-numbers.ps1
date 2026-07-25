@@ -1,5 +1,9 @@
-﻿# يملأ approved_price_items.item_number من رقم صنف الأمين (mt000.Number).
-# قراءة فقط من الأمين؛ يحدّث عمود item_number فقط في Supabase — لا يمسّ الأسعار ولا المخزون.
+﻿# يملأ approved_price_items من أرقام صنف الأمين:
+#   item_code   ← mt000.Code    (الكود الذي يقرأه المالك على بطاقة الصنف: 0000، 1111، 24007)
+#   item_number ← mt000.Number  (الترقيم الداخلي التسلسلي 1..406 — يبقى للبحث بالرقم القديم)
+# سبب وجود الاثنين: الأمين يعرض Code وليس Number، وكان الموقع يعرض Number فتظهر
+# أرقام لا تطابق ما على البطاقة (بلاغ المالك 2026-07-25).
+# قراءة فقط من الأمين؛ يحدّث هذين العمودين فقط — لا يمسّ الأسعار ولا المخزون.
 # التشغيل التجريبي (بلا تعديل):  .\tools\pull-item-numbers.ps1 -WhatIf
 # التشغيل الفعلي:               .\tools\pull-item-numbers.ps1
 param([switch]$WhatIf)
@@ -32,6 +36,7 @@ function Get-EnvVar($name) {
 $cs = Get-EnvVar "AMEEN_SQL_CONNECTION_STRING"
 $cn = New-Object System.Data.SqlClient.SqlConnection $cs
 $byKey = @{}
+$codeByKey = @{}
 $namesByKey = @{}
 $collisions = @{}
 try {
@@ -42,11 +47,12 @@ try {
     $cn.Open()
   }
   $cmd = $cn.CreateCommand()
-  $cmd.CommandText = "select cast(Number as nvarchar(32)) as num, Name from dbo.mt000 where Name is not null and ltrim(rtrim(Name)) <> '' order by Number"
+  $cmd.CommandText = "select cast(Number as nvarchar(32)) as num, isnull(Code,'') as code, Name from dbo.mt000 where Name is not null and ltrim(rtrim(Name)) <> '' order by Number"
   $r = $cmd.ExecuteReader()
   while ($r.Read()) {
     $k = Normalize-ItemName $r["Name"]
     $num = ([string]$r["num"]).Trim()
+    $code = ([string]$r["code"]).Trim()
     $nm = ([string]$r["Name"]).Trim()
     if (-not $k -or -not $num) { continue }
     if ($byKey.ContainsKey($k)) {
@@ -54,13 +60,14 @@ try {
       if ($byKey[$k] -ne $num) {
         if (-not $collisions.ContainsKey($k)) {
           $collisions[$k] = New-Object System.Collections.ArrayList
-          [void]$collisions[$k].Add(@{ num = $byKey[$k]; name = $namesByKey[$k] })
+          [void]$collisions[$k].Add(@{ num = $byKey[$k]; name = $namesByKey[$k]; code = $codeByKey[$k] })
         }
-        [void]$collisions[$k].Add(@{ num = $num; name = $nm })
+        [void]$collisions[$k].Add(@{ num = $num; name = $nm; code = $code })
       }
       continue
     }
     $byKey[$k] = $num
+    $codeByKey[$k] = $code
     $namesByKey[$k] = $nm
   }
   $r.Close()
@@ -81,16 +88,19 @@ foreach ($k in @($collisions.Keys)) {
   $override = if ($collisionOverrides.ContainsKey($k)) { [string]$collisionOverrides[$k] } else { $null }
   if ($override -and ($candidateNums -contains $override)) {
     $byKey[$k] = $override
+    $winner = $collisions[$k] | Where-Object { $_.num -eq $override } | Select-Object -First 1
+    if ($winner) { $codeByKey[$k] = $winner.code }
     Write-Output ("تصادم محسوم صراحة: [" + $k + "] => الرقم " + $override)
   } else {
     $byKey.Remove($k)
+    $codeByKey.Remove($k)
     if ($override) {
       Write-Output ("تحذير: الحسم المسجّل [" + $override + "] لم يعد أحد بطاقات هذا التصادم — استُبعد من التحديث ويحتاج مراجعة: [" + $k + "]")
     } else {
       Write-Output ("تحذير: تصادم غير محسوم — استُبعد من التحديث حتى يُوحَّد الاسم في الأمين: [" + $k + "]")
     }
   }
-  foreach ($e in $collisions[$k]) { Write-Output ("    " + $e.num + "  -  " + $e.name) }
+  foreach ($e in $collisions[$k]) { Write-Output ("    رقم " + $e.num + "  كود " + $e.code + "  -  " + $e.name) }
 }
 
 # 2) صادق Supabase
@@ -99,28 +109,42 @@ $key = Get-EnvVar "TOBACCO_SUPABASE_PUBLIC_KEY"
 $auth = Invoke-RestMethod -Method Post -Uri "$url/auth/v1/token?grant_type=password" -Headers @{ apikey = $key; Accept = "application/json" } -ContentType "application/json; charset=utf-8" -Body (@{ email = (Get-EnvVar "TOBACCO_SYNC_EMAIL"); password = (Get-EnvVar "TOBACCO_SYNC_PASSWORD") } | ConvertTo-Json)
 $hdr = @{ apikey = $key; Authorization = ("Bearer " + $auth.access_token); "Accept-Profile" = "public"; "Content-Profile" = "public" }
 
-# 3) اجلب أصناف الموقع (المفتاح والرقم الحالي)
-$items = Invoke-RestMethod -Method Get -Uri "$url/rest/v1/approved_price_items?select=item_key,item_number&limit=5000" -Headers $hdr
+# 3) اجلب أصناف الموقع (المفتاح والاسم والقيم الحالية)
+$items = Invoke-RestMethod -Method Get -Uri "$url/rest/v1/approved_price_items?select=item_key,item_name,item_number,item_code&limit=5000" -Headers $hdr
 Write-Output ("أصناف الموقع: " + $items.Count)
 
-# 4) حدّث item_number للمطابقات فقط (لا يلمس أي عمود آخر)
-$matched = 0; $updated = 0; $toUpdate = 0; $sample = @()
+# 4) حدّث item_code وitem_number للمطابقات فقط (لا يلمس أي عمود آخر).
+# المطابقة بالمفتاح أولاً ثم بالاسم: مفتاح الموقع قد يكون أقصر من الاسم الكامل
+# (مثال حقيقي: المفتاح «حمرة طويلة قديمة» والاسم «حمرة طويلة قديمة عراقية») فكان
+# الصنف يسقط بلا رقم رغم وجوده في الأمين.
+$matched = 0; $matchedByName = 0; $updated = 0; $toUpdate = 0; $sample = @()
 foreach ($it in $items) {
-  $num = $byKey[(Normalize-ItemName ([string]$it.item_key))]
+  $k = Normalize-ItemName ([string]$it.item_key)
+  $num = $byKey[$k]
+  $code = $codeByKey[$k]
+  if (-not $num) {
+    $k2 = Normalize-ItemName ([string]$it.item_name)
+    if ($k2 -and $k2 -ne $k -and $byKey.ContainsKey($k2)) {
+      $num = $byKey[$k2]; $code = $codeByKey[$k2]; $matchedByName++
+    }
+  }
   if ($num) {
     $matched++
-    if ([string]$it.item_number -ne $num) {
+    $patch = @{}
+    if ([string]$it.item_number -ne [string]$num) { $patch["item_number"] = $num }
+    if ($code -and ([string]$it.item_code -ne [string]$code)) { $patch["item_code"] = $code }
+    if ($patch.Count -gt 0) {
       $toUpdate++
-      if ($sample.Count -lt 8) { $sample += ("  " + $it.item_key + "  →  " + $num) }
+      if ($sample.Count -lt 8) { $sample += ("  " + $it.item_key + "  →  كود " + $code + " / رقم " + $num) }
       if (-not $WhatIf) {
         $enc = [uri]::EscapeDataString([string]$it.item_key)
-        Invoke-RestMethod -Method Patch -Uri "$url/rest/v1/approved_price_items?item_key=eq.$enc" -Headers ($hdr + @{ Prefer = "return=minimal" }) -ContentType "application/json; charset=utf-8" -Body (@{ item_number = $num } | ConvertTo-Json) | Out-Null
+        Invoke-RestMethod -Method Patch -Uri "$url/rest/v1/approved_price_items?item_key=eq.$enc" -Headers ($hdr + @{ Prefer = "return=minimal" }) -ContentType "application/json; charset=utf-8" -Body ($patch | ConvertTo-Json) | Out-Null
         $updated++
       }
     }
   }
 }
-Write-Output ("مطابق بالاسم: $matched من " + $items.Count)
+Write-Output ("مطابق: $matched من " + $items.Count + "  (منها $matchedByName بالاسم بعد فشل المفتاح)")
 if ($WhatIf) {
   Write-Output ("[تجربة] سيُحدَّث: $toUpdate — عيّنة:")
   $sample | ForEach-Object { Write-Output $_ }

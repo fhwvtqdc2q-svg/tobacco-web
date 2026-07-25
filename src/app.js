@@ -5157,7 +5157,14 @@ function salesMoney(value, mode) {
   return `$${salesFmt(value, "jumla")}`;
 }
 
-// بحث/مطابقة جزئية على رقم الصنف (item_number) والاسم (item_name) معاً.
+// الرقم المعروض للمستخدم هو كود الأمين (mt000.Code) لأنه ما يقرأه على بطاقة الصنف؛
+// وitemNumber ترقيم الأمين الداخلي التسلسلي. نرجع إليه فقط إن لم يصل الكود بعد.
+function salesItemCode(item) {
+  return String(item?.itemCode || item?.itemNumber || "");
+}
+
+// بحث/مطابقة جزئية على كود الأمين والرقم الداخلي والاسم معاً — البحث بالرقمين مقصود
+// كي لا يتعطّل من حفظ الترقيم الداخلي القديم بعد تحويل العرض إلى الكود.
 function salesSearchItems(query, limit = 8) {
   const raw = String(query || "").trim();
   if (!raw) return [];
@@ -5167,13 +5174,16 @@ function salesSearchItems(query, limit = 8) {
   const digits = normalizeNumericText(raw, { allowNegative: false, allowDecimal: false });
   const scored = [];
   for (const item of list) {
-    const number = String(item.itemNumber || "");
+    // الكود أولاً في الترتيب كي تفوز مطابقته عند التعادل مع رقم داخلي لصنف آخر.
+    const numbers = [String(item.itemCode || ""), String(item.itemNumber || "")].filter(Boolean);
     const normalizedName = normalizeItemName(item.itemName || "");
     let score = -1;
-    if (digits && number) {
-      if (number === digits) score = 100;
-      else if (number.startsWith(digits)) score = 92;
-      else if (number.includes(digits)) score = 74;
+    if (digits) {
+      for (const number of numbers) {
+        if (number === digits) score = Math.max(score, 100);
+        else if (number.startsWith(digits)) score = Math.max(score, 92);
+        else if (number.includes(digits)) score = Math.max(score, 74);
+      }
     }
     if (normalizedQuery) {
       if (normalizedName === normalizedQuery) score = Math.max(score, 96);
@@ -5192,8 +5202,9 @@ function salesSuggestionsHtml(rowIndex, query) {
   const mode = salesCurrentMode();
   return matches
     .map((item) => {
-      const number = item.itemNumber
-        ? `<span class="sales-suggest-num" dir="ltr">${escapeHtml(item.itemNumber)}</span>`
+      const code = salesItemCode(item);
+      const number = code
+        ? `<span class="sales-suggest-num" dir="ltr">${escapeHtml(code)}</span>`
         : `<span class="sales-suggest-num muted">—</span>`;
       const auto = salesAutoUnitPrice(item, "unit2", mode);
       const priceHint = auto > 0
@@ -5456,7 +5467,7 @@ function salesInfoCard() {
       <div class="sales-info-head">
         <div>
           <strong>${escapeHtml(item.itemName)}</strong>
-          ${item.itemNumber ? `<small class="muted" dir="ltr"> #${escapeHtml(item.itemNumber)}</small>` : ""}
+          ${salesItemCode(item) ? `<small class="muted" dir="ltr"> #${escapeHtml(salesItemCode(item))}</small>` : ""}
         </div>
         <button type="button" class="sales-info-close" data-sales-info-close aria-label="إغلاق">✕</button>
       </div>
@@ -5559,7 +5570,7 @@ function salesInvoice() {
         <input class="inv-input sales-search" data-sales-field="q" data-sales-index="${i}" value="${escapeHtml(row.q)}" placeholder="رقم الصنف أو الاسم" dir="auto" autocomplete="off">
         <div class="sales-suggest" data-sales-suggest="${i}"></div>
       </td>
-      <td class="sales-cell-name">${resolved ? `<strong>${escapeHtml(computed.item.itemName)}</strong>${computed.item.itemNumber ? `<small class="muted" dir="ltr"> #${escapeHtml(computed.item.itemNumber)}</small>` : ""}<button type="button" class="sales-info-btn" data-sales-info="${escapeHtml(computed.item.itemKey)}" title="معلومات الصنف: المخزون والتكلفة والربح والمستودعات">i</button>` : '<span class="muted">—</span>'}</td>
+      <td class="sales-cell-name">${resolved ? `<strong>${escapeHtml(computed.item.itemName)}</strong>${salesItemCode(computed.item) ? `<small class="muted" dir="ltr"> #${escapeHtml(salesItemCode(computed.item))}</small>` : ""}<button type="button" class="sales-info-btn" data-sales-info="${escapeHtml(computed.item.itemKey)}" title="معلومات الصنف: المخزون والتكلفة والربح والمستودعات">i</button>` : '<span class="muted">—</span>'}</td>
       <td class="sales-cell-unit">
         <button type="button" class="sales-unit-toggle" data-sales-unit="${i}" ${resolved ? "" : "disabled"} title="${resolved ? `تبديل إلى ${escapeHtml(otherLabel)}` : "اختر صنفاً أولاً"}">${escapeHtml(unitLabel)}</button>
       </td>
@@ -5736,8 +5747,8 @@ function salesPickItem(rowIndex, key) {
   const mode = salesCurrentMode();
   row.key = item.itemKey;
   row.name = item.itemName;
-  row.num = item.itemNumber || "";
-  row.q = item.itemNumber ? String(item.itemNumber) : item.itemName;
+  row.num = salesItemCode(item);
+  row.q = row.num ? row.num : item.itemName;
   if (row.unit !== "unit1" && row.unit !== "unit2") row.unit = "unit2";
   const auto = salesAutoUnitPrice(item, row.unit, mode);
   row.price = auto > 0 ? String(auto) : "";
@@ -5830,7 +5841,7 @@ async function salesSaveInvoice() {
       const qty = toNumber(row.qty);
       const price = toNumber(row.price);
       return {
-        num: item?.itemNumber || row.num || "",
+        num: salesItemCode(item) || row.num || "",
         name: item?.itemName || row.name || "",
         unit: salesUnitLabel(item, row.unit),
         unitKey: row.unit,
@@ -5891,7 +5902,7 @@ function printSalesInvoice() {
       return `
     <tr>
       <td class="col-num">${i + 1}</td>
-      <td dir="ltr">${escapeHtml(item?.itemNumber || row.num || "")}</td>
+      <td dir="ltr">${escapeHtml(salesItemCode(item) || row.num || "")}</td>
       <td>${escapeHtml(item?.itemName || row.name || "")}</td>
       <td>${escapeHtml(salesUnitLabel(item, row.unit))}</td>
       <td>${escapeHtml(formatMoney(qty))}</td>
