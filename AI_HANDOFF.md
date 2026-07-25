@@ -70,6 +70,31 @@
   3. لم أمسّ التعديلين غير المثبّتين (src/supabase-client.js على main، واقتراحات iPhone على `feat/invoice-module`) حسب الاتفاق.
 - Handoff UTC: 2026-07-23T19:05:00Z
 
+## 2026-07-23 - Codex - اعتماد إصلاح fallback في replaceApprovedPriceItems
+
+- Status: reviewed and verified — الإصلاح يمنع حذف الأسعار أو أرقام الأصناف عند فشل جلب `item_number`.
+- Branch/worktree: `main`، تعديل غير مثبّت؛ لا commit أو push أو merge، ولا كتابة على الأسعار أو المزامنة.
+- نتيجة اختبار محاكاة محلي معزول:
+  1. فشل جلب `item_key,item_number` أدّى إلى رمي الخطأ الآمن قبل بناء مسار الحذف؛ `deleteCalled=false` و`insertCalled=false`.
+  2. نجاح الجلب حفظ `item_number` الحالي لكل صف مطابق بـ`item_key`؛ صف الاختبار احتفظ بالرقم `123`.
+  3. لم تتغير حقول السعر أو المخزون: بقيت قيم الاختبار `sale_price=10` و`unit1_price=10` و`unit2_price=20` و`price_payload.retail.price=25` و`stock_qty=7` و`stock_status=active`.
+- الفحوص: `npm.cmd run check` ناجح (`Project check passed`) و`git diff --check` ناجح.
+- ملاحظة: بنية الاستبدال الأصلية ما زالت حذفاً ثم إدخالاً بطلبين منفصلين بعد نجاح الجلب؛ هذا خارج الإصلاح الحالي، لكنه يبقى خطراً مستقلاً إذا فشل الإدخال بعد نجاح الحذف.
+- Handoff UTC: 2026-07-23T18:32:51Z
+
+## 2026-07-23 - Codex - مراجعة الحفاظ على item_number عند حفظ الأسعار
+
+- Status: reviewed — `upsertApprovedPriceItems` سليم، لكن fallback في `replaceApprovedPriceItems` غير آمن ويمنع اعتماد التعديل كما هو.
+- Branch/worktree: `main`، تعديل غير مثبّت في `src/supabase-client.js` فقط ضمن هذه المراجعة؛ لم ينفذ Codex commit أو push أو merge ولم يغيّر أسعاراً أو مزامنة.
+- نتيجة المراجعة:
+  1. عند نجاح جلب `item_key,item_number`، تحافظ الدالتان على الرقم الحالي بحسب `item_key`، ولا تغيّران حقول الأسعار. اختبار محاكاة محلي حافظ على `sale_price=10` و`unit1_price=10` و`unit2_price=20` و`price_payload.retail.price=25`.
+  2. عند فشل الجلب، `upsertApprovedPriceItems` يحذف حقل `item_number` من payload؛ لذلك لا يحدّث العمود في الصف الموجود، وهذا fallback صحيح.
+  3. عند فشل الجلب، `replaceApprovedPriceItems` يستمر في حذف جميع الصفوف ثم يعيد إدخالها بلا `item_number`؛ لذلك يمسح الأرقام بدلاً من «عدم لمسها». الحل الآمن هو إيقاف الاستبدال قبل الحذف عند تعذر الجلب، أو تنفيذ حفظ/استبدال ذري يحافظ على العمود.
+  4. مسار `replaceApprovedPriceItems` ما زال حذفاً ثم إدخالاً بطلبين منفصلين؛ فشل الإدخال بعد الحذف يظل مخاطرة قديمة بفقد لائحة الأسعار كاملة.
+- الفحص القرائي: `tools\pull-item-numbers.ps1 -WhatIf` أعطى السطر المعتمد `مطابق بالاسم: 314 من 316`. تم تجاهل سطر «سيُحدَّث» حسب الخطأ المعروف.
+- الفحوص: `npm.cmd run check` ناجح، و`git diff --check` ناجح. اختبار المحاكاة كان محلياً بالكامل ولم يتصل بكتابة إنتاجية.
+- Handoff UTC: 2026-07-23T18:26:46Z
+
 ## 2026-07-22 - Claude - عمل بدون اتصال + تحصين Supabase + سحب نسخ الأمين + تنبيه فشل الإنعاش
 
 - Status: completed
