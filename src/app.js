@@ -5518,7 +5518,7 @@ function salesInvoice() {
             <thead>
               <tr>
                 <th style="width:180px">رقم الصنف / الاسم</th>
-                <th>الصنف</th>
+                <th class="sales-th-name">الصنف</th>
                 <th style="width:92px">الوحدة</th>
                 <th style="width:80px">الكمية</th>
                 <th style="width:120px">الإفرادي ${escapeHtml(symbol)}</th>

@@ -2583,6 +2583,41 @@ code {
   min-width: 170px;
 }
 
+/* تثبيت عمود اسم الصنف على الشاشات الضيقة (بلاغ المالك، مانع أكّدته المراجعة):
+   min-width:700px أعلاه يجعل الجدول أعرض من شاشة الهاتف، وبعد اختيار الصنف ينقل
+   salesFocusField التركيز تلقائياً إلى الكمية (أساس العمل بلا ماوس) فيمرّر المتصفح
+   الحاوية إلى scrollLeft=-274 ولا يبقى من خلية الاسم إلا ~50px من 170px.
+   التثبيت على حافة البداية (يمين في RTL) يُبقي الاسم ظاهراً مع الكمية والسعر معاً.
+   الخلفية إلزامية وإلا ظهر ما يمرّ تحت العمود؛ var(--surface) هي خلفية .panel نفسها
+   فلا يتغيّر الشكل عند عدم وجود تمرير. قائمة الاقتراحات position:fixed بـz-index:1200
+   فلا يحجبها التثبيت. */
+@media (max-width: 900px) {
+  /* بلا هذا يمرّر المتصفح ليُظهر حقل الكمية على حافة الحاوية بالضبط، فيقع 32px منه
+     تحت العمود الثابت ويبقى 21px فقط مرئياً — أي كتابة الكمية بلا رؤيتها.
+     scroll-padding يخبر تمرير التركيز أن يحسب عرض العمود الثابت (170px + هامش). */
+  .inv-table-wrap {
+    scroll-padding-inline-start: 178px;
+  }
+
+  .sales-table .sales-cell-name,
+  .sales-table th.sales-th-name {
+    position: sticky;
+    inset-inline-start: 0;
+    z-index: 2;
+  }
+
+  .sales-table .sales-cell-name {
+    background: var(--surface);
+    /* حدّ فاصل يوضّح أن العمود ثابت فوق ما يمرّ تحته — box-shadow لا border،
+       لأن حدود الخلايا مع border-collapse:collapse لا تثبت بشكل موثوق. */
+    box-shadow: -1px 0 0 var(--line);
+  }
+
+  .sales-table th.sales-th-name {
+    background: var(--primary);
+  }
+}
+
 .sales-table th {
   white-space: nowrap;
 }
