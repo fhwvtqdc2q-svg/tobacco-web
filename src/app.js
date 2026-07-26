@@ -5978,7 +5978,8 @@ function salesInvoice() {
 
         <div class="inv-actions sales-actions">
           <button class="button primary" data-action="sales-save">💾 حفظ الفاتورة</button>
-          <button class="button secondary" data-action="sales-print">🖨 طباعة / PDF</button>
+          <button class="button secondary" data-action="sales-pdf">📄 حفظ / مشاركة PDF</button>
+          <button class="button secondary" data-action="sales-print">🖨 طباعة</button>
           <button class="button secondary" data-action="sales-new">＋ فاتورة جديدة</button>
         </div>
       </div>
@@ -6248,6 +6249,207 @@ async function salesSaveInvoice() {
 
 // إعادة استخدام قالب طباعة الفاتورة (نفس CSS) مع تكييف بسيط: أعمدة الوحدة/الرقم
 // وكتلة مجاميع (إجمالي/حسم/صافي/مدفوع/متبقٍّ) ودعم عملة الليرة في وضع المفرق.
+// نسخة الفاتورة المخصّصة لتوليد ملف PDF حقيقي: أنماط سطرية بالكامل، بلا وسم
+// <style> عام. السبب: حاوية التوليد تعيش داخل صفحة التطبيق نفسها، وأي قاعدة
+// مثل body{} أو table{} كانت ستتسرّب على الواجهة أثناء التوليد. الخلفية بيضاء
+// صراحةً كي لا تخرج صفحات سوداء (قاعدة موثّقة في CLAUDE.md).
+function salesInvoicePdfMarkup(data) {
+  const border = "1px solid #d9d2c4";
+  const th = `padding:7px 6px;background:#f3efe6;border:${border};font-size:12px;font-weight:700;color:#3a3226`;
+  const td = `padding:6px;border:${border};font-size:12px;color:#241f18`;
+  const rows = data.rows.map((row, i) => `
+    <tr>
+      <td style="${td};text-align:center">${i + 1}</td>
+      <td style="${td};text-align:center" dir="ltr">${escapeHtml(row.code)}</td>
+      <td style="${td}">${escapeHtml(row.name)}</td>
+      <td style="${td};text-align:center">${escapeHtml(row.unit)}</td>
+      <td style="${td};text-align:center" dir="ltr">${escapeHtml(row.qty)}</td>
+      <td style="${td};text-align:left" dir="ltr">${escapeHtml(row.price)}</td>
+      <td style="${td};text-align:left" dir="ltr">${escapeHtml(row.total)}</td>
+    </tr>`).join("");
+  const summaryRow = (label, value, strong) => `
+    <tr>
+      <td style="${td};background:#faf8f3;font-weight:${strong ? 700 : 400}">${escapeHtml(label)}</td>
+      <td style="${td};text-align:left;font-weight:${strong ? 700 : 400}" dir="ltr">${escapeHtml(value)}</td>
+    </tr>`;
+  const info = (label, value) => `
+    <div style="font-size:12px;color:#241f18;margin:2px 0">
+      <span style="color:#6b6154">${escapeHtml(label)}:</span> <b>${escapeHtml(value)}</b>
+    </div>`;
+
+  return `
+  <div dir="rtl" style="width:754px;padding:20px;background:#ffffff;color:#241f18;
+       font-family:'Segoe UI',Tahoma,Arial,sans-serif">
+    <div style="display:flex;justify-content:space-between;align-items:flex-start;
+         border-bottom:2px solid #8a6d3b;padding-bottom:10px;margin-bottom:12px">
+      <div>
+        <div style="font-size:20px;font-weight:700;color:#8a6d3b">OZK TOBACCO</div>
+        <div style="font-size:12px;color:#6b6154">مركز أبو زياد — لتجارة الدخان</div>
+      </div>
+      <div style="text-align:left">
+        <div style="font-size:16px;font-weight:700">فاتورة مبيعات</div>
+        <div style="font-size:12px;color:#6b6154" dir="ltr">${escapeHtml(data.invNo)}</div>
+      </div>
+    </div>
+
+    <div style="display:flex;justify-content:space-between;margin-bottom:12px">
+      <div>
+        ${info("الزبون", data.customer)}
+        ${info("طريقة الدفع", data.payLabel)}
+      </div>
+      <div>
+        ${info("التاريخ", data.dateLabel)}
+        ${info("العملة", data.curLabel)}
+      </div>
+    </div>
+
+    <table style="width:100%;border-collapse:collapse;margin-bottom:12px">
+      <thead>
+        <tr>
+          <th style="${th};width:28px">#</th>
+          <th style="${th};width:64px">الرقم</th>
+          <th style="${th}">الصنف</th>
+          <th style="${th};width:64px">الوحدة</th>
+          <th style="${th};width:56px">الكمية</th>
+          <th style="${th};width:82px">الإفرادي</th>
+          <th style="${th};width:92px">الإجمالي</th>
+        </tr>
+      </thead>
+      <tbody>${rows}</tbody>
+    </table>
+
+    <table style="width:290px;border-collapse:collapse;margin-right:auto">
+      <tbody>
+        ${summaryRow("الإجمالي", data.grand)}
+        ${summaryRow("الحسم", data.discount)}
+        ${summaryRow("الصافي", data.net, true)}
+        ${summaryRow("المدفوع", data.paid)}
+        ${summaryRow(`المتبقّي (${data.remainingLabel})`, data.remaining, true)}
+      </tbody>
+    </table>
+
+    <div style="margin-top:18px;padding-top:8px;border-top:1px solid #d9d2c4;
+         font-size:11px;color:#6b6154;display:flex;justify-content:space-between">
+      <span>${escapeHtml(appConfig.name)} — ${escapeHtml(appConfig.supportEmail)}</span>
+      <span dir="ltr">0985000771 — 0984000662</span>
+    </div>
+  </div>`;
+}
+
+// حفظ/مشاركة الفاتورة كملف PDF فعلي.
+// السبب: على iOS داخل التطبيق المثبَّت (standalone) لا يفتح window.print() أي
+// نافذة ولا يرمي خطأ — فتظهر رسالة نجاح بلا أي ورقة طباعة. الملف الفعلي يحلّ
+// المشكلة ويسمح بإرساله للزبون على واتساب مباشرةً من ورقة المشاركة.
+async function saveSalesInvoicePdf() {
+  const resolved = salesResolvedRows();
+  if (!resolved.length) {
+    setNotice("error", "أضف صنفاً واحداً على الأقل بكمية وسعر قبل التصدير.");
+    render();
+    return;
+  }
+  if (!window.html2pdf) {
+    setNotice("error", "مكتبة PDF لم تتحمّل. حدّث الصفحة وجرّب مجدداً.");
+    render();
+    return;
+  }
+  const mode = salesCurrentMode();
+  // نفس حارس الطباعة: لا نصدر مستنداً برقم غير موثوق.
+  const series = salesSeriesState(mode);
+  if (!series.usable) {
+    setNotice("error", salesSeriesBlockReason(series));
+    render();
+    return;
+  }
+  const invNo = ensureSalesInvoiceNo();
+  if (!invNo) {
+    setNotice("error", salesSeriesBlockReason(salesSeriesState(mode)));
+    render();
+    return;
+  }
+
+  const totals = salesTotals();
+  const markup = salesInvoicePdfMarkup({
+    invNo,
+    customer: state.salesCustomer.trim() || "زبون نقدي",
+    payLabel: state.salesPayMethod === "credit" ? "أجل" : "نقدي",
+    dateLabel: new Intl.DateTimeFormat("ar-SA-u-nu-latn", { dateStyle: "long" }).format(new Date()),
+    curLabel: mode === "mufrak"
+      ? `ليرة سورية — صرف ${formatMoney(state.syriaExchangeRate)}`
+      : "دولار أمريكي",
+    rows: resolved.map((row) => {
+      const item = salesItemByKey(row.key);
+      const qty = toNumber(row.qty);
+      const price = toNumber(row.price);
+      return {
+        code: salesItemCode(item) || row.num || "",
+        name: item?.itemName || row.name || "",
+        unit: salesUnitLabel(item, row.unit),
+        qty: formatMoney(qty),
+        price: salesMoney(price, mode),
+        total: salesMoney(qty * price, mode)
+      };
+    }),
+    grand: salesMoney(totals.grand, mode),
+    discount: salesMoney(totals.discount, mode),
+    net: salesMoney(totals.net, mode),
+    paid: salesMoney(totals.paid, mode),
+    remaining: salesMoney(Math.abs(totals.remaining), mode),
+    remainingLabel: salesRemainingState(totals.remaining, mode).label
+  });
+
+  const container = document.createElement("div");
+  // خارج الشاشة لا display:none — html2canvas لا يرسم عنصراً بلا تخطيط.
+  container.style.cssText = "position:fixed;left:-10000px;top:0;width:794px;background:#ffffff;";
+  container.innerHTML = markup;
+  document.body.appendChild(container);
+
+  const fileName = `invoice-${String(invNo).replace(/[^\w-]+/g, "-")}-${todayIsoDate()}.pdf`;
+  try {
+    const blob = await window.html2pdf().set({
+      margin: [6, 6, 6, 6],
+      filename: fileName,
+      image: { type: "jpeg", quality: 0.96 },
+      html2canvas: { scale: 2, useCORS: true, backgroundColor: "#ffffff" },
+      jsPDF: { unit: "mm", format: "a4", orientation: "portrait" }
+    }).from(container).outputPdf("blob");
+
+    const file = new File([blob], fileName, { type: "application/pdf" });
+    // ورقة المشاركة أولاً: على iOS هي الطريق الوحيد العملي للحفظ في «الملفات»
+    // أو الإرسال على واتساب. إن رفضها النظام (تنتهي صلاحية إيماءة المستخدم بعد
+    // انتظار التوليد) نسقط إلى التنزيل المباشر.
+    if (navigator.canShare && navigator.canShare({ files: [file] })) {
+      try {
+        await navigator.share({ files: [file], title: `فاتورة مبيعات ${invNo}` });
+        setNotice("success", `تم تجهيز الفاتورة ${invNo} PDF ومشاركتها.`);
+        render();
+        return;
+      } catch (shareError) {
+        // إلغاء المستخدم للمشاركة ليس خطأً — لا نُنزّل الملف رغماً عنه.
+        if (shareError && shareError.name === "AbortError") {
+          render();
+          return;
+        }
+      }
+    }
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = fileName;
+    link.rel = "noopener";
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 30000);
+    setNotice("success", `تم تنزيل الفاتورة ${invNo} كملف PDF.`);
+    render();
+  } catch (error) {
+    setNotice("error", "تعذّر توليد ملف PDF: " + safeErrorMessage(error));
+    render();
+  } finally {
+    container.remove();
+  }
+}
+
 function printSalesInvoice() {
   const resolved = salesResolvedRows();
   if (!resolved.length) {
@@ -7436,6 +7638,7 @@ function render() {
   });
   app.querySelector("[data-action='sales-save']")?.addEventListener("click", salesSaveInvoice);
   app.querySelector("[data-action='sales-print']")?.addEventListener("click", printSalesInvoice);
+  app.querySelector("[data-action='sales-pdf']")?.addEventListener("click", saveSalesInvoicePdf);
   app.querySelector("[data-action='sales-new']")?.addEventListener("click", salesNewInvoice);
 
   // فتح/إغلاق أرشيف الفواتير. لا يمسّ أسطر الفاتورة الحالية ولا رقمها،
