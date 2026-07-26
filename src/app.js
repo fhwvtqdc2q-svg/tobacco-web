@@ -247,6 +247,8 @@ const state = {
   salesSavedNo: "",
   salesSaving: false,
   salesInfoKey: "",        // مفتاح الصنف المفتوحة بطاقته (فارغ = مغلقة)
+  salesHistoryOpen: false, // شاشة «الفواتير السابقة» مفتوحة بدل نموذج الفاتورة
+  salesHistoryQuery: "",   // بحث القائمة (اسم زبون أو رقم فاتورة)
   itemDetails: null,       // خريطة مفتاح ← تفاصيل (تكلفة/مستودعات) من تقرير الأمين
   itemDetailsAt: "",       // وقت التقرير — يُعرض كي يعرف المستخدم حداثة الأرقام
   salesRows: [{ q: "", key: "", name: "", num: "", unit: "unit2", qty: "1", price: "", edited: false }],
@@ -880,6 +882,9 @@ function printOverdueReport() {
 
 function setRoute(route, clearNotice = true) {
   state.route = route;
+  // أرشيف الفواتير شاشة عابرة داخل صفحة المبيعات: أي تنقّل يعيدك إلى النموذج
+  // لا إلى الأرشيف، كي لا تفتح «فاتورة مبيعات» فتجد قائمة الفواتير القديمة.
+  state.salesHistoryOpen = false;
   if (clearNotice) state.notice = null;
   render();
 }
@@ -5729,6 +5734,90 @@ function salesCustomerPanel() {
     </div>`;
 }
 
+// كل فواتير المبيعات والمرتجعات من تقرير الأمين (آخر فترة مزامنة) مسطّحةً ومرتّبة
+// من الأحدث — مصدر شاشة «الفواتير السابقة». مصدر واحد مع صفحة التقارير كي لا
+// يظهر رقم أو مبلغ مختلف بين الشاشتين.
+function salesHistoryInvoices() {
+  const report = state.customerInvoicesReport;
+  const customers = report && Array.isArray(report.items) ? report.items : [];
+  const out = [];
+  customers.forEach((cust) => {
+    const customer = String(cust?.name || "").trim();
+    const invoices = Array.isArray(cust?.invoices) ? cust.invoices : [];
+    invoices.forEach((inv) => {
+      out.push({
+        customer,
+        number: String(inv?.number ?? ""),
+        date: String(inv?.date || "").slice(0, 10),
+        total: Number(inv?.total || 0),
+        isReturn: !!inv?.isReturn,
+        lines: Array.isArray(inv?.lines) ? inv.lines : []
+      });
+    });
+  });
+  return out.sort((a, b) =>
+    String(b.date).localeCompare(String(a.date))
+    || (Number(b.number) || 0) - (Number(a.number) || 0)
+  );
+}
+
+// شاشة الفواتير السابقة. زر التصدير يعيد استعمال معالج gen-invoice-doc نفسه
+// المستعمل في صفحة التقارير، فلا يوجد مسار تصدير ثانٍ يمكن أن يختلف عنه.
+function salesHistoryPanel() {
+  const invoices = salesHistoryInvoices();
+  const LIMIT = 150;
+  const shown = invoices.slice(0, LIMIT);
+  const periodDays = Math.max(1, Number(state.customerInvoicesReport?.summary?.periodDays || 60));
+
+  const rows = shown.map((inv) => {
+    const badge = inv.isReturn
+      ? '<span class="status-chip" style="background:var(--danger);color:#fff">مرتجع</span>'
+      : "";
+    const linesHtml = inv.lines.length
+      ? `<table class="inv-table" style="margin-top:6px">
+          <thead><tr><th>المادة</th><th style="width:110px">الكمية</th><th style="width:120px">سعر الوحدة</th></tr></thead>
+          <tbody>${inv.lines.map((l) => `<tr><td>${escapeHtml(l.material || "")}</td><td dir="ltr">${escapeHtml(invoiceLineQty(l))}</td><td dir="ltr">${escapeHtml(invoiceLinePrice(l, { total: inv.total, lines: inv.lines }))}</td></tr>`).join("")}</tbody>
+        </table>`
+      : '<p class="muted" style="margin:6px 0 0">لا توجد أصناف مسجّلة لهذه الفاتورة.</p>';
+    return `
+      <div class="pricing-card" data-hist-row="${escapeHtml(normalizeItemName(inv.customer))}" data-hist-no="${escapeHtml(inv.number)}">
+        <div class="pricing-card-head">
+          <strong>${escapeHtml(inv.customer || "بلا اسم")} ${badge}</strong>
+          <span dir="ltr">${escapeHtml(formatMoney(inv.total))} $</span>
+        </div>
+        <small>فاتورة رقم <b dir="ltr">${escapeHtml(inv.number || "—")}</b> · ${escapeHtml(inv.date || "بلا تاريخ")} · ${escapeHtml(String(inv.lines.length))} صنف</small>
+        <details style="margin-top:6px">
+          <summary>عرض الأصناف</summary>
+          ${linesHtml}
+        </details>
+        <button class="button secondary mini-button" type="button" data-action="gen-invoice-doc"
+          data-inv-number="${escapeHtml(inv.number)}" data-inv-date="${escapeHtml(inv.date)}"
+          data-customer="${escapeHtml(inv.customer)}" style="margin-top:8px">📄 ${inv.isReturn ? "تصدير فاتورة المرتجع PDF" : "تصدير الفاتورة PDF"}</button>
+      </div>`;
+  }).join("");
+
+  const body = !state.customerInvoicesReport
+    ? '<p class="muted">لم تصل مزامنة الفواتير من الأمين بعد. جرّب بعد دقائق.</p>'
+    : (!invoices.length
+        ? `<p class="muted">لا توجد فواتير خلال آخر ${escapeHtml(periodDays)} يوماً.</p>`
+        : `<div class="pricing-grid" data-hist-list>${rows}</div>
+           ${invoices.length > LIMIT ? `<p class="muted" style="margin-top:10px">تُعرض أحدث ${escapeHtml(LIMIT)} فاتورة من أصل ${escapeHtml(invoices.length)}. استعمل البحث للوصول إلى الأقدم.</p>` : ""}`);
+
+  return `
+    <section class="panel wide">
+      <div class="sales-toolbar">
+        <button type="button" class="sales-mode-btn active" data-action="sales-history-close">↩ رجوع للفاتورة الحالية</button>
+      </div>
+      <h2>📄 الفواتير السابقة</h2>
+      <p class="muted">فواتير المبيعات والمرتجعات المسجّلة في الأمين خلال آخر ${escapeHtml(periodDays)} يوماً — بما فيها ما أُصدر من برنامج الأمين مباشرةً.</p>
+      <label class="inv-label" style="max-width:340px">بحث
+        <input class="inv-input-main" id="sales-history-q" value="${escapeHtml(state.salesHistoryQuery)}" placeholder="اسم الزبون أو رقم الفاتورة" dir="auto" autocomplete="off">
+      </label>
+      <div style="margin-top:12px">${body}</div>
+    </section>
+  `;
+}
+
 function salesInvoice() {
   if (!state.session) {
     return shell(`
@@ -5738,6 +5827,10 @@ function salesInvoice() {
       </section>
     `);
   }
+
+  // شاشة الفواتير السابقة تُعرض قبل أي حساب للفاتورة الحالية: لا نستدعي
+  // ensureSalesInvoiceNo هنا كي لا يُحجز أو يُستهلك رقم لمجرد تصفّح الأرشيف.
+  if (state.salesHistoryOpen) return shell(salesHistoryPanel());
 
   const mode = salesCurrentMode();
   const symbol = salesCurrencySymbol(mode);
@@ -5790,6 +5883,7 @@ function salesInvoice() {
     <section class="panel wide inv-panel sales-panel">
       <div class="inv-form-area">
         <div class="sales-toolbar">
+          <button type="button" class="sales-mode-btn" data-action="sales-history-open" title="عرض الفواتير السابقة من الأمين">↩ الفواتير السابقة</button>
           <div class="sales-mode-switch" role="group" aria-label="وضع التسعير">
             <button type="button" class="sales-mode-btn ${mode === "jumla" ? "active" : ""}" data-sales-mode="jumla">جملة · دولار</button>
             <button type="button" class="sales-mode-btn ${mode === "mufrak" ? "active" : ""}" data-sales-mode="mufrak">مفرق · سوري</button>
@@ -7311,6 +7405,32 @@ function render() {
   app.querySelector("[data-action='sales-save']")?.addEventListener("click", salesSaveInvoice);
   app.querySelector("[data-action='sales-print']")?.addEventListener("click", printSalesInvoice);
   app.querySelector("[data-action='sales-new']")?.addEventListener("click", salesNewInvoice);
+
+  // فتح/إغلاق أرشيف الفواتير. لا يمسّ أسطر الفاتورة الحالية ولا رقمها،
+  // فالرجوع يعيد النموذج كما تركته تماماً.
+  app.querySelector("[data-action='sales-history-open']")?.addEventListener("click", () => {
+    state.salesHistoryOpen = true;
+    render();
+  });
+  app.querySelector("[data-action='sales-history-close']")?.addEventListener("click", () => {
+    state.salesHistoryOpen = false;
+    render();
+  });
+  // البحث يُخفي الصفوف مباشرةً بلا إعادة رسم كي لا يضيع التركيز أثناء الكتابة.
+  const salesHistorySearch = app.querySelector("#sales-history-q");
+  if (salesHistorySearch) {
+    salesHistorySearch.addEventListener("input", (event) => {
+      const raw = String(event.target.value || "").trim();
+      state.salesHistoryQuery = event.target.value;
+      const needle = normalizeItemName(raw);
+      app.querySelectorAll("[data-hist-row]").forEach((row) => {
+        const nameHay = row.dataset.histRow || "";
+        const noHay = row.dataset.histNo || "";
+        const match = !raw || (needle && nameHay.includes(needle)) || noHay.includes(raw);
+        row.style.display = match ? "" : "none";
+      });
+    });
+  }
 
   app.querySelector("[data-action='ai-clear']")?.addEventListener("click", () => {
     state.aiMessages = [];
