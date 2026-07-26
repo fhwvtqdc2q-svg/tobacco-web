@@ -886,6 +886,7 @@ function setRoute(route, clearNotice = true) {
   // أرشيف الفواتير شاشة عابرة داخل صفحة المبيعات: أي تنقّل يعيدك إلى النموذج
   // لا إلى الأرشيف، كي لا تفتح «فاتورة مبيعات» فتجد قائمة الفواتير القديمة.
   state.salesHistoryOpen = false;
+  cancelSalesHistorySearch();
   if (clearNotice) state.notice = null;
   render();
 }
@@ -934,6 +935,9 @@ async function saveSession(form, action) {
 async function logout() {
   try {
     await dataStore.signOut();
+    cancelSalesHistorySearch();
+    state.salesHistoryOpen = false;
+    state.salesHistoryQuery = "";
     state.session = null;
     state.inventoryReports = [];
     state.customerBalanceReports = [];
@@ -5738,6 +5742,17 @@ function salesCustomerPanel() {
 // مؤقّت تأجيل بحث الأرشيف — على مستوى الوحدة كي لا يُعاد ضبطه مع كل إعادة رسم.
 let salesHistorySearchTimer = null;
 
+// يُلغي أي إعادة رسم مؤجَّلة للبحث. يُستدعى عند مغادرة الشاشة أو التنقّل أو
+// تسجيل الخروج: إعادة رسم متأخرة على شاشة أخرى تسرق تركيز الحقل الذي يكتب فيه
+// المستخدم هناك.
+function cancelSalesHistorySearch() {
+  if (salesHistorySearchTimer) {
+    clearTimeout(salesHistorySearchTimer);
+    salesHistorySearchTimer = null;
+  }
+  state.salesHistoryFocus = false;
+}
+
 // كل فواتير المبيعات والمرتجعات من تقرير الأمين (آخر فترة مزامنة) مسطّحةً ومرتّبة
 // من الأحدث — مصدر شاشة «الفواتير السابقة». مصدر واحد مع صفحة التقارير كي لا
 // يظهر رقم أو مبلغ مختلف بين الشاشتين.
@@ -7428,11 +7443,7 @@ function render() {
     render();
   });
   app.querySelector("[data-action='sales-history-close']")?.addEventListener("click", () => {
-    if (salesHistorySearchTimer) {
-      clearTimeout(salesHistorySearchTimer);
-      salesHistorySearchTimer = null;
-    }
-    state.salesHistoryFocus = false;
+    cancelSalesHistorySearch();
     state.salesHistoryOpen = false;
     render();
   });
@@ -7446,6 +7457,8 @@ function render() {
       if (salesHistorySearchTimer) clearTimeout(salesHistorySearchTimer);
       salesHistorySearchTimer = setTimeout(() => {
         salesHistorySearchTimer = null;
+        // حارس عند الإطلاق: إن غادر المستخدم الأرشيف بأي طريق لا نعيد الرسم إطلاقاً.
+        if (!state.salesHistoryOpen || !state.session) return;
         state.salesHistoryFocus = true;
         render();
       }, 250);
