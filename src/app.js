@@ -6479,7 +6479,7 @@ function salesReceiptDocument(data) {
     <div class="ln">
       <div class="ln-name">${escapeHtml(row.name)}${row.code ? ` <span class="ln-code nb" dir="ltr">#${escapeHtml(row.code)}</span>` : ""}</div>
       <div class="ln-calc">
-        <span class="ln-qp" dir="ltr"><b class="nb">${escapeHtml(row.qty)}</b><span class="ln-unit">${escapeHtml(row.unit)}</span><b class="nb">× ${escapeHtml(row.price)}</b></span>
+        <span class="ln-qp"><b class="nb" dir="ltr">${escapeHtml(row.qty)}</b><span class="ln-unit">${escapeHtml(row.unit)}</span><span class="ln-x">×</span><b class="nb" dir="ltr">${escapeHtml(row.price)}</b></span>
         <b class="nb" dir="ltr">${escapeHtml(row.total)}</b>
       </div>
     </div>`).join("");
@@ -6521,7 +6521,10 @@ function salesReceiptDocument(data) {
      وإخفاء الفائض على السطر يضمن ألا يمدّ أي مدخل عرض الرول. */
   .ln-calc { display: flex; justify-content: space-between; align-items: baseline;
              gap: 6px; font-size: 11px; overflow: hidden; }
-  .ln-qp { display: flex; align-items: baseline; gap: 4px; min-width: 0; }
+  /* الاتجاه هنا يبقى RTL كاتجاه الورقة: الكمية ثم الوحدة ثم × ثم السعر — وهو
+     ترتيب القراءة الطبيعي للبائع. كل رقم وحده dir=ltr كي تُرسم خاناته صحيحة. */
+  .ln-qp { display: flex; align-items: baseline; gap: 5px; min-width: 0; }
+  .ln-x { flex: 0 0 auto; }
   .ln-calc > .nb, .ln-qp > .nb { flex: 0 0 auto; }
   .ln-unit { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .sum span { min-width: 0; }
