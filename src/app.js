@@ -933,11 +933,13 @@ async function saveSession(form, action) {
 }
 
 async function logout() {
+  // الإلغاء قبل أي انتظار: لو أُلغي بعد signOut لَبقيت نافذة تنفيذ أثناء
+  // الانتظار، ولَما أُلغي إطلاقاً عند فشل الخروج.
+  cancelSalesHistorySearch();
+  state.salesHistoryOpen = false;
+  state.salesHistoryQuery = "";
   try {
     await dataStore.signOut();
-    cancelSalesHistorySearch();
-    state.salesHistoryOpen = false;
-    state.salesHistoryQuery = "";
     state.session = null;
     state.inventoryReports = [];
     state.customerBalanceReports = [];
@@ -7457,8 +7459,10 @@ function render() {
       if (salesHistorySearchTimer) clearTimeout(salesHistorySearchTimer);
       salesHistorySearchTimer = setTimeout(() => {
         salesHistorySearchTimer = null;
-        // حارس عند الإطلاق: إن غادر المستخدم الأرشيف بأي طريق لا نعيد الرسم إطلاقاً.
-        if (!state.salesHistoryOpen || !state.session) return;
+        // حارس عند الإطلاق: إعادة الرسم لا تحدث إلا والمستخدم فعلاً داخل أرشيف
+        // المبيعات بجلسة قائمة. شرط المسار يغطي التحويلات المباشرة إلى
+        // `login` التي لا تمرّ بـsetRoute، وأي تحويل مستقبلي مثلها.
+        if (!state.salesHistoryOpen || !state.session || state.route !== "sales") return;
         state.salesHistoryFocus = true;
         render();
       }, 250);
