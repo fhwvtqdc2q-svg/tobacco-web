@@ -85,11 +85,37 @@ try {
     $prices = Import-Csv -Path $CsvFile -Encoding UTF8
     $sourceCount = $prices.Count
     $arabicCulture = [Globalization.CultureInfo]::GetCultureInfo("ar-SY")
+    # سعر الجملة الصفري معناه «غير مسعّر» لا «سعره صفر». لذلك صفٌّ أحدث بسعر صفر
+    # لا يحجب سعراً حقيقياً أقدم للمادة نفسها (يحدث مع مفاتيح مكررة بعد التطبيع).
+    # نأخذ هوية الصف الأحدث، ونأخذ كل سعر من أحدث صفٍّ يحمل قيمة موجبة له.
+    $toNum = {
+        param($v)
+        $d = 0.0
+        if ([double]::TryParse([string]$v, [Globalization.NumberStyles]::Float, [Globalization.CultureInfo]::InvariantCulture, [ref]$d)) { $d } else { 0.0 }
+    }
     $prices = @($prices | Group-Object { Resolve-AmeenItemName $_.item_name } | ForEach-Object {
-        $_.Group | Sort-Object {
+        $ordered = @($_.Group | Sort-Object {
             try { [datetime]::Parse([string]$_.updated_at, $arabicCulture) }
             catch { [datetime]::MinValue }
-        } -Descending | Select-Object -First 1
+        } -Descending)
+        $row = $ordered[0].PSObject.Copy()
+
+        $jumlaSource = $ordered | Where-Object { (& $toNum $_.unit2_price) -gt 0 } | Select-Object -First 1
+        if ($jumlaSource) {
+            $row.unit2_price = $jumlaSource.unit2_price
+            $row.sale_price  = $jumlaSource.sale_price
+            if ($row.PSObject.Properties["unit1_price"]) { $row.unit1_price = $jumlaSource.unit1_price }
+        }
+
+        $retailSource = $ordered | Where-Object {
+            $_.PSObject.Properties["retail_carton_usd"] -and (& $toNum $_.retail_carton_usd) -gt 0
+        } | Select-Object -First 1
+        if ($retailSource -and $row.PSObject.Properties["retail_carton_usd"]) {
+            $row.retail_carton_usd = $retailSource.retail_carton_usd
+            if ($row.PSObject.Properties["retail_unit1_usd"]) { $row.retail_unit1_usd = $retailSource.retail_unit1_usd }
+        }
+
+        $row
     })
     Write-Host "تم قراءة $sourceCount سجل من CSV واعتماد أحدث سعر لـ $($prices.Count) مادة" -ForegroundColor Green
 
