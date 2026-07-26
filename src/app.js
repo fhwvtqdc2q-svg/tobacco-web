@@ -2303,9 +2303,28 @@ async function savePricingItem(form) {
       .filter(Boolean);
     const targetKeys = [...new Set([...requestedKeys, ...aliasKeys])];
     const records = targetKeys.map((targetKey) => {
-      const sourceItem = reportItems(latest).find((item) => (item.key || normalizeItemName(item.name)) === targetKey) || latestItem;
+      // مطابقة المفتاح أولاً بالمطابقة الحرفية ثم بالتطبيع (همزة/تاء مربوطة/نقاط).
+      // لا نسقط أبداً على الصنف المدمج (latestItem) إلا لمفتاح الصنف المطلوب نفسه:
+      // السقوط عليه لبقية أصناف السطر المدمج ينسخ اسمه ووحدته ومخزونه فوقها
+      // (عطل «معسل مزايا بولو» 2026-07-25 الذي شوّه ثمانية أصناف مزايا).
+      const liveItems = reportItems(latest);
+      const normalizedTarget = normalizeItemName(targetKey);
+      // عند تصادم التطبيع (صنفان مختلفان يتطابقان بعد التطبيع) لا نختار أحدهما
+      // عشوائياً: نتركهما معاً ونعتمد على الصف المحفوظ، كما في قاعدة رفض
+      // التصادمات غير المحسومة في pull-item-numbers.ps1.
+      const normalizedMatches = liveItems.filter((item) => normalizeItemName(item.key || item.name) === normalizedTarget
+        || normalizeItemName(item.name) === normalizedTarget);
+      const sourceItem = liveItems.find((item) => (item.key || normalizeItemName(item.name)) === targetKey)
+        || (normalizedMatches.length === 1 ? normalizedMatches[0] : null)
+        || (targetKey === itemKey ? latestItem : null);
       const sourceExisting = approvedPriceMap().get(targetKey);
-      const sourceFactor = Math.max(1, itemUnit2Factor(sourceItem));
+      // مفتاح تابع مجهول تماماً (لا في الجرد الحي ولا في الأسعار المحفوظة) لا
+      // يُنشأ له صف: أي بيانات نكتبها له ستكون بيانات السطر المدمج المصطنعة.
+      if (!sourceItem && !sourceExisting && targetKey !== itemKey) return null;
+      // عند غياب الصنف من الجرد الحي نُبقي بيانات صفّه المحفوظ كما هي ولا نغيّر إلا السعر.
+      const sourceFactor = Math.max(1, sourceItem
+        ? itemUnit2Factor(sourceItem)
+        : Number(sourceExisting?.unit2Factor) || unit2Factor);
       const sourceUnit2Price = mode === "mufrak" ? Number(sourceExisting?.unit2Price || unit2Price) : entered;
       const sourceSalePrice = Number(
         sourceExisting?.salePrice || roundPrice((sourceUnit2Price > 0 ? sourceUnit2Price : entered) / sourceFactor)
@@ -2315,20 +2334,21 @@ async function savePricingItem(form) {
         : payloadObj;
       return {
         itemKey: targetKey,
-        itemName: sourceItem?.name || itemName,
-        unit1Name: itemUnit1Name(sourceItem) || unit1Name,
-        unit2Name: itemUnit2Name(sourceItem) || unit2Name,
+        itemName: sourceItem?.name || sourceExisting?.itemName || itemName,
+        unit1Name: (sourceItem ? itemUnit1Name(sourceItem) : sourceExisting?.unit1Name) || unit1Name,
+        unit2Name: (sourceItem ? itemUnit2Name(sourceItem) : sourceExisting?.unit2Name) || unit2Name,
         unit2Factor: sourceFactor,
         unit2Price: sourceUnit2Price,
         unit1Price: mode === "mufrak" ? sourceSalePrice : roundPrice(entered / sourceFactor),
         salePrice: mode === "mufrak" ? sourceSalePrice : roundPrice(entered / sourceFactor),
-        stockQty: itemQty(sourceItem),
-        stockStatus: sourceItem?.status || stockStatus,
+        stockQty: sourceItem ? itemQty(sourceItem) : Number(sourceExisting?.stockQty || 0),
+        stockStatus: (sourceItem ? sourceItem.status : sourceExisting?.stockStatus) || stockStatus,
         sourceReportId: uuidOrNull(latest.id),
         sourceSyncedAt: reportSyncedAt(latest),
         pricePayload: sourcePayload
       };
-    });
+    }).filter(Boolean);
+    if (!records.length) throw new Error("لم يُعثر على الصنف في الجرد الحي ولا في الأسعار المحفوظة. حدّث الجرد ثم أعد المحاولة.");
     const saved = await dataStore.upsertApprovedPriceItems(records);
 
     if (!saved || !Array.isArray(saved)) {
@@ -2339,7 +2359,20 @@ async function savePricingItem(form) {
     saved.forEach((item) => priceMap.set(item.itemKey, item));
     state.approvedPriceItems = [...priceMap.values()].sort((a, b) => String(a.itemName || "").localeCompare(String(b.itemName || ""), "ar"));
     const mergedLabel = records.length > 1 ? ` على ${records.length} أصناف مدمجة` : "";
-    setNotice("success", `✓ تم حفظ ${savedLabel}: ${itemName}${mergedLabel}`);
+    // شفافية: مفاتيح السطر المدمج التي تُخطّيناها لعدم وضوح مطابقتها تُذكر بالعدد.
+    const skippedCount = targetKeys.length - records.length;
+    const skippedLabel = skippedCount > 0
+      ? ` — وتُخطّي ${skippedCount} ${skippedCount === 1 ? "مفتاح غير واضح المطابقة" : "مفاتيح غير واضحة المطابقة"}`
+      : "";
+    // تنبيه معلوماتي لا يمنع شيئاً: السعر المحفوظ تحت التكلفة.
+    const savedCostRow = itemCostFor({ name: itemName, key: itemKey });
+    const savedCostUnit2 = savedCostRow && Number(savedCostRow.avg_cost) > 0
+      ? roundPrice(Number(savedCostRow.avg_cost) * unit2Factor)
+      : 0;
+    const belowCostLabel = (savedCostUnit2 > 0 && entered < savedCostUnit2)
+      ? ` · ℹ️ تحت التكلفة (${formatMoney(savedCostUnit2)}$ لل${unit2Name || "كرتونة"}) — حُفظ كما هو`
+      : "";
+    setNotice("success", `✓ تم حفظ ${savedLabel}: ${itemName}${mergedLabel}${skippedLabel}${belowCostLabel}`);
     scheduleBulletinPublish();
     render();
     return true;
@@ -3166,6 +3199,11 @@ function pricingRow(item) {
   const costLine = costPerCarton > 0
     ? `<div class="cost-line" title="متوسط تكلفة ${escapeHtml(unitLabel)} (التكلفة لكل ${escapeHtml(unit1Name || "كروز")} × ${escapeHtml(unit2Factor)}) — يظهر لك أنت فقط (المدير)">🔒 تكلفة ${escapeHtml(unitLabel)}: <b>${escapeHtml(formatMoney(costPerCarton))}</b> $</div>`
     : "";
+  // تنبيه معلوماتي فقط: البيع تحت التكلفة مسموح ومقصود أحياناً (تصفية صلاحية مثلاً)،
+  // فلا يمنع الحفظ ولا المزامنة ولا يغيّر أي سعر.
+  const belowCostLine = (priced && costPerCarton > 0 && shown < costPerCarton)
+    ? `<div class="cost-line" style="color:var(--danger)" title="للعلم فقط — الحفظ والمزامنة يعملان كالمعتاد">ℹ️ ${escapeHtml(modeLabel)} تحت التكلفة بـ <b>${escapeHtml(formatMoney(roundPrice(costPerCarton - shown)))}</b> $ لل${escapeHtml(unitLabel)}</div>`
+    : "";
   return `
     <div class="pricing-card inventory-row-${escapeHtml(rowState)}">
       <div class="pricing-card-head">
@@ -3175,6 +3213,7 @@ function pricingRow(item) {
       <small>${escapeHtml(unit2Name)} / ${escapeHtml(unit2Factor)} ${escapeHtml(unit1Name)}</small>
       <b>${priced ? escapeHtml(formatMoney(shown)) + " $" : "غير مسعر"}</b>
       ${costLine}
+      ${belowCostLine}
       ${retailHint}
       <span>${escapeHtml(priced ? (mode === "mufrak" ? "مفرق ✓" : "جملة ✓") : statusLabel(item.status))}</span>
       <form class="pricing-editor" data-form="pricing-item" data-item-key="${escapeHtml(item.key)}" data-source-keys="${escapeHtml(JSON.stringify(item.sourceKeys || []))}" data-item-name="${escapeHtml(item.name || "")}" data-stock-qty="${escapeHtml(qty)}" data-stock-status="${escapeHtml(item.status || "")}" data-unit1-name="${escapeHtml(unit1Name)}" data-unit2-name="${escapeHtml(unit2Name)}" data-unit2-factor="${escapeHtml(unit2Factor)}">
