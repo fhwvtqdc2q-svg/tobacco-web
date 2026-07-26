@@ -249,6 +249,7 @@ const state = {
   salesInfoKey: "",        // مفتاح الصنف المفتوحة بطاقته (فارغ = مغلقة)
   salesHistoryOpen: false, // شاشة «الفواتير السابقة» مفتوحة بدل نموذج الفاتورة
   salesHistoryQuery: "",   // بحث القائمة (اسم زبون أو رقم فاتورة)
+  salesHistoryFocus: false, // أعِد التركيز لحقل البحث بعد إعادة الرسم
   itemDetails: null,       // خريطة مفتاح ← تفاصيل (تكلفة/مستودعات) من تقرير الأمين
   itemDetailsAt: "",       // وقت التقرير — يُعرض كي يعرف المستخدم حداثة الأرقام
   salesRows: [{ q: "", key: "", name: "", num: "", unit: "unit2", qty: "1", price: "", edited: false }],
@@ -5734,6 +5735,9 @@ function salesCustomerPanel() {
     </div>`;
 }
 
+// مؤقّت تأجيل بحث الأرشيف — على مستوى الوحدة كي لا يُعاد ضبطه مع كل إعادة رسم.
+let salesHistorySearchTimer = null;
+
 // كل فواتير المبيعات والمرتجعات من تقرير الأمين (آخر فترة مزامنة) مسطّحةً ومرتّبة
 // من الأحدث — مصدر شاشة «الفواتير السابقة». مصدر واحد مع صفحة التقارير كي لا
 // يظهر رقم أو مبلغ مختلف بين الشاشتين.
@@ -5766,8 +5770,17 @@ function salesHistoryInvoices() {
 function salesHistoryPanel() {
   const invoices = salesHistoryInvoices();
   const LIMIT = 150;
-  const shown = invoices.slice(0, LIMIT);
   const periodDays = Math.max(1, Number(state.customerInvoicesReport?.summary?.periodDays || 60));
+
+  // التصفية تسبق القصّ دائماً: لو قصصنا أولاً لَما وصل البحث إلى ما بعد أول 150
+  // فاتورة رغم أن الرسالة تَعِد بذلك. المطابقة بالاسم بعد التطبيع أو برقم الفاتورة.
+  const rawQuery = String(state.salesHistoryQuery || "").trim();
+  const needle = normalizeItemName(rawQuery);
+  const filtered = rawQuery
+    ? invoices.filter((inv) => (needle && normalizeItemName(inv.customer).includes(needle))
+        || String(inv.number).includes(rawQuery))
+    : invoices;
+  const shown = filtered.slice(0, LIMIT);
 
   const rows = shown.map((inv) => {
     const badge = inv.isReturn
@@ -5780,7 +5793,7 @@ function salesHistoryPanel() {
         </table>`
       : '<p class="muted" style="margin:6px 0 0">لا توجد أصناف مسجّلة لهذه الفاتورة.</p>';
     return `
-      <div class="pricing-card" data-hist-row="${escapeHtml(normalizeItemName(inv.customer))}" data-hist-no="${escapeHtml(inv.number)}">
+      <div class="pricing-card">
         <div class="pricing-card-head">
           <strong>${escapeHtml(inv.customer || "بلا اسم")} ${badge}</strong>
           <span dir="ltr">${escapeHtml(formatMoney(inv.total))} $</span>
@@ -5800,8 +5813,10 @@ function salesHistoryPanel() {
     ? '<p class="muted">لم تصل مزامنة الفواتير من الأمين بعد. جرّب بعد دقائق.</p>'
     : (!invoices.length
         ? `<p class="muted">لا توجد فواتير خلال آخر ${escapeHtml(periodDays)} يوماً.</p>`
-        : `<div class="pricing-grid" data-hist-list>${rows}</div>
-           ${invoices.length > LIMIT ? `<p class="muted" style="margin-top:10px">تُعرض أحدث ${escapeHtml(LIMIT)} فاتورة من أصل ${escapeHtml(invoices.length)}. استعمل البحث للوصول إلى الأقدم.</p>` : ""}`);
+        : (!filtered.length
+            ? `<p class="muted">لا فاتورة تطابق «${escapeHtml(rawQuery)}» ضمن ${escapeHtml(invoices.length)} فاتورة.</p>`
+            : `<div class="pricing-grid" data-hist-list>${rows}</div>
+               ${filtered.length > LIMIT ? `<p class="muted" style="margin-top:10px">تُعرض ${escapeHtml(LIMIT)} فاتورة من أصل ${escapeHtml(filtered.length)} مطابقة. ضيّق البحث للوصول إلى الباقي.</p>` : ""}`));
 
   return `
     <section class="panel wide">
@@ -7413,23 +7428,38 @@ function render() {
     render();
   });
   app.querySelector("[data-action='sales-history-close']")?.addEventListener("click", () => {
+    if (salesHistorySearchTimer) {
+      clearTimeout(salesHistorySearchTimer);
+      salesHistorySearchTimer = null;
+    }
+    state.salesHistoryFocus = false;
     state.salesHistoryOpen = false;
     render();
   });
-  // البحث يُخفي الصفوف مباشرةً بلا إعادة رسم كي لا يضيع التركيز أثناء الكتابة.
+  // البحث يعيد الرسم كي يشمل كل الفواتير لا المعروضة منها فقط. الرسم مؤجَّل ربع
+  // ثانية ويُعاد بعده التركيز وموضع المؤشر، فلا تنقطع الكتابة ولا يبقى نص بحث
+  // ظاهر بلا أثر على القائمة.
   const salesHistorySearch = app.querySelector("#sales-history-q");
   if (salesHistorySearch) {
     salesHistorySearch.addEventListener("input", (event) => {
-      const raw = String(event.target.value || "").trim();
       state.salesHistoryQuery = event.target.value;
-      const needle = normalizeItemName(raw);
-      app.querySelectorAll("[data-hist-row]").forEach((row) => {
-        const nameHay = row.dataset.histRow || "";
-        const noHay = row.dataset.histNo || "";
-        const match = !raw || (needle && nameHay.includes(needle)) || noHay.includes(raw);
-        row.style.display = match ? "" : "none";
-      });
+      if (salesHistorySearchTimer) clearTimeout(salesHistorySearchTimer);
+      salesHistorySearchTimer = setTimeout(() => {
+        salesHistorySearchTimer = null;
+        state.salesHistoryFocus = true;
+        render();
+      }, 250);
     });
+    if (state.salesHistoryFocus) {
+      state.salesHistoryFocus = false;
+      const caret = salesHistorySearch.value.length;
+      salesHistorySearch.focus();
+      try {
+        salesHistorySearch.setSelectionRange(caret, caret);
+      } catch {
+        // بعض المتصفحات تمنع تحريك المؤشر برمجياً — التركيز وحده يكفي.
+      }
+    }
   }
 
   app.querySelector("[data-action='ai-clear']")?.addEventListener("click", () => {
