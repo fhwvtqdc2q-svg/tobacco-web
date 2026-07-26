@@ -6439,14 +6439,18 @@ async function saveSalesInvoicePdf() {
       }
     }
     const url = URL.createObjectURL(blob);
+    // التحرير يُجدول فور الإنشاء: أي فشل بعده لا يترك رابطاً معلّقاً في الذاكرة.
+    setTimeout(() => URL.revokeObjectURL(url), 30000);
     const link = document.createElement("a");
     link.href = url;
     link.download = fileName;
     link.rel = "noopener";
     document.body.appendChild(link);
-    link.click();
-    link.remove();
-    setTimeout(() => URL.revokeObjectURL(url), 30000);
+    try {
+      link.click();
+    } finally {
+      link.remove();
+    }
     setNotice("success", `تم تنزيل الفاتورة ${invNo} كملف PDF.`);
     render();
   } catch (error) {
@@ -6488,17 +6492,24 @@ function salesReceiptDocument(data) {
 <style>
   * { margin: 0; padding: 0; box-sizing: border-box; }
   @page { size: 80mm auto; margin: 0; }
-  body { width: 80mm; padding: 3mm 4mm; direction: rtl; background: #fff; color: #000;
-         font-family: 'Segoe UI', Tahoma, Arial, sans-serif; font-size: 12px; line-height: 1.5; }
+  /* اسم صنف طويل بلا مسافات كان يمدّ عرض الرول من 80mm إلى أضعافه. الكسر
+     داخل الكلمة إجباري هنا لأن الورقة الحرارية عرضها ثابت لا يقبل التمدّد. */
+  body { width: 80mm; max-width: 80mm; padding: 3mm 4mm; direction: rtl; background: #fff; color: #000;
+         font-family: 'Segoe UI', Tahoma, Arial, sans-serif; font-size: 12px; line-height: 1.5;
+         overflow-wrap: anywhere; word-break: break-word; }
   .head { text-align: center; border-bottom: 1px dashed #000; padding-bottom: 6px; margin-bottom: 6px; }
   .brand { font-size: 16px; font-weight: 700; letter-spacing: 0.5px; }
   .sub { font-size: 11px; }
   .meta { font-size: 11px; margin-bottom: 6px; }
-  .meta div { display: flex; justify-content: space-between; }
+  .meta div { display: flex; justify-content: space-between; gap: 6px; }
+  .meta b { text-align: left; min-width: 0; }
   .ln { border-bottom: 1px dotted #999; padding: 3px 0; }
   .ln-name { font-weight: 700; }
   .ln-code { font-weight: 400; font-size: 10px; }
-  .ln-calc { display: flex; justify-content: space-between; font-size: 11px; }
+  .ln-calc { display: flex; justify-content: space-between; gap: 6px; font-size: 11px; }
+  .ln-calc b { white-space: nowrap; }
+  .sum span { min-width: 0; }
+  .sum b { white-space: nowrap; }
   .sums { margin-top: 6px; border-top: 1px dashed #000; padding-top: 5px; }
   .sum { display: flex; justify-content: space-between; font-size: 12px; }
   .sum-strong { font-size: 14px; font-weight: 700; margin-top: 2px; }
