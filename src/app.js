@@ -6478,7 +6478,10 @@ function salesReceiptDocument(data) {
   const lines = data.rows.map((row) => `
     <div class="ln">
       <div class="ln-name">${escapeHtml(row.name)}${row.code ? ` <span class="ln-code nb" dir="ltr">#${escapeHtml(row.code)}</span>` : ""}</div>
-      <div class="ln-calc"><span class="nb" dir="ltr">${escapeHtml(row.qty)} ${escapeHtml(row.unit)} × ${escapeHtml(row.price)}</span><b class="nb" dir="ltr">${escapeHtml(row.total)}</b></div>
+      <div class="ln-calc">
+        <span class="ln-qp" dir="ltr"><b class="nb">${escapeHtml(row.qty)}</b><span class="ln-unit">${escapeHtml(row.unit)}</span><b class="nb">× ${escapeHtml(row.price)}</b></span>
+        <b class="nb" dir="ltr">${escapeHtml(row.total)}</b>
+      </div>
     </div>`).join("");
 
   const sum = (label, value, strong) =>
@@ -6513,8 +6516,14 @@ function salesReceiptDocument(data) {
   .ln { border-bottom: 1px dotted #999; padding: 3px 0; }
   .ln-name { font-weight: 700; }
   .ln-code { font-weight: 400; font-size: 10px; }
-  .ln-calc { display: flex; justify-content: space-between; gap: 6px; font-size: 11px; }
-  .ln-calc b { white-space: nowrap; }
+  /* أولوية القصّ داخل سطر الحساب: اسم الوحدة وحده هو الذي يُقصّ عند الضيق،
+     أما الكمية والسعر والإجمالي فأرقام لا تُقصّ ولا تُضغط (flex-shrink صفر).
+     وإخفاء الفائض على السطر يضمن ألا يمدّ أي مدخل عرض الرول. */
+  .ln-calc { display: flex; justify-content: space-between; align-items: baseline;
+             gap: 6px; font-size: 11px; overflow: hidden; }
+  .ln-qp { display: flex; align-items: baseline; gap: 4px; min-width: 0; }
+  .ln-calc > .nb, .ln-qp > .nb { flex: 0 0 auto; }
+  .ln-unit { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .sum span { min-width: 0; }
   .sum b { white-space: nowrap; }
   .sums { margin-top: 6px; border-top: 1px dashed #000; padding-top: 5px; }
