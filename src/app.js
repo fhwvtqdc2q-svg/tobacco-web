@@ -5979,7 +5979,7 @@ function salesInvoice() {
         <div class="inv-actions sales-actions">
           <button class="button primary" data-action="sales-save">💾 حفظ الفاتورة</button>
           ${mode === "jumla" ? '<button class="button secondary" data-action="sales-pdf">📄 حفظ / مشاركة PDF</button>' : ""}
-          <button class="button secondary" data-action="sales-print">🖨 ${mode === "mufrak" ? "طباعة فاتورة كاشير" : "طباعة"}</button>
+          ${isHandheldDevice() ? "" : `<button class="button secondary" data-action="sales-print">🖨 ${mode === "mufrak" ? "طباعة فاتورة كاشير" : "طباعة"}</button>`}
           <button class="button secondary" data-action="sales-new">＋ فاتورة جديدة</button>
         </div>
       </div>
@@ -6455,6 +6455,15 @@ async function saveSalesInvoicePdf() {
   } finally {
     container.remove();
   }
+}
+
+// الطباعة مخصّصة للابتوب وحده: لا طابعة موصولة بالهاتف، وiOS داخل التطبيق
+// المثبَّت لا يفتح ورقة الطباعة أصلاً. الشرطان معاً (لمس + شاشة ضيّقة) كي لا
+// يُحسب لابتوب بشاشة لمس هاتفاً فيختفي عنه زر الطباعة.
+function isHandheldDevice() {
+  if (typeof window.matchMedia !== "function") return false;
+  return window.matchMedia("(pointer: coarse)").matches
+    && window.matchMedia("(max-width: 900px)").matches;
 }
 
 // فاتورة كاشير للمفرق: رول حراري 80mm بدل ورقة A4. الطول تلقائي (`auto`) كي
