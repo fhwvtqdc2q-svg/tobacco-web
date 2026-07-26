@@ -6478,7 +6478,7 @@ function salesReceiptDocument(data) {
   const lines = data.rows.map((row) => `
     <div class="ln">
       <div class="ln-name">${escapeHtml(row.name)}${row.code ? ` <span class="ln-code nb" dir="ltr">#${escapeHtml(row.code)}</span>` : ""}</div>
-      <div class="ln-calc"><span dir="ltr">${escapeHtml(row.qty)} ${escapeHtml(row.unit)} × ${escapeHtml(row.price)}</span><b class="nb" dir="ltr">${escapeHtml(row.total)}</b></div>
+      <div class="ln-calc"><span class="nb" dir="ltr">${escapeHtml(row.qty)} ${escapeHtml(row.unit)} × ${escapeHtml(row.price)}</span><b class="nb" dir="ltr">${escapeHtml(row.total)}</b></div>
     </div>`).join("");
 
   const sum = (label, value, strong) =>
@@ -6503,8 +6503,13 @@ function salesReceiptDocument(data) {
   .meta { font-size: 11px; margin-bottom: 6px; }
   .meta div { display: flex; justify-content: space-between; gap: 6px; }
   .meta b { text-align: left; min-width: 0; }
-  /* الأرقام لا تُكسر: اسم الزبون وحده هو الذي يلتف على أسطر. */
-  .nb { white-space: nowrap; overflow-wrap: normal; word-break: keep-all; }
+  /* الأرقام لا تُكسر (رقم أو مبلغ منقسم على سطرين غير مقروء)، لكنها **محدودة
+     بعرض أبيها** ويُقصّ الفائض بثلاث نقاط: الرول عرضه ثابت 80mm ولا يجوز أن
+     يمدّه أي مدخل مهما طال. النصوص وحدها هي التي تلتف على أسطر. */
+  .nb { display: inline-block; max-width: 100%; vertical-align: bottom;
+        white-space: nowrap; overflow-wrap: normal; word-break: keep-all;
+        overflow: hidden; text-overflow: ellipsis; }
+  .meta div > *, .ln-calc > *, .sum > * { min-width: 0; }
   .ln { border-bottom: 1px dotted #999; padding: 3px 0; }
   .ln-name { font-weight: 700; }
   .ln-code { font-weight: 400; font-size: 10px; }
@@ -6526,7 +6531,7 @@ function salesReceiptDocument(data) {
   </div>
   <div class="meta">
     <div><span>فاتورة رقم</span><b class="nb" dir="ltr">${escapeHtml(data.invNo)}</b></div>
-    <div><span>التاريخ</span><b>${escapeHtml(data.dateLabel)}</b></div>
+    <div><span>التاريخ</span><b class="nb">${escapeHtml(data.dateLabel)}</b></div>
     <div><span>الزبون</span><b>${escapeHtml(data.customer)}</b></div>
     <div><span>الدفع</span><b>${escapeHtml(data.payLabel)}</b></div>
   </div>
