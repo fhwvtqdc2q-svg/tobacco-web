@@ -308,6 +308,37 @@ if (!Array.isArray(coordination.files)) {
   failed = true;
 }
 
+// قائمة دمج النشرة يجب أن تكون متطابقة بين المولّد (scripts/bulletin-merge-names.json)
+// وقائمة الموقع (BULLETIN_MERGE_NAMES في src/app.js): أي اختلاف يعني أن النشرة
+// العامة ستعرض صنفين بينما يعرضهما الموقع مدموجين — وهو ما يربك الزبون والبائع.
+const mergeNamesRaw = readFileSync("scripts/bulletin-merge-names.json", "utf8");
+let mergeNames = [];
+try {
+  mergeNames = JSON.parse(mergeNamesRaw);
+} catch {
+  console.error("scripts/bulletin-merge-names.json is not valid JSON.");
+  failed = true;
+}
+if (!Array.isArray(mergeNames) || mergeNames.some((name) => typeof name !== "string" || !name.trim())) {
+  console.error("scripts/bulletin-merge-names.json must be an array of non-empty strings.");
+  failed = true;
+} else {
+  const appSource = readFileSync("src/app.js", "utf8");
+  const literal = appSource.match(/const BULLETIN_MERGE_NAMES = \[(.*?)\];/s);
+  if (!literal) {
+    console.error("BULLETIN_MERGE_NAMES not found in src/app.js.");
+    failed = true;
+  } else {
+    const appNames = [...literal[1].matchAll(/"([^"]*)"/g)].map((m) => m[1]);
+    if (JSON.stringify(appNames) !== JSON.stringify(mergeNames)) {
+      console.error("BULLETIN_MERGE_NAMES in src/app.js does not match scripts/bulletin-merge-names.json.");
+      console.error(`  app.js: ${JSON.stringify(appNames)}`);
+      console.error(`  json:   ${JSON.stringify(mergeNames)}`);
+      failed = true;
+    }
+  }
+}
+
 if (failed) {
   process.exit(1);
 }

@@ -31,6 +31,10 @@ const isoDate   = today.toISOString().slice(0, 10);
 // المصدر الأساسي: أسعار الموقع الحية من Supabase (جملة + مفرق يدوي).
 // price-data.json يبقى مرجعًا لأسماء المجموعات وكاحتياط إذا تعذّر الاتصال.
 const jsonItems = JSON.parse(readFileSync(resolve(root, "scripts/price-data.json"), "utf8"));
+// أسماء الدمج المشتركة مع قائمة الموقع (BULLETIN_MERGE_NAMES في src/app.js).
+// المصدر واحد كي لا تختلف النشرة العامة عن قائمة الأسعار داخل الموقع،
+// و`npm run check` يرفض أي اختلاف بين الملفين.
+const BULLETIN_MERGE_NAMES = JSON.parse(readFileSync(resolve(root, "scripts/bulletin-merge-names.json"), "utf8"));
 const groupByName = new Map(jsonItems.map(i => [String(i.name).trim(), i.group]));
 const canonicalDisplayName = (value) => {
   const name = String(value || "").trim();
@@ -206,6 +210,73 @@ const consolidateGeneral = (items, mode) => {
   return result;
 };
 
+// دمج الأصناف المتشابهة بسطر واحد (طلب الإدارة): «ماستر طويل ورق» و«ماستر طويل
+// ورق أزرق» صنف واحد في نظر الزبون ولا داعي لسطرين بالسعر نفسه. المطابقة على
+// الاسم بعد التطبيع: الاسم القانوني نفسه أو ما يبدأ به متبوعاً بمسافة.
+const normalizeMergeName = (value) => String(value || "")
+  .trim()
+  // بادئة رقم الصنف («123456 - اسم») تُحذف كما يفعل normalizeItemName في الموقع.
+  .replace(/^\d{2,}\s*[-–—]\s*/u, "")
+  .replace(/[ً-ْـ]/g, "")
+  .replace(/[أإآٱ]/g, "ا")
+  .replace(/ى/g, "ي")
+  .replace(/ة/g, "ه")
+  .replace(/[^\p{L}\p{N}]+/gu, " ")
+  .trim();
+
+// مفتاح مقارنة السعر: خانتان عشريتان لكل من الجملة والمفرق. **الدالة نفسها
+// حرفياً** مستعملة في `mergeBulletinNamedGroups` داخل `src/app.js` كي يقرّر
+// الموقع والنشرة على المجموعة نفسها بالضبط.
+// تقريب مزدوج مقصود: ثلاث منازل ثم قروش — لأن الموقع يقرّب إلى ثلاث منازل قبل
+// المقارنة، فلولا التقريب نفسه لاختلف القراران عند حدود مثل 190.0049.
+const mergePriceKey = (value) => {
+  const n = Number(value || 0);
+  if (!Number.isFinite(n) || Math.abs(n) > 1e12) return `raw:${String(value)}`;
+  return String(Math.round(Math.round(n * 1000) / 1000 * 100));
+};
+
+// أسماء نُبّه عليها مسبقاً: الدالة تُستدعى مرتين (دولار وسوري) فلا نكرّر التنبيه.
+const mergeWarned = new Set();
+
+const mergeNamedGroups = (items, mode) => {
+  // القرار **لكل نشرة على حدة**: نشرة الدولار تقارن سعر الجملة، ونشرة السوري
+  // تقارن سعر المفرق. هذا ما يجعل قرار المولّد مطابقاً لقرار الموقع، إذ يعرض
+  // الموقع أيضاً نشرة واحدة حسب الوضع المختار.
+  const priceOf = (item) => (mode === "syp" ? Number(item.retailCarton || 0) : Number(item.usd || 0));
+  const result = [...items];
+  for (const display of BULLETIN_MERGE_NAMES) {
+    const base = normalizeMergeName(display);
+    const entries = result
+      .map((item, index) => ({ item, index }))
+      .filter(({ item }) => {
+        const n = normalizeMergeName(item.name);
+        return n === base || n.startsWith(base + " ");
+      })
+      // غير المسعّر في هذه النشرة لا يظهر فيها ولا يشارك في قرارها.
+      .filter(({ item }) => priceOf(item) > 0);
+    if (entries.length < 2) continue;
+    const keys = new Set(entries.map(({ item }) => mergePriceKey(priceOf(item))));
+    if (keys.size > 1) {
+      const warnKey = `${display}|${mode}`;
+      if (!mergeWarned.has(warnKey)) {
+        mergeWarned.add(warnKey);
+        console.log(`تنبيه: «${display}» له أكثر من سعر في نشرة ${mode} (${[...keys].join(" / ")}) — لم يُدمج، والأسماء بقيت كما هي.`);
+      }
+      continue;
+    }
+    const exact = entries.find(({ item }) => normalizeMergeName(item.name) === base);
+    const rep = exact || entries[0];
+    const anchor = Math.min(...entries.map(({ index }) => index));
+    result[anchor] = { ...rep.item, name: display };
+    const dropped = entries.map(({ index }) => index).filter((index) => index !== anchor);
+    for (const index of dropped.sort((a, b) => b - a)) result.splice(index, 1);
+  }
+  return result;
+};
+
+
+
+
 const toWazari = (items) => items.filter(isWazari).map(item => {
   let group = "وزاري متنوع";
   if (includes(item.name, "نخلة")) group = "نخلة وزاري";
@@ -218,8 +289,8 @@ const toWazari = (items) => items.filter(isWazari).map(item => {
 
 const usdWazariItems = toWazari(usdItems);
 const sypWazariItems = toWazari(sypItems);
-usdItems = consolidateGeneral(usdItems, "usd");
-sypItems = consolidateGeneral(sypItems, "syp");
+usdItems = mergeNamedGroups(consolidateGeneral(usdItems, "usd"), "usd");
+sypItems = mergeNamedGroups(consolidateGeneral(sypItems, "syp"), "syp");
 
 // ── شعار ─────────────────────────────────────────────────────────────────────
 const logoB64 = readFileSync(resolve(root, "public/icons/ozk-logo.png")).toString("base64");
