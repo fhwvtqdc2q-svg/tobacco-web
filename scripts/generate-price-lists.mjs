@@ -31,6 +31,10 @@ const isoDate   = today.toISOString().slice(0, 10);
 // المصدر الأساسي: أسعار الموقع الحية من Supabase (جملة + مفرق يدوي).
 // price-data.json يبقى مرجعًا لأسماء المجموعات وكاحتياط إذا تعذّر الاتصال.
 const jsonItems = JSON.parse(readFileSync(resolve(root, "scripts/price-data.json"), "utf8"));
+// أسماء الدمج المشتركة مع قائمة الموقع (BULLETIN_MERGE_NAMES في src/app.js).
+// المصدر واحد كي لا تختلف النشرة العامة عن قائمة الأسعار داخل الموقع،
+// و`npm run check` يرفض أي اختلاف بين الملفين.
+const BULLETIN_MERGE_NAMES = JSON.parse(readFileSync(resolve(root, "scripts/bulletin-merge-names.json"), "utf8"));
 const groupByName = new Map(jsonItems.map(i => [String(i.name).trim(), i.group]));
 const canonicalDisplayName = (value) => {
   const name = String(value || "").trim();
@@ -206,6 +210,43 @@ const consolidateGeneral = (items, mode) => {
   return result;
 };
 
+// دمج الأصناف المتشابهة بسطر واحد (طلب الإدارة): «ماستر طويل ورق» و«ماستر طويل
+// ورق أزرق» صنف واحد في نظر الزبون ولا داعي لسطرين بالسعر نفسه. المطابقة على
+// الاسم بعد التطبيع: الاسم القانوني نفسه أو ما يبدأ به متبوعاً بمسافة.
+const normalizeMergeName = (value) => String(value || "")
+  .trim()
+  .replace(/[ً-ْـ]/g, "")
+  .replace(/[أإآٱ]/g, "ا")
+  .replace(/ى/g, "ي")
+  .replace(/ة/g, "ه")
+  .replace(/[^\p{L}\p{N}]+/gu, " ")
+  .trim();
+
+const mergeNamedGroups = (items, mode) => {
+  let result = [...items];
+  for (const display of BULLETIN_MERGE_NAMES) {
+    const base = normalizeMergeName(display);
+    const matches = result.filter((item) => {
+      const n = normalizeMergeName(item.name);
+      return n === base || n.startsWith(base + " ");
+    });
+    if (matches.length < 2) continue;
+    // نفس قاعدة المعسل: السعر الأكثر تكراراً، وعند التعادل الأعلى ثم آخر ظهور.
+    const counts = new Map();
+    for (const item of matches) {
+      const price = mode === "syp" ? Number(item.retailCarton || 0) : Number(item.usd || 0);
+      if (price > 0) counts.set(price, (counts.get(price) || 0) + 1);
+    }
+    const selectedPrice = [...counts.entries()].sort((a, b) => b[1] - a[1] || b[0] - a[0])[0]?.[0];
+    const selected = matches.findLast((item) =>
+      (mode === "syp" ? Number(item.retailCarton || 0) : Number(item.usd || 0)) === selectedPrice
+    ) || matches.at(-1);
+    result = result.filter((item) => !matches.includes(item));
+    result.push({ ...selected, name: display });
+  }
+  return result;
+};
+
 const toWazari = (items) => items.filter(isWazari).map(item => {
   let group = "وزاري متنوع";
   if (includes(item.name, "نخلة")) group = "نخلة وزاري";
@@ -218,8 +259,8 @@ const toWazari = (items) => items.filter(isWazari).map(item => {
 
 const usdWazariItems = toWazari(usdItems);
 const sypWazariItems = toWazari(sypItems);
-usdItems = consolidateGeneral(usdItems, "usd");
-sypItems = consolidateGeneral(sypItems, "syp");
+usdItems = mergeNamedGroups(consolidateGeneral(usdItems, "usd"), "usd");
+sypItems = mergeNamedGroups(consolidateGeneral(sypItems, "syp"), "syp");
 
 // ── شعار ─────────────────────────────────────────────────────────────────────
 const logoB64 = readFileSync(resolve(root, "public/icons/ozk-logo.png")).toString("base64");
