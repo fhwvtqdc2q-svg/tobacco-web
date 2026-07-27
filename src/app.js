@@ -1698,6 +1698,12 @@ function isMazaya100g(item) {
 // دمج أصناف متشابهة في النشرة بسطر واحد (طلب الإدارة) — أضف الاسم القانوني هنا لدمج أي صنف يبدأ به
 const BULLETIN_MERGE_NAMES = ["ماستر طويل ورق", "ماستر قصير أزرق", "اليغانس طويل فضي"];
 
+// مفتاح مقارنة السعر — مطابق حرفياً لـ`mergePriceKey` في مولّد النشرات
+// (scripts/generate-price-lists.mjs) كي يقرّر الطرفان على المجموعة نفسها.
+function bulletinMergePriceKey(usd, retail) {
+  return `${Math.round(Number(usd || 0) * 100)}|${Math.round(Number(retail || 0) * 100)}`;
+}
+
 function mergeBulletinNamedGroups(items) {
   const result = [...items];
   BULLETIN_MERGE_NAMES.forEach((display) => {
@@ -1707,39 +1713,25 @@ function mergeBulletinNamedGroups(items) {
       .filter(({ item }) => {
         const n = normalizeItemName(item.name || item.itemName || "");
         return n === baseN || n.startsWith(baseN + " ");
-      });
+      })
+      // صنف بلا أي سعر موجب لا يشارك في القرار: لا يظهر في النشرة، ووجوده يجب
+      // ألا يمنع دمج صنفين مسعّرين بالسعر نفسه. نفس شرط المولّد حرفياً.
+      .filter(({ item }) => itemUnit2Price(item) > 0 || itemRetailPrice(item) > 0);
     if (entries.length < 2) return;
-    // نفس شرط مولّد النشرات حرفياً: لا يُدمج إلا ما تطابق سعراه (الجملة
-    // والمفرق معاً). صنف يبدأ بالاسم نفسه وسعره مختلف منتج آخر فعلاً، وابتلاعه
-    // يخفي سعره عن الزبون؛ والشرط نفسه في الطرفين يضمن أن الموقع والنشرة
-    // يعرضان المجموعة نفسها بالضبط.
-    const groups = new Map();
-    entries.forEach((entry) => {
-      const key = `${roundPrice(itemUnit2Price(entry.item))}|${roundPrice(itemRetailPrice(entry.item))}`;
-      const bucket = groups.get(key) || [];
-      bucket.push(entry);
-      groups.set(key, bucket);
-    });
-    // نفس قاعدة المولّد: غموض الأسعار يوقف الدمج بدل إنتاج اسمين متطابقين
-    // بسعرين مختلفين.
-    if (groups.size > 1) return;
-    const dropped = new Set();
-    groups.forEach((bucket) => {
-      if (bucket.length < 2) return;
-      const exact = bucket.find(({ item }) => normalizeItemName(item.name || item.itemName || "") === baseN);
-      const rep = exact || bucket[0];
-      const anchor = Math.min(...bucket.map(({ index }) => index));
-      result[anchor] = {
-        ...rep.item,
-        name: display,
-        itemName: display,
-        sourceKeys: bucket.map(({ item }) => item.key).filter(Boolean)
-      };
-      bucket.forEach(({ index }) => {
-        if (index !== anchor) dropped.add(index);
-      });
-    });
-    [...dropped].sort((a, b) => b - a).forEach((index) => result.splice(index, 1));
+    const keys = new Set(entries.map(({ item }) => bulletinMergePriceKey(itemUnit2Price(item), itemRetailPrice(item))));
+    // غموض الأسعار يوقف الدمج بدل إنتاج اسمين متطابقين بسعرين مختلفين.
+    if (keys.size > 1) return;
+    const exact = entries.find(({ item }) => normalizeItemName(item.name || item.itemName || "") === baseN);
+    const rep = exact || entries[0];
+    const anchor = Math.min(...entries.map(({ index }) => index));
+    result[anchor] = {
+      ...rep.item,
+      name: display,
+      itemName: display,
+      sourceKeys: entries.map(({ item }) => item.key).filter(Boolean)
+    };
+    const dropped = entries.map(({ index }) => index).filter((index) => index !== anchor);
+    dropped.sort((a, b) => b - a).forEach((index) => result.splice(index, 1));
   });
   return result.sort(
     (a, b) =>
@@ -1747,6 +1739,7 @@ function mergeBulletinNamedGroups(items) {
       String(a.name || "").localeCompare(String(b.name || ""), "ar")
   );
 }
+
 
 
 // أسعار سطري المزايا: تُؤخذ تلقائيًا من النظام (صفحة الأسعار).

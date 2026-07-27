@@ -222,55 +222,50 @@ const normalizeMergeName = (value) => String(value || "")
   .replace(/[^\p{L}\p{N}]+/gu, " ")
   .trim();
 
+// مفتاح مقارنة السعر: خانتان عشريتان لكل من الجملة والمفرق. **الدالة نفسها
+// حرفياً** مستعملة في `mergeBulletinNamedGroups` داخل `src/app.js` كي يقرّر
+// الموقع والنشرة على المجموعة نفسها بالضبط.
+const mergePriceKey = (usd, retail) => `${Math.round(Number(usd || 0) * 100)}|${Math.round(Number(retail || 0) * 100)}`;
+
+// أسماء نُبّه عليها مسبقاً: الدالة تُستدعى مرتين (دولار وسوري) فلا نكرّر التنبيه.
+const mergeWarned = new Set();
+
 const mergeNamedGroups = (items) => {
   const result = [...items];
   for (const display of BULLETIN_MERGE_NAMES) {
     const base = normalizeMergeName(display);
-    const indexes = result
+    const entries = result
       .map((item, index) => ({ item, index }))
       .filter(({ item }) => {
         const n = normalizeMergeName(item.name);
         return n === base || n.startsWith(base + " ");
-      });
-    if (indexes.length < 2) continue;
-    // الدمج مشروط بتطابق السعرين معاً (دولار وسوري): سطران بالسعر نفسه تكرار
-    // بصري لا أكثر، أما صنف يبدأ بالاسم نفسه وسعره مختلف فهو منتج آخر فعلاً
-    // ولا يجوز ابتلاعه وإخفاء سعره عن الزبون. وتطابق السعرين معاً يضمن أن
-    // النشرتين والموقع يدمجون المجموعة نفسها بالضبط.
-    const groups = new Map();
-    for (const entry of indexes) {
-      const key = `${Number(entry.item.usd || 0)}|${Number(entry.item.retailCarton || 0)}`;
-      const bucket = groups.get(key) || [];
-      bucket.push(entry);
-      groups.set(key, bucket);
-    }
-    // غموض = لا دمج إطلاقاً: لو اختلفت الأسعار داخل المجموعة فدمج المتطابق وحده
-    // يُنتج سطرين بالاسم القانوني نفسه وسعرين مختلفين — أسوأ من التكرار الأصلي.
-    // نُبقي الأسماء كما هي وننبّه ليصحّح المالك السعر، فيعود الدمج تلقائياً.
-    if (groups.size > 1) {
-      const prices = [...groups.keys()].join(" / ");
-      console.log(`تنبيه: «${display}» له أكثر من سعر (${prices}) — لم يُدمج، والأسماء بقيت كما هي.`);
+      })
+      // الصنف بلا أي سعر موجب لا يظهر في نشرة ولا يشارك في قرار الدمج: وجوده
+      // يجب ألا يمنع دمج صنفين مسعّرين بالسعر نفسه (وهذا ما يفعله الموقع أيضاً).
+      .filter(({ item }) => Number(item.usd || 0) > 0 || Number(item.retailCarton || 0) > 0);
+    if (entries.length < 2) continue;
+    const keys = new Set(entries.map(({ item }) => mergePriceKey(item.usd, item.retailCarton)));
+    // غموض = لا دمج إطلاقاً: دمج المتطابق وحده يُنتج سطرين بالاسم القانوني
+    // نفسه وسعرين مختلفين — أسوأ من التكرار الأصلي. نُبقي الأسماء وننبّه.
+    if (keys.size > 1) {
+      if (!mergeWarned.has(display)) {
+        mergeWarned.add(display);
+        console.log(`تنبيه: «${display}» له أكثر من سعر (${[...keys].join(" / ")}) — لم يُدمج، والأسماء بقيت كما هي.`);
+      }
       continue;
     }
-    const dropped = new Set();
-    for (const bucket of groups.values()) {
-      if (bucket.length < 2) continue;
-      // الممثّل: صاحب الاسم القانوني نفسه إن وُجد، وإلا أول ظهور — وموضعه
-      // يبقى مكانه في الترتيب فلا تتبدّل صفوف النشرة.
-      const exact = bucket.find(({ item }) => normalizeMergeName(item.name) === base);
-      const rep = exact || bucket[0];
-      const anchor = Math.min(...bucket.map(({ index }) => index));
-      result[anchor] = { ...rep.item, name: display };
-      for (const { index } of bucket) {
-        if (index !== anchor) dropped.add(index);
-      }
-    }
-    if (dropped.size) {
-      for (const index of [...dropped].sort((a, b) => b - a)) result.splice(index, 1);
-    }
+    // الممثّل: صاحب الاسم القانوني نفسه إن وُجد، وإلا أول ظهور — وموضعه يبقى
+    // مكانه في الترتيب فلا تتبدّل صفوف النشرة.
+    const exact = entries.find(({ item }) => normalizeMergeName(item.name) === base);
+    const rep = exact || entries[0];
+    const anchor = Math.min(...entries.map(({ index }) => index));
+    result[anchor] = { ...rep.item, name: display };
+    const dropped = entries.map(({ index }) => index).filter((index) => index !== anchor);
+    for (const index of dropped.sort((a, b) => b - a)) result.splice(index, 1);
   }
   return result;
 };
+
 
 
 const toWazari = (items) => items.filter(isWazari).map(item => {
