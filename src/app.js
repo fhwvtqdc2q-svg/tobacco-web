@@ -5978,7 +5978,8 @@ function salesInvoice() {
 
         <div class="inv-actions sales-actions">
           <button class="button primary" data-action="sales-save">💾 حفظ الفاتورة</button>
-          <button class="button secondary" data-action="sales-print">🖨 طباعة / PDF</button>
+          ${mode === "jumla" ? '<button class="button secondary" data-action="sales-pdf">📄 حفظ / مشاركة PDF</button>' : ""}
+          ${isHandheldDevice() ? "" : `<button class="button secondary" data-action="sales-print">🖨 ${mode === "mufrak" ? "طباعة فاتورة كاشير" : "طباعة"}</button>`}
           <button class="button secondary" data-action="sales-new">＋ فاتورة جديدة</button>
         </div>
       </div>
@@ -6248,6 +6249,325 @@ async function salesSaveInvoice() {
 
 // إعادة استخدام قالب طباعة الفاتورة (نفس CSS) مع تكييف بسيط: أعمدة الوحدة/الرقم
 // وكتلة مجاميع (إجمالي/حسم/صافي/مدفوع/متبقٍّ) ودعم عملة الليرة في وضع المفرق.
+// نسخة الفاتورة المخصّصة لتوليد ملف PDF حقيقي: أنماط سطرية بالكامل، بلا وسم
+// <style> عام. السبب: حاوية التوليد تعيش داخل صفحة التطبيق نفسها، وأي قاعدة
+// مثل body{} أو table{} كانت ستتسرّب على الواجهة أثناء التوليد. الخلفية بيضاء
+// صراحةً كي لا تخرج صفحات سوداء (قاعدة موثّقة في CLAUDE.md).
+function salesInvoicePdfMarkup(data) {
+  const border = "1px solid #d9d2c4";
+  const th = `padding:7px 6px;background:#f3efe6;border:${border};font-size:12px;font-weight:700;color:#3a3226`;
+  const td = `padding:6px;border:${border};font-size:12px;color:#241f18`;
+  const rows = data.rows.map((row, i) => `
+    <tr>
+      <td style="${td};text-align:center">${i + 1}</td>
+      <td style="${td}">${escapeHtml(row.name)}</td>
+      <td style="${td};text-align:center">${escapeHtml(row.unit)}</td>
+      <td style="${td};text-align:center" dir="ltr">${escapeHtml(row.qty)}</td>
+      <td style="${td};text-align:left" dir="ltr">${escapeHtml(row.price)}</td>
+      <td style="${td};text-align:left" dir="ltr">${escapeHtml(row.total)}</td>
+    </tr>`).join("");
+  const summaryRow = (label, value, strong) => `
+    <tr>
+      <td style="${td};background:#faf8f3;font-weight:${strong ? 700 : 400}">${escapeHtml(label)}</td>
+      <td style="${td};text-align:left;font-weight:${strong ? 700 : 400}" dir="ltr">${escapeHtml(value)}</td>
+    </tr>`;
+  const info = (label, value) => `
+    <div style="font-size:12px;color:#241f18;margin:2px 0">
+      <span style="color:#6b6154">${escapeHtml(label)}:</span> <b>${escapeHtml(value)}</b>
+    </div>`;
+
+  return `
+  <div dir="rtl" style="width:754px;padding:20px;background:#ffffff;color:#241f18;
+       font-family:'Segoe UI',Tahoma,Arial,sans-serif">
+    <div style="display:flex;justify-content:space-between;align-items:flex-start;
+         border-bottom:2px solid #8a6d3b;padding-bottom:10px;margin-bottom:12px">
+      <div>
+        <div style="font-size:20px;font-weight:700;color:#8a6d3b">OZK TOBACCO</div>
+        <div style="font-size:12px;color:#6b6154">مركز أبو زياد — لتجارة الدخان</div>
+      </div>
+      <div style="text-align:left">
+        <div style="font-size:16px;font-weight:700">فاتورة مبيعات</div>
+        <div style="font-size:12px;color:#6b6154" dir="ltr">${escapeHtml(data.invNo)}</div>
+      </div>
+    </div>
+
+    <div style="display:flex;justify-content:space-between;margin-bottom:12px">
+      <div>
+        ${info("الزبون", data.customer)}
+        ${info("طريقة الدفع", data.payLabel)}
+      </div>
+      <div>
+        ${info("التاريخ", data.dateLabel)}
+        ${info("العملة", data.curLabel)}
+      </div>
+    </div>
+
+    <table style="width:100%;border-collapse:collapse;margin-bottom:12px">
+      <thead>
+        <tr>
+          <th style="${th};width:28px">#</th>
+          <th style="${th}">الصنف</th>
+          <th style="${th};width:64px">الوحدة</th>
+          <th style="${th};width:56px">الكمية</th>
+          <th style="${th};width:82px">الإفرادي</th>
+          <th style="${th};width:92px">الإجمالي</th>
+        </tr>
+      </thead>
+      <tbody>${rows}</tbody>
+    </table>
+
+    <table style="width:290px;border-collapse:collapse;margin-right:auto">
+      <tbody>
+        ${summaryRow("الإجمالي", data.grand)}
+        ${summaryRow("الحسم", data.discount)}
+        ${summaryRow("الصافي", data.net, true)}
+        ${summaryRow("المدفوع", data.paid)}
+        ${summaryRow(`المتبقّي (${data.remainingLabel})`, data.remaining, true)}
+      </tbody>
+    </table>
+
+    <div style="margin-top:18px;padding-top:8px;border-top:1px solid #d9d2c4;
+         font-size:11px;color:#6b6154;display:flex;justify-content:space-between">
+      <span>صفة البيع: ${escapeHtml(SALES_TRADE_CAPACITY)} · السجل التجاري: <span dir="ltr">${escapeHtml(SALES_TRADE_REGISTER_NO)}</span></span>
+      <span dir="ltr">0985000771 — 0984000662</span>
+    </div>
+  </div>`;
+}
+
+// حفظ/مشاركة الفاتورة كملف PDF فعلي.
+// السبب: على iOS داخل التطبيق المثبَّت (standalone) لا يفتح window.print() أي
+// نافذة ولا يرمي خطأ — فتظهر رسالة نجاح بلا أي ورقة طباعة. الملف الفعلي يحلّ
+// المشكلة ويسمح بإرساله للزبون على واتساب مباشرةً من ورقة المشاركة.
+async function saveSalesInvoicePdf() {
+  const resolved = salesResolvedRows();
+  if (!resolved.length) {
+    setNotice("error", "أضف صنفاً واحداً على الأقل بكمية وسعر قبل التصدير.");
+    render();
+    return;
+  }
+  if (!window.html2pdf) {
+    setNotice("error", "مكتبة PDF لم تتحمّل. حدّث الصفحة وجرّب مجدداً.");
+    render();
+    return;
+  }
+  const mode = salesCurrentMode();
+  // تصدير PDF للجملة فقط بقرار المالك؛ المفرق يُطبع فاتورة كاشير على الرول.
+  // حارس إضافي حتى لو لم يُعرض الزر أصلاً في وضع المفرق.
+  if (mode === "mufrak") {
+    setNotice("error", "تصدير PDF مخصّص لفاتورة الجملة. المفرق يُطبع فاتورة كاشير.");
+    render();
+    return;
+  }
+  // نفس حارس الطباعة: لا نصدر مستنداً برقم غير موثوق.
+  const series = salesSeriesState(mode);
+  if (!series.usable) {
+    setNotice("error", salesSeriesBlockReason(series));
+    render();
+    return;
+  }
+  const invNo = ensureSalesInvoiceNo();
+  if (!invNo) {
+    setNotice("error", salesSeriesBlockReason(salesSeriesState(mode)));
+    render();
+    return;
+  }
+
+  const totals = salesTotals();
+  const markup = salesInvoicePdfMarkup({
+    invNo,
+    customer: state.salesCustomer.trim() || "زبون نقدي",
+    payLabel: state.salesPayMethod === "credit" ? "أجل" : "نقدي",
+    dateLabel: new Intl.DateTimeFormat("ar-SA-u-nu-latn", { dateStyle: "long" }).format(new Date()),
+    curLabel: mode === "mufrak"
+      ? `ليرة سورية — صرف ${formatMoney(state.syriaExchangeRate)}`
+      : "دولار أمريكي",
+    rows: resolved.map((row) => {
+      const item = salesItemByKey(row.key);
+      const qty = toNumber(row.qty);
+      const price = toNumber(row.price);
+      return {
+        code: salesItemCode(item) || row.num || "",
+        name: item?.itemName || row.name || "",
+        unit: salesUnitLabel(item, row.unit),
+        qty: formatMoney(qty),
+        price: salesMoney(price, mode),
+        total: salesMoney(qty * price, mode)
+      };
+    }),
+    grand: salesMoney(totals.grand, mode),
+    discount: salesMoney(totals.discount, mode),
+    net: salesMoney(totals.net, mode),
+    paid: salesMoney(totals.paid, mode),
+    remaining: salesMoney(Math.abs(totals.remaining), mode),
+    remainingLabel: salesRemainingState(totals.remaining, mode).label
+  });
+
+  const container = document.createElement("div");
+  // خارج الشاشة لا display:none — html2canvas لا يرسم عنصراً بلا تخطيط.
+  container.style.cssText = "position:fixed;left:-10000px;top:0;width:794px;background:#ffffff;";
+  container.innerHTML = markup;
+  document.body.appendChild(container);
+
+  const fileName = `invoice-${String(invNo).replace(/[^\w-]+/g, "-")}-${todayIsoDate()}.pdf`;
+  try {
+    const blob = await window.html2pdf().set({
+      margin: [6, 6, 6, 6],
+      filename: fileName,
+      image: { type: "jpeg", quality: 0.96 },
+      html2canvas: { scale: 2, useCORS: true, backgroundColor: "#ffffff" },
+      jsPDF: { unit: "mm", format: "a4", orientation: "portrait" }
+    }).from(container).outputPdf("blob");
+
+    const file = new File([blob], fileName, { type: "application/pdf" });
+    // ورقة المشاركة أولاً: على iOS هي الطريق الوحيد العملي للحفظ في «الملفات»
+    // أو الإرسال على واتساب. إن رفضها النظام (تنتهي صلاحية إيماءة المستخدم بعد
+    // انتظار التوليد) نسقط إلى التنزيل المباشر.
+    if (navigator.canShare && navigator.canShare({ files: [file] })) {
+      try {
+        await navigator.share({ files: [file], title: `فاتورة مبيعات ${invNo}` });
+        setNotice("success", `تم تجهيز الفاتورة ${invNo} PDF ومشاركتها.`);
+        render();
+        return;
+      } catch (shareError) {
+        // إلغاء المستخدم للمشاركة ليس خطأً — لا نُنزّل الملف رغماً عنه.
+        if (shareError && shareError.name === "AbortError") {
+          render();
+          return;
+        }
+      }
+    }
+    const url = URL.createObjectURL(blob);
+    // التحرير يُجدول فور الإنشاء: أي فشل بعده لا يترك رابطاً معلّقاً في الذاكرة.
+    setTimeout(() => URL.revokeObjectURL(url), 30000);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = fileName;
+    link.rel = "noopener";
+    document.body.appendChild(link);
+    try {
+      link.click();
+    } finally {
+      link.remove();
+    }
+    setNotice("success", `تم تنزيل الفاتورة ${invNo} كملف PDF.`);
+    render();
+  } catch (error) {
+    setNotice("error", "تعذّر توليد ملف PDF: " + safeErrorMessage(error));
+    render();
+  } finally {
+    container.remove();
+  }
+}
+
+// بيانات ثابتة تظهر في تذييل كل مستند بيع (طباعة A4، فاتورة كاشير، وملف PDF):
+// صفة البيع النظامية ورقم السجل التجاري. مصدر واحد كي لا تختلف بين المستندات.
+const SALES_TRADE_REGISTER_NO = "0310109105";
+const SALES_TRADE_CAPACITY = "من تاجر جملة الجملة إلى تاجر جملة ومفرق";
+
+// الطباعة مخصّصة للابتوب وحده: لا طابعة موصولة بالهاتف، وiOS داخل التطبيق
+// المثبَّت لا يفتح ورقة الطباعة أصلاً. الشرطان معاً (لمس + شاشة ضيّقة) كي لا
+// يُحسب لابتوب بشاشة لمس هاتفاً فيختفي عنه زر الطباعة.
+function isHandheldDevice() {
+  if (typeof window.matchMedia !== "function") return false;
+  return window.matchMedia("(pointer: coarse)").matches
+    && window.matchMedia("(max-width: 900px)").matches;
+}
+
+// فاتورة كاشير للمفرق: رول حراري 80mm بدل ورقة A4. الطول تلقائي (`auto`) كي
+// لا تُقطع الورقة على ارتفاع ثابت، والهوامش صفر لأن الطابعة الحرارية تتكفّل بها.
+// الأصناف تُطبع بسطرين لكل صنف: الاسم ثم «كمية × سعر = إجمالي» — أوضح ما يمكن
+// على عرض ضيق من محاولة حشر سبعة أعمدة.
+function salesReceiptDocument(data) {
+  const lines = data.rows.map((row) => `
+    <div class="ln">
+      <div class="ln-name">${escapeHtml(row.name)}</div>
+      <div class="ln-calc">
+        <span class="ln-qp"><b class="nb" dir="ltr">${escapeHtml(row.qty)}</b><span class="ln-unit">${escapeHtml(row.unit)}</span><span class="ln-x">×</span><b class="nb" dir="ltr">${escapeHtml(row.price)}</b></span>
+        <b class="nb" dir="ltr">${escapeHtml(row.total)}</b>
+      </div>
+    </div>`).join("");
+
+  const sum = (label, value, strong) =>
+    `<div class="sum${strong ? " sum-strong" : ""}"><span>${escapeHtml(label)}</span><b class="nb" dir="ltr">${escapeHtml(value)}</b></div>`;
+
+  return `<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<title>فاتورة كاشير ${escapeHtml(data.invNo)}</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  @page { size: 80mm auto; margin: 0; }
+  /* اسم صنف طويل بلا مسافات كان يمدّ عرض الرول من 80mm إلى أضعافه. الكسر
+     داخل الكلمة إجباري هنا لأن الورقة الحرارية عرضها ثابت لا يقبل التمدّد. */
+  body { width: 80mm; max-width: 80mm; padding: 3mm 4mm; direction: rtl; background: #fff; color: #000;
+         font-family: 'Segoe UI', Tahoma, Arial, sans-serif; font-size: 12px; line-height: 1.5;
+         overflow-wrap: anywhere; word-break: break-word; }
+  .head { text-align: center; border-bottom: 1px dashed #000; padding-bottom: 6px; margin-bottom: 6px; }
+  .brand { font-size: 16px; font-weight: 700; letter-spacing: 0.5px; }
+  .sub { font-size: 11px; }
+  .meta { font-size: 11px; margin-bottom: 6px; }
+  .meta div { display: flex; justify-content: space-between; gap: 6px; }
+  .meta b { text-align: left; min-width: 0; }
+  /* الأرقام لا تُكسر (رقم أو مبلغ منقسم على سطرين غير مقروء)، لكنها **محدودة
+     بعرض أبيها** ويُقصّ الفائض بثلاث نقاط: الرول عرضه ثابت 80mm ولا يجوز أن
+     يمدّه أي مدخل مهما طال. النصوص وحدها هي التي تلتف على أسطر. */
+  .nb { display: inline-block; max-width: 100%; vertical-align: bottom;
+        white-space: nowrap; overflow-wrap: normal; word-break: keep-all;
+        overflow: hidden; text-overflow: ellipsis; }
+  .meta div > *, .ln-calc > *, .sum > * { min-width: 0; }
+  .ln { border-bottom: 1px dotted #999; padding: 3px 0; }
+  .ln-name { font-weight: 700; }
+  .ln-code { font-weight: 400; font-size: 10px; }
+  /* أولوية القصّ داخل سطر الحساب: اسم الوحدة وحده هو الذي يُقصّ عند الضيق،
+     أما الكمية والسعر والإجمالي فأرقام لا تُقصّ ولا تُضغط (flex-shrink صفر).
+     وإخفاء الفائض على السطر يضمن ألا يمدّ أي مدخل عرض الرول. */
+  .ln-calc { display: flex; justify-content: space-between; align-items: baseline;
+             gap: 6px; font-size: 11px; overflow: hidden; }
+  /* الاتجاه هنا يبقى RTL كاتجاه الورقة: الكمية ثم الوحدة ثم × ثم السعر — وهو
+     ترتيب القراءة الطبيعي للبائع. كل رقم وحده dir=ltr كي تُرسم خاناته صحيحة. */
+  .ln-qp { display: flex; align-items: baseline; gap: 5px; min-width: 0; }
+  .ln-x { flex: 0 0 auto; }
+  .ln-calc > .nb, .ln-qp > .nb { flex: 0 0 auto; }
+  .ln-unit { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .sum span { min-width: 0; }
+  .sum b { white-space: nowrap; }
+  .sums { margin-top: 6px; border-top: 1px dashed #000; padding-top: 5px; }
+  .sum { display: flex; justify-content: space-between; font-size: 12px; }
+  .sum-strong { font-size: 14px; font-weight: 700; margin-top: 2px; }
+  .foot { margin-top: 8px; border-top: 1px dashed #000; padding-top: 5px;
+          text-align: center; font-size: 10px; line-height: 1.6; }
+</style>
+</head>
+<body>
+  <div class="head">
+    <div class="brand">OZK TOBACCO</div>
+    <div class="sub">مركز أبو زياد — لتجارة الدخان</div>
+  </div>
+  <div class="meta">
+    <div><span>فاتورة رقم</span><b class="nb" dir="ltr">${escapeHtml(data.invNo)}</b></div>
+    <div><span>التاريخ</span><b class="nb">${escapeHtml(data.dateLabel)}</b></div>
+    <div><span>الزبون</span><b>${escapeHtml(data.customer)}</b></div>
+    <div><span>الدفع</span><b>${escapeHtml(data.payLabel)}</b></div>
+  </div>
+  ${lines}
+  <div class="sums">
+    ${sum("الإجمالي", data.grand)}
+    ${data.hasDiscount ? sum("الحسم", data.discount) : ""}
+    ${sum("الصافي", data.net, true)}
+    ${sum("المدفوع", data.paid)}
+    ${sum(`المتبقّي (${data.remainingLabel})`, data.remaining, true)}
+  </div>
+  <div class="foot">
+    شكراً لتعاملكم معنا
+    <div>صفة البيع: ${escapeHtml(SALES_TRADE_CAPACITY)}</div>
+    <div>السجل التجاري: <span dir="ltr">${escapeHtml(SALES_TRADE_REGISTER_NO)}</span></div>
+    <div dir="ltr">0985000771 — 0984000662</div>
+  </div>
+</body>
+</html>`;
+}
+
 function printSalesInvoice() {
   const resolved = salesResolvedRows();
   if (!resolved.length) {
@@ -6288,7 +6608,6 @@ function printSalesInvoice() {
       return `
     <tr>
       <td class="col-num">${i + 1}</td>
-      <td dir="ltr">${escapeHtml(salesItemCode(item) || row.num || "")}</td>
       <td>${escapeHtml(item?.itemName || row.name || "")}</td>
       <td>${escapeHtml(salesUnitLabel(item, row.unit))}</td>
       <td>${escapeHtml(formatMoney(qty))}</td>
@@ -6365,7 +6684,6 @@ function printSalesInvoice() {
   <thead>
     <tr>
       <th class="col-num">#</th>
-      <th style="width:70px">الرقم</th>
       <th>المادة</th>
       <th style="width:70px">الوحدة</th>
       <th style="width:60px">الكمية</th>
@@ -6382,12 +6700,46 @@ function printSalesInvoice() {
   </table>
 </div>
 
-<div class="inv-foot">${escapeHtml(appConfig.name)} &mdash; ${escapeHtml(appConfig.supportEmail)}</div>
+<div class="inv-foot">
+  <div>صفة البيع: ${escapeHtml(SALES_TRADE_CAPACITY)}</div>
+  <div>السجل التجاري: <span dir="ltr">${escapeHtml(SALES_TRADE_REGISTER_NO)}</span></div>
+  <div>${escapeHtml(appConfig.name)} &mdash; ${escapeHtml(appConfig.supportEmail)}</div>
+</div>
 
 </body></html>`;
 
-  printHtmlDocument(html, {
-    title: `فاتورة مبيعات ${invNo}`,
+  // المفرق يُطبع فاتورة كاشير على رول 80mm؛ الجملة تبقى على ورقة A4 كما هي.
+  const printable = mode === "mufrak"
+    ? salesReceiptDocument({
+      invNo,
+      dateLabel: today,
+      customer,
+      payLabel,
+      rows: resolved.map((row) => {
+        const item = salesItemByKey(row.key);
+        const qty = toNumber(row.qty);
+        const price = toNumber(row.price);
+        return {
+          code: salesItemCode(item) || row.num || "",
+          name: item?.itemName || row.name || "",
+          unit: salesUnitLabel(item, row.unit),
+          qty: formatMoney(qty),
+          price: salesMoney(price, mode),
+          total: salesMoney(qty * price, mode)
+        };
+      }),
+      grand: salesMoney(totals.grand, mode),
+      hasDiscount: totals.discount > 0,
+      discount: salesMoney(totals.discount, mode),
+      net: salesMoney(totals.net, mode),
+      paid: salesMoney(totals.paid, mode),
+      remaining: salesMoney(Math.abs(totals.remaining), mode),
+      remainingLabel: salesRemainingState(totals.remaining, mode).label
+    })
+    : html;
+
+  printHtmlDocument(printable, {
+    title: mode === "mufrak" ? `فاتورة كاشير ${invNo}` : `فاتورة مبيعات ${invNo}`,
     onError: () => {
       setNotice("error", "تعذّر فتح نافذة الطباعة. أغلق التطبيق وافتحه ثم جرّب مجدداً.");
       render();
@@ -7436,6 +7788,7 @@ function render() {
   });
   app.querySelector("[data-action='sales-save']")?.addEventListener("click", salesSaveInvoice);
   app.querySelector("[data-action='sales-print']")?.addEventListener("click", printSalesInvoice);
+  app.querySelector("[data-action='sales-pdf']")?.addEventListener("click", saveSalesInvoicePdf);
   app.querySelector("[data-action='sales-new']")?.addEventListener("click", salesNewInvoice);
 
   // فتح/إغلاق أرشيف الفواتير. لا يمسّ أسطر الفاتورة الحالية ولا رقمها،
