@@ -225,12 +225,18 @@ const normalizeMergeName = (value) => String(value || "")
 // مفتاح مقارنة السعر: خانتان عشريتان لكل من الجملة والمفرق. **الدالة نفسها
 // حرفياً** مستعملة في `mergeBulletinNamedGroups` داخل `src/app.js` كي يقرّر
 // الموقع والنشرة على المجموعة نفسها بالضبط.
-const mergePriceKey = (usd, retail) => `${Math.round(Number(usd || 0) * 100)}|${Math.round(Number(retail || 0) * 100)}`;
+// تقريب مزدوج مقصود: ثلاث منازل ثم قروش — لأن الموقع يقرّب إلى ثلاث منازل قبل
+// المقارنة، فلولا التقريب نفسه لاختلف القراران عند حدود مثل 190.0049.
+const mergePriceKey = (value) => Math.round(Math.round(Number(value || 0) * 1000) / 1000 * 100);
 
 // أسماء نُبّه عليها مسبقاً: الدالة تُستدعى مرتين (دولار وسوري) فلا نكرّر التنبيه.
 const mergeWarned = new Set();
 
-const mergeNamedGroups = (items) => {
+const mergeNamedGroups = (items, mode) => {
+  // القرار **لكل نشرة على حدة**: نشرة الدولار تقارن سعر الجملة، ونشرة السوري
+  // تقارن سعر المفرق. هذا ما يجعل قرار المولّد مطابقاً لقرار الموقع، إذ يعرض
+  // الموقع أيضاً نشرة واحدة حسب الوضع المختار.
+  const priceOf = (item) => (mode === "syp" ? Number(item.retailCarton || 0) : Number(item.usd || 0));
   const result = [...items];
   for (const display of BULLETIN_MERGE_NAMES) {
     const base = normalizeMergeName(display);
@@ -240,22 +246,18 @@ const mergeNamedGroups = (items) => {
         const n = normalizeMergeName(item.name);
         return n === base || n.startsWith(base + " ");
       })
-      // الصنف بلا أي سعر موجب لا يظهر في نشرة ولا يشارك في قرار الدمج: وجوده
-      // يجب ألا يمنع دمج صنفين مسعّرين بالسعر نفسه (وهذا ما يفعله الموقع أيضاً).
-      .filter(({ item }) => Number(item.usd || 0) > 0 || Number(item.retailCarton || 0) > 0);
+      // غير المسعّر في هذه النشرة لا يظهر فيها ولا يشارك في قرارها.
+      .filter(({ item }) => priceOf(item) > 0);
     if (entries.length < 2) continue;
-    const keys = new Set(entries.map(({ item }) => mergePriceKey(item.usd, item.retailCarton)));
-    // غموض = لا دمج إطلاقاً: دمج المتطابق وحده يُنتج سطرين بالاسم القانوني
-    // نفسه وسعرين مختلفين — أسوأ من التكرار الأصلي. نُبقي الأسماء وننبّه.
+    const keys = new Set(entries.map(({ item }) => mergePriceKey(priceOf(item))));
     if (keys.size > 1) {
-      if (!mergeWarned.has(display)) {
-        mergeWarned.add(display);
-        console.log(`تنبيه: «${display}» له أكثر من سعر (${[...keys].join(" / ")}) — لم يُدمج، والأسماء بقيت كما هي.`);
+      const warnKey = `${display}|${mode}`;
+      if (!mergeWarned.has(warnKey)) {
+        mergeWarned.add(warnKey);
+        console.log(`تنبيه: «${display}» له أكثر من سعر في نشرة ${mode} (${[...keys].join(" / ")}) — لم يُدمج، والأسماء بقيت كما هي.`);
       }
       continue;
     }
-    // الممثّل: صاحب الاسم القانوني نفسه إن وُجد، وإلا أول ظهور — وموضعه يبقى
-    // مكانه في الترتيب فلا تتبدّل صفوف النشرة.
     const exact = entries.find(({ item }) => normalizeMergeName(item.name) === base);
     const rep = exact || entries[0];
     const anchor = Math.min(...entries.map(({ index }) => index));
@@ -265,6 +267,7 @@ const mergeNamedGroups = (items) => {
   }
   return result;
 };
+
 
 
 
@@ -280,8 +283,8 @@ const toWazari = (items) => items.filter(isWazari).map(item => {
 
 const usdWazariItems = toWazari(usdItems);
 const sypWazariItems = toWazari(sypItems);
-usdItems = mergeNamedGroups(consolidateGeneral(usdItems, "usd"));
-sypItems = mergeNamedGroups(consolidateGeneral(sypItems, "syp"));
+usdItems = mergeNamedGroups(consolidateGeneral(usdItems, "usd"), "usd");
+sypItems = mergeNamedGroups(consolidateGeneral(sypItems, "syp"), "syp");
 
 // ── شعار ─────────────────────────────────────────────────────────────────────
 const logoB64 = readFileSync(resolve(root, "public/icons/ozk-logo.png")).toString("base64");

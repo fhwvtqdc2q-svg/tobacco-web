@@ -1700,11 +1700,15 @@ const BULLETIN_MERGE_NAMES = ["ماستر طويل ورق", "ماستر قصير
 
 // مفتاح مقارنة السعر — مطابق حرفياً لـ`mergePriceKey` في مولّد النشرات
 // (scripts/generate-price-lists.mjs) كي يقرّر الطرفان على المجموعة نفسها.
-function bulletinMergePriceKey(usd, retail) {
-  return `${Math.round(Number(usd || 0) * 100)}|${Math.round(Number(retail || 0) * 100)}`;
+function bulletinMergePriceKey(value) {
+  return Math.round(Math.round(Number(value || 0) * 1000) / 1000 * 100);
 }
 
-function mergeBulletinNamedGroups(items) {
+function mergeBulletinNamedGroups(items, mode) {
+  // القرار لكل وضع على حدة تماماً كالمولّد: الجملة تقارن سعر الكرتونة،
+  // والمفرق يقارن سعر المفرق. صنف غير مسعّر في هذا الوضع لا يشارك في القرار.
+  const activeMode = (mode || state.priceMode) === "mufrak" ? "mufrak" : "jumla";
+  const priceOf = (item) => (activeMode === "mufrak" ? itemRetailPrice(item) : itemUnit2Price(item));
   const result = [...items];
   BULLETIN_MERGE_NAMES.forEach((display) => {
     const baseN = normalizeItemName(display);
@@ -1714,11 +1718,9 @@ function mergeBulletinNamedGroups(items) {
         const n = normalizeItemName(item.name || item.itemName || "");
         return n === baseN || n.startsWith(baseN + " ");
       })
-      // صنف بلا أي سعر موجب لا يشارك في القرار: لا يظهر في النشرة، ووجوده يجب
-      // ألا يمنع دمج صنفين مسعّرين بالسعر نفسه. نفس شرط المولّد حرفياً.
-      .filter(({ item }) => itemUnit2Price(item) > 0 || itemRetailPrice(item) > 0);
+      .filter(({ item }) => priceOf(item) > 0);
     if (entries.length < 2) return;
-    const keys = new Set(entries.map(({ item }) => bulletinMergePriceKey(itemUnit2Price(item), itemRetailPrice(item))));
+    const keys = new Set(entries.map(({ item }) => bulletinMergePriceKey(priceOf(item))));
     // غموض الأسعار يوقف الدمج بدل إنتاج اسمين متطابقين بسعرين مختلفين.
     if (keys.size > 1) return;
     const exact = entries.find(({ item }) => normalizeItemName(item.name || item.itemName || "") === baseN);
@@ -1739,6 +1741,7 @@ function mergeBulletinNamedGroups(items) {
       String(a.name || "").localeCompare(String(b.name || ""), "ar")
   );
 }
+
 
 
 
