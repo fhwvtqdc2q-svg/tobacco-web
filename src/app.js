@@ -587,6 +587,19 @@ function customerBalanceSortValue(item) {
   return customerBalance(item);
 }
 
+// حارس تصدير المستندات: نقرتان سريعتان تنتجان رقمَي سند مختلفين للحركة نفسها.
+let voucherExportBusy = false;
+
+// وقت مختصر «يوم-شهر ساعة:دقيقة» لوسم حداثة رقم مطبوع.
+function shortDateTime(value) {
+  const raw = String(value || "").trim();
+  if (!raw) return "";
+  const d = new Date(raw);
+  if (Number.isNaN(d.getTime())) return raw.slice(0, 16).replace("T", " ");
+  const pad = (n) => String(n).padStart(2, "0");
+  return `${pad(d.getDate())}-${pad(d.getMonth() + 1)} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
 function docNumber(prefix) {
   return prefix + "-" + todayIsoDate().replace(/-/g, "") + "-" + String(Math.floor(1000 + Math.random() * 9000));
 }
@@ -3760,13 +3773,16 @@ function voucherPdfMarkup(v) {
         ? "هذا سند رسمي بالمبلغ المصروف من صندوق OZK TOBACCO."
         : "شكراً لتعاملكم مع OZK TOBACCO. هذا سند رسمي بالمبلغ المستلم."));
   const balLabel = isInv ? "الرصيد الحالي" : (isRet ? "الرصيد بعد المرتجع" : (isPay ? "الرصيد بعد الصرف" : "الرصيد بعد الدفعة"));
+  // أرصدة الذمم تأتي من ac000 بعملة الأساس (الدولار) ولا تُحوَّل — فلا يجوز طبعها
+  // بوسم «ل.س» لزبون عملة وصله ليرة. عملة الرصيد مستقلة عن عملة المستند.
+  const balCur = v.balanceCur || "$";
   const rows = [];
   rows.push(`<tr><th style="width:130px">التاريخ</th><td>${escapeHtml(dstr)}</td></tr>`);
   if (v.method) rows.push(`<tr><th>طريقة الدفع</th><td>${escapeHtml(v.method)}</td></tr>`);
   if (v.notes) rows.push(`<tr><th>البيان</th><td>${escapeHtml(v.notes)}</td></tr>`);
   // للفاتورة والمرتجع: نعرض الرصيد السابق ثم القيمة ثم الرصيد الجديد ليعرف الزبون وضعه بوضوح.
   if ((isInv || isRet) && v.newBalance !== undefined && v.newBalance !== null) {
-    rows.push(`<tr><th>الرصيد السابق</th><td>${escapeHtml(balanceText(v.prevBalance, cur))}</td></tr>`);
+    rows.push(`<tr><th>الرصيد السابق</th><td>${escapeHtml(balanceText(v.prevBalance, balCur))}</td></tr>`);
     rows.push(`<tr><th>${isRet ? "قيمة هذا المرتجع" : "قيمة هذه الفاتورة"}</th><td>${escapeHtml(formatMoney(v.amount || 0))} ${escapeHtml(cur)}</td></tr>`);
     // إن سُجّلت الفاتورة على الحساب بمبلغ أقل/أكثر من قيمتها (حسم أو تسوية) نُظهر الفرق
     // ليبقى الحساب شفافاً: السابق + الفاتورة − الحسم = الجديد.
@@ -3775,11 +3791,20 @@ function voucherPdfMarkup(v) {
     } else if (Number(v.adjust || 0) < -0.009) {
       rows.push(`<tr><th>إضافة / تسوية</th><td class="deb">+ ${escapeHtml(formatMoney(Math.abs(v.adjust)))} ${escapeHtml(cur)}</td></tr>`);
     }
-    rows.push(`<tr><th>الرصيد الجديد</th><td><b>${escapeHtml(balanceText(v.newBalance, cur))}</b></td></tr>`);
+    rows.push(`<tr><th>الرصيد الجديد</th><td><b>${escapeHtml(balanceText(v.newBalance, balCur))}</b></td></tr>`);
   } else if (v.balance !== undefined && v.balance !== null && v.balance !== "") {
     const lbl = v.balanceLabel || balLabel;
-    const balTxt = (isInv || isRet || v.type === "receipt") ? balanceText(v.balance, cur) : `${formatMoney(v.balance)} ${cur}`;
+    const balTxt = (isInv || isRet || v.type === "receipt") ? balanceText(v.balance, balCur) : `${formatMoney(v.balance)} ${cur}`;
     rows.push(`<tr><th>${escapeHtml(lbl)}</th><td>${escapeHtml(balTxt)}</td></tr>`);
+    // إن تحرّك الحساب بعد هذا القيد (فواتير لاحقة مثلاً) نعرض الرصيد الحالي أيضاً:
+    // سطر واحد لا يكفي — الزبون يقارن السند برصيده اليوم فيظنّ الفرق خطأً.
+    // محصور بسند القبض وحده: الفاتورة والمرتجع لهما سطرا «السابق/الجديد».
+    if (v.type === "receipt"
+      && v.currentBalance !== undefined && v.currentBalance !== null && v.currentBalance !== ""
+      && Math.abs(Number(v.currentBalance) - Number(v.balance)) > 0.009) {
+      const asOf = shortDateTime(v.currentBalanceAt);
+      rows.push(`<tr><th>الرصيد الحالي</th><td>${escapeHtml(balanceText(v.currentBalance, balCur))} <small>(بعد حركات لاحقة${asOf ? " — حتى " + escapeHtml(asOf) : ""})</small></td></tr>`);
+    }
   }
   const stamp = `
     <div class="stamp-wrap"><div class="seal">
@@ -7922,24 +7947,6 @@ function render() {
   });
 
   app.querySelector("[data-action='export-statement']")?.addEventListener("click", exportCustomerStatementPdf);
-  app.querySelectorAll("[data-action='gen-receipt']").forEach((el) => {
-    el.addEventListener("click", () => {
-      const item = selectedCustomer(latestCustomerBalanceItems());
-      if (!item) { setNotice("error", "اختر زبونًا أولاً."); render(); return; }
-      const key = customerKey(item);
-      exportVoucherPdf({
-        type: "receipt",
-        name: item.name || "",
-        phone: customerProfile(key)?.phone || "",
-        amount: Number(el.dataset.amt || 0),
-        date: el.dataset.date || todayIsoDate(),
-        notes: el.dataset.notes || "",
-        balance: customerBalance(item),
-        cur: customerCurrency(item),
-        no: docNumber("R")
-      });
-    });
-  });
   app.querySelector("[data-action='toggle-currency']")?.addEventListener("click", () => {
     const item = selectedCustomer(latestCustomerBalanceItems());
     if (!item) { setNotice("error", "اختر زبونًا أولاً."); render(); return; }
@@ -7950,6 +7957,11 @@ function render() {
   });
   app.querySelectorAll("[data-action='gen-movement-doc']").forEach((el) => {
     el.addEventListener("click", () => {
+      // نقرة ثانية أثناء تجهيز المستند تُتجاهَل: وإلا صدر سندان برقمين مختلفين
+      // للدفعة نفسها. الحارس على مستوى الوحدة كي يصمد أمام إعادة رسم الصفحة.
+      if (voucherExportBusy) return;
+      voucherExportBusy = true;
+      setTimeout(() => { voucherExportBusy = false; }, 1500);
       const item = selectedCustomer(latestCustomerBalanceItems());
       if (!item) { setNotice("error", "اختر زبونًا أولاً."); render(); return; }
       const debit = Number(el.dataset.debit || 0);
@@ -8021,6 +8033,16 @@ function render() {
           if (storedDocNew !== null && Number.isFinite(storedDocNew)) {
             opts.balance = roundPrice(storedDocNew);
             opts.balanceLabel = "الرصيد بعد الدفعة";
+            // سطر ثانٍ للرصيد الحالي عند اختلافه: الدفعة قد تكون تلتها فواتير،
+            // فيقارن الزبون السند برصيده اليوم ويظنّ الفرق خطأً. لا يُعرض إلا من
+            // تقرير محمَّل فعلاً (لا نطبع رقماً لا نعرف حداثته على مستند رسمي).
+            const current = customerBalance(item);
+            if (Number.isFinite(current)) {
+              opts.currentBalance = roundPrice(current);
+              // وقت التقرير يُطبع مع الرقم: لا ندّعي أنه رصيد اللحظة إن كانت
+              // الصفحة محمَّلة منذ ساعات.
+              opts.currentBalanceAt = reportSyncedAt(state.customerBalanceReports[0]);
+            }
           } else {
             opts.balance = customerBalance(item);
             opts.balanceLabel = "الرصيد الحالي";
