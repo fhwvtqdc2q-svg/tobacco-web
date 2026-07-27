@@ -1,4 +1,4 @@
-const CACHE_NAME = "web-platform-tobacco-v400";
+const CACHE_NAME = "web-platform-tobacco-v401";
 // المسارات نسبية لملف الجذر service-worker.js الذي يستورد هذا الملف —
 // النطاق الجذري ضروري كي يفتح التطبيق من الكاش حتى لو كان السيرفر المحلي واقفاً.
 const ASSETS = [
