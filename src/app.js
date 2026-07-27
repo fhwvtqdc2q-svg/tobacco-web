@@ -6260,7 +6260,6 @@ function salesInvoicePdfMarkup(data) {
   const rows = data.rows.map((row, i) => `
     <tr>
       <td style="${td};text-align:center">${i + 1}</td>
-      <td style="${td};text-align:center" dir="ltr">${escapeHtml(row.code)}</td>
       <td style="${td}">${escapeHtml(row.name)}</td>
       <td style="${td};text-align:center">${escapeHtml(row.unit)}</td>
       <td style="${td};text-align:center" dir="ltr">${escapeHtml(row.qty)}</td>
@@ -6307,7 +6306,6 @@ function salesInvoicePdfMarkup(data) {
       <thead>
         <tr>
           <th style="${th};width:28px">#</th>
-          <th style="${th};width:64px">الرقم</th>
           <th style="${th}">الصنف</th>
           <th style="${th};width:64px">الوحدة</th>
           <th style="${th};width:56px">الكمية</th>
@@ -6330,7 +6328,7 @@ function salesInvoicePdfMarkup(data) {
 
     <div style="margin-top:18px;padding-top:8px;border-top:1px solid #d9d2c4;
          font-size:11px;color:#6b6154;display:flex;justify-content:space-between">
-      <span>${escapeHtml(appConfig.name)} — ${escapeHtml(appConfig.supportEmail)}</span>
+      <span>صفة البيع: ${escapeHtml(SALES_TRADE_CAPACITY)} · السجل التجاري: <span dir="ltr">${escapeHtml(SALES_TRADE_REGISTER_NO)}</span></span>
       <span dir="ltr">0985000771 — 0984000662</span>
     </div>
   </div>`;
@@ -6461,6 +6459,11 @@ async function saveSalesInvoicePdf() {
   }
 }
 
+// بيانات ثابتة تظهر في تذييل كل مستند بيع (طباعة A4، فاتورة كاشير، وملف PDF):
+// صفة البيع النظامية ورقم السجل التجاري. مصدر واحد كي لا تختلف بين المستندات.
+const SALES_TRADE_REGISTER_NO = "0310109105";
+const SALES_TRADE_CAPACITY = "من تاجر جملة الجملة إلى تاجر جملة ومفرق";
+
 // الطباعة مخصّصة للابتوب وحده: لا طابعة موصولة بالهاتف، وiOS داخل التطبيق
 // المثبَّت لا يفتح ورقة الطباعة أصلاً. الشرطان معاً (لمس + شاشة ضيّقة) كي لا
 // يُحسب لابتوب بشاشة لمس هاتفاً فيختفي عنه زر الطباعة.
@@ -6477,7 +6480,7 @@ function isHandheldDevice() {
 function salesReceiptDocument(data) {
   const lines = data.rows.map((row) => `
     <div class="ln">
-      <div class="ln-name">${escapeHtml(row.name)}${row.code ? ` <span class="ln-code nb" dir="ltr">#${escapeHtml(row.code)}</span>` : ""}</div>
+      <div class="ln-name">${escapeHtml(row.name)}</div>
       <div class="ln-calc">
         <span class="ln-qp"><b class="nb" dir="ltr">${escapeHtml(row.qty)}</b><span class="ln-unit">${escapeHtml(row.unit)}</span><span class="ln-x">×</span><b class="nb" dir="ltr">${escapeHtml(row.price)}</b></span>
         <b class="nb" dir="ltr">${escapeHtml(row.total)}</b>
@@ -6557,6 +6560,8 @@ function salesReceiptDocument(data) {
   </div>
   <div class="foot">
     شكراً لتعاملكم معنا
+    <div>صفة البيع: ${escapeHtml(SALES_TRADE_CAPACITY)}</div>
+    <div>السجل التجاري: <span dir="ltr">${escapeHtml(SALES_TRADE_REGISTER_NO)}</span></div>
     <div dir="ltr">0985000771 — 0984000662</div>
   </div>
 </body>
@@ -6603,7 +6608,6 @@ function printSalesInvoice() {
       return `
     <tr>
       <td class="col-num">${i + 1}</td>
-      <td dir="ltr">${escapeHtml(salesItemCode(item) || row.num || "")}</td>
       <td>${escapeHtml(item?.itemName || row.name || "")}</td>
       <td>${escapeHtml(salesUnitLabel(item, row.unit))}</td>
       <td>${escapeHtml(formatMoney(qty))}</td>
@@ -6680,7 +6684,6 @@ function printSalesInvoice() {
   <thead>
     <tr>
       <th class="col-num">#</th>
-      <th style="width:70px">الرقم</th>
       <th>المادة</th>
       <th style="width:70px">الوحدة</th>
       <th style="width:60px">الكمية</th>
@@ -6697,7 +6700,11 @@ function printSalesInvoice() {
   </table>
 </div>
 
-<div class="inv-foot">${escapeHtml(appConfig.name)} &mdash; ${escapeHtml(appConfig.supportEmail)}</div>
+<div class="inv-foot">
+  <div>صفة البيع: ${escapeHtml(SALES_TRADE_CAPACITY)}</div>
+  <div>السجل التجاري: <span dir="ltr">${escapeHtml(SALES_TRADE_REGISTER_NO)}</span></div>
+  <div>${escapeHtml(appConfig.name)} &mdash; ${escapeHtml(appConfig.supportEmail)}</div>
+</div>
 
 </body></html>`;
 
