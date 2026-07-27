@@ -6509,7 +6509,10 @@ async function saveSalesInvoicePdf() {
       image: { type: "jpeg", quality: 0.96 },
       html2canvas: { scale: isHandheldDevice() ? 1.5 : 2, useCORS: true, backgroundColor: "#ffffff" },
       jsPDF: { unit: "mm", format: "a4", orientation: "portrait" }
-    }).from(container);
+      // **العنصر الداخلي لا الحاوية**: تمرير حاوية `position:absolute` يجعل
+      // html2canvas يحسب ارتفاعاً صفراً فتخرج لوحة 1123×0 وملف 3 ك.ب بلا رسم —
+      // وهو الحجم نفسه الذي وصل المالك. قياس: الحاوية 1123×0 والداخلي 1123×751.
+    }).from(container.firstElementChild || container);
 
     // بوابة التحقق: نقيس نسبة البكسل غير الأبيض في اللوحة قبل بناء الملف.
     // حجم الملف وحده مؤشر ضعيف (لوحة فارغة أعطت 9 ك.ب في القياس)، أما الحبر
@@ -6568,8 +6571,11 @@ async function saveSalesInvoicePdf() {
     render();
   } finally {
     container.remove();
-    // إرجاع موضع التمرير كما كان قبل الالتقاط.
-    window.scrollTo(keepScrollX, keepScrollY);
+    // إرجاع موضع التمرير **فقط إن كان ما زال حيث تركناه**: لو مرّر المستخدم
+    // الصفحة أثناء التوليد فإرجاعه القسري يخطف الشاشة من تحت يده.
+    if ((window.scrollX || 0) === 0 && (window.scrollY || 0) === 0) {
+      window.scrollTo(keepScrollX, keepScrollY);
+    }
   }
 }
 
