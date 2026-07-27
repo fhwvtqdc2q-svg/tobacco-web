@@ -3640,26 +3640,6 @@ function movementBalanceAfter(custName, dateStr, debit, credit) {
   return null;
 }
 
-// رصيد الزبون **مباشرةً بعد قيد دفعة بعينها** لا رصيده الحالي: سند القبض ورقة
-// تُسلَّم للزبون، والرصيد الحالي قد يكون تغيّر بفواتير لاحقة للدفعة فيظهر رقم
-// لا علاقة له بالسند. نعتمد رصيد المستند الزمني (docNew/balanceChrono) كما في
-// مستند الفاتورة. يُرجع null إن لم نستطع الحسم، فيُعرض «الرصيد الحالي» صراحةً.
-function paymentMovementBalance(item, payment) {
-  const want = Number(payment?.amount || 0);
-  if (!(want > 0)) return null;
-  const full = customerFullMovements(item);
-  const movements = Array.isArray(full?.movements) ? full.movements : [];
-  const day = String(payment?.date || "").slice(0, 10);
-  const candidates = movements.filter((m) => Number(m?.credit || 0) > 0
-    && Math.abs(Number(m.credit || 0) - want) <= 0.5
-    && (!day || String(m?.date || "").slice(0, 10) === day));
-  // مرشّح واحد فقط يُعتمد: دفعتان بالمبلغ نفسه واليوم نفسه لا يمكن الحسم بينهما،
-  // واختيار إحداهما عشوائياً يطبع رصيداً خاطئاً على مستند رسمي.
-  if (candidates.length !== 1) return null;
-  const balances = movementDocBalances(candidates[0]);
-  return balances && Number.isFinite(balances.newBalance) ? roundPrice(balances.newBalance) : null;
-}
-
 // الكشف الرسمي الكامل: رصيد أول المدة + كل حركات الفترة برصيد متحرك + الرصيد النهائي
 function customerStatementPdfMarkup(item) {
   const key = customerKey(item);
