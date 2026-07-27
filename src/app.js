@@ -6477,13 +6477,25 @@ async function saveSalesInvoicePdf() {
 
   const fileName = `invoice-${String(invNo).replace(/[^\w-]+/g, "-")}-${todayIsoDate()}.pdf`;
   try {
+    // دقة أقل على الهاتف: html2canvas بمقياس 2 يستهلك ذاكرة كبيرة على iOS وقد
+    // يُنتج لوحة فارغة فيخرج ملف بلا محتوى. 1.5 تكفي لقراءة الفاتورة وطباعتها.
+    const canvasScale = isHandheldDevice() ? 1.5 : 2;
     const blob = await window.html2pdf().set({
       margin: [6, 6, 6, 6],
       filename: fileName,
       image: { type: "jpeg", quality: 0.96 },
-      html2canvas: { scale: 2, useCORS: true, backgroundColor: "#ffffff" },
+      html2canvas: { scale: canvasScale, useCORS: true, backgroundColor: "#ffffff" },
       jsPDF: { unit: "mm", format: "a4", orientation: "portrait" }
     }).from(container).outputPdf("blob");
+
+    // حارس ملف فارغ: صفحة PDF مرسومة فعلاً لا تقلّ عن عشرات الكيلوبايتات.
+    // مشاركة ملف تالف مع الزبون أسوأ من رسالة خطأ واضحة.
+    const MIN_PDF_BYTES = 8 * 1024;
+    if (!blob || blob.size < MIN_PDF_BYTES) {
+      setNotice("error", `تعذّر توليد ملف الفاتورة (الحجم ${Math.round((blob?.size || 0) / 1024)} ك.ب فقط). أغلق التطبيق وافتحه ثم جرّب مجدداً.`);
+      render();
+      return;
+    }
 
     const file = new File([blob], fileName, { type: "application/pdf" });
     // ورقة المشاركة أولاً: على iOS هي الطريق الوحيد العملي للحفظ في «الملفات»
