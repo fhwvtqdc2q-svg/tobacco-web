@@ -6386,6 +6386,7 @@ function salesInvoicePdfMarkup(data) {
       <tbody>${rows}</tbody>
     </table>
 
+    <div class="pdf-tail" style="${pdfRowStyle}">
     <table class="pdf-summary" style="width:290px;border-collapse:collapse;margin-right:auto;${pdfRowStyle}">
       <tbody style="${pdfRowStyle}">
         ${summaryRow("الإجمالي", data.grand)}
@@ -6401,15 +6402,19 @@ function salesInvoicePdfMarkup(data) {
       <span>صفة البيع: ${escapeHtml(SALES_TRADE_CAPACITY)} · السجل التجاري: <span dir="ltr">${escapeHtml(SALES_TRADE_REGISTER_NO)}</span></span>
       <span dir="ltr">0985000771 — 0984000662</span>
     </div>
+    </div>
   </div>`;
 }
 
 // نسبة البكسل غير الأبيض في لوحة الرسم — دليل مباشر على أن المستند رُسم فعلاً.
 // نأخذ عيّنة كل 29 بكسل: تكفي للحكم وتُبقي القياس سريعاً على الهاتف.
-function canvasInkRatio(canvas) {
+function canvasInkRatio(canvas, yStart, yEnd) {
   if (!canvas || !canvas.width || !canvas.height) return 0;
+  const top = Math.max(0, Math.floor(yStart || 0));
+  const bottom = Math.min(canvas.height, Math.ceil(yEnd === undefined ? canvas.height : yEnd));
+  if (bottom <= top) return 0;
   try {
-    const data = canvas.getContext("2d").getImageData(0, 0, canvas.width, canvas.height).data;
+    const data = canvas.getContext("2d").getImageData(0, top, canvas.width, bottom - top).data;
     let ink = 0;
     let total = 0;
     for (let i = 0; i < data.length; i += 4 * 29) {
@@ -6517,7 +6522,9 @@ async function saveSalesInvoicePdf() {
         mode: ["css", "legacy"],
         // الصفوف وكتل المجاميع والتذييل والترويسة: أي منها مقسوم بين صفحتين
         // يفسد شكل مستند يُسلَّم للزبون.
-        avoid: ["tr", ".pdf-summary", ".pdf-foot", ".pdf-head", ".pdf-meta"]
+        // `.pdf-tail` تجمع المجاميع والتذييل معاً: تذييل وحيد في صفحة ثانية
+        // شبه فارغة يبدو خطأً في الطباعة لا تنسيقاً.
+        avoid: ["tr", ".pdf-tail", ".pdf-summary", ".pdf-foot", ".pdf-head", ".pdf-meta"]
       }
       // **العنصر الداخلي لا الحاوية**: تمرير حاوية `position:absolute` يجعل
       // html2canvas يحسب ارتفاعاً صفراً فتخرج لوحة 1123×0 وملف 3 ك.ب بلا رسم —
@@ -6536,7 +6543,24 @@ async function saveSalesInvoicePdf() {
       return;
     }
 
-    const blob = await worker.toPdf().outputPdf("blob");
+    await worker.toPdf();
+    const pdf = worker.prop && worker.prop.pdf;
+    // صفحة A4 بيضاء بالكامل في آخر الملف تحصل حين يتجاوز المحتوى حدّ الصفحة
+    // ببضعة بكسلات فقط (فاتورة 24 صنفاً مثلاً). نقيس حبر الشريحة الأخيرة من
+    // اللوحة ونحذف الصفحة إن كانت فارغة — أنظف من العبث بالهوامش.
+    if (pdf && canvas && typeof pdf.deletePage === "function") {
+      const pageCount = pdf.internal.getNumberOfPages();
+      if (pageCount > 1) {
+        // اللوحة تُقاس إلى عرض الصفحة المفيد (210mm ناقص هامشين 6mm).
+        const pxPerMm = canvas.width / (210 - 12);
+        const pageHeightPx = pxPerMm * (297 - 12);
+        const lastStart = (pageCount - 1) * pageHeightPx;
+        if (lastStart < canvas.height && canvasInkRatio(canvas, lastStart, canvas.height) <= 0.0005) {
+          pdf.deletePage(pageCount);
+        }
+      }
+    }
+    const blob = pdf ? pdf.output("blob") : await worker.outputPdf("blob");
     if (!blob || blob.size < 8 * 1024) {
       setNotice("error", `تعذّر توليد ملف الفاتورة (خرج بحجم ${Math.round((blob?.size || 0) / 1024)} ك.ب). جرّب مجدداً.`);
       render();
