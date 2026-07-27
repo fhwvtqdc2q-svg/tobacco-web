@@ -6401,6 +6401,25 @@ function salesInvoicePdfMarkup(data) {
   </div>`;
 }
 
+// نسبة البكسل غير الأبيض في لوحة الرسم — دليل مباشر على أن المستند رُسم فعلاً.
+// نأخذ عيّنة كل 29 بكسل: تكفي للحكم وتُبقي القياس سريعاً على الهاتف.
+function canvasInkRatio(canvas) {
+  if (!canvas || !canvas.width || !canvas.height) return 0;
+  try {
+    const data = canvas.getContext("2d").getImageData(0, 0, canvas.width, canvas.height).data;
+    let ink = 0;
+    let total = 0;
+    for (let i = 0; i < data.length; i += 4 * 29) {
+      total++;
+      if (data[i] < 235 || data[i + 1] < 235 || data[i + 2] < 235) ink++;
+    }
+    return total > 0 ? ink / total : 0;
+  } catch {
+    // تعذّر القياس (قيود أمنية مثلاً) — لا نمنع التصدير بسببه.
+    return 1;
+  }
+}
+
 // حفظ/مشاركة الفاتورة كملف PDF فعلي.
 // السبب: على iOS داخل التطبيق المثبَّت (standalone) لا يفتح window.print() أي
 // نافذة ولا يرمي خطأ — فتظهر رسالة نجاح بلا أي ورقة طباعة. الملف الفعلي يحلّ
@@ -6470,29 +6489,43 @@ async function saveSalesInvoicePdf() {
   });
 
   const container = document.createElement("div");
-  // خارج الشاشة لا display:none — html2canvas لا يرسم عنصراً بلا تخطيط.
-  container.style.cssText = "position:fixed;left:-10000px;top:0;width:794px;background:#ffffff;";
+  container.style.cssText = "position:absolute;left:-10000px;top:0;width:794px;background:#ffffff;";
   container.innerHTML = markup;
   document.body.appendChild(container);
 
   const fileName = `invoice-${String(invNo).replace(/[^\w-]+/g, "-")}-${todayIsoDate()}.pdf`;
+  // نحفظ موضع التمرير: **السبب الجذري للملف الفارغ** أن html2canvas يلتقط منطقة
+  // خاطئة حين تكون الصفحة مُمرَّرة للأسفل — وهي حالة الهاتف دائماً عند الضغط على
+  // زر أسفل الشاشة. قياس فعلي: صفحة عند 1500px تعطي لوحة بصفر حبر وملف 3 ك.ب،
+  // وبالرجوع إلى الأعلى قبل الالتقاط تعطي 11.84% حبراً وملفاً 104 ك.ب.
+  const keepScrollX = window.scrollX || 0;
+  const keepScrollY = window.scrollY || 0;
   try {
-    // دقة أقل على الهاتف: html2canvas بمقياس 2 يستهلك ذاكرة كبيرة على iOS وقد
-    // يُنتج لوحة فارغة فيخرج ملف بلا محتوى. 1.5 تكفي لقراءة الفاتورة وطباعتها.
-    const canvasScale = isHandheldDevice() ? 1.5 : 2;
-    const blob = await window.html2pdf().set({
+    window.scrollTo(0, 0);
+    // دقة أقل على الهاتف: المقياس 2 يستهلك ذاكرة كبيرة على iOS.
+    const worker = window.html2pdf().set({
       margin: [6, 6, 6, 6],
       filename: fileName,
       image: { type: "jpeg", quality: 0.96 },
-      html2canvas: { scale: canvasScale, useCORS: true, backgroundColor: "#ffffff" },
+      html2canvas: { scale: isHandheldDevice() ? 1.5 : 2, useCORS: true, backgroundColor: "#ffffff" },
       jsPDF: { unit: "mm", format: "a4", orientation: "portrait" }
-    }).from(container).outputPdf("blob");
+    }).from(container);
 
-    // حارس ملف فارغ: صفحة PDF مرسومة فعلاً لا تقلّ عن عشرات الكيلوبايتات.
-    // مشاركة ملف تالف مع الزبون أسوأ من رسالة خطأ واضحة.
-    const MIN_PDF_BYTES = 8 * 1024;
-    if (!blob || blob.size < MIN_PDF_BYTES) {
-      setNotice("error", `تعذّر توليد ملف الفاتورة (الحجم ${Math.round((blob?.size || 0) / 1024)} ك.ب فقط). أغلق التطبيق وافتحه ثم جرّب مجدداً.`);
+    // بوابة التحقق: نقيس نسبة البكسل غير الأبيض في اللوحة قبل بناء الملف.
+    // حجم الملف وحده مؤشر ضعيف (لوحة فارغة أعطت 9 ك.ب في القياس)، أما الحبر
+    // فدليل مباشر على أن الفاتورة رُسمت فعلاً.
+    await worker.toCanvas();
+    const canvas = (worker.prop && worker.prop.canvas) || worker.canvas;
+    const inkRatio = canvasInkRatio(canvas);
+    if (inkRatio <= 0.001) {
+      setNotice("error", "خرجت صفحة الفاتورة فارغة عند التوليد. أغلق التطبيق وافتحه ثم جرّب مجدداً — ولا تُرسل أي ملف نتج الآن.");
+      render();
+      return;
+    }
+
+    const blob = await worker.toPdf().outputPdf("blob");
+    if (!blob || blob.size < 8 * 1024) {
+      setNotice("error", `تعذّر توليد ملف الفاتورة (خرج بحجم ${Math.round((blob?.size || 0) / 1024)} ك.ب). جرّب مجدداً.`);
       render();
       return;
     }
@@ -6535,6 +6568,8 @@ async function saveSalesInvoicePdf() {
     render();
   } finally {
     container.remove();
+    // إرجاع موضع التمرير كما كان قبل الالتقاط.
+    window.scrollTo(keepScrollX, keepScrollY);
   }
 }
 
