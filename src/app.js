@@ -6324,8 +6324,11 @@ function salesInvoicePdfMarkup(data) {
   const border = "1px solid #d9d2c4";
   const th = `padding:7px 6px;background:#f3efe6;border:${border};font-size:12px;font-weight:700;color:#3a3226`;
   const td = `padding:6px;border:${border};font-size:12px;color:#241f18`;
+  // `break-inside: avoid` على كل صف: صف كمية/سعر/إجمالي مقسوم بين صفحتين غير
+  // مقبول على مستند يُسلَّم للزبون (ظهر في فاتورة 40 صنفاً عند الصف 32).
+  const pdfRowStyle = "page-break-inside:avoid;break-inside:avoid";
   const rows = data.rows.map((row, i) => `
-    <tr>
+    <tr style="${pdfRowStyle}">
       <td style="${td};text-align:center">${i + 1}</td>
       <td style="${td}">${escapeHtml(row.name)}</td>
       <td style="${td};text-align:center">${escapeHtml(row.unit)}</td>
@@ -6334,7 +6337,7 @@ function salesInvoicePdfMarkup(data) {
       <td style="${td};text-align:left" dir="ltr">${escapeHtml(row.total)}</td>
     </tr>`).join("");
   const summaryRow = (label, value, strong) => `
-    <tr>
+    <tr style="${pdfRowStyle}">
       <td style="${td};background:#faf8f3;font-weight:${strong ? 700 : 400}">${escapeHtml(label)}</td>
       <td style="${td};text-align:left;font-weight:${strong ? 700 : 400}" dir="ltr">${escapeHtml(value)}</td>
     </tr>`;
@@ -6371,7 +6374,7 @@ function salesInvoicePdfMarkup(data) {
 
     <table style="width:100%;border-collapse:collapse;margin-bottom:12px">
       <thead>
-        <tr>
+        <tr style="${pdfRowStyle}">
           <th style="${th};width:28px">#</th>
           <th style="${th}">الصنف</th>
           <th style="${th};width:64px">الوحدة</th>
@@ -6508,7 +6511,9 @@ async function saveSalesInvoicePdf() {
       filename: fileName,
       image: { type: "jpeg", quality: 0.96 },
       html2canvas: { scale: isHandheldDevice() ? 1.5 : 2, useCORS: true, backgroundColor: "#ffffff" },
-      jsPDF: { unit: "mm", format: "a4", orientation: "portrait" }
+      jsPDF: { unit: "mm", format: "a4", orientation: "portrait" },
+      // يمنع قطع أي صف بين صفحتين، ويحترم أنماط break-inside في القالب.
+      pagebreak: { mode: ["css", "legacy"], avoid: ["tr"] }
       // **العنصر الداخلي لا الحاوية**: تمرير حاوية `position:absolute` يجعل
       // html2canvas يحسب ارتفاعاً صفراً فتخرج لوحة 1123×0 وملف 3 ك.ب بلا رسم —
       // وهو الحجم نفسه الذي وصل المالك. قياس: الحاوية 1123×0 والداخلي 1123×751.
