@@ -1699,23 +1699,47 @@ function isMazaya100g(item) {
 const BULLETIN_MERGE_NAMES = ["ماستر طويل ورق", "ماستر قصير أزرق", "اليغانس طويل فضي"];
 
 function mergeBulletinNamedGroups(items) {
-  let result = [...items];
+  const result = [...items];
   BULLETIN_MERGE_NAMES.forEach((display) => {
     const baseN = normalizeItemName(display);
-    const matches = result.filter((it) => {
-      const n = normalizeItemName(it.name || it.itemName || "");
-      return n === baseN || n.startsWith(baseN + " ");
+    const entries = result
+      .map((item, index) => ({ item, index }))
+      .filter(({ item }) => {
+        const n = normalizeItemName(item.name || item.itemName || "");
+        return n === baseN || n.startsWith(baseN + " ");
+      });
+    if (entries.length < 2) return;
+    // نفس شرط مولّد النشرات حرفياً: لا يُدمج إلا ما تطابق سعراه (الجملة
+    // والمفرق معاً). صنف يبدأ بالاسم نفسه وسعره مختلف منتج آخر فعلاً، وابتلاعه
+    // يخفي سعره عن الزبون؛ والشرط نفسه في الطرفين يضمن أن الموقع والنشرة
+    // يعرضان المجموعة نفسها بالضبط.
+    const groups = new Map();
+    entries.forEach((entry) => {
+      const key = `${roundPrice(itemUnit2Price(entry.item))}|${roundPrice(itemRetailPrice(entry.item))}`;
+      const bucket = groups.get(key) || [];
+      bucket.push(entry);
+      groups.set(key, bucket);
     });
-    if (matches.length < 2) return;
-    const rep = matches.find((it) => normalizeItemName(it.name || it.itemName || "") === baseN) || matches[0];
-    const merged = {
-      ...rep,
-      name: display,
-      itemName: display,
-      sourceKeys: matches.map((it) => it.key).filter(Boolean)
-    };
-    result = result.filter((it) => !matches.includes(it));
-    result.push(merged);
+    // نفس قاعدة المولّد: غموض الأسعار يوقف الدمج بدل إنتاج اسمين متطابقين
+    // بسعرين مختلفين.
+    if (groups.size > 1) return;
+    const dropped = new Set();
+    groups.forEach((bucket) => {
+      if (bucket.length < 2) return;
+      const exact = bucket.find(({ item }) => normalizeItemName(item.name || item.itemName || "") === baseN);
+      const rep = exact || bucket[0];
+      const anchor = Math.min(...bucket.map(({ index }) => index));
+      result[anchor] = {
+        ...rep.item,
+        name: display,
+        itemName: display,
+        sourceKeys: bucket.map(({ item }) => item.key).filter(Boolean)
+      };
+      bucket.forEach(({ index }) => {
+        if (index !== anchor) dropped.add(index);
+      });
+    });
+    [...dropped].sort((a, b) => b - a).forEach((index) => result.splice(index, 1));
   });
   return result.sort(
     (a, b) =>
@@ -1723,6 +1747,7 @@ function mergeBulletinNamedGroups(items) {
       String(a.name || "").localeCompare(String(b.name || ""), "ar")
   );
 }
+
 
 // أسعار سطري المزايا: تُؤخذ تلقائيًا من النظام (صفحة الأسعار).
 // القيمتان التاليتان احتياطيتان فقط — تُستعمل إذا لم يوجد سعر مُدخَل في النظام.

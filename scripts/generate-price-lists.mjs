@@ -222,30 +222,56 @@ const normalizeMergeName = (value) => String(value || "")
   .replace(/[^\p{L}\p{N}]+/gu, " ")
   .trim();
 
-const mergeNamedGroups = (items, mode) => {
-  let result = [...items];
+const mergeNamedGroups = (items) => {
+  const result = [...items];
   for (const display of BULLETIN_MERGE_NAMES) {
     const base = normalizeMergeName(display);
-    const matches = result.filter((item) => {
-      const n = normalizeMergeName(item.name);
-      return n === base || n.startsWith(base + " ");
-    });
-    if (matches.length < 2) continue;
-    // نفس قاعدة المعسل: السعر الأكثر تكراراً، وعند التعادل الأعلى ثم آخر ظهور.
-    const counts = new Map();
-    for (const item of matches) {
-      const price = mode === "syp" ? Number(item.retailCarton || 0) : Number(item.usd || 0);
-      if (price > 0) counts.set(price, (counts.get(price) || 0) + 1);
+    const indexes = result
+      .map((item, index) => ({ item, index }))
+      .filter(({ item }) => {
+        const n = normalizeMergeName(item.name);
+        return n === base || n.startsWith(base + " ");
+      });
+    if (indexes.length < 2) continue;
+    // الدمج مشروط بتطابق السعرين معاً (دولار وسوري): سطران بالسعر نفسه تكرار
+    // بصري لا أكثر، أما صنف يبدأ بالاسم نفسه وسعره مختلف فهو منتج آخر فعلاً
+    // ولا يجوز ابتلاعه وإخفاء سعره عن الزبون. وتطابق السعرين معاً يضمن أن
+    // النشرتين والموقع يدمجون المجموعة نفسها بالضبط.
+    const groups = new Map();
+    for (const entry of indexes) {
+      const key = `${Number(entry.item.usd || 0)}|${Number(entry.item.retailCarton || 0)}`;
+      const bucket = groups.get(key) || [];
+      bucket.push(entry);
+      groups.set(key, bucket);
     }
-    const selectedPrice = [...counts.entries()].sort((a, b) => b[1] - a[1] || b[0] - a[0])[0]?.[0];
-    const selected = matches.findLast((item) =>
-      (mode === "syp" ? Number(item.retailCarton || 0) : Number(item.usd || 0)) === selectedPrice
-    ) || matches.at(-1);
-    result = result.filter((item) => !matches.includes(item));
-    result.push({ ...selected, name: display });
+    // غموض = لا دمج إطلاقاً: لو اختلفت الأسعار داخل المجموعة فدمج المتطابق وحده
+    // يُنتج سطرين بالاسم القانوني نفسه وسعرين مختلفين — أسوأ من التكرار الأصلي.
+    // نُبقي الأسماء كما هي وننبّه ليصحّح المالك السعر، فيعود الدمج تلقائياً.
+    if (groups.size > 1) {
+      const prices = [...groups.keys()].join(" / ");
+      console.log(`تنبيه: «${display}» له أكثر من سعر (${prices}) — لم يُدمج، والأسماء بقيت كما هي.`);
+      continue;
+    }
+    const dropped = new Set();
+    for (const bucket of groups.values()) {
+      if (bucket.length < 2) continue;
+      // الممثّل: صاحب الاسم القانوني نفسه إن وُجد، وإلا أول ظهور — وموضعه
+      // يبقى مكانه في الترتيب فلا تتبدّل صفوف النشرة.
+      const exact = bucket.find(({ item }) => normalizeMergeName(item.name) === base);
+      const rep = exact || bucket[0];
+      const anchor = Math.min(...bucket.map(({ index }) => index));
+      result[anchor] = { ...rep.item, name: display };
+      for (const { index } of bucket) {
+        if (index !== anchor) dropped.add(index);
+      }
+    }
+    if (dropped.size) {
+      for (const index of [...dropped].sort((a, b) => b - a)) result.splice(index, 1);
+    }
   }
   return result;
 };
+
 
 const toWazari = (items) => items.filter(isWazari).map(item => {
   let group = "وزاري متنوع";
@@ -259,8 +285,8 @@ const toWazari = (items) => items.filter(isWazari).map(item => {
 
 const usdWazariItems = toWazari(usdItems);
 const sypWazariItems = toWazari(sypItems);
-usdItems = mergeNamedGroups(consolidateGeneral(usdItems, "usd"), "usd");
-sypItems = mergeNamedGroups(consolidateGeneral(sypItems, "syp"), "syp");
+usdItems = mergeNamedGroups(consolidateGeneral(usdItems, "usd"));
+sypItems = mergeNamedGroups(consolidateGeneral(sypItems, "syp"));
 
 // ── شعار ─────────────────────────────────────────────────────────────────────
 const logoB64 = readFileSync(resolve(root, "public/icons/ozk-logo.png")).toString("base64");
