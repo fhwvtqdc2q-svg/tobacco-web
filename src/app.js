@@ -3627,6 +3627,26 @@ function movementBalanceAfter(custName, dateStr, debit, credit) {
   return null;
 }
 
+// رصيد الزبون **مباشرةً بعد قيد دفعة بعينها** لا رصيده الحالي: سند القبض ورقة
+// تُسلَّم للزبون، والرصيد الحالي قد يكون تغيّر بفواتير لاحقة للدفعة فيظهر رقم
+// لا علاقة له بالسند. نعتمد رصيد المستند الزمني (docNew/balanceChrono) كما في
+// مستند الفاتورة. يُرجع null إن لم نستطع الحسم، فيُعرض «الرصيد الحالي» صراحةً.
+function paymentMovementBalance(item, payment) {
+  const want = Number(payment?.amount || 0);
+  if (!(want > 0)) return null;
+  const full = customerFullMovements(item);
+  const movements = Array.isArray(full?.movements) ? full.movements : [];
+  const day = String(payment?.date || "").slice(0, 10);
+  const candidates = movements.filter((m) => Number(m?.credit || 0) > 0
+    && Math.abs(Number(m.credit || 0) - want) <= 0.5
+    && (!day || String(m?.date || "").slice(0, 10) === day));
+  // مرشّح واحد فقط يُعتمد: دفعتان بالمبلغ نفسه واليوم نفسه لا يمكن الحسم بينهما،
+  // واختيار إحداهما عشوائياً يطبع رصيداً خاطئاً على مستند رسمي.
+  if (candidates.length !== 1) return null;
+  const balances = movementDocBalances(candidates[0]);
+  return balances && Number.isFinite(balances.newBalance) ? roundPrice(balances.newBalance) : null;
+}
+
 // الكشف الرسمي الكامل: رصيد أول المدة + كل حركات الفترة برصيد متحرك + الرصيد النهائي
 function customerStatementPdfMarkup(item) {
   const key = customerKey(item);
@@ -3780,6 +3800,12 @@ function voucherPdfMarkup(v) {
     const lbl = v.balanceLabel || balLabel;
     const balTxt = (isInv || isRet || v.type === "receipt") ? balanceText(v.balance, cur) : `${formatMoney(v.balance)} ${cur}`;
     rows.push(`<tr><th>${escapeHtml(lbl)}</th><td>${escapeHtml(balTxt)}</td></tr>`);
+    // إن تحرّك الحساب بعد هذا القيد (فواتير لاحقة مثلاً) نعرض الرصيد الحالي أيضاً:
+    // سطر واحد لا يكفي — الزبون يقارن السند برصيده اليوم فيظنّ الفرق خطأً.
+    if (v.currentBalance !== undefined && v.currentBalance !== null && v.currentBalance !== ""
+      && Math.abs(Number(v.currentBalance) - Number(v.balance)) > 0.009) {
+      rows.push(`<tr><th>الرصيد الحالي</th><td>${escapeHtml(balanceText(v.currentBalance, cur))} <small>(بعد حركات لاحقة)</small></td></tr>`);
+    }
   }
   const stamp = `
     <div class="stamp-wrap"><div class="seal">
@@ -7570,21 +7596,52 @@ function render() {
 
   app.querySelector("[data-action='export-statement']")?.addEventListener("click", exportCustomerStatementPdf);
   app.querySelectorAll("[data-action='gen-receipt']").forEach((el) => {
-    el.addEventListener("click", () => {
-      const item = selectedCustomer(latestCustomerBalanceItems());
-      if (!item) { setNotice("error", "اختر زبونًا أولاً."); render(); return; }
+    el.addEventListener("click", async () => {
+      const before = selectedCustomer(latestCustomerBalanceItems());
+      if (!before) { setNotice("error", "اختر زبونًا أولاً."); render(); return; }
+      const amount = Number(el.dataset.amt || 0);
+      const date = el.dataset.date || todayIsoDate();
+      const notes = el.dataset.notes || "";
+
+      // سند القبض مستند مالي يُسلَّم للزبون: نسحب أحدث أرصدة وحركات قبل إصداره،
+      // فصفحة مفتوحة منذ ساعات تحمل رصيداً قديماً لا يطابق الأمين.
+      let refreshed = false;
+      try {
+        await loadCustomerBalanceReports();
+        refreshed = true;
+      } catch {
+        refreshed = false;
+      }
+      // لو فشل السحب أو اختفى الزبون من التقرير الجديد نكمل بالنسخة السابقة
+      // ولا نُسقط العملية — لكن بوسم رصيد صريح لا يدّعي أنه «بعد الدفعة».
+      const item = (refreshed && selectedCustomer(latestCustomerBalanceItems())) || before;
       const key = customerKey(item);
-      exportVoucherPdf({
+
+      const opts = {
         type: "receipt",
         name: item.name || "",
         phone: customerProfile(key)?.phone || "",
-        amount: Number(el.dataset.amt || 0),
-        date: el.dataset.date || todayIsoDate(),
-        notes: el.dataset.notes || "",
-        balance: customerBalance(item),
+        amount,
+        date,
+        notes,
         cur: customerCurrency(item),
         no: docNumber("R")
-      });
+      };
+      const afterPayment = refreshed ? paymentMovementBalance(item, { amount, date }) : null;
+      if (afterPayment !== null) {
+        opts.balance = afterPayment;
+        opts.balanceLabel = "الرصيد بعد الدفعة";
+        // الرصيد الحالي يُعرض أيضاً إن اختلف: الدفعة قد تكون قديمة وتلتها فواتير.
+        opts.currentBalance = customerBalance(item);
+      } else {
+        opts.balance = customerBalance(item);
+        opts.balanceLabel = "الرصيد الحالي";
+      }
+      await exportVoucherPdf(opts);
+      if (!refreshed) {
+        setNotice("error", "تعذّر تحديث الأرصدة قبل السند — الرقم المطبوع من آخر نسخة محمّلة. حدّث الصفحة وتحقّق قبل تسليمه.");
+        render();
+      }
     });
   });
   app.querySelector("[data-action='toggle-currency']")?.addEventListener("click", () => {
