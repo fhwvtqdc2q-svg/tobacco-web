@@ -6349,8 +6349,8 @@ function salesInvoicePdfMarkup(data) {
   return `
   <div dir="rtl" style="width:754px;padding:20px;background:#ffffff;color:#241f18;
        font-family:'Segoe UI',Tahoma,Arial,sans-serif">
-    <div style="display:flex;justify-content:space-between;align-items:flex-start;
-         border-bottom:2px solid #8a6d3b;padding-bottom:10px;margin-bottom:12px">
+    <div class="pdf-head" style="display:flex;justify-content:space-between;align-items:flex-start;
+         border-bottom:2px solid #8a6d3b;padding-bottom:10px;margin-bottom:12px;${pdfRowStyle}">
       <div>
         <div style="font-size:20px;font-weight:700;color:#8a6d3b">OZK TOBACCO</div>
         <div style="font-size:12px;color:#6b6154">مركز أبو زياد — لتجارة الدخان</div>
@@ -6361,7 +6361,7 @@ function salesInvoicePdfMarkup(data) {
       </div>
     </div>
 
-    <div style="display:flex;justify-content:space-between;margin-bottom:12px">
+    <div class="pdf-meta" style="display:flex;justify-content:space-between;margin-bottom:12px;${pdfRowStyle}">
       <div>
         ${info("الزبون", data.customer)}
         ${info("طريقة الدفع", data.payLabel)}
@@ -6386,8 +6386,8 @@ function salesInvoicePdfMarkup(data) {
       <tbody>${rows}</tbody>
     </table>
 
-    <table style="width:290px;border-collapse:collapse;margin-right:auto">
-      <tbody>
+    <table class="pdf-summary" style="width:290px;border-collapse:collapse;margin-right:auto;${pdfRowStyle}">
+      <tbody style="${pdfRowStyle}">
         ${summaryRow("الإجمالي", data.grand)}
         ${summaryRow("الحسم", data.discount)}
         ${summaryRow("الصافي", data.net, true)}
@@ -6396,8 +6396,8 @@ function salesInvoicePdfMarkup(data) {
       </tbody>
     </table>
 
-    <div style="margin-top:18px;padding-top:8px;border-top:1px solid #d9d2c4;
-         font-size:11px;color:#6b6154;display:flex;justify-content:space-between">
+    <div class="pdf-foot" style="margin-top:18px;padding-top:8px;border-top:1px solid #d9d2c4;
+         font-size:11px;color:#6b6154;display:flex;justify-content:space-between;${pdfRowStyle}">
       <span>صفة البيع: ${escapeHtml(SALES_TRADE_CAPACITY)} · السجل التجاري: <span dir="ltr">${escapeHtml(SALES_TRADE_REGISTER_NO)}</span></span>
       <span dir="ltr">0985000771 — 0984000662</span>
     </div>
@@ -6513,7 +6513,12 @@ async function saveSalesInvoicePdf() {
       html2canvas: { scale: isHandheldDevice() ? 1.5 : 2, useCORS: true, backgroundColor: "#ffffff" },
       jsPDF: { unit: "mm", format: "a4", orientation: "portrait" },
       // يمنع قطع أي صف بين صفحتين، ويحترم أنماط break-inside في القالب.
-      pagebreak: { mode: ["css", "legacy"], avoid: ["tr"] }
+      pagebreak: {
+        mode: ["css", "legacy"],
+        // الصفوف وكتل المجاميع والتذييل والترويسة: أي منها مقسوم بين صفحتين
+        // يفسد شكل مستند يُسلَّم للزبون.
+        avoid: ["tr", ".pdf-summary", ".pdf-foot", ".pdf-head", ".pdf-meta"]
+      }
       // **العنصر الداخلي لا الحاوية**: تمرير حاوية `position:absolute` يجعل
       // html2canvas يحسب ارتفاعاً صفراً فتخرج لوحة 1123×0 وملف 3 ك.ب بلا رسم —
       // وهو الحجم نفسه الذي وصل المالك. قياس: الحاوية 1123×0 والداخلي 1123×751.
