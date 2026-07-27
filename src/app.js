@@ -2094,7 +2094,12 @@ function prepareBulletinItems(useSyria = false) {
   // الترشيح أولاً ثم الدمج: النشرة تُبنى من الأصناف المؤهَّلة وحدها.
   let items = customerPriceListItems(bulletinMode, { skipMerge: true });
 
-  if (!useSyria) items = items.filter(hasFullSecondUnit);
+  // الترشيح الكامل قبل الدمج في النشرتين، كترتيب المولّد حرفياً:
+  // الجملة تستبعد ما دون وحدة ثانية كاملة، والسوري يستبعد ما لا سعر مفرق له.
+  // بدون ترشيح السوري أولاً قد يُختار ممثّل بلا سعر مفرق فتسقط المجموعة كلها
+  // لاحقاً رغم وجود صنف مسعّر فيها.
+  if (useSyria) items = items.filter((item) => itemRetailPrice(item) > 0);
+  else items = items.filter(hasFullSecondUnit);
   items = consolidateGeneralPriceItems(items, bulletinMode);
 
   if (useSyria) {
