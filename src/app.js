@@ -1586,7 +1586,7 @@ function downloadApprovedPricesForAccounting() {
   render();
 }
 
-function customerPriceListItems(mode) {
+function customerPriceListItems(mode, options) {
   const prices = approvedPriceMap();
   const items = liveAvailableItems()
     .map((item) => {
@@ -1612,6 +1612,10 @@ function customerPriceListItems(mode) {
         String(a.groupName || "").localeCompare(String(b.groupName || ""), "ar") ||
         String(a.name || "").localeCompare(String(b.name || ""), "ar")
     );
+  // `skipMerge` لمن يحتاج الترشيح قبل الدمج (نشرة الجملة تستبعد ما دون وحدة
+  // ثانية كاملة أولاً، تماماً كما يفعل المولّد، وإلا قد يسقط الصف المدموج
+  // ويختفي صنف صالح كان سيظهر في النشرة).
+  if (options && options.skipMerge) return items;
   return consolidateGeneralPriceItems(items, mode);
 }
 
@@ -1722,8 +1726,9 @@ function mergeBulletinNamedGroups(items, mode) {
         const n = normalizeItemName(item.name || item.itemName || "");
         return n === baseN || n.startsWith(baseN + " ");
       });
-    // القرار على المسعّرين في هذا الوضع فقط، لكن **مفاتيح المصدر تضم كل
-    // المتطابقين بالاسم** كي يحدّث حفظ سعر السطر المدمج حتى غير المسعّر منها.
+    // القرار — ومفاتيح المصدر معاً — على المسعّرين في هذا الوضع فقط.
+    // منح سعر السطر المدمج لصنف غير مسعّر يبدأ بالاسم نفسه قد يكتب سعراً على
+    // **منتج آخر**؛ وخسارة تحديث alias غير مسعّر أهون بكثير من تسعير خاطئ.
     const entries = named.filter(({ item }) => priceOf(item) > 0);
     if (entries.length < 2) return;
     const keys = new Set(entries.map(({ item }) => bulletinMergePriceKey(priceOf(item))));
@@ -1736,7 +1741,7 @@ function mergeBulletinNamedGroups(items, mode) {
       ...rep.item,
       name: display,
       itemName: display,
-      sourceKeys: named.map(({ item }) => item.key).filter(Boolean)
+      sourceKeys: entries.map(({ item }) => item.key).filter(Boolean)
     };
     const dropped = entries.map(({ index }) => index).filter((index) => index !== anchor);
     dropped.sort((a, b) => b - a).forEach((index) => result.splice(index, 1));
@@ -2085,9 +2090,12 @@ function prepareBulletinItems(useSyria = false) {
   const latest = latestStockReport();
   // الوضع من نوع النشرة المصدَّرة لا من تبويب الصفحة: تصدير نشرة السوري
   // والصفحة على وضع الجملة كان يدمج بقرار الوضع الخاطئ.
-  let items = customerPriceListItems(useSyria ? "mufrak" : "jumla");
+  const bulletinMode = useSyria ? "mufrak" : "jumla";
+  // الترشيح أولاً ثم الدمج: النشرة تُبنى من الأصناف المؤهَّلة وحدها.
+  let items = customerPriceListItems(bulletinMode, { skipMerge: true });
 
   if (!useSyria) items = items.filter(hasFullSecondUnit);
+  items = consolidateGeneralPriceItems(items, bulletinMode);
 
   if (useSyria) {
     // نشرة المفرّق: سعر المفرق يُدخل بسعر الكرتونة بالدولار → يقسم على عدد الكروز ثم × سعر الصرف
