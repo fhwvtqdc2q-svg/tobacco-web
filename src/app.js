@@ -6324,8 +6324,11 @@ function salesInvoicePdfMarkup(data) {
   const border = "1px solid #d9d2c4";
   const th = `padding:7px 6px;background:#f3efe6;border:${border};font-size:12px;font-weight:700;color:#3a3226`;
   const td = `padding:6px;border:${border};font-size:12px;color:#241f18`;
+  // `break-inside: avoid` على كل صف: صف كمية/سعر/إجمالي مقسوم بين صفحتين غير
+  // مقبول على مستند يُسلَّم للزبون (ظهر في فاتورة 40 صنفاً عند الصف 32).
+  const pdfRowStyle = "page-break-inside:avoid;break-inside:avoid";
   const rows = data.rows.map((row, i) => `
-    <tr>
+    <tr style="${pdfRowStyle}">
       <td style="${td};text-align:center">${i + 1}</td>
       <td style="${td}">${escapeHtml(row.name)}</td>
       <td style="${td};text-align:center">${escapeHtml(row.unit)}</td>
@@ -6334,7 +6337,7 @@ function salesInvoicePdfMarkup(data) {
       <td style="${td};text-align:left" dir="ltr">${escapeHtml(row.total)}</td>
     </tr>`).join("");
   const summaryRow = (label, value, strong) => `
-    <tr>
+    <tr style="${pdfRowStyle}">
       <td style="${td};background:#faf8f3;font-weight:${strong ? 700 : 400}">${escapeHtml(label)}</td>
       <td style="${td};text-align:left;font-weight:${strong ? 700 : 400}" dir="ltr">${escapeHtml(value)}</td>
     </tr>`;
@@ -6346,8 +6349,8 @@ function salesInvoicePdfMarkup(data) {
   return `
   <div dir="rtl" style="width:754px;padding:20px;background:#ffffff;color:#241f18;
        font-family:'Segoe UI',Tahoma,Arial,sans-serif">
-    <div style="display:flex;justify-content:space-between;align-items:flex-start;
-         border-bottom:2px solid #8a6d3b;padding-bottom:10px;margin-bottom:12px">
+    <div class="pdf-head" style="display:flex;justify-content:space-between;align-items:flex-start;
+         border-bottom:2px solid #8a6d3b;padding-bottom:10px;margin-bottom:12px;${pdfRowStyle}">
       <div>
         <div style="font-size:20px;font-weight:700;color:#8a6d3b">OZK TOBACCO</div>
         <div style="font-size:12px;color:#6b6154">مركز أبو زياد — لتجارة الدخان</div>
@@ -6358,7 +6361,7 @@ function salesInvoicePdfMarkup(data) {
       </div>
     </div>
 
-    <div style="display:flex;justify-content:space-between;margin-bottom:12px">
+    <div class="pdf-meta" style="display:flex;justify-content:space-between;margin-bottom:12px;${pdfRowStyle}">
       <div>
         ${info("الزبون", data.customer)}
         ${info("طريقة الدفع", data.payLabel)}
@@ -6371,7 +6374,7 @@ function salesInvoicePdfMarkup(data) {
 
     <table style="width:100%;border-collapse:collapse;margin-bottom:12px">
       <thead>
-        <tr>
+        <tr style="${pdfRowStyle}">
           <th style="${th};width:28px">#</th>
           <th style="${th}">الصنف</th>
           <th style="${th};width:64px">الوحدة</th>
@@ -6383,8 +6386,9 @@ function salesInvoicePdfMarkup(data) {
       <tbody>${rows}</tbody>
     </table>
 
-    <table style="width:290px;border-collapse:collapse;margin-right:auto">
-      <tbody>
+    <div class="pdf-tail" style="${pdfRowStyle}">
+    <table class="pdf-summary" style="width:290px;border-collapse:collapse;margin-right:auto;${pdfRowStyle}">
+      <tbody style="${pdfRowStyle}">
         ${summaryRow("الإجمالي", data.grand)}
         ${summaryRow("الحسم", data.discount)}
         ${summaryRow("الصافي", data.net, true)}
@@ -6393,12 +6397,35 @@ function salesInvoicePdfMarkup(data) {
       </tbody>
     </table>
 
-    <div style="margin-top:18px;padding-top:8px;border-top:1px solid #d9d2c4;
-         font-size:11px;color:#6b6154;display:flex;justify-content:space-between">
+    <div class="pdf-foot" style="margin-top:18px;padding-top:8px;border-top:1px solid #d9d2c4;
+         font-size:11px;color:#6b6154;display:flex;justify-content:space-between;${pdfRowStyle}">
       <span>صفة البيع: ${escapeHtml(SALES_TRADE_CAPACITY)} · السجل التجاري: <span dir="ltr">${escapeHtml(SALES_TRADE_REGISTER_NO)}</span></span>
       <span dir="ltr">0985000771 — 0984000662</span>
     </div>
+    </div>
   </div>`;
+}
+
+// نسبة البكسل غير الأبيض في لوحة الرسم — دليل مباشر على أن المستند رُسم فعلاً.
+// نأخذ عيّنة كل 29 بكسل: تكفي للحكم وتُبقي القياس سريعاً على الهاتف.
+function canvasInkRatio(canvas, yStart, yEnd) {
+  if (!canvas || !canvas.width || !canvas.height) return 0;
+  const top = Math.max(0, Math.floor(yStart || 0));
+  const bottom = Math.min(canvas.height, Math.ceil(yEnd === undefined ? canvas.height : yEnd));
+  if (bottom <= top) return 0;
+  try {
+    const data = canvas.getContext("2d").getImageData(0, top, canvas.width, bottom - top).data;
+    let ink = 0;
+    let total = 0;
+    for (let i = 0; i < data.length; i += 4 * 29) {
+      total++;
+      if (data[i] < 235 || data[i + 1] < 235 || data[i + 2] < 235) ink++;
+    }
+    return total > 0 ? ink / total : 0;
+  } catch {
+    // تعذّر القياس (قيود أمنية مثلاً) — لا نمنع التصدير بسببه.
+    return 1;
+  }
 }
 
 // حفظ/مشاركة الفاتورة كملف PDF فعلي.
@@ -6470,20 +6497,75 @@ async function saveSalesInvoicePdf() {
   });
 
   const container = document.createElement("div");
-  // خارج الشاشة لا display:none — html2canvas لا يرسم عنصراً بلا تخطيط.
-  container.style.cssText = "position:fixed;left:-10000px;top:0;width:794px;background:#ffffff;";
+  container.style.cssText = "position:absolute;left:-10000px;top:0;width:794px;background:#ffffff;";
   container.innerHTML = markup;
   document.body.appendChild(container);
 
   const fileName = `invoice-${String(invNo).replace(/[^\w-]+/g, "-")}-${todayIsoDate()}.pdf`;
+  // نحفظ موضع التمرير: **السبب الجذري للملف الفارغ** أن html2canvas يلتقط منطقة
+  // خاطئة حين تكون الصفحة مُمرَّرة للأسفل — وهي حالة الهاتف دائماً عند الضغط على
+  // زر أسفل الشاشة. قياس فعلي: صفحة عند 1500px تعطي لوحة بصفر حبر وملف 3 ك.ب،
+  // وبالرجوع إلى الأعلى قبل الالتقاط تعطي 11.84% حبراً وملفاً 104 ك.ب.
+  const keepScrollX = window.scrollX || 0;
+  const keepScrollY = window.scrollY || 0;
   try {
-    const blob = await window.html2pdf().set({
+    window.scrollTo(0, 0);
+    // دقة أقل على الهاتف: المقياس 2 يستهلك ذاكرة كبيرة على iOS.
+    const worker = window.html2pdf().set({
       margin: [6, 6, 6, 6],
       filename: fileName,
       image: { type: "jpeg", quality: 0.96 },
-      html2canvas: { scale: 2, useCORS: true, backgroundColor: "#ffffff" },
-      jsPDF: { unit: "mm", format: "a4", orientation: "portrait" }
-    }).from(container).outputPdf("blob");
+      html2canvas: { scale: isHandheldDevice() ? 1.5 : 2, useCORS: true, backgroundColor: "#ffffff" },
+      jsPDF: { unit: "mm", format: "a4", orientation: "portrait" },
+      // يمنع قطع أي صف بين صفحتين، ويحترم أنماط break-inside في القالب.
+      pagebreak: {
+        mode: ["css", "legacy"],
+        // الصفوف وكتل المجاميع والتذييل والترويسة: أي منها مقسوم بين صفحتين
+        // يفسد شكل مستند يُسلَّم للزبون.
+        // `.pdf-tail` تجمع المجاميع والتذييل معاً: تذييل وحيد في صفحة ثانية
+        // شبه فارغة يبدو خطأً في الطباعة لا تنسيقاً.
+        avoid: ["tr", ".pdf-tail", ".pdf-summary", ".pdf-foot", ".pdf-head", ".pdf-meta"]
+      }
+      // **العنصر الداخلي لا الحاوية**: تمرير حاوية `position:absolute` يجعل
+      // html2canvas يحسب ارتفاعاً صفراً فتخرج لوحة 1123×0 وملف 3 ك.ب بلا رسم —
+      // وهو الحجم نفسه الذي وصل المالك. قياس: الحاوية 1123×0 والداخلي 1123×751.
+    }).from(container.firstElementChild || container);
+
+    // بوابة التحقق: نقيس نسبة البكسل غير الأبيض في اللوحة قبل بناء الملف.
+    // حجم الملف وحده مؤشر ضعيف (لوحة فارغة أعطت 9 ك.ب في القياس)، أما الحبر
+    // فدليل مباشر على أن الفاتورة رُسمت فعلاً.
+    await worker.toCanvas();
+    const canvas = (worker.prop && worker.prop.canvas) || worker.canvas;
+    const inkRatio = canvasInkRatio(canvas);
+    if (inkRatio <= 0.001) {
+      setNotice("error", "خرجت صفحة الفاتورة فارغة عند التوليد. أغلق التطبيق وافتحه ثم جرّب مجدداً — ولا تُرسل أي ملف نتج الآن.");
+      render();
+      return;
+    }
+
+    await worker.toPdf();
+    const pdf = worker.prop && worker.prop.pdf;
+    // صفحة A4 بيضاء بالكامل في آخر الملف تحصل حين يتجاوز المحتوى حدّ الصفحة
+    // ببضعة بكسلات فقط (فاتورة 24 صنفاً مثلاً). نقيس حبر الشريحة الأخيرة من
+    // اللوحة ونحذف الصفحة إن كانت فارغة — أنظف من العبث بالهوامش.
+    if (pdf && canvas && typeof pdf.deletePage === "function") {
+      const pageCount = pdf.internal.getNumberOfPages();
+      if (pageCount > 1) {
+        // اللوحة تُقاس إلى عرض الصفحة المفيد (210mm ناقص هامشين 6mm).
+        const pxPerMm = canvas.width / (210 - 12);
+        const pageHeightPx = pxPerMm * (297 - 12);
+        const lastStart = (pageCount - 1) * pageHeightPx;
+        if (lastStart < canvas.height && canvasInkRatio(canvas, lastStart, canvas.height) <= 0.0005) {
+          pdf.deletePage(pageCount);
+        }
+      }
+    }
+    const blob = pdf ? pdf.output("blob") : await worker.outputPdf("blob");
+    if (!blob || blob.size < 8 * 1024) {
+      setNotice("error", `تعذّر توليد ملف الفاتورة (خرج بحجم ${Math.round((blob?.size || 0) / 1024)} ك.ب). جرّب مجدداً.`);
+      render();
+      return;
+    }
 
     const file = new File([blob], fileName, { type: "application/pdf" });
     // ورقة المشاركة أولاً: على iOS هي الطريق الوحيد العملي للحفظ في «الملفات»
@@ -6523,6 +6605,11 @@ async function saveSalesInvoicePdf() {
     render();
   } finally {
     container.remove();
+    // إرجاع موضع التمرير **فقط إن كان ما زال حيث تركناه**: لو مرّر المستخدم
+    // الصفحة أثناء التوليد فإرجاعه القسري يخطف الشاشة من تحت يده.
+    if ((window.scrollX || 0) === 0 && (window.scrollY || 0) === 0) {
+      window.scrollTo(keepScrollX, keepScrollY);
+    }
   }
 }
 
