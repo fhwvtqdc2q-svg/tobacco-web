@@ -1586,7 +1586,7 @@ function downloadApprovedPricesForAccounting() {
   render();
 }
 
-function customerPriceListItems() {
+function customerPriceListItems(mode) {
   const prices = approvedPriceMap();
   const items = liveAvailableItems()
     .map((item) => {
@@ -1612,7 +1612,7 @@ function customerPriceListItems() {
         String(a.groupName || "").localeCompare(String(b.groupName || ""), "ar") ||
         String(a.name || "").localeCompare(String(b.name || ""), "ar")
     );
-  return consolidateGeneralPriceItems(items);
+  return consolidateGeneralPriceItems(items, mode);
 }
 
 function isWazariPriceItem(item) {
@@ -1657,7 +1657,7 @@ function isGeneralShishaPriceItem(item) {
     ["معسل", "مزايا", "نخله", "فاخر", "صفوه", "اسطوره"].some((word) => name.includes(word));
 }
 
-function consolidateGeneralPriceItems(items) {
+function consolidateGeneralPriceItems(items, mode) {
   const regular = [];
   const merged = new Map();
   items.filter((item) => !isWazariPriceItem(item)).forEach((item) => {
@@ -1681,7 +1681,7 @@ function consolidateGeneralPriceItems(items) {
       sourceKeys: [item.key].filter(Boolean)
     });
   });
-  return mergeBulletinNamedGroups([...regular, ...merged.values()]);
+  return mergeBulletinNamedGroups([...regular, ...merged.values()], mode);
 }
 
 function isMazayaPriceItem(item) {
@@ -1701,7 +1701,11 @@ const BULLETIN_MERGE_NAMES = ["ماستر طويل ورق", "ماستر قصير
 // مفتاح مقارنة السعر — مطابق حرفياً لـ`mergePriceKey` في مولّد النشرات
 // (scripts/generate-price-lists.mjs) كي يقرّر الطرفان على المجموعة نفسها.
 function bulletinMergePriceKey(value) {
-  return Math.round(Math.round(Number(value || 0) * 1000) / 1000 * 100);
+  const n = Number(value || 0);
+  // فوق هذا الحدّ تفقد الفاصلة العائمة دقة القرش، فنقارن النص الخام بدل رقم
+  // قد يوحّد سعرين مختلفين. أسعار العمل الحقيقية أصغر منه بمراحل.
+  if (!Number.isFinite(n) || Math.abs(n) > 1e12) return `raw:${String(value)}`;
+  return String(Math.round(Math.round(n * 1000) / 1000 * 100));
 }
 
 function mergeBulletinNamedGroups(items, mode) {
@@ -1712,13 +1716,15 @@ function mergeBulletinNamedGroups(items, mode) {
   const result = [...items];
   BULLETIN_MERGE_NAMES.forEach((display) => {
     const baseN = normalizeItemName(display);
-    const entries = result
+    const named = result
       .map((item, index) => ({ item, index }))
       .filter(({ item }) => {
         const n = normalizeItemName(item.name || item.itemName || "");
         return n === baseN || n.startsWith(baseN + " ");
-      })
-      .filter(({ item }) => priceOf(item) > 0);
+      });
+    // القرار على المسعّرين في هذا الوضع فقط، لكن **مفاتيح المصدر تضم كل
+    // المتطابقين بالاسم** كي يحدّث حفظ سعر السطر المدمج حتى غير المسعّر منها.
+    const entries = named.filter(({ item }) => priceOf(item) > 0);
     if (entries.length < 2) return;
     const keys = new Set(entries.map(({ item }) => bulletinMergePriceKey(priceOf(item))));
     // غموض الأسعار يوقف الدمج بدل إنتاج اسمين متطابقين بسعرين مختلفين.
@@ -1730,7 +1736,7 @@ function mergeBulletinNamedGroups(items, mode) {
       ...rep.item,
       name: display,
       itemName: display,
-      sourceKeys: entries.map(({ item }) => item.key).filter(Boolean)
+      sourceKeys: named.map(({ item }) => item.key).filter(Boolean)
     };
     const dropped = entries.map(({ index }) => index).filter((index) => index !== anchor);
     dropped.sort((a, b) => b - a).forEach((index) => result.splice(index, 1));
@@ -2077,7 +2083,9 @@ async function publishBulletin(options = {}) {
 // يجهّز عناصر النشرة (مع التحقق وتحويل العملة) — يرجع null إذا تعذّر المتابعة
 function prepareBulletinItems(useSyria = false) {
   const latest = latestStockReport();
-  let items = customerPriceListItems();
+  // الوضع من نوع النشرة المصدَّرة لا من تبويب الصفحة: تصدير نشرة السوري
+  // والصفحة على وضع الجملة كان يدمج بقرار الوضع الخاطئ.
+  let items = customerPriceListItems(useSyria ? "mufrak" : "jumla");
 
   if (!useSyria) items = items.filter(hasFullSecondUnit);
 
@@ -2224,7 +2232,7 @@ function generalPricingWorklistItems() {
   const allItems = pricingWorklistItems({ ignoreSearch: true });
   const items = pricingWorklistItems()
     .filter((item) => state.priceMode === "mufrak" ? itemQty(item) > 0 : hasFullSecondUnit(item));
-  const consolidated = consolidateGeneralPriceItems(items);
+  const consolidated = consolidateGeneralPriceItems(items, state.priceMode === "mufrak" ? "mufrak" : "jumla");
 
   // شرط الكرتونة الكاملة يحدد ظهور الصنف في نشرة الجملة فقط، ولا يجوز أن
   // يمنع تحديث سعر بقية أصناف المجموعة المدمجة ذات المخزون الموجب.

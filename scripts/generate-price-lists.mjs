@@ -215,6 +215,8 @@ const consolidateGeneral = (items, mode) => {
 // الاسم بعد التطبيع: الاسم القانوني نفسه أو ما يبدأ به متبوعاً بمسافة.
 const normalizeMergeName = (value) => String(value || "")
   .trim()
+  // بادئة رقم الصنف («123456 - اسم») تُحذف كما يفعل normalizeItemName في الموقع.
+  .replace(/^\d{2,}\s*[-–—]\s*/u, "")
   .replace(/[ً-ْـ]/g, "")
   .replace(/[أإآٱ]/g, "ا")
   .replace(/ى/g, "ي")
@@ -227,7 +229,11 @@ const normalizeMergeName = (value) => String(value || "")
 // الموقع والنشرة على المجموعة نفسها بالضبط.
 // تقريب مزدوج مقصود: ثلاث منازل ثم قروش — لأن الموقع يقرّب إلى ثلاث منازل قبل
 // المقارنة، فلولا التقريب نفسه لاختلف القراران عند حدود مثل 190.0049.
-const mergePriceKey = (value) => Math.round(Math.round(Number(value || 0) * 1000) / 1000 * 100);
+const mergePriceKey = (value) => {
+  const n = Number(value || 0);
+  if (!Number.isFinite(n) || Math.abs(n) > 1e12) return `raw:${String(value)}`;
+  return String(Math.round(Math.round(n * 1000) / 1000 * 100));
+};
 
 // أسماء نُبّه عليها مسبقاً: الدالة تُستدعى مرتين (دولار وسوري) فلا نكرّر التنبيه.
 const mergeWarned = new Set();
