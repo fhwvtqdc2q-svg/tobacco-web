@@ -1,4 +1,4 @@
-﻿# يسحب أحدث نسخة احتياطية لكل قاعدة أمين من مشاركة خادم المحل إلى OneDrive على هذا الجهاز.
+﻿# يسحب أحدث نسخة احتياطية لكل قاعدة أمين من مشاركة خادم المحل إلى مسار محلي محايد عن المستخدم.
 # المصدر المتوقع: \\OZK-TOBACCO\AmeenBackup (مشاركة لمجلد "D:\Ameen backup" على الخادم).
 # إذا لم تكن المشاركة مفعّلة بعد، ينسحب بصمت — يبدأ العمل تلقائياً فور تفعيلها.
 # متوافق مع Windows PowerShell 5.1. تشغّله مهمة «TOBACCO Ameen Backup Pull» يومياً.
@@ -38,8 +38,7 @@ if ($newest.LastWriteTime -lt (Get-Date).AddDays(-3)) {
   Send-Alert ("آخر نسخة احتياطية للأمين على الخادم قديمة (" + $newest.LastWriteTime.ToString("yyyy-MM-dd HH:mm") + ") — تأكد أن النسخ يعمل") "ameen-backup-stale" 1440
 }
 
-$destRoot = Join-Path $env:OneDrive "AmeenBackups"
-if (-not $env:OneDrive) { $destRoot = "C:\Users\LOQ\Documents\AmeenBackups" }
+$destRoot = "C:\ProgramData\OZK-TOBACCO\AmeenBackups"
 if (-not (Test-Path -LiteralPath $destRoot)) {
   New-Item -ItemType Directory -Force -Path $destRoot | Out-Null
 }
