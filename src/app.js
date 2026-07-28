@@ -2181,6 +2181,22 @@ function openPricePreview(useSyria = false) {
   render();
 }
 
+// الطباعة وPDF يجب أن يعكسا ما كتبه المستخدم الآن، حتى لو انتقل مباشرةً
+// من حقل السعر إلى زر المعاينة قبل الضغط على «حفظ السعر».
+async function savePendingPricingEdits() {
+  const pendingForms = [...app.querySelectorAll("[data-form='pricing-item'][data-dirty='true']")];
+  for (const form of pendingForms) {
+    const saved = await savePricingItem(form);
+    if (!saved) return false;
+  }
+  return true;
+}
+
+async function openFreshPricePreview(useSyria = false) {
+  if (!(await savePendingPricingEdits())) return;
+  openPricePreview(useSyria);
+}
+
 function closePricePreview() {
   state.pricePreview = null;
   render();
@@ -3385,11 +3401,13 @@ function pricing() {
         <div class="newsletter-edition-grid">
           <article class="newsletter-edition-card is-featured">
             <span class="newsletter-edition-type">جملة</span><h4>نشرة الدولار</h4><p>الكرتونة أو الطرد أو الشرحة الكاملة فقط.</p>
+            <button class="button primary mini-button" type="button" data-action="download-customer-price-pdf">حفظ التعديلات ومعاينة PDF الآن</button>
             <p class="newsletter-published-label">آخر نسخة منشورة للزبائن:</p>
             <div><a href="public/downloads/price-list-usd.html">اختيار اللون</a><a href="public/downloads/price-list-usd.pdf">داكن</a><a href="public/downloads/price-list-usd-light.pdf">فاتح</a></div>
           </article>
           <article class="newsletter-edition-card">
             <span class="newsletter-edition-type">مفرق</span><h4>نشرة السوري</h4><p>المواد ذات المخزون الموجب وفق سعر الصرف المعتمد.</p>
+            <button class="button primary mini-button" type="button" data-action="download-customer-price-syria">حفظ التعديلات ومعاينة PDF الآن</button>
             <p class="newsletter-published-label">آخر نسخة منشورة للزبائن:</p>
             <div><a href="public/downloads/price-list-syp-14050.html">اختيار اللون</a><a href="public/downloads/price-list-syp-14050.pdf">داكن</a><a href="public/downloads/price-list-syp-14050-light.pdf">فاتح</a></div>
           </article>
@@ -3414,8 +3432,8 @@ function pricing() {
           <label style="display:flex;align-items:center;gap:8px;font-weight:700">سعر الصرف اليوم
             <input data-published-exchange-rate type="number" min="1" step="1" value="${escapeHtml(state.syriaExchangeRate)}" style="width:120px;padding:8px;border:1px solid var(--line);border-radius:8px" aria-label="سعر صرف الليرة السورية مقابل الدولار">
           </label>
-          <button class="button primary" type="button" data-action="download-customer-price-pdf">معاينة وطباعة الدولار الآن</button>
-          <button class="button primary" type="button" data-action="download-customer-price-syria">معاينة وطباعة السوري الآن</button>
+          <button class="button primary" type="button" data-action="download-customer-price-pdf">حفظ أي تعديل ثم معاينة وطباعة الدولار</button>
+          <button class="button primary" type="button" data-action="download-customer-price-syria">حفظ أي تعديل ثم معاينة وطباعة السوري</button>
           <button class="button success" type="button" data-action="publish-bulletin" ${state.session ? "" : "disabled"}>اعتماد ونشر للزبائن</button>
         </div>
         <p class="bulletin-status ${escapeHtml(state.bulletinStatus?.type || "muted")}" data-bulletin-status ${state.bulletinStatus ? "" : "hidden"}>${escapeHtml(state.bulletinStatus?.msg || "")}</p>
@@ -7547,6 +7565,11 @@ function bindPricingForms(root = app) {
   root.querySelectorAll("[data-form='pricing-item']").forEach((form) => {
     if (form.dataset.bound === "true") return;
     form.dataset.bound = "true";
+    form.querySelectorAll("input[name='wholesalePrice'], input[name='retailPrice']").forEach((input) => {
+      input.addEventListener("input", () => {
+        form.dataset.dirty = "true";
+      });
+    });
     form.addEventListener("submit", async (event) => {
       event.preventDefault();
       const forms = [...app.querySelectorAll("[data-form='pricing-item']")];
@@ -8090,8 +8113,12 @@ function render() {
   app.querySelector("[data-action='download-prices']")?.addEventListener("click", downloadFilteredPriceList);
   app.querySelector("[data-action='download-price-template']")?.addEventListener("click", downloadLivePriceTemplate);
   app.querySelector("[data-action='download-daily-pricing']")?.addEventListener("click", downloadDailyPricingWorklist);
-  app.querySelector("[data-action='download-customer-price-pdf']")?.addEventListener("click", () => openPricePreview(false));
-  app.querySelector("[data-action='download-customer-price-syria']")?.addEventListener("click", () => openPricePreview(true));
+  app.querySelectorAll("[data-action='download-customer-price-pdf']").forEach((button) => {
+    button.addEventListener("click", () => openFreshPricePreview(false));
+  });
+  app.querySelectorAll("[data-action='download-customer-price-syria']").forEach((button) => {
+    button.addEventListener("click", () => openFreshPricePreview(true));
+  });
   app.querySelector("[data-action='publish-bulletin']")?.addEventListener("click", publishBulletin);
   const publishedExchangeRateInput = app.querySelector("[data-published-exchange-rate]");
   publishedExchangeRateInput?.addEventListener("input", (event) => {

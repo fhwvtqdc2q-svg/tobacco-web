@@ -164,6 +164,20 @@ for (const contract of [
     failed = true;
   }
 }
+for (const contract of [
+  "async function savePendingPricingEdits",
+  "async function openFreshPricePreview",
+  "data-dirty='true'",
+  'form.dataset.dirty = "true"',
+  "openFreshPricePreview(false)",
+  "openFreshPricePreview(true)",
+  "حفظ التعديلات ومعاينة PDF الآن"
+]) {
+  if (!app.includes(contract)) {
+    console.error(`Instant bulletin print/export contract is missing: ${contract}`);
+    failed = true;
+  }
+}
 for (const contract of ["scheduleBulletinPublish", "normalizedTargets", "aliasKeys", "storedTokenOnly: true"]) {
   if (!app.includes(contract)) {
     console.error(`Automatic bulletin synchronization contract is missing: ${contract}`);
