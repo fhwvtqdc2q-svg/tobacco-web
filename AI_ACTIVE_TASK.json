@@ -1,13 +1,15 @@
 {
-    "schemaVersion":  1,
-    "status":  "active",
-    "owner":  "Codex",
-    "task":  "تحديث الطباعة وPDF فوراً من الأسعار المدخلة",
-    "branch":  "task branch pending for: تحديث الطباعة وPDF فوراً من الأسعار المدخلة",
-    "files":  [
-                  "\u0027src/app.js\u0027,\u0027scripts/check.mjs\u0027,\u0027public/service-worker.js\u0027"
-              ],
-    "startedAt":  "2026-07-28T10:05:50Z",
-    "updatedAt":  "2026-07-28T10:05:50Z",
-    "note":  "Work in progress. Do not edit the reserved files."
+  "schemaVersion": 1,
+  "status": "active",
+  "owner": "Codex",
+  "task": "تحديث الطباعة وPDF فوراً من الأسعار المدخلة",
+  "branch": "codex/instant-bulletin-export",
+  "files": [
+    "src/app.js",
+    "scripts/check.mjs",
+    "public/service-worker.js"
+  ],
+  "startedAt": "2026-07-28T10:05:50Z",
+  "updatedAt": "2026-07-28T10:05:50Z",
+  "note": "Work in progress. Do not edit the reserved files."
 }
