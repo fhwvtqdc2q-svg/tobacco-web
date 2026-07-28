@@ -88,6 +88,17 @@ for (const contract of ["inputs:", "rate:", "SYP_RATE:", "scripts/exchange-rate.
     failed = true;
   }
 }
+for (const contract of [
+  "cron: '*/15 * * * *'",
+  "id: bulletin_changes",
+  "steps.bulletin_changes.outputs.changed == 'true'",
+  "لا تغييرات في الأسعار اليدوية أو المخزون"
+]) {
+  if (!priceGenerationWorkflow.includes(contract)) {
+    console.error(`Automatic manual-price bulletin contract is missing: ${contract}`);
+    failed = true;
+  }
+}
 const newsletterContracts = [
   'navButton("pricing", "نشرة الأسعار")',
   'pricing: "نشرة الأسعار"',
@@ -130,9 +141,26 @@ if (app.includes("سعّر الجملة أولاً")) {
   console.error("Retail-only pricing must not require a wholesale USD price first.");
   failed = true;
 }
-for (const contract of ["data-published-exchange-rate", "inputs: { rate: String(rate) }", "loadPublishedExchangeRate", "تم اعتماد صرف", "scheduleBulletinPublish();"] ) {
+for (const contract of [
+  "data-published-exchange-rate",
+  "inputs: { rate: String(rate) }",
+  "loadPublishedExchangeRate",
+  "writeJson(\"syria-exchange-rate\", rate)",
+  "scheduleBulletinPublish({ label:"
+]) {
   if (!app.includes(contract)) {
     console.error(`Daily exchange-rate contract is missing: ${contract}`);
+    failed = true;
+  }
+}
+for (const contract of [
+  "function refreshBulletinStatusNotice",
+  'addEventListener("input"',
+  "cloudFallback: false",
+  "ستلتقطه السحابة تلقائياً خلال 15 دقيقة"
+]) {
+  if (!app.includes(contract)) {
+    console.error(`Reliable manual rate/price publishing contract is missing: ${contract}`);
     failed = true;
   }
 }

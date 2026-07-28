@@ -2033,17 +2033,35 @@ function customerPricePdfMarkup(items, latest, useSyria = false) {
 
 let bulletinPublishTimer = null;
 
-function scheduleBulletinPublish() {
-  clearTimeout(bulletinPublishTimer);
-  if (!localStorage.getItem("gh_publish_token")) {
-    state.bulletinStatus = { type: "muted", msg: "حُفظ السعر. اضغط «اعتماد ونشر» مرة واحدة لتفعيل النشر التلقائي على هذا الجهاز." };
+function refreshBulletinStatusNotice() {
+  const element = app.querySelector("[data-bulletin-status]");
+  if (!element) return;
+  if (!state.bulletinStatus) {
+    element.hidden = true;
     return;
   }
-  state.bulletinStatus = { type: "muted", msg: "حُفظ السعر — ستُحدّث النشرة تلقائياً بعد انتهاء تعديلاتك." };
+  element.hidden = false;
+  element.className = `bulletin-status ${state.bulletinStatus.type || "muted"}`;
+  element.textContent = state.bulletinStatus.msg || "";
+}
+
+function scheduleBulletinPublish(options = {}) {
+  clearTimeout(bulletinPublishTimer);
+  const label = options.label || "السعر";
+  if (!localStorage.getItem("gh_publish_token")) {
+    state.bulletinStatus = options.cloudFallback === false
+      ? { type: "muted", msg: `حُفظ ${label} على هذا الجهاز. اضغط «اعتماد ونشر» لتطبيقه على النشرة العامة.` }
+      : { type: "success", msg: `حُفظ ${label} — ستلتقطه السحابة تلقائياً خلال 15 دقيقة. زر «اعتماد ونشر» يبقى للنشر الفوري فقط.` };
+    refreshBulletinStatusNotice();
+    return;
+  }
+  state.bulletinStatus = { type: "muted", msg: `حُفظ ${label} — ستُحدّث النشرة تلقائياً بعد انتهاء تعديلاتك.` };
+  refreshBulletinStatusNotice();
   bulletinPublishTimer = setTimeout(() => publishBulletin({ storedTokenOnly: true }), 15000);
 }
 
 async function publishBulletin(options = {}) {
+  clearTimeout(bulletinPublishTimer);
   const REPO = "fhwvtqdc2q-svg/tobacco-web";
   const WORKFLOW = "generate-price-lists.yml";
   const rateInput = document.querySelector("[data-published-exchange-rate]");
@@ -3400,7 +3418,7 @@ function pricing() {
           <button class="button primary" type="button" data-action="download-customer-price-syria">معاينة وطباعة السوري الآن</button>
           <button class="button success" type="button" data-action="publish-bulletin" ${state.session ? "" : "disabled"}>اعتماد ونشر للزبائن</button>
         </div>
-        ${state.bulletinStatus ? `<p class="bulletin-status ${state.bulletinStatus.type}">${escapeHtml(state.bulletinStatus.msg)}</p>` : ""}
+        <p class="bulletin-status ${escapeHtml(state.bulletinStatus?.type || "muted")}" data-bulletin-status ${state.bulletinStatus ? "" : "hidden"}>${escapeHtml(state.bulletinStatus?.msg || "")}</p>
       </section>
 
       <section class="panel wide inventory-browser newsletter-pricing-panel">
@@ -8075,15 +8093,26 @@ function render() {
   app.querySelector("[data-action='download-customer-price-pdf']")?.addEventListener("click", () => openPricePreview(false));
   app.querySelector("[data-action='download-customer-price-syria']")?.addEventListener("click", () => openPricePreview(true));
   app.querySelector("[data-action='publish-bulletin']")?.addEventListener("click", publishBulletin);
-  app.querySelector("[data-published-exchange-rate]")?.addEventListener("change", (event) => {
+  const publishedExchangeRateInput = app.querySelector("[data-published-exchange-rate]");
+  publishedExchangeRateInput?.addEventListener("input", (event) => {
     const rate = Number(event.currentTarget.value || 0);
     if (rate > 0) {
       state.syriaExchangeRate = rate;
       writeJson("syria-exchange-rate", rate);
-      state.bulletinStatus = { type: "muted", msg: `تم اعتماد صرف ${rate.toLocaleString()} — ستُحدّث نشرة السوري تلقائياً.` };
-      scheduleBulletinPublish();
-      render();
     }
+  });
+  publishedExchangeRateInput?.addEventListener("change", (event) => {
+    const rate = Number(event.currentTarget.value || 0);
+    if (!Number.isFinite(rate) || rate <= 0) {
+      state.bulletinStatus = { type: "error", msg: "أدخل سعر صرف صحيحاً أكبر من صفر." };
+      refreshBulletinStatusNotice();
+      return;
+    }
+    state.syriaExchangeRate = rate;
+    writeJson("syria-exchange-rate", rate);
+    scheduleBulletinPublish({ label: `سعر الصرف ${rate.toLocaleString()}`, cloudFallback: false });
+    // لا نعيد رسم الصفحة هنا: إعادة الرسم أثناء blur كانت تستبدل زر المعاينة
+    // أو النشر قبل وصول click إليه، فتضيع النقرة الأولى للمستخدم.
   });
   app.querySelector("[data-action='download-approved-prices']")?.addEventListener("click", downloadApprovedPricesForAccounting);
   app.querySelector("[data-action='download-inventory']")?.addEventListener("click", downloadLatestInventoryReport);
