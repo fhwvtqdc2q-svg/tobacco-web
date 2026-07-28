@@ -1,13 +1,13 @@
 {
     "schemaVersion":  1,
-    "status":  "active",
-    "owner":  "Codex",
-    "task":  "إصلاح حفظ وطباعة أسعار النشرة: فصل الجملة والمفرق ومعاينة فورية",
-    "branch":  "task branch pending for: إصلاح حفظ وطباعة أسعار النشرة: فصل الجملة والمفرق ومعاينة فورية",
+    "status":  "idle",
+    "owner":  null,
+    "task":  null,
+    "branch":  null,
     "files":  [
-                  "src/app.js,src/styles.css,public/service-worker.js"
+
               ],
-    "startedAt":  "2026-07-28T08:49:47Z",
-    "updatedAt":  "2026-07-28T08:49:47Z",
-    "note":  "Work in progress. Do not edit the reserved files."
+    "startedAt":  null,
+    "updatedAt":  "2026-07-28T08:57:32Z",
+    "note":  "No active task. Read AI_HANDOFF.md before starting work."
 }
