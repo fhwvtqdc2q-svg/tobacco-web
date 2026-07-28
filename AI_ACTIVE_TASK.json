@@ -1,11 +1,13 @@
 {
-  "schemaVersion": 1,
-  "status": "idle",
-  "owner": null,
-  "task": null,
-  "branch": null,
-  "files": [],
-  "startedAt": null,
-  "updatedAt": "2026-07-28T09:35:33Z",
-  "note": "No active task. Read AI_HANDOFF.md before starting work."
+    "schemaVersion":  1,
+    "status":  "active",
+    "owner":  "Codex",
+    "task":  "تحديث الطباعة وPDF فوراً من الأسعار المدخلة",
+    "branch":  "task branch pending for: تحديث الطباعة وPDF فوراً من الأسعار المدخلة",
+    "files":  [
+                  "\u0027src/app.js\u0027,\u0027scripts/check.mjs\u0027,\u0027public/service-worker.js\u0027"
+              ],
+    "startedAt":  "2026-07-28T10:05:50Z",
+    "updatedAt":  "2026-07-28T10:05:50Z",
+    "note":  "Work in progress. Do not edit the reserved files."
 }
