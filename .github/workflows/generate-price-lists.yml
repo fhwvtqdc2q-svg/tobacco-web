@@ -5,6 +5,9 @@ on:
     branches: [main]
     paths:
       - 'scripts/price-data.json'
+      - 'scripts/bulletin-merge-names.json'
+      - 'scripts/generate-price-lists.mjs'
+      - 'scripts/generate-pdfs.mjs'
   workflow_dispatch:
     inputs:
       rate:
@@ -12,15 +15,20 @@ on:
         required: false
         type: string
   schedule:
-    # يتجدّد تلقائياً من الأسعار الحيّة في Supabase كل 3 ساعات (بدون لابتوب)
-    - cron: '0 */3 * * *'
+    # الأسعار اليدوية المحفوظة في Supabase تصل إلى النشرة بلا زر نشر وبلا لابتوب.
+    - cron: '*/15 * * * *'
 
 permissions:
   contents: write
 
+concurrency:
+  group: generate-price-lists
+  cancel-in-progress: false
+
 jobs:
   generate:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
 
     steps:
       - name: Checkout
@@ -34,21 +42,38 @@ jobs:
           node-version: '20'
           cache: 'npm'
 
-      - name: Install dependencies
-        run: npm ci
-
-      - name: Install Playwright Chromium
-        run: npx playwright install chromium --with-deps
-
       - name: Generate price list HTML
         env:
           SYP_RATE: ${{ inputs.rate || '' }}
         run: node scripts/generate-price-lists.mjs
 
+      - name: Detect bulletin changes
+        id: bulletin_changes
+        shell: bash
+        run: |
+          if [[ "${{ github.event_name }}" == "push" ]]; then
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          elif git diff --quiet -- public/downloads/*.html scripts/exchange-rate.json; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            echo "لا تغييرات في الأسعار اليدوية أو المخزون — تخطي PDF والدفع."
+          else
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Install dependencies
+        if: steps.bulletin_changes.outputs.changed == 'true'
+        run: npm ci
+
+      - name: Install Playwright Chromium
+        if: steps.bulletin_changes.outputs.changed == 'true'
+        run: npx playwright install chromium --with-deps
+
       - name: Generate PDFs
+        if: steps.bulletin_changes.outputs.changed == 'true'
         run: node scripts/generate-pdfs.mjs
 
       - name: Bump service worker cache version
+        if: steps.bulletin_changes.outputs.changed == 'true'
         run: |
           FILE="public/service-worker.js"
           CURRENT=$(grep -o 'v[0-9]*"' "$FILE" | tr -d '"v')
@@ -57,6 +82,7 @@ jobs:
           echo "Cache bumped: v${CURRENT} → v${NEW}"
 
       - name: Commit generated files
+        if: steps.bulletin_changes.outputs.changed == 'true'
         run: |
           git config user.name  "price-bot"
           git config user.email "action@github.com"
