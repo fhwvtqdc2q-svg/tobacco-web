@@ -2,6 +2,13 @@
 
 يقرأه Claude وCodex قبل كل مهمة. أحدث سجل يكون في الأعلى. لا تحذف السجلات السابقة.
 
+## 2026-07-28 - Codex - تحديث النشرة تلقائياً من الأسعار اليدوية وإصلاح تغيير سعر الصرف
+
+- Status: completed
+- Branch: task branch pending for: تحديث النشرة تلقائياً من الأسعار اليدوية وإصلاح تغيير سعر الصرف
+- Files: .github/workflows/generate-price-lists.yml,src/app.js,scripts/check.mjs,public/service-worker.js
+- Result: اعتماد أسعار Supabase اليدوية تلقائياً كل 15 دقيقة؛ تخطي توليد PDF عند عدم وجود فرق؛ إصلاح ضياع النقرة الأولى بعد تغيير سعر الصرف؛ الفحوص والنشر وتشغيل workflow التجريبي نجحت.
+- Handoff UTC: 2026-07-28T09:35:33Z
 ## 2026-07-28 - Codex - إصلاح حفظ وطباعة أسعار النشرة: فصل الجملة والمفرق ومعاينة فورية
 
 - Status: completed
