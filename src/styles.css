@@ -1309,6 +1309,12 @@ code {
   margin-top: 2px;
 }
 
+.pricing-editor-fields {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px;
+}
+
 .pricing-editor label {
   display: grid;
   gap: 4px;
@@ -2510,6 +2516,32 @@ code {
   align-items: center;
   gap: 12px;
   flex-wrap: wrap;
+}
+
+.pricing-price-summary {
+  display: grid;
+  gap: 3px;
+}
+
+.pricing-price-summary b:first-child {
+  color: var(--accent);
+}
+
+.pricing-price-summary b:last-child {
+  color: #2f9d62;
+}
+
+.pricing-mode-help {
+  margin: 0 0 10px;
+  color: var(--muted);
+  font-size: 0.78rem;
+  line-height: 1.6;
+}
+
+.newsletter-published-label {
+  margin-top: auto !important;
+  color: #d4bc8d !important;
+  font-weight: 800;
 }
 
 .sales-mode-switch,

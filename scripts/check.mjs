@@ -156,9 +156,19 @@ if (/function latestStockReport\(\)[\s\S]*?\|\| reports\[0\]/.test(app)) {
   console.error("Latest stock-report selection must not fall back to a non-stock report.");
   failed = true;
 }
-if (!app.includes("unit2Price > 0 ? unit2Price : entered")) {
-  console.error("Retail-only pricing fallback is missing.");
-  failed = true;
+for (const contract of [
+  'name="wholesalePrice"',
+  'name="retailPrice"',
+  "const sourceUnit2Price = wholesaleProvided ? enteredWholesale : sourceExistingWholesale;",
+  "const sourceRetailPrice = retailProvided ? enteredRetail : sourceExistingRetail;",
+  'data-action="download-customer-price-pdf"',
+  'data-action="download-customer-price-syria"',
+  "آخر نسخة منشورة للزبائن"
+]) {
+  if (!app.includes(contract)) {
+    console.error(`Dual-price save/instant preview contract is missing: ${contract}`);
+    failed = true;
+  }
 }
 
 const generatedNewsletterPages = [
