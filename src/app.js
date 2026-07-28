@@ -2332,33 +2332,21 @@ async function savePricingItem(form) {
     const formUnit2Factor = toNumber(form.dataset.unit2Factor || 0);
     const liveUnit2Factor = itemUnit2Factor(latestItem);
     const unit2Factor = Math.max(1, liveUnit2Factor > 1 ? liveUnit2Factor : formUnit2Factor || 1);
-    const entered = toPositivePrice(formValue(form, "salePrice"));
+    const wholesaleText = formValue(form, "wholesalePrice");
+    const retailText = formValue(form, "retailPrice");
+    const wholesaleProvided = wholesaleText !== "";
+    const retailProvided = retailText !== "";
+    const enteredWholesale = toPositivePrice(wholesaleText);
+    const enteredRetail = toPositivePrice(retailText);
     const stockQty = toNumber(form.dataset.stockQty);
     const stockStatus = form.dataset.stockStatus || "active";
-    const mode = state.priceMode === "mufrak" ? "mufrak" : "jumla";
 
-    if (entered <= 0) throw new Error("اكتب سعرًا أكبر من صفر.");
+    if ((!wholesaleProvided || enteredWholesale <= 0) && (!retailProvided || enteredRetail <= 0)) {
+      throw new Error("اكتب سعر الجملة أو سعر المفرق بقيمة أكبر من صفر.");
+    }
     if (!latest) throw new Error("لا يوجد جرد حي للمطابقة.");
     if (!itemKey || !itemName) throw new Error("لا يمكن حفظ السعر بدون مادة واضحة.");
     if (!dataStore.upsertApprovedPriceItems) throw new Error("حفظ الأسعار غير مفعل في قاعدة البيانات.");
-
-    const existing = approvedPriceMap().get(itemKey) || approvedPriceMap().get(sourceKeys[0]);
-    const basePayload = (existing && existing.pricePayload) || {};
-    let unit2Price, salePrice, payloadObj, savedLabel;
-
-    if (mode === "mufrak") {
-      unit2Price = Number((existing && existing.unit2Price) || 0);
-      // سعر المفرق مستقل عن الجملة: إن لم يوجد سعر جملة نحفظ سعراً مرجعياً للوحدة الأولى
-      // كي يبقى السجل صالحاً في Supabase، بينما تعتمد نشرة السوري على retail.price حصراً.
-      salePrice = Number((existing && existing.salePrice) || roundPrice((unit2Price > 0 ? unit2Price : entered) / unit2Factor));
-      payloadObj = { ...basePayload, retail: { price: entered }, source: "phone_pricing_page", pricedDate: todayIsoDate() };
-      savedLabel = `سعر المفرق ${formatMoney(entered)}$ لل${unit2Name || "كرتونة"} (≈ ${formatMoney(roundPrice(entered / unit2Factor))}$ لل${unit1Name || "كروز"})`;
-    } else {
-      unit2Price = entered;
-      salePrice = roundPrice(entered / unit2Factor);
-      payloadObj = { ...basePayload, source: "phone_pricing_page", pricedUnit: "unit2", pricedDate: todayIsoDate() };
-      savedLabel = `سعر الجملة ${formatMoney(entered)}$`;
-    }
 
     const requestedKeys = sourceKeys.length ? sourceKeys : [itemKey];
     const normalizedTargets = new Set(requestedKeys.map(normalizeItemName));
@@ -2392,13 +2380,26 @@ async function savePricingItem(form) {
       const sourceFactor = Math.max(1, sourceItem
         ? itemUnit2Factor(sourceItem)
         : Number(sourceExisting?.unit2Factor) || unit2Factor);
-      const sourceUnit2Price = mode === "mufrak" ? Number(sourceExisting?.unit2Price || unit2Price) : entered;
-      const sourceSalePrice = Number(
-        sourceExisting?.salePrice || roundPrice((sourceUnit2Price > 0 ? sourceUnit2Price : entered) / sourceFactor)
+      const sourceExistingWholesale = Number(sourceExisting?.unit2Price || 0);
+      const sourceExistingRetail = Number(sourceExisting?.pricePayload?.retail?.price || 0);
+      const sourceUnit2Price = wholesaleProvided ? enteredWholesale : sourceExistingWholesale;
+      const sourceRetailPrice = retailProvided ? enteredRetail : sourceExistingRetail;
+      if (sourceUnit2Price <= 0 && sourceRetailPrice <= 0) return null;
+      // sale_price يبقى سعراً مرجعياً للوحدة الأولى. سعر المفرق المستقل محفوظ
+      // حصراً في price_payload.retail.price وتقرأه نشرة السوري مباشرة.
+      const sourceSalePrice = roundPrice(
+        (sourceUnit2Price > 0 ? sourceUnit2Price : sourceRetailPrice) / sourceFactor
       );
-      const sourcePayload = mode === "mufrak"
-        ? { ...(sourceExisting?.pricePayload || {}), retail: { price: entered }, source: "phone_pricing_page", pricedDate: todayIsoDate() }
-        : payloadObj;
+      const existingPayload = sourceExisting?.pricePayload || {};
+      const sourcePayload = {
+        ...existingPayload,
+        ...(retailProvided
+          ? { retail: { ...(existingPayload.retail || {}), price: enteredRetail } }
+          : {}),
+        source: "phone_pricing_page",
+        ...(wholesaleProvided ? { pricedUnit: "unit2" } : {}),
+        pricedDate: todayIsoDate()
+      };
       return {
         itemKey: targetKey,
         itemName: sourceItem?.name || sourceExisting?.itemName || itemName,
@@ -2406,8 +2407,8 @@ async function savePricingItem(form) {
         unit2Name: (sourceItem ? itemUnit2Name(sourceItem) : sourceExisting?.unit2Name) || unit2Name,
         unit2Factor: sourceFactor,
         unit2Price: sourceUnit2Price,
-        unit1Price: mode === "mufrak" ? sourceSalePrice : roundPrice(entered / sourceFactor),
-        salePrice: mode === "mufrak" ? sourceSalePrice : roundPrice(entered / sourceFactor),
+        unit1Price: sourceSalePrice,
+        salePrice: sourceSalePrice,
         stockQty: sourceItem ? itemQty(sourceItem) : Number(sourceExisting?.stockQty || 0),
         stockStatus: (sourceItem ? sourceItem.status : sourceExisting?.stockStatus) || stockStatus,
         sourceReportId: uuidOrNull(latest.id),
@@ -2431,15 +2432,19 @@ async function savePricingItem(form) {
     const skippedLabel = skippedCount > 0
       ? ` — وتُخطّي ${skippedCount} ${skippedCount === 1 ? "مفتاح غير واضح المطابقة" : "مفاتيح غير واضحة المطابقة"}`
       : "";
+    const savedParts = [];
+    if (wholesaleProvided) savedParts.push(`الجملة ${formatMoney(enteredWholesale)}$`);
+    if (retailProvided) savedParts.push(`المفرق ${formatMoney(enteredRetail)}$`);
+    const savedLabel = savedParts.join(" و");
     // تنبيه معلوماتي لا يمنع شيئاً: السعر المحفوظ تحت التكلفة.
     const savedCostRow = itemCostFor({ name: itemName, key: itemKey });
     const savedCostUnit2 = savedCostRow && Number(savedCostRow.avg_cost) > 0
       ? roundPrice(Number(savedCostRow.avg_cost) * unit2Factor)
       : 0;
-    const belowCostLabel = (savedCostUnit2 > 0 && entered < savedCostUnit2)
+    const belowCostLabel = (savedCostUnit2 > 0 && wholesaleProvided && enteredWholesale < savedCostUnit2)
       ? ` · ℹ️ تحت التكلفة (${formatMoney(savedCostUnit2)}$ لل${unit2Name || "كرتونة"}) — حُفظ كما هو`
       : "";
-    setNotice("success", `✓ تم حفظ ${savedLabel}: ${itemName}${mergedLabel}${skippedLabel}${belowCostLabel}`);
+    setNotice("success", `✓ تم حفظ سعر ${savedLabel}: ${itemName}${mergedLabel}${skippedLabel}${belowCostLabel}`);
     scheduleBulletinPublish();
     render();
     return true;
@@ -3249,15 +3254,12 @@ function pricingRow(item) {
   const unit1Name = itemUnit1Name(item);
   const unit2Name = itemUnit2Name(item);
   const unit2Factor = itemUnit2Factor(item);
-  const mode = state.priceMode === "mufrak" ? "mufrak" : "jumla";
   const wholesale = itemUnit2Price(item);
   const retail = itemRetailPrice(item);
-  const shown = mode === "mufrak" ? retail : wholesale;
   const unitLabel = unit2Name || "كرتونة";
-  const modeLabel = mode === "mufrak" ? "سعر المفرق" : "سعر الجملة";
-  const priced = shown > 0;
+  const priced = wholesale > 0 || retail > 0;
   const retailPerUnit1 = retail > 0 ? roundPrice(retail / unit2Factor) : 0;
-  const retailHint = mode === "mufrak" && retailPerUnit1 > 0 ? `<small class="muted">≈ ${escapeHtml(formatMoney(retailPerUnit1))} $ لكل ${escapeHtml(unit1Name || "كروز")}</small>` : "";
+  const retailHint = retailPerUnit1 > 0 ? `<small class="muted">المفرق ≈ ${escapeHtml(formatMoney(retailPerUnit1))} $ لكل ${escapeHtml(unit1Name || "كروز")}</small>` : "";
   const rowState = (wholesale > 0 || retail > 0) ? "active" : item.status;
   const costRow = itemCostFor(item);
   // التكلفة في الأمين لكل كروز — نضربها بعدد الكروزات بالكرتونة لتطابق تسعير الكرتونة
@@ -3268,8 +3270,15 @@ function pricingRow(item) {
     : "";
   // تنبيه معلوماتي فقط: البيع تحت التكلفة مسموح ومقصود أحياناً (تصفية صلاحية مثلاً)،
   // فلا يمنع الحفظ ولا المزامنة ولا يغيّر أي سعر.
-  const belowCostLine = (priced && costPerCarton > 0 && shown < costPerCarton)
-    ? `<div class="cost-line" style="color:var(--danger)" title="للعلم فقط — الحفظ والمزامنة يعملان كالمعتاد">ℹ️ ${escapeHtml(modeLabel)} تحت التكلفة بـ <b>${escapeHtml(formatMoney(roundPrice(costPerCarton - shown)))}</b> $ لل${escapeHtml(unitLabel)}</div>`
+  const belowCostParts = [];
+  if (wholesale > 0 && costPerCarton > 0 && wholesale < costPerCarton) {
+    belowCostParts.push(`الجملة بـ ${formatMoney(roundPrice(costPerCarton - wholesale))}$`);
+  }
+  if (retail > 0 && costPerCarton > 0 && retail < costPerCarton) {
+    belowCostParts.push(`المفرق بـ ${formatMoney(roundPrice(costPerCarton - retail))}$`);
+  }
+  const belowCostLine = belowCostParts.length
+    ? `<div class="cost-line" style="color:var(--danger)" title="للعلم فقط — الحفظ والمزامنة يعملان كالمعتاد">ℹ️ تحت التكلفة: ${escapeHtml(belowCostParts.join("، "))} لل${escapeHtml(unitLabel)}</div>`
     : "";
   return `
     <div class="pricing-card inventory-row-${escapeHtml(rowState)}">
@@ -3278,16 +3287,25 @@ function pricingRow(item) {
         <span>${escapeHtml(qty)}</span>
       </div>
       <small>${escapeHtml(unit2Name)} / ${escapeHtml(unit2Factor)} ${escapeHtml(unit1Name)}</small>
-      <b>${priced ? escapeHtml(formatMoney(shown)) + " $" : "غير مسعر"}</b>
+      <div class="pricing-price-summary">
+        <b>جملة: ${wholesale > 0 ? `${escapeHtml(formatMoney(wholesale))} $` : "غير مسعّر"}</b>
+        <b>مفرق: ${retail > 0 ? `${escapeHtml(formatMoney(retail))} $` : "غير مسعّر"}</b>
+      </div>
       ${costLine}
       ${belowCostLine}
       ${retailHint}
-      <span>${escapeHtml(priced ? (mode === "mufrak" ? "مفرق ✓" : "جملة ✓") : statusLabel(item.status))}</span>
+      <span>${escapeHtml(priced ? "الأسعار مستقلة — راجع الحقلين" : statusLabel(item.status))}</span>
       <form class="pricing-editor" data-form="pricing-item" data-item-key="${escapeHtml(item.key)}" data-source-keys="${escapeHtml(JSON.stringify(item.sourceKeys || []))}" data-item-name="${escapeHtml(item.name || "")}" data-stock-qty="${escapeHtml(qty)}" data-stock-status="${escapeHtml(item.status || "")}" data-unit1-name="${escapeHtml(unit1Name)}" data-unit2-name="${escapeHtml(unit2Name)}" data-unit2-factor="${escapeHtml(unit2Factor)}">
-        <label>
-          <span>${escapeHtml(modeLabel)} (${escapeHtml(unitLabel)} $)</span>
-          <input name="salePrice" type="text" inputmode="decimal" dir="ltr" value="${escapeHtml(priced ? shown : "")}" placeholder="0">
-        </label>
+        <div class="pricing-editor-fields">
+          <label>
+            <span>سعر الجملة (${escapeHtml(unitLabel)} $)</span>
+            <input name="wholesalePrice" type="text" inputmode="decimal" dir="ltr" value="${escapeHtml(wholesale > 0 ? wholesale : "")}" placeholder="0">
+          </label>
+          <label>
+            <span>سعر المفرق (${escapeHtml(unitLabel)} $)</span>
+            <input name="retailPrice" type="text" inputmode="decimal" dir="ltr" value="${escapeHtml(retail > 0 ? retail : "")}" placeholder="0">
+          </label>
+        </div>
         <button class="button secondary mini-button" type="submit">حفظ السعر</button>
       </form>
     </div>
@@ -3349,10 +3367,12 @@ function pricing() {
         <div class="newsletter-edition-grid">
           <article class="newsletter-edition-card is-featured">
             <span class="newsletter-edition-type">جملة</span><h4>نشرة الدولار</h4><p>الكرتونة أو الطرد أو الشرحة الكاملة فقط.</p>
+            <p class="newsletter-published-label">آخر نسخة منشورة للزبائن:</p>
             <div><a href="public/downloads/price-list-usd.html">اختيار اللون</a><a href="public/downloads/price-list-usd.pdf">داكن</a><a href="public/downloads/price-list-usd-light.pdf">فاتح</a></div>
           </article>
           <article class="newsletter-edition-card">
             <span class="newsletter-edition-type">مفرق</span><h4>نشرة السوري</h4><p>المواد ذات المخزون الموجب وفق سعر الصرف المعتمد.</p>
+            <p class="newsletter-published-label">آخر نسخة منشورة للزبائن:</p>
             <div><a href="public/downloads/price-list-syp-14050.html">اختيار اللون</a><a href="public/downloads/price-list-syp-14050.pdf">داكن</a><a href="public/downloads/price-list-syp-14050-light.pdf">فاتح</a></div>
           </article>
           <article class="newsletter-edition-card">
@@ -3376,8 +3396,8 @@ function pricing() {
           <label style="display:flex;align-items:center;gap:8px;font-weight:700">سعر الصرف اليوم
             <input data-published-exchange-rate type="number" min="1" step="1" value="${escapeHtml(state.syriaExchangeRate)}" style="width:120px;padding:8px;border:1px solid var(--line);border-radius:8px" aria-label="سعر صرف الليرة السورية مقابل الدولار">
           </label>
-          <a class="button primary" href="public/downloads/price-list-usd.html">اختيار وطباعة الدولار</a>
-          <a class="button primary" href="public/downloads/price-list-syp-14050.html">اختيار وطباعة السوري</a>
+          <button class="button primary" type="button" data-action="download-customer-price-pdf">معاينة وطباعة الدولار الآن</button>
+          <button class="button primary" type="button" data-action="download-customer-price-syria">معاينة وطباعة السوري الآن</button>
           <button class="button success" type="button" data-action="publish-bulletin" ${state.session ? "" : "disabled"}>اعتماد ونشر للزبائن</button>
         </div>
         ${state.bulletinStatus ? `<p class="bulletin-status ${state.bulletinStatus.type}">${escapeHtml(state.bulletinStatus.msg)}</p>` : ""}
@@ -3395,9 +3415,10 @@ function pricing() {
       ${authHint}
       ${state.approvedPriceError ? `<p class="muted">تنبيه الأسعار: ${escapeHtml(state.approvedPriceError)}</p>` : ""}
       <div class="currency-toggle" role="group">
-        <button type="button" class="ctgl ${state.priceMode === "mufrak" ? "" : "active"}" data-mode="jumla">أسعار الجملة بالدولار</button>
-        <button type="button" class="ctgl ${state.priceMode === "mufrak" ? "active" : ""}" data-mode="mufrak">أسعار المفرق بالسوري</button>
+        <button type="button" class="ctgl ${state.priceMode === "mufrak" ? "" : "active"}" data-mode="jumla">عرض أصناف نشرة الجملة</button>
+        <button type="button" class="ctgl ${state.priceMode === "mufrak" ? "active" : ""}" data-mode="mufrak">عرض أصناف نشرة المفرق</button>
       </div>
+      <p class="pricing-mode-help">اختيار العرض يغيّر الأصناف الظاهرة فقط. كل بطاقة تحفظ سعر الجملة وسعر المفرق كلّاً في حقله المستقل.</p>
       <div class="inventory-controls">
         <label>
           البحث ضمن مواد النشرة
