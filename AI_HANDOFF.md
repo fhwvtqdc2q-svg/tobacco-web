@@ -2,6 +2,13 @@
 
 يقرأه Claude وCodex قبل كل مهمة. أحدث سجل يكون في الأعلى. لا تحذف السجلات السابقة.
 
+## 2026-07-28 - Codex - تحديث الطباعة وPDF فوراً من الأسعار المدخلة
+
+- Status: completed
+- Branch: codex/instant-bulletin-export
+- Files: src/app.js, scripts/check.mjs, public/service-worker.js
+- Result: أصبحت المعاينة وPDF تحفظ تلقائياً أي أسعار معدلة غير محفوظة ثم تبني النشرة فوراً من الحالة الجديدة؛ أضيفت أزرار واضحة للدولار والسوري؛ نجحت الفحوص واختبار الواجهة ونشر Pages.
+- Handoff UTC: 2026-07-28T10:10:30Z
 ## 2026-07-28 - Codex - تحديث النشرة تلقائياً من الأسعار اليدوية وإصلاح تغيير سعر الصرف
 
 - Status: completed

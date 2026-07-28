@@ -1,15 +1,11 @@
 {
   "schemaVersion": 1,
-  "status": "active",
-  "owner": "Codex",
-  "task": "تحديث الطباعة وPDF فوراً من الأسعار المدخلة",
-  "branch": "codex/instant-bulletin-export",
-  "files": [
-    "src/app.js",
-    "scripts/check.mjs",
-    "public/service-worker.js"
-  ],
-  "startedAt": "2026-07-28T10:05:50Z",
-  "updatedAt": "2026-07-28T10:05:50Z",
-  "note": "Work in progress. Do not edit the reserved files."
+  "status": "idle",
+  "owner": null,
+  "task": null,
+  "branch": null,
+  "files": [],
+  "startedAt": null,
+  "updatedAt": "2026-07-28T10:10:30Z",
+  "note": "No active task. Read AI_HANDOFF.md before starting work."
 }
