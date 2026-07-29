@@ -1,0 +1,200 @@
+-- ============================================================
+-- OZK TOBACCO — تمديد فواتير المشتريات نحو مزامنة الأمين (تطوير فقط)
+-- ============================================================
+-- لم يُطبّق على قاعدة الإنتاج بعد — ينتظر مراجعة Codex وموافقة المالك
+-- (ozk.kh@outlook.com) الصريحة قبل التشغيل في Supabase → SQL Editor.
+--
+-- هذا الملف يُمدِّد الجدول القائم supabase/purchase-invoices-table.sql
+-- (المطبَّق فعلياً بتاريخ 2026-07-11) — لا تُعدِّل ولا تُعِد تشغيل ذلك
+-- الملف؛ كل تغيير جديد هنا فقط عبر ALTER/CREATE إضافي.
+--
+-- قرار التصميم: الأصناف تبقى items jsonb (لا جدول فرعي purchase_invoice_items)
+-- لتفادي ترحيل بيانات جدول قائم فعلياً بلا داعٍ حقيقي؛ كل عنصر jsonb يحمل الآن
+-- هوية الصنف الحقيقية (item_key/item_number/item_guid) لا الاسم المكتوب فقط،
+-- كي تُطابَق أسطر الفاتورة بصنف الأمين الفعلي عند المزامنة اللاحقة. الشكل المتوقع
+-- لكل عنصر: { item_key, item_number, item_guid, name, unit, qty, price }.
+-- ============================================================
+
+-- ---------- تمديد purchase_invoices ----------
+
+alter table purchase_invoices
+  add column if not exists supplier_ameen_guid text,
+  add column if not exists supplier_ameen_code text,
+  add column if not exists currency text not null default 'USD',
+  add column if not exists payment_amount numeric(15,2) not null default 0,
+  add column if not exists payment_date date,
+  add column if not exists payment_account text,
+  add column if not exists paid_total numeric(15,2) not null default 0,
+  add column if not exists remaining_total numeric(15,2) not null default 0,
+  add column if not exists pay_method text not null default 'credit',
+  add column if not exists idempotency_key uuid,
+  add column if not exists sync_attempts int not null default 0,
+  add column if not exists sync_error text,
+  add column if not exists ameen_document_guid text,
+  add column if not exists ameen_document_number text,
+  add column if not exists synced_at timestamptz,
+  add column if not exists approved_by uuid references auth.users(id) on delete set null,
+  add column if not exists approved_at timestamptz,
+  add column if not exists correction_count int not null default 0,
+  add column if not exists correction_log jsonb not null default '[]';
+
+comment on column purchase_invoices.supplier_ameen_guid is 'معرّف حساب المورد في الأمين — nullable إلى حين توفر تغذية موردين من الأمين (لا تحجب الواجهة حتى تتوفر)';
+comment on column purchase_invoices.supplier_ameen_code is 'كود حساب المورد في الأمين — احتياط للمطابقة إن غاب الـGUID';
+comment on column purchase_invoices.currency is 'عملة الفاتورة كما أُدخلت — USD أو SYP، بلا أي تحويل ضمني';
+comment on column purchase_invoices.payment_amount is 'قيمة الدفعة المسجَّلة من الفاتورة عند إنشائها (قد تُحدَّث لاحقاً بدفعات إضافية خارج نطاق هذا الملف)';
+comment on column purchase_invoices.payment_account is 'صندوق/حساب استقبال الدفعة — نص حر أو مفتاح من قائمة صناديق موجودة، بحسب توفرها بالواجهة';
+comment on column purchase_invoices.paid_total is 'إجمالي المدفوع فعلياً حتى الآن (محسوب ومخزَّن، لا يُعاد حسابه في كل قراءة)';
+comment on column purchase_invoices.remaining_total is 'المتبقي = total - paid_total، مخزَّن لتسريع القوائم وتفادي حسابه بالواجهة فقط';
+comment on column purchase_invoices.pay_method is 'نقدي (cash) أو آجل (credit) — النقدي يعبّئ payment_amount بكامل total افتراضياً وقابل للتعديل';
+comment on column purchase_invoices.idempotency_key is 'مفتاح UUID يُولَّد عند إنشاء المسودة على العميل — يستعمله عامل المزامنة لضمان كتابة واحدة فقط في الأمين حتى لو أُعيد تشغيله';
+comment on column purchase_invoices.sync_attempts is 'عدد محاولات المزامنة مع الأمين — يُصفَّر فقط عند إنشاء الفاتورة';
+comment on column purchase_invoices.sync_error is 'آخر خطأ مزامنة (نص مُهذَّب لا يحتوي أسرار اتصال) — يُقرأ فقط، يكتبه عامل المزامنة';
+comment on column purchase_invoices.ameen_document_guid is 'GUID المستند المكتوب فعلياً في الأمين بعد نجاح المزامنة — يُستعمل أيضاً كتحقق idempotency إضافي';
+comment on column purchase_invoices.ameen_document_number is 'رقم المستند في الأمين بعد المزامنة الناجحة (للعرض البشري فقط)';
+comment on column purchase_invoices.synced_at is 'وقت تأكيد المزامنة بعد إعادة قراءة المستند من الأمين والتحقق منه (وليس وقت الإرسال فقط)';
+comment on column purchase_invoices.approved_by is 'من اعتمد الفاتورة (draft → approved) — لتمييزه عمّن أنشأها';
+comment on column purchase_invoices.approved_at is 'وقت الاعتماد';
+comment on column purchase_invoices.correction_count is 'عدد الإجراءات التصحيحية بعد المزامنة — الفاتورة المُزامَنة لا تُعدَّل مباشرة أبداً';
+comment on column purchase_invoices.correction_log is 'سجل تصحيحات jsonb: [{ actor, at, reason }] — كل تصحيح على فاتورة مُزامَنة يُضاف هنا، لا يُستبدل';
+
+-- الحالات الجديدة تحل محل open/received القديمتين. تُطبَّق كقيد جديد منفصل
+-- (القيد القديم على status لم يُحذف من purchase-invoices-table.sql؛ حذفه هنا
+-- عبر drop constraint إن كان لا يزال باسمه الافتراضي، ثم إضافة القيد الجديد).
+alter table purchase_invoices drop constraint if exists purchase_invoices_status_check;
+alter table purchase_invoices
+  add constraint purchase_invoices_status_check
+  check (status in ('draft', 'approved', 'sync_pending', 'synced', 'failed'));
+
+-- ملاحظة: PostgreSQL لا يدعم "ADD CONSTRAINT IF NOT EXISTS" — نستعمل DO block
+-- يتحقق من pg_constraint قبل الإضافة كي يبقى الملف قابلاً لإعادة التشغيل بأمان.
+do $$
+begin
+  if not exists (select 1 from pg_constraint where conname = 'purchase_invoices_currency_check') then
+    alter table purchase_invoices
+      add constraint purchase_invoices_currency_check
+      check (currency in ('USD', 'SYP'));
+  end if;
+
+  if not exists (select 1 from pg_constraint where conname = 'purchase_invoices_pay_method_check') then
+    alter table purchase_invoices
+      add constraint purchase_invoices_pay_method_check
+      check (pay_method in ('cash', 'credit'));
+  end if;
+
+  if not exists (select 1 from pg_constraint where conname = 'purchase_invoices_idempotency_key_unique') then
+    alter table purchase_invoices
+      add constraint purchase_invoices_idempotency_key_unique
+      unique (idempotency_key);
+  end if;
+end $$;
+
+-- ---------- قفل انتقال الحالة: تقدّم للأمام فقط، ولا خروج من synced ----------
+-- منطق الرتب مطابق لـpoCalc.poCanTransitionStatus في src/purchase-invoice-calc.js:
+-- draft(0) → approved(1) → sync_pending/failed(2, ممر إعادة محاولة بالاتجاهين) → synced(3).
+-- هذا trigger هو التطبيق الفعلي على قاعدة البيانات؛ فحص الواجهة في app.js دفاع إضافي فقط.
+create or replace function purchase_invoice_guard_status_transition()
+returns trigger
+language plpgsql
+as $$
+declare
+  rank_map jsonb := '{"draft":0,"approved":1,"sync_pending":2,"failed":2,"synced":3}'::jsonb;
+  from_rank int;
+  to_rank int;
+begin
+  if new.status = old.status then
+    return new;
+  end if;
+  if old.status = 'synced' then
+    raise exception 'لا يمكن تغيير حالة فاتورة مُزامَنة عبر تحديث عادي — استعمل إجراء التصحيح المخصص';
+  end if;
+  if new.status = 'draft' then
+    raise exception 'لا يمكن إعادة فاتورة إلى مسودة بعد اعتمادها';
+  end if;
+  from_rank := (rank_map ->> old.status)::int;
+  to_rank := (rank_map ->> new.status)::int;
+  if from_rank = 2 and to_rank = 2 then
+    return new; -- sync_pending ↔ failed مسموح بالاتجاهين (إعادة محاولة)
+  end if;
+  if to_rank <> from_rank + 1 then
+    raise exception 'انتقال حالة غير مسموح: % → %', old.status, new.status;
+  end if;
+  return new;
+end;
+$$;
+
+drop trigger if exists trg_purchase_invoice_status_guard on purchase_invoices;
+create trigger trg_purchase_invoice_status_guard
+  before update on purchase_invoices
+  for each row
+  when (new.status is distinct from old.status)
+  execute function purchase_invoice_guard_status_transition();
+
+comment on function purchase_invoice_guard_status_transition() is 'يمنع تحديث status عادي من كسر التسلسل draft→approved→sync_pending↔failed→synced، ويمنع أي خروج من synced';
+
+-- ---------- ملاحظة أمنية على RLS الحالي ----------
+-- الجدول أصلاً authenticated-only بلا anon (purchase-invoices-table.sql سطر 32-47)،
+-- وهذا يبقى كما هو. التفريق بين "من يمكنه إنشاء مسودة" و"من يمكنه الاعتماد" يحتاج
+-- دور تطبيقي (مثلاً عمود is_owner أو جدول أدوار) غير موجود بعد في هذا المستودع —
+-- لذلك التقييد الإضافي هنا هو الـtrigger أعلاه فقط (تسلسل الحالة)، والتحقق من
+-- "من يعتمد" يبقى مسؤولية الواجهة (isOwner() في app.js) إلى حين إضافة دور حقيقي
+-- على مستوى قاعدة البيانات — موثّق كنقص معروف، غير مُخمَّن أو مُطبَّق بصمت هنا.
+
+-- ============================================================
+-- جدول جديد: لقطة صنف من الأمين (مخزون/تكلفة/آخر مورد/حركة مبيع)
+-- ============================================================
+create table if not exists ameen_item_snapshot (
+  id                 uuid          default gen_random_uuid() primary key,
+  item_key           text          not null,
+  item_guid          text,
+  item_number        text,
+  item_name          text          not null default '',
+  unit1_name         text          default '',
+  unit2_name         text          default '',
+  unit2_factor       numeric(12,4) default 1,
+  stock_unit1        numeric(15,3) default 0,
+  stock_unit2        numeric(15,3) default 0,
+  last_purchase_price   numeric(15,4),
+  last_purchase_currency text,
+  last_purchase_date    date,
+  last_purchase_unit    text,
+  average_cost          numeric(15,4),
+  average_cost_currency text,
+  average_cost_basis    text default '',
+  last_supplier_name    text,
+  last_supplier_guid    text,
+  units_sold_30d        numeric(15,3),
+  movement_rank         int,
+  generated_at          timestamptz not null default now()
+);
+
+comment on table ameen_item_snapshot is 'لقطة يومية لكل صنف من الأمين (مخزون محسوب من حركة الفواتير لا ms000، آخر سعر شراء، متوسط تكلفة، آخر مورد، ترتيب حركة المبيع) — يرفعها tools/push-purchase-item-snapshot.ps1 فقط، قراءة عبر Supabase للموظفين';
+comment on column ameen_item_snapshot.item_key is 'مفتاح المطابقة مع approved_price_items.item_key — نفس القيمة، ليست جدولاً مستقلاً بمفاتيح مختلفة';
+comment on column ameen_item_snapshot.stock_unit1 is 'المخزون بوحدة الإفراد (كروز) — محسوب من حركة الفواتير bIsInput/bIsOutput، وليس من ms000 (قاعدة تدوير السنة 2026 الموثّقة في AI_WORK_SYNC.md)';
+comment on column ameen_item_snapshot.stock_unit2 is 'نفس المخزون محوَّلاً لوحدة الجملة (كرتونة) عبر unit2_factor';
+comment on column ameen_item_snapshot.average_cost_basis is 'شرح نصي لطريقة حساب متوسط التكلفة ومصدرها ووحدتها — إلزامي التعبئة، لا رقم بلا سياق';
+comment on column ameen_item_snapshot.movement_rank is 'ترتيب الصنف بحركة المبيع خلال آخر 30 يوماً (1 = الأعلى مبيعاً) — أساس قسم «أصناف مقترحة»';
+comment on column ameen_item_snapshot.generated_at is 'وقت توليد هذه اللقطة على جهاز Windows — يُعرض للمستخدم كي يعرف حداثة الأرقام';
+
+create unique index if not exists idx_ameen_item_snapshot_item_key on ameen_item_snapshot (item_key);
+create index if not exists idx_ameen_item_snapshot_movement_rank on ameen_item_snapshot (movement_rank);
+
+alter table ameen_item_snapshot enable row level security;
+
+-- قراءة فقط للموظفين المسجّلين، بلا anon إطلاقاً (نفس قاعدة approved_price_items
+-- للجداول الحساسة) — لا سياسة insert/update/delete هنا، فالكتابة service-role فقط
+-- (سكربت Windows يستعمل service key مباشرة عبر REST ويتجاوز RLS كما تفعل باقي
+-- سكربتات tools/*.ps1 الحالية، وليس عبر جلسة مستخدم عادية).
+drop policy if exists "authenticated can select ameen_item_snapshot" on ameen_item_snapshot;
+create policy "authenticated can select ameen_item_snapshot"
+  on ameen_item_snapshot for select
+  using (auth.role() = 'authenticated');
+
+-- ============================================================
+-- ملاحظة حول outbox/طابور مزامنة منفصل
+-- ============================================================
+-- لم يُنشأ جدول طابور منفصل: idempotency_key + status='sync_pending' على
+-- purchase_invoices نفسه كافيان كطابور (عامل المزامنة يقرأ WHERE status =
+-- 'sync_pending' ORDER BY created_at). طابور مستقل يضيف تعقيداً بلا فائدة
+-- واضحة في هذا الحجم من البيانات (فواتير مشتريات يدوية، ليست معاملات فورية
+-- كثيفة). إن تبيّن لاحقاً حاجة لإعادة محاولة مجدولة مستقلة عن حالة الفاتورة
+-- نفسها، يُعاد النظر بهذا القرار حينها.

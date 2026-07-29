@@ -1,0 +1,19 @@
+{
+  "_تنبيه": "ملف إعداد مبدئي غير مكتمل — لا تُشغَّل أي عملية Apply عليه قبل تعبئة القيم الحقيقية بعد تشغيل discover-ameen-purchase-schema.ps1 ومراجعة النتائج مع المالك.",
+  "_الحالة": "مسودة تطوير — لم يُعتمد، لم يُختبر، لم يُنفَّذ",
+  "ameenPurchaseBillTypeGuid": null,
+  "ameenPurchaseReturnBillTypeGuid": null,
+  "ameenMaterialTable": null,
+  "ameenBillHeaderTable": "bu000",
+  "ameenBillLineTable": null,
+  "defaultTreasuryAccountGuid": null,
+  "supabaseTable": "purchase_invoices",
+  "itemSnapshotTable": "ameen_item_snapshot",
+  "movementLookbackDays": 30,
+  "dryRunDefault": true,
+  "notes": [
+    "لا تضع كلمات مرور أو سلاسل اتصال هنا — تبقى في tools\\.env فقط.",
+    "أي قيمة null هنا تعني: لم تُكتشف/تُؤكَّد بعد عبر discover-ameen-purchase-schema.ps1.",
+    "كل تعديل لهذا الملف بعد الاكتشاف الفعلي يجب أن يوثّق مصدر كل قيمة (اسم الاستعلام الذي أثبتها)."
+  ]
+}

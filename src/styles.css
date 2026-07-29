@@ -2114,6 +2114,36 @@ code {
 .chip-progress { background: rgba(100,149,237,.15); color: #6495ed; }
 .chip-ready    { background: rgba(72,199,142,.15);  color: #48c78e; }
 .chip-closed   { background: rgba(186,186,186,.12); color: var(--muted); }
+.chip-danger   { background: rgba(220,80,80,.15);   color: #e05656; }
+
+/* ── فواتير المشتريات: بحث/اقتراح الصنف يعيد استخدام كلاسات sales-suggest ── */
+.po-suggest-wrap { position: relative; }
+.po-info-panel {
+  background: var(--card-bg, rgba(255,255,255,.04));
+  border: 1px solid var(--border, rgba(255,255,255,.1));
+  border-radius: 10px;
+  padding: 12px 14px;
+  margin-top: 10px;
+  font-size: 13px;
+}
+.po-info-panel dl { display: grid; grid-template-columns: auto 1fr; gap: 4px 10px; margin: 0; }
+.po-info-panel dt { color: var(--muted); }
+.po-info-panel dd { margin: 0; }
+.po-suggested-items { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
+.po-suggested-chip {
+  border: 1px dashed var(--border, rgba(255,255,255,.2));
+  border-radius: 999px;
+  padding: 4px 10px;
+  font-size: 12px;
+  background: transparent;
+  cursor: pointer;
+  color: inherit;
+}
+.po-suggested-chip:hover { border-color: var(--primary); color: var(--primary); }
+.po-pay-error { color: #e05656; font-size: 12px; margin-top: 4px; }
+@media (max-width: 480px) {
+  .po-info-panel dl { grid-template-columns: 1fr; }
+}
 
 /* ── Global search ── */
 .search-wrap {
