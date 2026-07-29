@@ -1,6 +1,6 @@
 param(
   [string]$Server = "OZK-TOBACCO",
-  [string]$Database = "AmnDb001",
+  [string]$Database = "AmnDb002",
   [string]$SqlUserName = "tobacco_sync_reader",
   [string]$ConfigPath = (Join-Path $PSScriptRoot "..\src\config.js")
 )
