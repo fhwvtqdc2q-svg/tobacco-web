@@ -1,4 +1,5 @@
 import { existsSync, readFileSync } from "node:fs";
+import vm from "node:vm";
 
 const required = [
   "index.html",
@@ -389,6 +390,97 @@ if (!Array.isArray(mergeNames) || mergeNames.some((name) => typeof name !== "str
       failed = true;
     }
   }
+}
+
+// اختبارات حقيقية (assertions فعلية لا مجرد فحص نصي) لدوال purchase-invoice-calc.js
+// النقية: مطابقة الأصناف، حساب الأسطر/الإجمالي/المتبقي، تطبيع الأرقام، التحقق من
+// الدفعة، وحارس انتقالات حالة الفاتورة. تشغَّل داخل sandbox معزول عن DOM.
+{
+  const poCalcSource = readFileSync("src/purchase-invoice-calc.js", "utf8");
+  const sandbox = { window: {}, console };
+  vm.createContext(sandbox);
+  vm.runInContext(poCalcSource, sandbox, { filename: "purchase-invoice-calc.js" });
+  const poCalc = sandbox.window.poCalc;
+  if (!poCalc) {
+    console.error("src/purchase-invoice-calc.js did not expose window.poCalc.");
+    failed = true;
+  } else {
+    const assertEqual = (label, actual, expected) => {
+      const a = JSON.stringify(actual);
+      const e = JSON.stringify(expected);
+      if (a !== e) {
+        console.error(`poCalc test failed: ${label} — got ${a}, expected ${e}`);
+        failed = true;
+      }
+    };
+
+    // تطبيع الأرقام العربية/الفارسية إلى إنجليزية
+    assertEqual("poNormalizeNumeric arabic-indic digits", poCalc.poNormalizeNumeric("١٢٣٫٥"), "123.5");
+    assertEqual("poToNumber persian digits", poCalc.poToNumber("۴۲"), 42);
+
+    // حساب سطر الفاتورة
+    assertEqual("poRowComputed without key", poCalc.poRowComputed({ qty: "5", price: "2" }), { qty: 0, price: 0, lineTotal: 0 });
+    assertEqual("poRowComputed with key", poCalc.poRowComputed({ key: "x", qty: "5", price: "2" }), { qty: 5, price: 2, lineTotal: 10 });
+
+    // إجمالي الفاتورة (سطر بلا key لا يُحتسب)
+    assertEqual(
+      "poTotals sums only rows with key",
+      poCalc.poTotals([{ key: "a", qty: "2", price: "3" }, { qty: "9", price: "9" }, { key: "b", qty: "1", price: "1.5" }]),
+      { grand: 7.5 }
+    );
+
+    // حالة المتبقي: مستحق، مسدد بالكامل، مدفوع زيادة
+    assertEqual("poRemainingState due", poCalc.poRemainingState({ total: 100, paidAmount: 40 }).status, "due");
+    assertEqual("poRemainingState settled", poCalc.poRemainingState({ total: 100, paidAmount: 100 }).status, "settled");
+    assertEqual("poRemainingState over", poCalc.poRemainingState({ total: 100, paidAmount: 150 }).status, "over");
+
+    // التحقق من قيمة الدفعة (رفض السالب وما يتجاوز الإجمالي، قبول القيم الصحيحة)
+    assertEqual("poValidatePayment negative rejected", poCalc.poValidatePayment({ total: 100, amount: -1 }).ok, false);
+    assertEqual("poValidatePayment over-total rejected", poCalc.poValidatePayment({ total: 100, amount: 150 }).ok, false);
+    assertEqual("poValidatePayment valid accepted", poCalc.poValidatePayment({ total: 100, amount: 60 }).ok, true);
+
+    // كشف الأصناف المكررة
+    assertEqual(
+      "poDedupeLines detects duplicate item_key",
+      poCalc.poDedupeLines([{ key: "a" }, { key: "b" }, { key: "a" }]).ok,
+      false
+    );
+    assertEqual(
+      "poDedupeLines passes distinct keys",
+      poCalc.poDedupeLines([{ key: "a" }, { key: "b" }]).ok,
+      true
+    );
+
+    // حارس انتقالات حالة الفاتورة: التقدم للأمام فقط، لا رجوع من synced أو إلى draft
+    assertEqual("poCanTransitionStatus draft->approved", poCalc.poCanTransitionStatus("draft", "approved"), true);
+    assertEqual("poCanTransitionStatus draft->synced skip forbidden", poCalc.poCanTransitionStatus("draft", "synced"), false);
+    assertEqual("poCanTransitionStatus synced is terminal", poCalc.poCanTransitionStatus("synced", "approved"), false);
+    assertEqual("poCanTransitionStatus never back to draft", poCalc.poCanTransitionStatus("approved", "draft"), false);
+    assertEqual("poCanTransitionStatus sync_pending<->failed both ways", poCalc.poCanTransitionStatus("sync_pending", "failed"), true);
+    assertEqual("poCanTransitionStatus failed->sync_pending", poCalc.poCanTransitionStatus("failed", "sync_pending"), true);
+  }
+}
+
+// عقد ربط واجهة فواتير المشتريات بملف poCalc ومصدر Supabase الجديد — يمنع رجوع
+// الواجهة لاستدعاء أسماء دوال قديمة أُزيلت من supabase-client.js.
+for (const contract of [
+  "window.poCalc.poRowComputed",
+  "window.poCalc.poTotals",
+  "poCalc.poValidatePayment",
+  "poCalc.poDedupeLines",
+  "poCalc.poCanTransitionStatus",
+  "dataStore.setPurchaseInvoiceStatus(id, nextStatus)",
+  "dataStore.correctPurchaseInvoice(id, note)",
+  "dataStore.listItemSnapshots"
+]) {
+  if (!appJs.includes(contract)) {
+    console.error(`Purchase invoice UI/data-layer contract is missing: ${contract}`);
+    failed = true;
+  }
+}
+if (appJs.includes("dataStore.updatePurchaseInvoiceStatus")) {
+  console.error("src/app.js must not call the removed dataStore.updatePurchaseInvoiceStatus method.");
+  failed = true;
 }
 
 if (failed) {

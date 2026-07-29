@@ -253,13 +253,28 @@ const state = {
   itemDetails: null,       // خريطة مفتاح ← تفاصيل (تكلفة/مستودعات) من تقرير الأمين
   itemDetailsAt: "",       // وقت التقرير — يُعرض كي يعرف المستخدم حداثة الأرقام
   salesRows: [{ q: "", key: "", name: "", num: "", unit: "unit2", qty: "1", price: "", edited: false }],
+  // ===== فاتورة مشتريات (route: purchases) — مسودة/معتمدة/بانتظار مزامنة/مُزامَنة/فشلت =====
   purchaseInvoices: [],
-  poSupplier: "",
+  poItemSnapshots: [],     // تخزين مؤقت للقطة أصناف الأمين (فارغة عملياً حتى تفعيل push-purchase-item-snapshot.ps1)
+  poItemSnapshotsAt: "",
+  poSupplierQuery: "",
+  poSupplierKey: "",       // supplier_ameen_code إن وُجد — لا يوجد لائحة موردين حقيقية بعد
+  poSupplierGuid: "",
   poDate: "",
   poNotes: "",
-  poRows: [{ name: "", qty: "1", price: "" }],
+  poCurrency: "USD",       // USD | SYP — بلا تحويل ضمني إطلاقاً
+  poPayMethod: "credit",   // cash نقدي | credit آجل
+  poRegisterPayment: false,
+  poPaymentAmount: "",
+  poPaymentDate: "",
+  poPaymentAccount: "",
+  poPaymentError: "",
+  poRows: [{ q: "", key: "", name: "", num: "", unit: "unit2", qty: "1", price: "", edited: false }],
+  poInfoKey: "",           // مفتاح الصنف المفتوحة بطاقته
   poSaving: false,
   poOpenId: "",
+  poCorrectionOpenId: "",  // فاتورة "مُزامَنة" قيد إجراء تصحيحي
+  poCorrectionNote: "",
   notifPermission: "default",
   seenRequestIds: new Set(),
   globalSearch: "",
@@ -449,6 +464,13 @@ async function loadPurchaseInvoices() {
     state.purchaseInvoices = dataStore.listPurchaseInvoices ? await dataStore.listPurchaseInvoices() : [];
   } catch {
     state.purchaseInvoices = [];
+  }
+  try {
+    state.poItemSnapshots = dataStore.listItemSnapshots ? await dataStore.listItemSnapshots() : [];
+    state.poItemSnapshotsAt = state.poItemSnapshots.length ? new Date().toISOString() : "";
+  } catch {
+    state.poItemSnapshots = [];
+    state.poItemSnapshotsAt = "";
   }
 }
 
@@ -6958,8 +6980,280 @@ function printSalesInvoice() {
   });
 }
 
-// ===== فواتير المشتريات (طلبات الشراء من الموردين) =====
-// تسجيل داخلي فقط: لا طباعة ولا تصدير ولا مزامنة مع الأمين أو أي جهة أخرى.
+// ===== فواتير المشتريات (مزامنة الأمين — قيد التطوير، لم تُفعَّل بعد) =====
+// ملاحظة: الحفظ إلى Supabase فقط. لا مزامنة فعلية مع الأمين حتى تفعيل سكربتات tools/*
+// وتطبيق supabase/purchase-invoices-ameen-sync.sql على قاعدة الإنتاج (راجع AI_WORK_SYNC.md).
+
+function poItemByKey(key) {
+  if (!key) return null;
+  return (state.approvedPriceItems || []).find((item) => item.itemKey === key) || null;
+}
+
+function poSnapshotByKey(key) {
+  if (!key) return null;
+  return (state.poItemSnapshots || []).find((snap) => snap.itemKey === key) || null;
+}
+
+function poItemCode(item) {
+  return String((item && (item.itemCode || item.itemNumber)) || "");
+}
+
+function poUnitLabel(item, unit) {
+  if (!item) return unit === "unit1" ? "كروز" : "كرتونة";
+  return unit === "unit1" ? (item.unit1Name || "كروز") : (item.unit2Name || "كرتونة");
+}
+
+// السعر التلقائي متاح فقط بالدولار (نفس أسعار approved_price_items) — بلا أي تحويل
+// ضمني لليرة؛ عند اختيار عملة الليرة يبقى حقل السعر فارغاً بانتظار إدخال يدوي.
+function poAutoUnitPrice(item, unit, currency) {
+  if (!item || currency !== "USD") return 0;
+  return roundPrice(unit === "unit1" ? Number(item.unit1Price || 0) : Number(item.unit2Price || 0));
+}
+
+function poSearchItems(query, limit = 8) {
+  const raw = String(query || "").trim();
+  if (!raw) return [];
+  const list = state.approvedPriceItems || [];
+  if (!list.length) return [];
+  const normalizedQuery = normalizeItemName(raw);
+  const digits = raw.replace(/[^0-9]/g, "");
+  const scored = [];
+  for (const item of list) {
+    const numbers = [String(item.itemCode || ""), String(item.itemNumber || "")].filter(Boolean);
+    const normalizedName = normalizeItemName(item.itemName || "");
+    let score = -1;
+    if (digits) {
+      for (const number of numbers) {
+        if (number === digits) score = Math.max(score, 100);
+        else if (number.startsWith(digits)) score = Math.max(score, 92);
+        else if (number.includes(digits)) score = Math.max(score, 74);
+      }
+    }
+    if (normalizedQuery) {
+      if (normalizedName === normalizedQuery) score = Math.max(score, 96);
+      else if (normalizedName.startsWith(normalizedQuery)) score = Math.max(score, 86);
+      else if (normalizedName.includes(normalizedQuery)) score = Math.max(score, 62);
+    }
+    if (score >= 0) scored.push({ item, score });
+  }
+  scored.sort((a, b) => b.score - a.score || String(a.item.itemName || "").localeCompare(String(b.item.itemName || ""), "ar"));
+  return scored.slice(0, limit).map((entry) => entry.item);
+}
+
+function poSuggestionsHtml(rowIndex, query) {
+  const matches = poSearchItems(query, 8);
+  if (!matches.length) return "";
+  return matches
+    .map((item) => {
+      const code = poItemCode(item);
+      const number = code
+        ? `<span class="sales-suggest-num" dir="ltr">${escapeHtml(code)}</span>`
+        : `<span class="sales-suggest-num muted">—</span>`;
+      const auto = poAutoUnitPrice(item, "unit2", state.poCurrency);
+      const priceHint = auto > 0
+        ? `<span class="sales-suggest-price" dir="ltr">${escapeHtml(auto.toFixed(2))}</span>`
+        : `<span class="sales-suggest-price muted">بلا سعر تلقائي</span>`;
+      return `<button type="button" class="sales-suggest-item" data-po-pick="${escapeHtml(item.itemKey)}" data-po-row="${rowIndex}">${number}<span class="sales-suggest-name">${escapeHtml(item.itemName)}</span>${priceHint}</button>`;
+    })
+    .join("");
+}
+
+function poRowComputed(row) {
+  return window.poCalc.poRowComputed(row);
+}
+
+function poTotals() {
+  return window.poCalc.poTotals(state.poRows);
+}
+
+function poRemaining(total) {
+  const paidAmount = state.poRegisterPayment ? toNumber(state.poPaymentAmount) : 0;
+  return window.poCalc.poRemainingState({ total, paidAmount });
+}
+
+function poRemainingLabel(status) {
+  if (status === "due") return "متبقٍّ للمورد";
+  if (status === "over") return "مدفوع زيادة";
+  return "مسدّدة بالكامل";
+}
+
+function poEnsureTrailingRow() {
+  const rows = state.poRows;
+  const last = rows[rows.length - 1];
+  if (last && (last.key || (last.q || "").trim())) {
+    rows.push({ q: "", key: "", name: "", num: "", unit: "unit2", qty: "1", price: "", edited: false });
+  }
+}
+
+function poFocusField(rowIndex, field) {
+  const focusNow = () => {
+    const el = document.querySelector(`[data-po-field="${field}"][data-po-index="${rowIndex}"]`);
+    if (!el) return false;
+    el.focus();
+    if (typeof el.select === "function") el.select();
+    return true;
+  };
+  if (focusNow()) return;
+  requestAnimationFrame(focusNow);
+}
+
+function poPickItem(rowIndex, key) {
+  const row = state.poRows[rowIndex];
+  const item = poItemByKey(key);
+  if (!row || !item) return;
+  row.key = item.itemKey;
+  row.name = item.itemName;
+  row.num = poItemCode(item);
+  row.q = row.num || item.itemName;
+  if (row.unit !== "unit1" && row.unit !== "unit2") row.unit = "unit2";
+  const auto = poAutoUnitPrice(item, row.unit, state.poCurrency);
+  row.price = auto > 0 ? String(auto) : "";
+  row.edited = false;
+  if (!(toNumber(row.qty) > 0)) row.qty = "1";
+  poEnsureTrailingRow();
+  render();
+  poFocusField(rowIndex, "qty");
+}
+
+function poToggleUnit(rowIndex) {
+  const row = state.poRows[rowIndex];
+  if (!row || !row.key) return;
+  const item = poItemByKey(row.key);
+  row.unit = row.unit === "unit1" ? "unit2" : "unit1";
+  const auto = poAutoUnitPrice(item, row.unit, state.poCurrency);
+  row.price = auto > 0 ? String(auto) : "";
+  row.edited = false;
+  render();
+}
+
+function poAddSuggestedItem(key) {
+  const item = poItemByKey(key);
+  if (!item) return;
+  if (state.poRows.some((r) => r.key === key)) {
+    setNotice("error", "هذا الصنف موجود بالفعل في الفاتورة.");
+    render();
+    return;
+  }
+  const emptyIdx = state.poRows.findIndex((r) => !r.key && !(r.q || "").trim());
+  const targetIdx = emptyIdx >= 0 ? emptyIdx : state.poRows.length;
+  if (emptyIdx < 0) state.poRows.push({ q: "", key: "", name: "", num: "", unit: "unit2", qty: "1", price: "", edited: false });
+  poPickItem(targetIdx, key);
+}
+
+// أصناف مقترحة: أعلى حركة مبيعات آخر 30 يوماً من قطة أصناف الأمين (poItemSnapshots)،
+// مستبعَد منها ما هو موجود بالفاتورة حالياً. القطة فارغة عملياً حتى تفعيل سكربت
+// tools/push-purchase-item-snapshot.ps1 — فتظهر حينها رسالة حالة فارغة بدل بيانات وهمية.
+function poSuggestedItemsHtml() {
+  const usedKeys = new Set(state.poRows.map((r) => r.key).filter(Boolean));
+  const ranked = (state.poItemSnapshots || [])
+    .filter((snap) => snap.itemKey && !usedKeys.has(snap.itemKey) && (snap.movementRank != null || snap.unitsSold30d != null))
+    .sort((a, b) => {
+      const rankA = a.movementRank != null ? a.movementRank : Number.MAX_SAFE_INTEGER;
+      const rankB = b.movementRank != null ? b.movementRank : Number.MAX_SAFE_INTEGER;
+      if (rankA !== rankB) return rankA - rankB;
+      return (b.unitsSold30d || 0) - (a.unitsSold30d || 0);
+    })
+    .slice(0, 8);
+  if (!ranked.length) {
+    return '<p class="muted" style="margin:6px 2px 0">لا توجد بيانات حركة مبيعات كافية بعد (تحتاج تفعيل تقرير قطة أصناف الأمين).</p>';
+  }
+  return `<div class="po-suggested-items">${ranked
+    .map((snap) => `<button type="button" class="po-suggested-chip" data-po-suggest-add="${escapeHtml(snap.itemKey)}">+ ${escapeHtml(snap.itemName)}${snap.unitsSold30d != null ? ` <small>(${escapeHtml(String(Math.round(snap.unitsSold30d)))} خلال 30 يوماً)</small>` : ""}</button>`)
+    .join("")}</div>`;
+}
+
+function poInfoCard() {
+  const key = state.poInfoKey;
+  if (!key) return "";
+  const item = poItemByKey(key);
+  const snap = poSnapshotByKey(key);
+  const na = '<span class="muted">غير متوفر</span>';
+  const factor = (item && item.unit2Factor) || (snap && snap.unit2Factor) || 1;
+  const stockU1 = snap && snap.stockUnit1 != null ? snap.stockUnit1 : null;
+  const stockU2 = stockU1 != null && factor > 0 ? poCalc.poRound2(stockU1 / factor) : null;
+  const lastPrice = snap && snap.lastPurchasePrice != null
+    ? `${snap.lastPurchasePrice.toFixed(2)} ${escapeHtml(snap.lastPurchaseCurrency || "")}`
+    : null;
+  const avgCost = snap && snap.averageCost != null
+    ? `${snap.averageCost.toFixed(2)} ${escapeHtml(snap.averageCostCurrency || "")}${snap.averageCostBasis ? ` (${escapeHtml(snap.averageCostBasis)})` : ""}`
+    : null;
+  return `
+    <div class="po-info-panel">
+      <dl>
+        <dt>الصنف</dt><dd>${escapeHtml((item && item.itemName) || (snap && snap.itemName) || key)}</dd>
+        <dt>المخزون</dt><dd>${stockU1 != null ? `${escapeHtml(String(stockU1))} ${escapeHtml(poUnitLabel(item, "unit1"))} (${escapeHtml(String(stockU2))} ${escapeHtml(poUnitLabel(item, "unit2"))})` : na}</dd>
+        <dt>عامل التحويل</dt><dd>1 ${escapeHtml(poUnitLabel(item, "unit2"))} = ${escapeHtml(String(factor))} ${escapeHtml(poUnitLabel(item, "unit1"))}</dd>
+        <dt>آخر سعر شراء</dt><dd>${lastPrice || na}${snap && snap.lastPurchaseDate ? ` — ${escapeHtml(snap.lastPurchaseDate)}` : ""}</dd>
+        <dt>متوسط التكلفة</dt><dd>${avgCost || na}</dd>
+        <dt>آخر مورّد</dt><dd>${snap && snap.lastSupplierName ? escapeHtml(snap.lastSupplierName) : na}</dd>
+      </dl>
+      ${!state.poItemSnapshotsAt ? '<p class="muted" style="margin:8px 0 0;font-size:12px">لم تُفعَّل بعد تغذية بيانات الأمين لهذا الصنف (تقرير قطة الأصناف).</p>' : ""}
+    </div>
+  `;
+}
+
+function poSupplierHistory() {
+  const map = new Map();
+  (state.purchaseInvoices || []).forEach((po) => {
+    if (!po.supplierName) return;
+    const key = normalizeItemName(po.supplierName);
+    if (!map.has(key)) map.set(key, { name: po.supplierName, guid: po.supplierAmeenGuid || "", code: po.supplierAmeenCode || "" });
+  });
+  return [...map.values()];
+}
+
+function poSupplierSuggestionsHtml(query) {
+  const raw = String(query || "").trim();
+  if (!raw) return "";
+  const normalizedQuery = normalizeItemName(raw);
+  const matches = poSupplierHistory()
+    .filter((s) => normalizeItemName(s.name).includes(normalizedQuery))
+    .slice(0, 6);
+  if (!matches.length) return "";
+  return matches
+    .map((s) => `<button type="button" class="sales-suggest-item" data-po-supplier-pick="${escapeHtml(s.name)}" data-po-supplier-guid="${escapeHtml(s.guid)}" data-po-supplier-code="${escapeHtml(s.code)}"><span class="sales-suggest-name">${escapeHtml(s.name)}</span></button>`)
+    .join("");
+}
+
+function poPickSupplier(name, guid, code) {
+  state.poSupplierQuery = name;
+  state.poSupplierGuid = guid || "";
+  state.poSupplierKey = code || "";
+  render();
+}
+
+function poStatusChipHtml(status) {
+  const label = (poCalc.PO_STATUS_LABELS && poCalc.PO_STATUS_LABELS[status]) || status;
+  const cls = status === "synced" ? "chip-closed"
+    : status === "failed" ? "chip-danger"
+    : status === "sync_pending" ? "chip-progress"
+    : status === "approved" ? "chip-ready"
+    : "chip-new";
+  return `<span class="status-chip ${cls}">${escapeHtml(label)}</span>`;
+}
+
+function refreshPoTotals() {
+  const currencySym = state.poCurrency === "SYP" ? "ل.س" : "$";
+  (state.poRows || []).forEach((row, i) => {
+    const cell = document.querySelector(`[data-po-linetotal="${i}"]`);
+    if (!cell) return;
+    cell.textContent = row.key ? poRowComputed(row).lineTotal.toFixed(2) : "—";
+  });
+  const totals = poTotals();
+  const totalEl = document.querySelector("[data-po-total]");
+  if (totalEl) totalEl.textContent = `${totals.grand.toFixed(2)} ${currencySym}`;
+  const remainingState = poRemaining(totals.grand);
+  const remainingEl = document.querySelector("[data-po-remaining]");
+  if (remainingEl) remainingEl.textContent = `${Math.abs(remainingState.remaining).toFixed(2)} ${currencySym}`;
+  const remainingBox = document.querySelector("[data-po-remaining-box] span");
+  if (remainingBox) remainingBox.textContent = poRemainingLabel(remainingState.status);
+  if (state.poRegisterPayment && state.poPayMethod === "cash") {
+    const paidInput = document.getElementById("po-payment-amount");
+    if (paidInput) paidInput.value = totals.grand.toFixed(2);
+    state.poPaymentAmount = totals.grand.toFixed(2);
+  }
+}
+
 function purchases() {
   if (!state.session) {
     return shell(`
@@ -6971,20 +7265,33 @@ function purchases() {
   }
 
   const rows = state.poRows;
-  const grandTotal = rows.reduce((sum, r) => sum + toNumber(r.qty) * toNumber(r.price), 0);
+  const totals = poTotals();
+  const grandTotal = totals.grand;
+  const currencySym = state.poCurrency === "SYP" ? "ل.س" : "$";
+  const payMethod = state.poPayMethod === "cash" ? "cash" : "credit";
+  const remainingState = poRemaining(grandTotal);
 
-  const rowsHtml = rows.map((r, i) => `
+  const rowsHtml = rows.map((r, i) => {
+    const computed = poRowComputed(r);
+    const item = r.key ? poItemByKey(r.key) : null;
+    const unitLabel = poUnitLabel(item, r.unit);
+    return `
     <tr class="inv-row">
-      <td><input class="inv-input" data-po-field="name" data-po-index="${i}" value="${escapeHtml(r.name)}" placeholder="اسم الصنف المطلوب" dir="auto" list="po-items-list"></td>
-      <td><input class="inv-input inv-num" data-po-field="qty" data-po-index="${i}" value="${escapeHtml(r.qty)}" placeholder="0" type="number" min="0" step="any"></td>
-      <td><input class="inv-input inv-num" data-po-field="price" data-po-index="${i}" value="${escapeHtml(r.price)}" placeholder="اختياري" type="number" min="0" step="any"></td>
-      <td class="inv-line-total">$${(toNumber(r.qty) * toNumber(r.price)).toFixed(2)}</td>
+      <td class="po-suggest-wrap">
+        <input class="inv-input" data-po-field="q" data-po-index="${i}" value="${escapeHtml(r.q)}" placeholder="ابحث بالاسم أو الكود…" dir="auto" autocomplete="off">
+        <div class="sales-suggest-box" data-po-suggest="${i}"></div>
+      </td>
+      <td>
+        <button type="button" class="button secondary compact-button" data-po-unit="${i}" ${r.key ? "" : "disabled"}>${escapeHtml(unitLabel)}</button>
+      </td>
+      <td><input class="inv-input inv-num" data-po-field="qty" data-po-index="${i}" value="${escapeHtml(r.qty)}" placeholder="0" inputmode="decimal"></td>
+      <td><input class="inv-input inv-num" data-po-field="price" data-po-index="${i}" value="${escapeHtml(r.price)}" placeholder="السعر" inputmode="decimal"></td>
+      <td class="inv-line-total" data-po-linetotal="${i}">${r.key ? computed.lineTotal.toFixed(2) : "—"}</td>
+      <td>${r.key ? `<button class="button secondary compact-button" type="button" data-po-info="${escapeHtml(r.key)}" title="معلومات الصنف">ℹ</button>` : ""}</td>
       <td>${rows.length > 1 ? `<button class="inv-remove" data-po-remove="${i}" title="حذف">✕</button>` : ""}</td>
     </tr>
-  `).join("");
-
-  const itemNames = [...new Set((state.approvedPriceItems || []).map((p) => p.itemName).filter(Boolean))];
-  const datalistHtml = `<datalist id="po-items-list">${itemNames.map((name) => `<option value="${escapeHtml(name)}"></option>`).join("")}</datalist>`;
+  `;
+  }).join("");
 
   const savedList = state.purchaseInvoices.length
     ? state.purchaseInvoices.map(purchaseInvoiceCard).join("")
@@ -6992,36 +7299,79 @@ function purchases() {
 
   return shell(`
     <section class="notice-panel warning" style="margin-bottom:16px">
-      <span>🗒 سجل طلبات الشراء: سجّل الفاتورة ثم اطبعها أو انسخ نصها لإرسالها إلى المورد — لا تُنزَّل إلى الأمين ولا تؤثر على المخزون أو الحسابات.</span>
+      <span>🗒 فاتورة المشتريات هنا للتسجيل والمراجعة فقط حالياً — لا تُزامَن مع الأمين بعد ولا تؤثر على المخزون أو الحسابات إلى أن تُفعَّل المزامنة رسمياً (انظر AI_WORK_SYNC.md).</span>
     </section>
 
     <section class="panel wide inv-panel">
       <div class="inv-form-area">
         <h2 style="margin:0">تسجيل فاتورة مشتريات جديدة</h2>
         <div class="inv-header-fields">
-          <label class="inv-label">
+          <label class="inv-label po-suggest-wrap">
             اسم المورد
-            <input class="inv-input-main" id="po-supplier" value="${escapeHtml(state.poSupplier)}" placeholder="اسم المورد أو الشركة" maxlength="240">
+            <input class="inv-input-main" id="po-supplier" value="${escapeHtml(state.poSupplierQuery)}" placeholder="اسم المورد أو الشركة" maxlength="240" autocomplete="off">
+            <div class="sales-suggest-box" data-po-supplier-suggest></div>
           </label>
           <label class="inv-label">
-            تاريخ الطلب
+            تاريخ الفاتورة
             <input class="inv-input-main" id="po-date" type="date" value="${escapeHtml(state.poDate || todayIsoDate())}">
           </label>
         </div>
+
+        <div class="inv-header-fields">
+          <label class="inv-label">
+            العملة
+            <div class="inv-actions" style="margin-top:4px">
+              <button type="button" class="button ${state.poCurrency === "USD" ? "primary" : "secondary"} compact-button" data-po-currency="USD">دولار USD</button>
+              <button type="button" class="button ${state.poCurrency === "SYP" ? "primary" : "secondary"} compact-button" data-po-currency="SYP">ليرة SYP</button>
+            </div>
+          </label>
+          <label class="inv-label">
+            طريقة الدفع
+            <div class="inv-actions" style="margin-top:4px">
+              <button type="button" class="button ${payMethod === "cash" ? "primary" : "secondary"} compact-button" data-po-pay="cash">نقدي</button>
+              <button type="button" class="button ${payMethod === "credit" ? "primary" : "secondary"} compact-button" data-po-pay="credit">آجل</button>
+            </div>
+          </label>
+        </div>
+
+        <label class="inv-label" style="display:flex;align-items:center;gap:8px;flex-direction:row-reverse;justify-content:flex-end">
+          <input type="checkbox" id="po-register-payment" ${state.poRegisterPayment ? "checked" : ""}>
+          تسجيل دفعة من هذه الفاتورة الآن
+        </label>
+
+        ${state.poRegisterPayment ? `
+        <div class="inv-header-fields">
+          <label class="inv-label">
+            قيمة الدفعة (${currencySym})
+            <input class="inv-input-main" id="po-payment-amount" data-po-field="payment" value="${escapeHtml(state.poPaymentAmount || (payMethod === "cash" ? grandTotal.toFixed(2) : ""))}" placeholder="0" inputmode="decimal" ${payMethod === "cash" ? "readonly" : ""}>
+          </label>
+          <label class="inv-label">
+            تاريخ الدفعة
+            <input class="inv-input-main" id="po-payment-date" type="date" value="${escapeHtml(state.poPaymentDate || state.poDate || todayIsoDate())}">
+          </label>
+        </div>
+        <label class="inv-label">
+          الصندوق / الحساب
+          <input class="inv-input-main" id="po-payment-account" value="${escapeHtml(state.poPaymentAccount)}" placeholder="مثال: صندوق الدولار" maxlength="120">
+        </label>
+        ${state.poPaymentError ? `<p class="po-pay-error">${escapeHtml(state.poPaymentError)}</p>` : ""}
+        ` : ""}
+
         <label class="inv-label">
           ملاحظات (اختياري)
           <input class="inv-input-main" id="po-notes" value="${escapeHtml(state.poNotes)}" placeholder="شروط التسليم، طريقة الدفع، إلخ…" maxlength="500">
         </label>
 
-        ${datalistHtml}
         <div class="inv-table-wrap">
           <table class="inv-table">
             <thead>
               <tr>
-                <th>الصنف المطلوب</th>
+                <th>الصنف</th>
+                <th style="width:80px">الوحدة</th>
                 <th style="width:90px">الكمية</th>
-                <th style="width:130px">سعر تقديري $ (اختياري)</th>
-                <th style="width:100px">المجموع $</th>
+                <th style="width:110px">السعر ${currencySym}</th>
+                <th style="width:100px">المجموع ${currencySym}</th>
+                <th style="width:32px"></th>
                 <th style="width:36px"></th>
               </tr>
             </thead>
@@ -7029,16 +7379,27 @@ function purchases() {
           </table>
         </div>
 
+        ${state.poInfoKey ? poInfoCard() : ""}
+
+        <div style="margin-top:10px">
+          <strong style="font-size:13px">أصناف مقترحة (حركة مبيعات قوية آخر 30 يوماً)</strong>
+          ${poSuggestedItemsHtml()}
+        </div>
+
         <div class="inv-footer">
           <button class="button secondary" data-action="po-add-row">+ إضافة صنف</button>
           <div class="inv-total-box">
-            <span>الإجمالي التقديري</span>
-            <strong class="inv-grand-total po-grand-total">$${grandTotal.toFixed(2)}</strong>
+            <span>الإجمالي</span>
+            <strong class="inv-grand-total" data-po-total>${grandTotal.toFixed(2)} ${currencySym}</strong>
           </div>
+        </div>
+        <div class="inv-total-box" data-po-remaining-box>
+          <span>${escapeHtml(poRemainingLabel(remainingState.status))}</span>
+          <strong data-po-remaining>${Math.abs(remainingState.remaining).toFixed(2)} ${currencySym}</strong>
         </div>
 
         <div class="inv-actions">
-          <button class="button primary" data-action="po-save" ${state.poSaving ? "disabled" : ""}>${state.poSaving ? "جاري الحفظ…" : "💾 تسجيل الفاتورة"}</button>
+          <button class="button primary" data-action="po-save" ${state.poSaving ? "disabled" : ""}>${state.poSaving ? "جاري الحفظ…" : "💾 تسجيل الفاتورة كمسودة"}</button>
           <button class="button secondary" data-action="po-reset" ${state.poSaving ? "disabled" : ""}>مسح</button>
         </div>
       </div>
@@ -7055,45 +7416,68 @@ function purchases() {
 
 function purchaseInvoiceCard(po) {
   const expanded = state.poOpenId === po.id;
-  const received = po.status === "received";
-  const chip = received
-    ? '<span class="status-chip chip-ready">مستلمة</span>'
-    : '<span class="status-chip chip-progress">قيد الطلب</span>';
-  const totalText = po.total > 0 ? `$${po.total.toFixed(2)}` : "بدون أسعار";
+  const correctionOpen = state.poCorrectionOpenId === po.id;
+  const sym = po.currency === "SYP" ? "ل.س" : "$";
+  const canEdit = po.status !== "synced";
   const detailRows = po.items.map((item, idx) => `
     <tr>
       <td style="width:32px;color:var(--muted)">${idx + 1}</td>
       <td>${escapeHtml(item.name)}</td>
       <td class="inv-num">${escapeHtml(String(item.qty))}</td>
-      <td class="inv-line-total">${item.price > 0 ? `$${item.price.toFixed(2)}` : "—"}</td>
-      <td class="inv-line-total">${item.price > 0 ? `$${(item.qty * item.price).toFixed(2)}` : "—"}</td>
+      <td class="inv-line-total">${item.price > 0 ? item.price.toFixed(2) : "—"}</td>
+      <td class="inv-line-total">${item.price > 0 ? (item.qty * item.price).toFixed(2) : "—"}</td>
     </tr>
   `).join("");
 
+  const statusActions = canEdit
+    ? po.status === "draft"
+      ? `<button class="button secondary compact-button" type="button" data-po-transition="${escapeHtml(po.id)}" data-po-next="approved">✓ اعتماد</button>`
+      : po.status === "approved"
+        ? `<button class="button secondary compact-button" type="button" data-po-transition="${escapeHtml(po.id)}" data-po-next="sync_pending">↻ إرسال للمزامنة</button>`
+        : (po.status === "sync_pending" || po.status === "failed")
+          ? `<button class="button secondary compact-button" type="button" data-po-transition="${escapeHtml(po.id)}" data-po-next="synced">✓ تأكيد المزامنة يدوياً</button>
+             <button class="button secondary compact-button" type="button" data-po-transition="${escapeHtml(po.id)}" data-po-next="failed">⚠ وضع فشلت</button>`
+          : ""
+    : `<button class="button secondary compact-button" type="button" data-po-correction="${escapeHtml(po.id)}">🛠 إجراء تصحيحي</button>`;
+
   return `
-    <article class="po-card ${received ? "po-received" : ""}">
+    <article class="po-card">
       <div class="po-card-head">
         <div class="po-card-info">
           <strong>${escapeHtml(po.publicId)} — ${escapeHtml(po.supplierName)}</strong>
-          <small class="muted">${escapeHtml(po.orderDate)} · ${po.items.length} صنف · ${escapeHtml(totalText)}</small>
+          <small class="muted">${escapeHtml(po.orderDate)} · ${po.items.length} صنف · ${escapeHtml(po.total.toFixed(2))} ${sym} · ${po.payMethod === "cash" ? "نقدي" : "آجل"}</small>
         </div>
         <div class="po-card-actions">
-          ${chip}
+          ${poStatusChipHtml(po.status)}
           <button class="button secondary compact-button" type="button" data-po-toggle="${escapeHtml(po.id)}">${expanded ? "إخفاء التفاصيل" : "التفاصيل"}</button>
-          <button class="button secondary compact-button" type="button" data-po-print="${escapeHtml(po.id)}" title="طباعة طلب الشراء أو حفظه PDF لإرساله للمورد">🖨 طباعة / PDF</button>
-          <button class="button secondary compact-button" type="button" data-po-copy="${escapeHtml(po.id)}" title="نسخ نص الطلب للصقه في محادثة المورد">📋 نسخ للإرسال</button>
-          <button class="button secondary compact-button" type="button" data-po-status="${escapeHtml(po.id)}" data-po-next="${received ? "open" : "received"}">${received ? "إعادة لقيد الطلب" : "✓ استلمتها"}</button>
-          <button class="button secondary compact-button po-delete" type="button" data-po-delete="${escapeHtml(po.id)}">حذف</button>
+          <button class="button secondary compact-button" type="button" data-po-print="${escapeHtml(po.id)}" title="طباعة أو حفظ PDF">🖨 طباعة / PDF</button>
+          <button class="button secondary compact-button" type="button" data-po-copy="${escapeHtml(po.id)}" title="نسخ نص الفاتورة">📋 نسخ</button>
+          ${statusActions}
+          ${canEdit ? `<button class="button secondary compact-button po-delete" type="button" data-po-delete="${escapeHtml(po.id)}">حذف</button>` : ""}
         </div>
       </div>
       ${expanded ? `
         <div class="inv-table-wrap" style="margin-top:12px">
           <table class="inv-table">
-            <thead><tr><th style="width:32px">#</th><th>الصنف</th><th style="width:80px">الكمية</th><th style="width:100px">السعر $</th><th style="width:100px">المجموع $</th></tr></thead>
+            <thead><tr><th style="width:32px">#</th><th>الصنف</th><th style="width:80px">الكمية</th><th style="width:100px">السعر ${sym}</th><th style="width:100px">المجموع ${sym}</th></tr></thead>
             <tbody>${detailRows}</tbody>
           </table>
         </div>
-        ${po.notes ? `<p class="muted" style="margin:10px 4px 0">📝 ${escapeHtml(po.notes)}</p>` : ""}
+        <p class="muted" style="margin:10px 4px 0">الدفعة: ${po.paidTotal.toFixed(2)} ${sym} — المتبقي: ${Math.abs(po.remainingTotal).toFixed(2)} ${sym} ${po.remainingTotal > 0.01 ? "(مستحق للمورد)" : po.remainingTotal < -0.01 ? "(مدفوع زيادة)" : "(مسدّدة)"}</p>
+        ${po.notes ? `<p class="muted" style="margin:6px 4px 0">📝 ${escapeHtml(po.notes)}</p>` : ""}
+        ${po.correctionCount > 0 ? `<p class="muted" style="margin:6px 4px 0">إجراءات تصحيحية: ${po.correctionCount}</p>` : ""}
+      ` : ""}
+      ${correctionOpen ? `
+        <div class="po-info-panel" style="margin-top:10px">
+          <label class="inv-label">
+            سبب الإجراء التصحيحي (إلزامي)
+            <input class="inv-input-main" id="po-correction-note-${escapeHtml(po.id)}" value="${escapeHtml(state.poCorrectionNote)}" placeholder="مثال: تصحيح سعر بند بعد تأكيد المورد" maxlength="500">
+          </label>
+          <div class="inv-actions">
+            <button class="button primary compact-button" type="button" data-po-correction-submit="${escapeHtml(po.id)}">تسجيل الإجراء التصحيحي</button>
+            <button class="button secondary compact-button" type="button" data-po-correction-cancel="${escapeHtml(po.id)}">إلغاء</button>
+          </div>
+        </div>
       ` : ""}
     </article>
   `;
@@ -7101,35 +7485,87 @@ function purchaseInvoiceCard(po) {
 
 async function savePurchaseInvoice() {
   if (state.poSaving) return;
-  const supplier = state.poSupplier.trim();
+  const supplier = state.poSupplierQuery.trim();
   const items = state.poRows
-    .map((r) => ({ name: r.name.trim(), qty: toNumber(r.qty), price: toNumber(r.price) }))
+    .filter((r) => r.key)
+    .map((r) => {
+      const item = poItemByKey(r.key);
+      return {
+        item_key: r.key,
+        item_number: r.num || (item ? poItemCode(item) : ""),
+        item_guid: (item && item.itemGuid) || null,
+        name: r.name || (item && item.itemName) || "",
+        unit: r.unit === "unit1" ? "unit1" : "unit2",
+        qty: toNumber(r.qty),
+        price: toNumber(r.price)
+      };
+    })
     .filter((r) => r.name && r.qty > 0);
+
   if (!supplier) {
     setNotice("error", "اكتب اسم المورد أولاً.");
     render();
     return;
   }
   if (!items.length) {
-    setNotice("error", "أضف صنفاً واحداً على الأقل مع كمية أكبر من صفر.");
+    setNotice("error", "أضف صنفاً واحداً على الأقل مع كمية أكبر من صفر (اختره من الاقتراحات).");
     render();
     return;
   }
+  const dedupe = poCalc.poDedupeLines(state.poRows);
+  if (!dedupe.ok) {
+    setNotice("error", "يوجد صنف مكرر في الفاتورة — ادمج كميته في سطر واحد بدل تكراره.");
+    render();
+    return;
+  }
+
+  const total = poCalc.poTotals(state.poRows).grand;
+  const payMethod = state.poPayMethod === "cash" ? "cash" : "credit";
+  const paymentAmount = payMethod === "cash" && state.poRegisterPayment && !state.poPaymentAmount
+    ? total
+    : toNumber(state.poPaymentAmount);
+
+  if (state.poRegisterPayment) {
+    const validation = poCalc.poValidatePayment({ total, amount: paymentAmount });
+    if (!validation.ok) {
+      state.poPaymentError = validation.error;
+      render();
+      return;
+    }
+  }
+  state.poPaymentError = "";
+
   state.poSaving = true;
   render();
   try {
     await dataStore.createPurchaseInvoice({
       supplierName: supplier,
+      supplierAmeenGuid: state.poSupplierGuid,
+      supplierAmeenCode: state.poSupplierKey,
       orderDate: state.poDate || todayIsoDate(),
       notes: state.poNotes,
-      items
+      items,
+      currency: state.poCurrency,
+      payMethod,
+      registerPayment: state.poRegisterPayment,
+      paymentAmount,
+      paymentDate: state.poPaymentDate,
+      paymentAccount: state.poPaymentAccount
     });
     await loadPurchaseInvoices();
-    state.poSupplier = "";
+    state.poSupplierQuery = "";
+    state.poSupplierKey = "";
+    state.poSupplierGuid = "";
     state.poDate = "";
     state.poNotes = "";
-    state.poRows = [{ name: "", qty: "1", price: "" }];
-    setNotice("success", "تم تسجيل فاتورة المشتريات ✓ — اطبعها أو انسخ نصها من القائمة أدناه لإرسالها إلى المورد.");
+    state.poCurrency = "USD";
+    state.poPayMethod = "credit";
+    state.poRegisterPayment = false;
+    state.poPaymentAmount = "";
+    state.poPaymentDate = "";
+    state.poPaymentAccount = "";
+    state.poRows = [{ q: "", key: "", name: "", num: "", unit: "unit2", qty: "1", price: "", edited: false }];
+    setNotice("success", "تم تسجيل فاتورة المشتريات كمسودة ✓ — اعتمدها من القائمة أدناه عند التأكد.");
   } catch (error) {
     setNotice("error", safeErrorMessage(error));
     if (/سجل الدخول/i.test(error.message || "")) state.route = "login";
@@ -7139,11 +7575,19 @@ async function savePurchaseInvoice() {
   }
 }
 
-async function setPurchaseInvoiceStatus(id, status) {
+// فحص دفاعي في الواجهة فقط — الفحص الحقيقي في قيد/Trigger على قاعدة Supabase.
+async function applyPurchaseInvoiceStatusAction(id, nextStatus) {
+  const po = state.purchaseInvoices.find((p) => p.id === id);
+  if (!po) return;
+  if (!poCalc.poCanTransitionStatus(po.status, nextStatus)) {
+    setNotice("error", "لا يمكن هذا الانتقال في حالة الفاتورة الحالية.");
+    render();
+    return;
+  }
   try {
-    await dataStore.updatePurchaseInvoiceStatus(id, status);
+    await dataStore.setPurchaseInvoiceStatus(id, nextStatus);
     await loadPurchaseInvoices();
-    setNotice("success", status === "received" ? "تم تحديد الفاتورة كمستلمة." : "أُعيدت الفاتورة إلى قيد الطلب.");
+    setNotice("success", `تم تحديث حالة الفاتورة إلى: ${(poCalc.PO_STATUS_LABELS && poCalc.PO_STATUS_LABELS[nextStatus]) || nextStatus}.`);
   } catch (error) {
     setNotice("error", safeErrorMessage(error));
   }
@@ -7151,6 +7595,12 @@ async function setPurchaseInvoiceStatus(id, status) {
 }
 
 async function removePurchaseInvoice(id) {
+  const po = state.purchaseInvoices.find((p) => p.id === id);
+  if (po && po.status === "synced") {
+    setNotice("error", "الفاتورة مُزامَنة — لا يمكن حذفها. استخدم «إجراء تصحيحي» بدلاً من ذلك.");
+    render();
+    return;
+  }
   if (!confirm("حذف هذه الفاتورة نهائياً من السجل؟")) return;
   try {
     await dataStore.deletePurchaseInvoice(id);
@@ -7162,23 +7612,51 @@ async function removePurchaseInvoice(id) {
   render();
 }
 
-// نص طلب الشراء للإرسال إلى المورد (واتساب أو غيره) — الأسعار تظهر فقط إذا أُدخلت
+function openPurchaseInvoiceCorrection(id) {
+  state.poCorrectionOpenId = state.poCorrectionOpenId === id ? "" : id;
+  state.poCorrectionNote = "";
+  render();
+}
+
+async function submitPurchaseInvoiceCorrection(id) {
+  const note = state.poCorrectionNote.trim();
+  if (!note) {
+    setNotice("error", "اكتب سبب الإجراء التصحيحي أولاً.");
+    render();
+    return;
+  }
+  try {
+    await dataStore.correctPurchaseInvoice(id, note);
+    await loadPurchaseInvoices();
+    state.poCorrectionOpenId = "";
+    state.poCorrectionNote = "";
+    setNotice("success", "تم تسجيل الإجراء التصحيحي.");
+  } catch (error) {
+    setNotice("error", safeErrorMessage(error));
+  }
+  render();
+}
+
 function buildPurchaseInvoiceText(po) {
-  const showPrices = po.total > 0;
+  const sym = po.currency === "SYP" ? "ل.س" : "$";
   const lines = po.items.map((item, idx) => {
     const base = `${idx + 1}) ${item.name} — الكمية: ${item.qty}`;
-    return showPrices && item.price > 0 ? `${base} — السعر المتوقع: $${item.price.toFixed(2)}` : base;
+    return item.price > 0 ? `${base} — السعر: ${item.price.toFixed(2)} ${sym}` : base;
   });
   const parts = [
-    `📋 طلب شراء ${po.publicId}`,
+    `📋 فاتورة مشتريات ${po.publicId}`,
     `من: ${appConfig.name}`,
     `التاريخ: ${po.orderDate}`,
-    `إلى المورد: ${po.supplierName}`,
+    `المورد: ${po.supplierName}`,
+    `طريقة الدفع: ${po.payMethod === "cash" ? "نقدي" : "آجل"}`,
     "",
-    "الأصناف المطلوبة:",
-    ...lines
+    "الأصناف:",
+    ...lines,
+    "",
+    `الإجمالي: ${po.total.toFixed(2)} ${sym}`,
+    `المدفوع: ${po.paidTotal.toFixed(2)} ${sym}`,
+    `المتبقي: ${po.remainingTotal.toFixed(2)} ${sym}`
   ];
-  if (showPrices) parts.push("", `الإجمالي التقديري: $${po.total.toFixed(2)}`);
   if (po.notes) parts.push("", `ملاحظات: ${po.notes}`);
   return parts.join("\n");
 }
@@ -7203,14 +7681,14 @@ async function copyPurchaseInvoiceText(id) {
       copied = false;
     }
   }
-  setNotice(copied ? "success" : "error", copied ? "تم نسخ نص طلب الشراء — ألصقه في محادثة المورد (واتساب أو غيره)." : "تعذّر النسخ التلقائي. افتح التفاصيل وانسخ الأصناف يدوياً.");
+  setNotice(copied ? "success" : "error", copied ? "تم نسخ نص فاتورة المشتريات." : "تعذّر النسخ التلقائي. افتح التفاصيل وانسخ الأصناف يدوياً.");
   render();
 }
 
 function printPurchaseInvoice(id) {
   const po = state.purchaseInvoices.find((p) => p.id === id);
   if (!po) return;
-  const showPrices = po.total > 0;
+  const sym = po.currency === "SYP" ? "ل.س" : "$";
   const printDate = new Intl.DateTimeFormat("ar-SA-u-nu-latn", { dateStyle: "long" }).format(new Date());
 
   const rowsHtml = po.items.map((item, i) => `
@@ -7218,10 +7696,8 @@ function printPurchaseInvoice(id) {
       <td class="col-num">${i + 1}</td>
       <td>${escapeHtml(item.name)}</td>
       <td>${escapeHtml(String(item.qty))}</td>
-      ${showPrices ? `
-        <td class="col-price">${item.price > 0 ? `$${item.price.toFixed(2)}` : "—"}</td>
-        <td class="col-total">${item.price > 0 ? `$${(item.qty * item.price).toFixed(2)}` : "—"}</td>
-      ` : ""}
+      <td class="col-price">${item.price > 0 ? item.price.toFixed(2) : "—"}</td>
+      <td class="col-total">${item.price > 0 ? (item.qty * item.price).toFixed(2) : "—"}</td>
     </tr>
   `).join("");
 
@@ -7229,7 +7705,7 @@ function printPurchaseInvoice(id) {
 <html lang="ar" dir="rtl">
 <head>
 <meta charset="UTF-8">
-<title>طلب شراء ${po.publicId}</title>
+<title>فاتورة مشتريات ${po.publicId}</title>
 <style>
   * { margin: 0; padding: 0; box-sizing: border-box; }
   body { font-family: 'Segoe UI', Tahoma, Arial, sans-serif; font-size: 13px; color: #1a1a1a; background: #fff; padding: 40px; direction: rtl; }
@@ -7251,9 +7727,10 @@ function printPurchaseInvoice(id) {
   .col-num { width: 36px; text-align: center; color: #aaa; }
   .col-price, .col-total { text-align: left; direction: ltr; font-family: monospace; }
   .total-row td { border-top: 2px solid #b8860b; font-weight: 700; font-size: 14px; background: #faf7f0; }
+  .pay-row td { font-size: 12px; color: #555; }
   .notes { font-size: 12px; color: #666; margin-bottom: 28px; padding: 10px 14px; border-right: 3px solid #b8860b; background: #fdfaf5; }
   .inv-foot { text-align: center; font-size: 11px; color: #aaa; margin-top: 40px; border-top: 1px solid #eee; padding-top: 16px; }
-  @media print { body { padding: 24px; } @page { margin: 1.5cm; } }
+  @media print { body { padding: 24px; background: #ffffff !important; } @page { margin: 1.5cm; } }
 </style>
 </head>
 <body>
@@ -7262,16 +7739,17 @@ function printPurchaseInvoice(id) {
     <div class="inv-company">${escapeHtml(appConfig.name)}${appConfig.tagline ? `<small>${escapeHtml(appConfig.tagline)}</small>` : ""}</div>
   </div>
   <div class="inv-meta">
-    <p class="doc-type">طلب شراء</p>
+    <p class="doc-type">فاتورة مشتريات</p>
     <p class="inv-num">${escapeHtml(po.publicId)}</p>
-    <p><strong>تاريخ الطلب:</strong> ${escapeHtml(po.orderDate)}</p>
+    <p><strong>التاريخ:</strong> ${escapeHtml(po.orderDate)}</p>
     <p><strong>تاريخ الطباعة:</strong> ${printDate}</p>
-    ${showPrices ? "<p><strong>العملة:</strong> دولار أمريكي (USD)</p>" : ""}
+    <p><strong>العملة:</strong> ${po.currency === "SYP" ? "ليرة سورية (SYP)" : "دولار أمريكي (USD)"}</p>
+    <p><strong>طريقة الدفع:</strong> ${po.payMethod === "cash" ? "نقدي" : "آجل"}</p>
   </div>
 </div>
 
 <div class="inv-customer">
-  <p>طلب شراء إلى المورد</p>
+  <p>المورد</p>
   <strong>${escapeHtml(po.supplierName)}</strong>
 </div>
 
@@ -7279,21 +7757,30 @@ function printPurchaseInvoice(id) {
   <thead>
     <tr>
       <th class="col-num">#</th>
-      <th>الصنف المطلوب</th>
+      <th>الصنف</th>
       <th style="width:70px">الكمية</th>
-      ${showPrices ? '<th style="width:110px" class="col-price">السعر المتوقع</th><th style="width:110px" class="col-total">المجموع</th>' : ""}
+      <th style="width:110px" class="col-price">السعر</th>
+      <th style="width:110px" class="col-total">المجموع</th>
     </tr>
   </thead>
   <tbody>${rowsHtml}</tbody>
-  ${showPrices ? `
   <tfoot>
     <tr class="total-row">
       <td colspan="3"></td>
       <td>الإجمالي</td>
-      <td class="col-total">$${po.total.toFixed(2)}</td>
+      <td class="col-total">${po.total.toFixed(2)} ${sym}</td>
+    </tr>
+    <tr class="pay-row">
+      <td colspan="3"></td>
+      <td>المدفوع</td>
+      <td class="col-total">${po.paidTotal.toFixed(2)} ${sym}</td>
+    </tr>
+    <tr class="pay-row">
+      <td colspan="3"></td>
+      <td>المتبقي</td>
+      <td class="col-total">${po.remainingTotal.toFixed(2)} ${sym}</td>
     </tr>
   </tfoot>
-  ` : ""}
 </table>
 
 ${po.notes ? `<div class="notes"><strong>ملاحظة:</strong> ${escapeHtml(po.notes)}</div>` : ""}
@@ -7303,9 +7790,9 @@ ${po.notes ? `<div class="notes"><strong>ملاحظة:</strong> ${escapeHtml(po.
 </body></html>`;
 
   printHtmlDocument(html, {
-    title: "طلب شراء",
+    title: "فاتورة مشتريات",
     onError: () => {
-      setNotice("error", "تعذّر فتح نافذة طباعة طلب الشراء. أغلق التطبيق وافتحه ثم جرّب مجدداً.");
+      setNotice("error", "تعذّر فتح نافذة طباعة فاتورة المشتريات. أغلق التطبيق وافتحه ثم جرّب مجدداً.");
       render();
     }
   });
@@ -7816,54 +8303,163 @@ function render() {
     state.invRows = [{ name: "", qty: "1", price: "" }];
     render();
   });
-  // Purchase invoices handlers (فواتير المشتريات — تسجيل داخلي فقط)
+  // Purchase invoices handlers (فواتير المشتريات — مزامنة الأمين قيد التطوير)
   app.querySelector("#po-supplier")?.addEventListener("input", (e) => {
-    state.poSupplier = e.currentTarget.value;
+    state.poSupplierQuery = e.currentTarget.value;
+    state.poSupplierKey = "";
+    state.poSupplierGuid = "";
+    const box = app.querySelector("[data-po-supplier-suggest]");
+    if (box) {
+      const html = poSupplierSuggestionsHtml(e.currentTarget.value);
+      box.innerHTML = html;
+      if (html) positionSalesSuggest(e.currentTarget, box);
+    }
   });
+  app.querySelector("#po-supplier")?.addEventListener("blur", () => {
+    setTimeout(() => {
+      const box = app.querySelector("[data-po-supplier-suggest]");
+      if (box) box.innerHTML = "";
+    }, 180);
+  });
+  app.querySelector("[data-po-supplier-suggest]")?.parentElement
+    ?.addEventListener("mousedown", (e) => {
+      const pick = e.target.closest("[data-po-supplier-pick]");
+      if (!pick) return;
+      e.preventDefault();
+      poPickSupplier(pick.dataset.poSupplierPick, pick.dataset.poSupplierGuid, pick.dataset.poSupplierCode);
+    });
   app.querySelector("#po-date")?.addEventListener("change", (e) => {
     state.poDate = e.currentTarget.value;
   });
   app.querySelector("#po-notes")?.addEventListener("input", (e) => {
     state.poNotes = e.currentTarget.value;
   });
+  app.querySelectorAll("[data-po-currency]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      state.poCurrency = btn.dataset.poCurrency;
+      state.poPaymentError = "";
+      render();
+    });
+  });
+  app.querySelectorAll("[data-po-pay]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      state.poPayMethod = btn.dataset.poPay;
+      state.poPaymentError = "";
+      render();
+    });
+  });
+  app.querySelector("#po-register-payment")?.addEventListener("change", (e) => {
+    state.poRegisterPayment = e.currentTarget.checked;
+    state.poPaymentError = "";
+    render();
+  });
+  app.querySelector("#po-payment-amount")?.addEventListener("input", (e) => {
+    if (state.poPayMethod === "cash") return; // نقدي: القيمة محسوبة تلقائياً من الإجمالي
+    state.poPaymentAmount = e.currentTarget.value;
+    state.poPaymentError = "";
+  });
+  app.querySelector("#po-payment-date")?.addEventListener("change", (e) => {
+    state.poPaymentDate = e.currentTarget.value;
+  });
+  app.querySelector("#po-payment-account")?.addEventListener("input", (e) => {
+    state.poPaymentAccount = e.currentTarget.value;
+  });
   app.querySelectorAll("[data-po-field]").forEach((input) => {
     input.addEventListener("input", (e) => {
       const i = Number(e.currentTarget.dataset.poIndex);
       const field = e.currentTarget.dataset.poField;
       if (!state.poRows[i]) return;
-      state.poRows[i][field] = e.currentTarget.value;
-      const tbody = document.getElementById("po-body");
-      if (tbody) {
-        const cells = tbody.querySelectorAll("tr")[i]?.querySelectorAll(".inv-line-total");
-        if (cells?.[0]) {
-          const qty = toNumber(state.poRows[i].qty);
-          const price = toNumber(state.poRows[i].price);
-          cells[0].textContent = `$${(qty * price).toFixed(2)}`;
-        }
-        const grandEl = document.querySelector(".po-grand-total");
-        if (grandEl) {
-          const total = state.poRows.reduce((s, r) => s + toNumber(r.qty) * toNumber(r.price), 0);
-          grandEl.textContent = `$${total.toFixed(2)}`;
+      if (field === "qty" || field === "price") {
+        state.poRows[i][field] = e.currentTarget.value;
+        if (field === "price") state.poRows[i].edited = true;
+        refreshPoTotals();
+      } else if (field === "q") {
+        state.poRows[i].q = e.currentTarget.value;
+        const box = app.querySelector(`[data-po-suggest="${i}"]`);
+        if (box) {
+          const html = poSuggestionsHtml(i, e.currentTarget.value);
+          box.innerHTML = html;
+          if (html) positionSalesSuggest(e.currentTarget, box);
         }
       }
     });
   });
+  app.querySelectorAll("[data-po-field]").forEach((input) => {
+    input.addEventListener("keydown", (e) => {
+      if (e.key !== "Enter") return;
+      e.preventDefault();
+      const i = Number(e.currentTarget.dataset.poIndex);
+      const field = e.currentTarget.dataset.poField;
+      if (field === "q") {
+        const first = app.querySelector(`[data-po-suggest="${i}"] [data-po-pick]`);
+        if (first) {
+          poPickItem(i, first.dataset.poPick);
+          return;
+        }
+        poFocusField(i, "qty");
+        return;
+      }
+      if (field === "qty") {
+        poFocusField(i, "price");
+        return;
+      }
+      if (field === "price") poFocusField(i + 1, "q");
+    });
+  });
+  app.querySelectorAll("[data-po-field='q']").forEach((input) => {
+    input.addEventListener("blur", (e) => {
+      const i = Number(e.currentTarget.dataset.poIndex);
+      setTimeout(() => {
+        const box = app.querySelector(`[data-po-suggest="${i}"]`);
+        if (box) box.innerHTML = "";
+      }, 180);
+    });
+  });
+  app.querySelector("#po-body")?.addEventListener("mousedown", (e) => {
+    const pick = e.target.closest("[data-po-pick]");
+    if (!pick) return;
+    e.preventDefault();
+    poPickItem(Number(pick.dataset.poRow), pick.dataset.poPick);
+  });
+  app.querySelectorAll("[data-po-unit]").forEach((btn) => {
+    btn.addEventListener("click", () => poToggleUnit(Number(btn.dataset.poUnit)));
+  });
+  app.querySelectorAll("[data-po-info]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      state.poInfoKey = state.poInfoKey === btn.dataset.poInfo ? "" : btn.dataset.poInfo;
+      render();
+    });
+  });
+  app.querySelectorAll("[data-po-suggest-add]").forEach((btn) => {
+    btn.addEventListener("click", () => poAddSuggestedItem(btn.dataset.poSuggestAdd));
+  });
   app.querySelectorAll("[data-po-remove]").forEach((btn) => {
     btn.addEventListener("click", () => {
       state.poRows.splice(Number(btn.dataset.poRemove), 1);
+      if (!state.poRows.length) state.poRows.push({ q: "", key: "", name: "", num: "", unit: "unit2", qty: "1", price: "", edited: false });
       render();
     });
   });
   app.querySelector("[data-action='po-add-row']")?.addEventListener("click", () => {
-    state.poRows.push({ name: "", qty: "1", price: "" });
+    state.poRows.push({ q: "", key: "", name: "", num: "", unit: "unit2", qty: "1", price: "", edited: false });
     render();
   });
   app.querySelector("[data-action='po-save']")?.addEventListener("click", savePurchaseInvoice);
   app.querySelector("[data-action='po-reset']")?.addEventListener("click", () => {
-    state.poSupplier = "";
+    state.poSupplierQuery = "";
+    state.poSupplierKey = "";
+    state.poSupplierGuid = "";
     state.poDate = "";
     state.poNotes = "";
-    state.poRows = [{ name: "", qty: "1", price: "" }];
+    state.poCurrency = "USD";
+    state.poPayMethod = "credit";
+    state.poRegisterPayment = false;
+    state.poPaymentAmount = "";
+    state.poPaymentDate = "";
+    state.poPaymentAccount = "";
+    state.poPaymentError = "";
+    state.poInfoKey = "";
+    state.poRows = [{ q: "", key: "", name: "", num: "", unit: "unit2", qty: "1", price: "", edited: false }];
     render();
   });
   app.querySelectorAll("[data-po-toggle]").forEach((btn) => {
@@ -7873,8 +8469,22 @@ function render() {
       render();
     });
   });
-  app.querySelectorAll("[data-po-status]").forEach((btn) => {
-    btn.addEventListener("click", () => setPurchaseInvoiceStatus(btn.dataset.poStatus, btn.dataset.poNext));
+  app.querySelectorAll("[data-po-transition]").forEach((btn) => {
+    btn.addEventListener("click", () => applyPurchaseInvoiceStatusAction(btn.dataset.poTransition, btn.dataset.poNext));
+  });
+  app.querySelectorAll("[data-po-correction]").forEach((btn) => {
+    btn.addEventListener("click", () => openPurchaseInvoiceCorrection(btn.dataset.poCorrection));
+  });
+  app.querySelectorAll("[data-po-correction-cancel]").forEach((btn) => {
+    btn.addEventListener("click", () => openPurchaseInvoiceCorrection(btn.dataset.poCorrectionCancel));
+  });
+  app.querySelectorAll("[id^='po-correction-note-']").forEach((input) => {
+    input.addEventListener("input", (e) => {
+      state.poCorrectionNote = e.currentTarget.value;
+    });
+  });
+  app.querySelectorAll("[data-po-correction-submit]").forEach((btn) => {
+    btn.addEventListener("click", () => submitPurchaseInvoiceCorrection(btn.dataset.poCorrectionSubmit));
   });
   app.querySelectorAll("[data-po-delete]").forEach((btn) => {
     btn.addEventListener("click", () => removePurchaseInvoice(btn.dataset.poDelete));
