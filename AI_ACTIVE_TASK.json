@@ -5,7 +5,9 @@
     "task":  "تصحيح مراجع قاعدة الأمين النشطة إلى AmnDb002",
     "branch":  "task branch pending for: تصحيح مراجع قاعدة الأمين النشطة إلى AmnDb002",
     "files":  [
-                  "\u0027CLAUDE.md\u0027,\u0027tools/ameen-stock-query.sql\u0027,\u0027tools/setup-ameen-sync-env.ps1\u0027"
+                  "CLAUDE.md",
+                  "tools/ameen-stock-query.sql",
+                  "tools/setup-ameen-sync-env.ps1"
               ],
     "startedAt":  "2026-07-29T15:45:37Z",
     "updatedAt":  "2026-07-29T15:45:37Z",
