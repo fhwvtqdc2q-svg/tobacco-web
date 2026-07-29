@@ -57,17 +57,19 @@ comment on column purchase_invoices.approved_at is 'وقت الاعتماد';
 comment on column purchase_invoices.correction_count is 'عدد الإجراءات التصحيحية بعد المزامنة — الفاتورة المُزامَنة لا تُعدَّل مباشرة أبداً';
 comment on column purchase_invoices.correction_log is 'سجل تصحيحات jsonb: [{ actor, at, reason }] — كل تصحيح على فاتورة مُزامَنة يُضاف هنا، لا يُستبدل';
 
--- ترحيل القيم القديمة open/received قبل تبديل القيد — أي صف قديم status='open'
--- يصبح 'draft' (لم يُشترَ/يُستلَم بعد بمعنى الحالة الجديدة)، وstatus='received'
--- يصبح 'approved' (وصلت واعتُمدت فعلياً، أقرب حالة جديدة لمعناها القديم). يُنفَّذ
--- هذا التحديث قبل تبديل CHECK constraint كي لا يفشل القيد الجديد على صفوف قديمة.
+-- القيد القديم على status (من purchase-invoices-table.sql) يسمح فقط بـ
+-- 'open'/'received' — يجب إسقاطه أولاً وإلا يرفض التحديثات أدناه القيم
+-- الجديدة 'draft'/'approved' قبل أن تصبح مسموحة.
+alter table purchase_invoices drop constraint if exists purchase_invoices_status_check;
+
+-- ترحيل القيم القديمة open/received — أي صف قديم status='open' يصبح 'draft'
+-- (لم يُشترَ/يُستلَم بعد بمعنى الحالة الجديدة)، وstatus='received' يصبح
+-- 'approved' (وصلت واعتُمدت فعلياً، أقرب حالة جديدة لمعناها القديم).
 update purchase_invoices set status = 'draft' where status = 'open';
 update purchase_invoices set status = 'approved' where status = 'received';
 
 -- الحالات الجديدة تحل محل open/received القديمتين. تُطبَّق كقيد جديد منفصل
--- (القيد القديم على status لم يُحذف من purchase-invoices-table.sql؛ حذفه هنا
--- عبر drop constraint إن كان لا يزال باسمه الافتراضي، ثم إضافة القيد الجديد).
-alter table purchase_invoices drop constraint if exists purchase_invoices_status_check;
+-- بعد أن أصبحت كل الصفوف القديمة مُرحَّلة إلى قيم مسموحة بالقيد الجديد.
 alter table purchase_invoices
   add constraint purchase_invoices_status_check
   check (status in ('draft', 'approved', 'sync_pending', 'synced', 'failed'));
@@ -143,17 +145,48 @@ create trigger trg_purchase_invoice_status_guard
 
 comment on function purchase_invoice_guard_status_transition() is 'يمنع تحديث status عادي من كسر التسلسل draft→approved→sync_pending↔failed→synced، ويمنع أي خروج من synced';
 
+-- ---------- منع الاستيلاء على مسودة + ختم اعتماد من طرف الخادم ----------
+-- created_by ثابت على كل تحديث (لا يتعلق بتغيّر status فقط، لذا trigger منفصل
+-- بلا شرط WHEN) كي لا يستطيع أي مستخدم "الاستيلاء" على مسودة غيره بتغيير من
+-- أنشأها. كما يختم approved_by/approved_at من الخادم (auth.uid()/now()) عند
+-- انتقال draft→approved فعلي، بدل الاعتماد على القيمة المُرسَلة من العميل —
+-- هذا مصدر الحقيقة الوحيد لهذين الحقلين الآن (تجاوز أي قيمة يرسلها العميل).
+create or replace function purchase_invoice_guard_immutable_and_stamp()
+returns trigger
+language plpgsql
+as $$
+begin
+  if new.created_by is distinct from old.created_by then
+    raise exception 'لا يمكن تغيير created_by — يمنع الاستيلاء على مسودة فاتورة غير مملوكة';
+  end if;
+  if old.status = 'draft' and new.status = 'approved' then
+    new.approved_by := auth.uid();
+    new.approved_at := now();
+  end if;
+  return new;
+end;
+$$;
+
+drop trigger if exists trg_purchase_invoice_immutable_and_stamp on purchase_invoices;
+create trigger trg_purchase_invoice_immutable_and_stamp
+  before update on purchase_invoices
+  for each row
+  execute function purchase_invoice_guard_immutable_and_stamp();
+
+comment on function purchase_invoice_guard_immutable_and_stamp() is 'يمنع تغيير created_by على أي تحديث، ويختم approved_by/approved_at من الخادم عند draft→approved — مصدر الحقيقة الوحيد لهذين الحقلين';
+
 -- ---------- RLS حقيقية: تفصل المُنشئ عن المُعتمِد عن عامل المزامنة ----------
 -- تستبدل هذه السياسات policies الأربع العامة في purchase-invoices-table.sql
 -- (سطر 32-47 هناك، authenticated بلا أي تفريق أدوار) بسياسات مضبوطة فعلياً.
 -- الدور "المُعتمِد" (approver) يطابق OWNER_EMAILS في src/app.js سطر 498 —
 -- نفس القائمة المستعملة لبوابات الواجهة الأخرى (item_costs وغيرها)، وليست
 -- قائمة جديدة مستقلة.
+-- بلا SECURITY DEFINER: الدالة تقرأ فقط auth.jwt() الخاص بالجلسة الحالية، لا
+-- تلمس أي جدول ذي صلاحيات مقيّدة، فلا داعي لتشغيلها بصلاحيات مالكها.
 create or replace function purchase_invoices_is_owner()
 returns boolean
 language sql
 stable
-security definer
 set search_path = public
 as $$
   select coalesce(auth.jwt() ->> 'email', '') in ('ozk.kh@outlook.com', 'ozkkhalouf@gmail.com');
@@ -169,16 +202,17 @@ drop policy if exists "authenticated can delete purchase_invoices" on purchase_i
 -- القراءة: كل الموظفين المسجّلين يحتاجون رؤية كل الفواتير للعمل اليومي — بلا تغيير.
 create policy "purchase_invoices_select_authenticated"
   on purchase_invoices for select
-  using (auth.role() = 'authenticated');
+  to authenticated
+  using (true);
 
 -- الإنشاء: أي موظف مسجّل (المُنشئ) — لكن حصراً كمسودة يملكها هو، بلا أي حقل
 -- من حقول الاعتماد/المزامنة مُعبَّأ مسبقاً (لا يمكن لأحد أن "يُنشئ" فاتورة
 -- مُعتمَدة أو مُزامَنة مباشرة، متجاوزاً تسلسل الحالة بالكامل).
 create policy "purchase_invoices_insert_creator"
   on purchase_invoices for insert
+  to authenticated
   with check (
-    auth.role() = 'authenticated'
-    and status = 'draft'
+    status = 'draft'
     and created_by = auth.uid()
     and approved_by is null
     and synced_at is null
@@ -186,8 +220,12 @@ create policy "purchase_invoices_insert_creator"
     and ameen_document_number is null
   );
 
--- التعديل: يُقصى أي صف status='synced' كلياً من هذه السياسة عبر USING (حماية
--- إضافية مستقلة عن الـtrigger). ضمن الصفوف غير المُزامَنة:
+-- التعديل: USING يتحقق من ملكية الصف القديم قبل قبول أي محاولة تعديل — لا
+-- يكفي أن يكون الصف غير مُزامَن، بل يجب أن يكون المُستخدم إما مُنشئ الصف
+-- القديم (created_by = auth.uid()) أو المُعتمِد (owner)؛ هذا ما يمنع أي مستخدم
+-- مسجّل من محاولة تعديل فاتورة لا يملكها أصلاً (كانت USING السابقة تسمح بذلك
+-- لأي مستخدم طالما status <> 'synced'، وتتّكل فقط على WITH CHECK لرفض النتيجة).
+-- ضمن الصفوف غير المُزامَنة المملوكة:
 --   - المُنشئ يعدّل سطور/بيانات فاتورته طالما بقيت مسودة (لا يستطيع اعتمادها بنفسه).
 --   - أي انتقال فعلي للحالة (draft→approved أو التعديل على صف غير-مسودة أصلاً)
 --     يتطلب purchase_invoices_is_owner() — هذا ما يمنع المُنشئ من اعتماد فاتورته.
@@ -195,15 +233,17 @@ create policy "purchase_invoices_insert_creator"
 --     ameen_document_number أو تحويل status إلى 'synced' من هذه السياسة إطلاقاً؛
 --     تلك الحقول service-role فقط (عامل المزامنة يتجاوز RLS بمفتاح service key
 --     تماماً كما تفعل بقية سكربتات tools/*.ps1 الحالية)، فلا حاجة لسياسة صريحة لها.
+--   - محاولة تغيير created_by نفسه (لسرقة مسودة) يرفضها trigger منفصل
+--     (purchase_invoice_guard_immutable_and_stamp) بصرف النظر عن نتيجة RLS هنا.
 create policy "purchase_invoices_update_client"
   on purchase_invoices for update
+  to authenticated
   using (
-    auth.role() = 'authenticated'
-    and status <> 'synced'
+    status <> 'synced'
+    and (created_by = auth.uid() or purchase_invoices_is_owner())
   )
   with check (
-    auth.role() = 'authenticated'
-    and status <> 'synced'
+    status <> 'synced'
     and (
       (status = 'draft' and created_by = auth.uid())
       or purchase_invoices_is_owner()
@@ -218,13 +258,10 @@ create policy "purchase_invoices_update_client"
 -- يحذف مسودته فقط، والمُعتمِد (owner) يحذف أي فاتورة غير مُزامَنة.
 create policy "purchase_invoices_delete_client"
   on purchase_invoices for delete
+  to authenticated
   using (
-    auth.role() = 'authenticated'
-    and status <> 'synced'
-    and (
-      (status = 'draft' and created_by = auth.uid())
-      or purchase_invoices_is_owner()
-    )
+    status <> 'synced'
+    and (created_by = auth.uid() or purchase_invoices_is_owner())
   );
 
 -- ============================================================
@@ -272,10 +309,16 @@ alter table ameen_item_snapshot enable row level security;
 -- للجداول الحساسة) — لا سياسة insert/update/delete هنا، فالكتابة service-role فقط
 -- (سكربت Windows يستعمل service key مباشرة عبر REST ويتجاوز RLS كما تفعل باقي
 -- سكربتات tools/*.ps1 الحالية، وليس عبر جلسة مستخدم عادية).
+-- GRANT/REVOKE صريحان هنا دفاع مستوى ثانٍ مستقل عن RLS (نفس مبدأ الجداول
+-- الحساسة الأخرى) — بلا اعتماد على RLS وحدها لمنع anon.
+revoke all on ameen_item_snapshot from anon;
+grant select on ameen_item_snapshot to authenticated;
+
 drop policy if exists "authenticated can select ameen_item_snapshot" on ameen_item_snapshot;
 create policy "authenticated can select ameen_item_snapshot"
   on ameen_item_snapshot for select
-  using (auth.role() = 'authenticated');
+  to authenticated
+  using (true);
 
 -- ============================================================
 -- ملاحظة حول outbox/طابور مزامنة منفصل
