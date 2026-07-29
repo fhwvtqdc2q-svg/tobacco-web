@@ -6984,9 +6984,25 @@ function printSalesInvoice() {
 // ملاحظة: الحفظ إلى Supabase فقط. لا مزامنة فعلية مع الأمين حتى تفعيل سكربتات tools/*
 // وتطبيق supabase/purchase-invoices-ameen-sync.sql على قاعدة الإنتاج (راجع AI_WORK_SYNC.md).
 
+// يبحث أولاً بقائمة الأسعار المعتمدة (approvedPriceItems)، وإن لم يوجد الصنف هناك
+// (مادة تُشترى ولا تُباع للزبائن مثلاً) يبني شكلاً مطابقاً من قطة أصناف الأمين
+// بلا أي سعر بيع — poAutoUnitPrice يبقى مصدره الوحيد آخر سعر شراء موثّق.
 function poItemByKey(key) {
   if (!key) return null;
-  return (state.approvedPriceItems || []).find((item) => item.itemKey === key) || null;
+  const approved = (state.approvedPriceItems || []).find((item) => item.itemKey === key);
+  if (approved) return approved;
+  const snap = poSnapshotByKey(key);
+  if (!snap) return null;
+  return {
+    itemKey: snap.itemKey,
+    itemName: snap.itemName,
+    itemCode: snap.itemNumber,
+    itemNumber: snap.itemNumber,
+    unit1Name: snap.unit1Name,
+    unit2Name: snap.unit2Name,
+    unit2Factor: snap.unit2Factor,
+    fromSnapshotOnly: true
+  };
 }
 
 function poSnapshotByKey(key) {
@@ -7003,17 +7019,39 @@ function poUnitLabel(item, unit) {
   return unit === "unit1" ? (item.unit1Name || "كروز") : (item.unit2Name || "كرتونة");
 }
 
-// السعر التلقائي متاح فقط بالدولار (نفس أسعار approved_price_items) — بلا أي تحويل
-// ضمني لليرة؛ عند اختيار عملة الليرة يبقى حقل السعر فارغاً بانتظار إدخال يدوي.
+// السعر التلقائي مصدره حصراً آخر سعر شراء موثّق بقطة أصناف الأمين (ameen_item_snapshot)
+// — لا يُستعمل أبداً سعر بيع approved_price_items كسعر شراء. يُشترط تطابق العملة
+// ووحدة الشراء الموثّقة تماماً مع سطر الفاتورة، وإلا يبقى الحقل فارغاً لإدخال يدوي.
 function poAutoUnitPrice(item, unit, currency) {
-  if (!item || currency !== "USD") return 0;
-  return roundPrice(unit === "unit1" ? Number(item.unit1Price || 0) : Number(item.unit2Price || 0));
+  const key = item && item.itemKey;
+  const snap = poSnapshotByKey(key);
+  if (!snap || snap.lastPurchasePrice == null) return 0;
+  if (snap.lastPurchaseCurrency && snap.lastPurchaseCurrency !== currency) return 0;
+  if (snap.lastPurchaseUnit && snap.lastPurchaseUnit !== unit) return 0;
+  if (!snap.lastPurchaseUnit) return 0;
+  return roundPrice(Number(snap.lastPurchasePrice));
 }
 
 function poSearchItems(query, limit = 8) {
   const raw = String(query || "").trim();
   if (!raw) return [];
-  const list = state.approvedPriceItems || [];
+  const approved = state.approvedPriceItems || [];
+  const seenKeys = new Set(approved.map((item) => item.itemKey));
+  // اتحاد approvedPriceItems (أسعار البيع للمطابقة الاسمية فقط) مع ameen_item_snapshot
+  // كي تظهر مواد تُشترى ولا تُباع للزبائن — دون أي سعر بيع مُرفَق بها.
+  const snapshotOnly = (state.poItemSnapshots || [])
+    .filter((snap) => snap.itemKey && !seenKeys.has(snap.itemKey))
+    .map((snap) => ({
+      itemKey: snap.itemKey,
+      itemName: snap.itemName,
+      itemCode: snap.itemNumber,
+      itemNumber: snap.itemNumber,
+      unit1Name: snap.unit1Name,
+      unit2Name: snap.unit2Name,
+      unit2Factor: snap.unit2Factor,
+      fromSnapshotOnly: true
+    }));
+  const list = [...approved, ...snapshotOnly];
   if (!list.length) return [];
   const normalizedQuery = normalizeItemName(raw);
   const digits = raw.replace(/[^0-9]/g, "");
@@ -7434,9 +7472,10 @@ function purchaseInvoiceCard(po) {
       ? `<button class="button secondary compact-button" type="button" data-po-transition="${escapeHtml(po.id)}" data-po-next="approved">✓ اعتماد</button>`
       : po.status === "approved"
         ? `<button class="button secondary compact-button" type="button" data-po-transition="${escapeHtml(po.id)}" data-po-next="sync_pending">↻ إرسال للمزامنة</button>`
-        : (po.status === "sync_pending" || po.status === "failed")
-          ? `<button class="button secondary compact-button" type="button" data-po-transition="${escapeHtml(po.id)}" data-po-next="synced">✓ تأكيد المزامنة يدوياً</button>
-             <button class="button secondary compact-button" type="button" data-po-transition="${escapeHtml(po.id)}" data-po-next="failed">⚠ وضع فشلت</button>`
+        // "synced" لا يُضبط من الواجهة إطلاقاً — يقتصر على عامل المزامنة بعد تحقّق فعلي
+        // من نجاح القيد بالأمين (service-role فقط، متوقف حالياً كما هو موثّق أعلاه).
+        : po.status === "sync_pending"
+          ? `<button class="button secondary compact-button" type="button" data-po-transition="${escapeHtml(po.id)}" data-po-next="failed">⚠ وضع فشلت</button>`
           : ""
     : `<button class="button secondary compact-button" type="button" data-po-correction="${escapeHtml(po.id)}">🛠 إجراء تصحيحي</button>`;
 

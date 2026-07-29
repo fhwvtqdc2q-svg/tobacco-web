@@ -225,6 +225,7 @@
       lastPurchasePrice: row.last_purchase_price != null ? parseNumber(row.last_purchase_price) : null,
       lastPurchaseDate: row.last_purchase_date || "",
       lastPurchaseCurrency: row.last_purchase_currency || "",
+      lastPurchaseUnit: row.last_purchase_unit || "",
       averageCost: row.average_cost != null ? parseNumber(row.average_cost) : null,
       averageCostCurrency: row.average_cost_currency || "",
       averageCostBasis: row.average_cost_basis || "",
@@ -984,7 +985,7 @@
       const { data, error } = await client
         .from(itemSnapshotTable)
         .select(
-          "item_key, item_guid, item_number, item_name, unit1_name, unit2_name, unit2_factor, stock_unit1, last_purchase_price, last_purchase_date, last_purchase_currency, average_cost, average_cost_currency, average_cost_basis, last_supplier_name, last_supplier_guid, movement_rank, units_sold_30d, generated_at"
+          "item_key, item_guid, item_number, item_name, unit1_name, unit2_name, unit2_factor, stock_unit1, last_purchase_price, last_purchase_date, last_purchase_currency, last_purchase_unit, average_cost, average_cost_currency, average_cost_basis, last_supplier_name, last_supplier_guid, movement_rank, units_sold_30d, generated_at"
         )
         .limit(5000);
       if (error) {
