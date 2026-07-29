@@ -9,6 +9,16 @@
 - Files: src/app.js,src/styles.css,src/supabase-client.js,supabase/purchase-invoices-table.sql,tools/
 - Result: اكتمل التطوير على فرع worktree-purchase-invoices-ameen-v2 (commits 812f2f9, 8dda9aa) — migration SQL جديد غير مطبَّق، سكريبتات PowerShell جديدة غير مُشغَّلة (exit 1 مطلق)، واجهة فاتورة مشتريات كاملة، اختبارات في check.mjs. بانتظار مراجعة Codex وموافقة المالك قبل أي دمج أو تفعيل.
 - Handoff UTC: 2026-07-29T17:30:12Z
+
+## 2026-07-29 - Claude - تطوير فواتير المشتريات v2 (واجهة + مزامنة أمين مؤجَّلة)
+
+- Status: completed (تطوير/تجهيز فقط — لا تفعيل)
+- Branch: worktree-purchase-invoices-ameen-v2 (worktree منفصل، لم يُدمَج ولم يُدفَع)
+- Files: src/app.js, src/purchase-invoice-calc.js (جديد), src/styles.css, src/supabase-client.js, src/number-normalizer.js, index.html, public/service-worker.js (v418), scripts/check.mjs, supabase/purchase-invoices-ameen-sync.sql (جديد، غير مُطبَّق), tools/discover-ameen-purchase-schema.ps1 (جديد، قراءة فقط)، tools/push-purchase-item-snapshot.ps1 (جديد، مقفل)، tools/sync-purchase-invoices-to-ameen.ps1 (جديد، مقفل)، tools/ameen-purchase-config.json (جديد)
+- Result: تبويب «فواتير المشتريات» أصبح نظاماً كاملاً بالدولار/الليرة يحاكي نمط فاتورة المبيعات (بحث مورد+صنف بوحدات أمين حقيقية، لوحة معلومات صنف، أصناف مقترحة، عملة صريحة بلا تحويل ضمني، نقدي/آجل مع دفعة جزئية، دورة حياة 5 حالات، إجراء تصحيحي لفاتورة "مُزامَنة"، طباعة/PDF). أُضيفت أول اختبارات وحدة حقيقية (vm) لـpoCalc في scripts/check.mjs. نجح npm.cmd run check بالكامل؛ git diff --check لا يُظهر إلا تحذيرات مسافات لاحقة معروفة قديمة في src/styles.css (فرق سطر فعلي 30 سطراً فقط بعد تجاهل نهايات الأسطر)؛ لا أسرار أو .env أو سجلات في الفرق. سكريبتات الكتابة الثلاثة الجديدة تحت tools/ ما زالت مقفلة بـexit 1 غير مشروط ولم تُشغَّل ولو تجربة.
+- Pending: (1) اكتشاف فعلي لأكواد BillType/GUID/حساب/صندوق الأمين عبر discover-ameen-purchase-schema.ps1 قبل أي فك قفل، (2) تطبيق supabase/purchase-invoices-ameen-sync.sql على قاعدة الإنتاج، (3) اختبار حي على iPhone فعلي (390px) لم يحدث بعد، (4) مراجعة Codex مستقلة قبل أي دمج لـmain، (5) لا دمج ولا دفع حتى إذن صريح من المستخدم.
+- Handoff UTC: 2026-07-29T00:00:00Z
+
 ## 2026-07-29 - Codex - تصحيح مراجع قاعدة الأمين النشطة إلى AmnDb002
 
 - Status: completed
