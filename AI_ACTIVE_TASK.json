@@ -1,16 +1,13 @@
 {
     "schemaVersion":  1,
-    "status":  "active",
-    "owner":  "Codex",
-    "task":  "تصحيح مراجع قاعدة الأمين النشطة إلى AmnDb002",
-    "branch":  "task branch pending for: تصحيح مراجع قاعدة الأمين النشطة إلى AmnDb002",
+    "status":  "idle",
+    "owner":  null,
+    "task":  null,
+    "branch":  null,
     "files":  [
-                  "CLAUDE.md",
-                  "AI_WORK_SYNC.md",
-                  "tools/ameen-stock-query.sql",
-                  "tools/setup-ameen-sync-env.ps1"
+
               ],
-    "startedAt":  "2026-07-29T15:45:37Z",
-    "updatedAt":  "2026-07-29T15:45:37Z",
-    "note":  "توثيق وإعداد افتراضي فقط؛ ممنوع لمس tools/.env أو تشغيل مزامنة أو الكتابة في الأمين."
+    "startedAt":  null,
+    "updatedAt":  "2026-07-29T15:48:27Z",
+    "note":  "No active task. Read AI_HANDOFF.md before starting work."
 }

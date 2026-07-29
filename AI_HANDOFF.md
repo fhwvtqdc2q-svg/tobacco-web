@@ -2,6 +2,13 @@
 
 يقرأه Claude وCodex قبل كل مهمة. أحدث سجل يكون في الأعلى. لا تحذف السجلات السابقة.
 
+## 2026-07-29 - Codex - تصحيح مراجع قاعدة الأمين النشطة إلى AmnDb002
+
+- Status: completed
+- Branch: codex/ameen-db002-defaults
+- Files: CLAUDE.md, AI_WORK_SYNC.md, tools/ameen-stock-query.sql, tools/setup-ameen-sync-env.ps1
+- Result: ثبت الفحص القرائي أن AmnDb002 نشطة بـ402 مادة؛ حُدث الافتراضي والتوثيق وتعليق الاستعلام وسجل القرار فقط. نجح npm.cmd run check وgit diff --check وتحليل PowerShell 5.1؛ لم تُقرأ tools/.env ولم تُشغّل مزامنة ولم تُلمس قاعدة الأمين.
+- Handoff UTC: 2026-07-29T15:48:27Z
 ## 2026-07-28 - Codex - تحديث الطباعة وPDF فوراً من الأسعار المدخلة
 
 - Status: completed
