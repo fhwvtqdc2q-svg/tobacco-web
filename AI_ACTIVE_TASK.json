@@ -1,13 +1,13 @@
 {
     "schemaVersion":  1,
-    "status":  "active",
-    "owner":  "Claude",
-    "task":  "تطوير شامل لفاتورة المشتريات ومزامنة الأمين (تطوير فقط، لا تفعيل)",
-    "branch":  "task branch pending for: تطوير شامل لفاتورة المشتريات ومزامنة الأمين (تطوير فقط، لا تفعيل)",
+    "status":  "idle",
+    "owner":  null,
+    "task":  null,
+    "branch":  null,
     "files":  [
-                  "src/app.js,src/styles.css,src/supabase-client.js,supabase/purchase-invoices-table.sql,tools/"
+
               ],
-    "startedAt":  "2026-07-29T16:08:46Z",
-    "updatedAt":  "2026-07-29T16:08:46Z",
-    "note":  "Work in progress. Do not edit the reserved files."
+    "startedAt":  null,
+    "updatedAt":  "2026-07-29T17:30:12Z",
+    "note":  "No active task. Read AI_HANDOFF.md before starting work."
 }

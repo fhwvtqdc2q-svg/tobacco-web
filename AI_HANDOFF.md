@@ -2,6 +2,13 @@
 
 يقرأه Claude وCodex قبل كل مهمة. أحدث سجل يكون في الأعلى. لا تحذف السجلات السابقة.
 
+## 2026-07-29 - Claude - تطوير شامل لفاتورة المشتريات ومزامنة الأمين (تطوير فقط، لا تفعيل)
+
+- Status: completed
+- Branch: task branch pending for: تطوير شامل لفاتورة المشتريات ومزامنة الأمين (تطوير فقط، لا تفعيل)
+- Files: src/app.js,src/styles.css,src/supabase-client.js,supabase/purchase-invoices-table.sql,tools/
+- Result: اكتمل التطوير على فرع worktree-purchase-invoices-ameen-v2 (commits 812f2f9, 8dda9aa) — migration SQL جديد غير مطبَّق، سكريبتات PowerShell جديدة غير مُشغَّلة (exit 1 مطلق)، واجهة فاتورة مشتريات كاملة، اختبارات في check.mjs. بانتظار مراجعة Codex وموافقة المالك قبل أي دمج أو تفعيل.
+- Handoff UTC: 2026-07-29T17:30:12Z
 ## 2026-07-29 - Codex - تصحيح مراجع قاعدة الأمين النشطة إلى AmnDb002
 
 - Status: completed
