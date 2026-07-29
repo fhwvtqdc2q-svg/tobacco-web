@@ -85,6 +85,7 @@
   const itemCostsTable = config.itemCostsTable || "item_costs";
   const dailyMovementTable = config.dailyMovementTable || "daily_movement_reports";
   const purchaseInvoicesTable = config.purchaseInvoicesTable || "purchase_invoices";
+  const itemSnapshotTable = config.itemSnapshotTable || "ameen_item_snapshot";
   const client =
     hasConfig && hasLibrary
       ? window.supabase.createClient(config.url, config.publishableKey, {
@@ -153,11 +154,18 @@
     };
   }
 
-  // فواتير المشتريات — تسجيل داخلي فقط (لا تُزامَن مع الأمين ولا تُصدَّر)
+  // فواتير المشتريات — تسجيل + مزامنة أمين مستقبلية (لم تُفعَّل بعد، انظر AI_WORK_SYNC.md)
+  const PO_STATUS_VALUES = ["draft", "approved", "sync_pending", "synced", "failed"];
+  const PO_CURRENCY_VALUES = ["USD", "SYP"];
+
   function normalizePurchaseItems(items) {
     return (Array.isArray(items) ? items : [])
       .map((item) => ({
+        item_key: item.item_key == null ? null : String(item.item_key),
+        item_number: item.item_number == null ? "" : String(item.item_number),
+        item_guid: item.item_guid == null ? null : String(item.item_guid),
         name: cleanText(item.name, 240),
+        unit: item.unit === "unit1" ? "unit1" : "unit2",
         qty: Math.max(0, parseNumber(item.qty)),
         price: Math.max(0, parseNumber(item.price))
       }))
@@ -167,17 +175,65 @@
   function normalizeDbPurchaseInvoice(row) {
     const shortId = String(row.id || Date.now()).slice(0, 8).toUpperCase();
     const items = normalizePurchaseItems(row.items);
+    const status = PO_STATUS_VALUES.includes(row.status) ? row.status : "draft";
+    const total = parseNumber(row.total || 0);
+    const paidTotal = parseNumber(row.paid_total || 0);
+    const remainingTotal = row.remaining_total != null ? parseNumber(row.remaining_total) : roundPrice(total - paidTotal);
     return {
       id: row.id,
       publicId: `PO-${shortId}`,
       supplierName: row.supplier_name || "",
+      supplierAmeenGuid: row.supplier_ameen_guid || "",
+      supplierAmeenCode: row.supplier_ameen_code || "",
       orderDate: row.order_date || "",
-      status: row.status === "received" ? "received" : "open",
+      status,
       items,
-      total: parseNumber(row.total || 0),
+      currency: PO_CURRENCY_VALUES.includes(row.currency) ? row.currency : "USD",
+      payMethod: row.pay_method === "cash" ? "cash" : "credit",
+      paymentAmount: parseNumber(row.payment_amount || 0),
+      paymentDate: row.payment_date || "",
+      paymentAccount: row.payment_account || "",
+      paidTotal,
+      remainingTotal,
+      idempotencyKey: row.idempotency_key || "",
+      syncAttempts: Number(row.sync_attempts || 0),
+      syncError: row.sync_error || "",
+      ameenDocumentGuid: row.ameen_document_guid || "",
+      ameenDocumentNumber: row.ameen_document_number || "",
+      syncedAt: row.synced_at || "",
+      approvedBy: row.approved_by || "",
+      approvedAt: row.approved_at || "",
+      correctionCount: Number(row.correction_count || 0),
+      correctionLog: Array.isArray(row.correction_log) ? row.correction_log : [],
+      total,
       notes: row.notes || "",
       createdAt: row.created_at || "",
       updatedAt: row.updated_at || row.created_at || ""
+    };
+  }
+
+  function normalizeDbItemSnapshot(row) {
+    return {
+      itemKey: row.item_key || "",
+      itemGuid: row.item_guid || "",
+      itemNumber: row.item_number == null ? "" : String(row.item_number),
+      itemName: row.item_name || "",
+      unit1Name: row.unit1_name || "",
+      unit2Name: row.unit2_name || "",
+      unit2Factor: parseNumber(row.unit2_factor || 1) || 1,
+      stockUnit1: row.stock_unit1 != null ? parseNumber(row.stock_unit1) : null,
+      lastPurchasePrice: row.last_purchase_price != null ? parseNumber(row.last_purchase_price) : null,
+      lastPurchaseDate: row.last_purchase_date || "",
+      lastPurchaseCurrency: row.last_purchase_currency || "",
+      lastPurchaseUnit: row.last_purchase_unit || "",
+      averageCost: row.average_cost != null ? parseNumber(row.average_cost) : null,
+      averageCostCurrency: row.average_cost_currency || "",
+      averageCostBasis: row.average_cost_basis || "",
+      lastSupplierName: row.last_supplier_name || "",
+      lastSupplierGuid: row.last_supplier_guid || "",
+      movementRank: row.movement_rank != null ? Number(row.movement_rank) : null,
+      unitsSold30d: row.units_sold_30d != null ? parseNumber(row.units_sold_30d) : null,
+      generatedAt: row.generated_at || ""
     };
   }
 
@@ -900,33 +956,79 @@
       if (!session) return [];
       const { data, error } = await client
         .from(purchaseInvoicesTable)
-        .select("id, supplier_name, order_date, status, items, total, notes, created_at, updated_at")
+        .select(
+          "id, supplier_name, supplier_ameen_guid, supplier_ameen_code, order_date, status, items, currency, pay_method, payment_amount, payment_date, payment_account, paid_total, remaining_total, idempotency_key, sync_attempts, sync_error, ameen_document_guid, ameen_document_number, synced_at, approved_by, approved_at, correction_count, correction_log, total, notes, created_at, updated_at"
+        )
         .order("created_at", { ascending: false })
         .limit(300);
       if (error) {
         if (error.code === "42P01") return [];
+        // الأعمدة الجديدة (تسلسل المزامنة) قد لا تكون مُطبَّقة بعد على قاعدة الإنتاج.
+        if (error.code === "42703") {
+          const fallback = await client
+            .from(purchaseInvoicesTable)
+            .select("id, supplier_name, order_date, status, items, total, notes, created_at, updated_at")
+            .order("created_at", { ascending: false })
+            .limit(300);
+          if (fallback.error) throw new Error(translateDbError(fallback.error.message));
+          return (fallback.data || []).map(normalizeDbPurchaseInvoice);
+        }
         throw new Error(translateDbError(error.message));
       }
       return (data || []).map(normalizeDbPurchaseInvoice);
     },
 
+    async listItemSnapshots() {
+      if (!client) return [];
+      const session = await getSupabaseSession();
+      if (!session) return [];
+      const { data, error } = await client
+        .from(itemSnapshotTable)
+        .select(
+          "item_key, item_guid, item_number, item_name, unit1_name, unit2_name, unit2_factor, stock_unit1, last_purchase_price, last_purchase_date, last_purchase_currency, last_purchase_unit, average_cost, average_cost_currency, average_cost_basis, last_supplier_name, last_supplier_guid, movement_rank, units_sold_30d, generated_at"
+        )
+        .limit(5000);
+      if (error) {
+        if (error.code === "42P01") return []; // الجدول لم يُنشأ بعد على قاعدة الإنتاج — طبيعي قبل تطبيق SQL الجديد
+        throw new Error(translateDbError(error.message));
+      }
+      return (data || []).map(normalizeDbItemSnapshot);
+    },
+
     async createPurchaseInvoice(input) {
+      const items = normalizePurchaseItems(input.items);
+      const total = roundPrice(items.reduce((sum, item) => sum + item.qty * item.price, 0));
+      const payMethod = input.payMethod === "cash" ? "cash" : "credit";
+      const paymentAmount = Math.max(0, parseNumber(input.paymentAmount || 0));
+      const paidTotal = input.registerPayment ? Math.min(paymentAmount, total) : 0;
       const record = {
         supplier_name: cleanText(input.supplierName, 240),
+        supplier_ameen_guid: input.supplierAmeenGuid ? String(input.supplierAmeenGuid) : null,
+        supplier_ameen_code: input.supplierAmeenCode ? cleanText(input.supplierAmeenCode, 60) : null,
         order_date: String(input.orderDate || new Date().toISOString().slice(0, 10)),
-        status: "open",
-        items: normalizePurchaseItems(input.items),
-        notes: cleanText(input.notes, 500)
+        status: "draft",
+        items,
+        currency: PO_CURRENCY_VALUES.includes(input.currency) ? input.currency : "USD",
+        pay_method: payMethod,
+        payment_amount: input.registerPayment ? paidTotal : 0,
+        payment_date: input.registerPayment ? String(input.paymentDate || input.orderDate || new Date().toISOString().slice(0, 10)) : null,
+        payment_account: input.registerPayment ? cleanText(input.paymentAccount, 120) : null,
+        paid_total: paidTotal,
+        remaining_total: roundPrice(total - paidTotal),
+        idempotency_key: (window.crypto?.randomUUID ? window.crypto.randomUUID() : `${Date.now()}-${Math.random().toString(16).slice(2)}`),
+        notes: cleanText(input.notes, 500),
+        total
       };
       if (!record.supplier_name) throw new Error("اكتب اسم المورد أولاً.");
       if (!record.items.length) throw new Error("أضف صنفاً واحداً على الأقل مع كمية.");
-      record.total = roundPrice(record.items.reduce((sum, item) => sum + item.qty * item.price, 0));
 
       if (!client) {
         const all = readJson(PURCHASE_INVOICES_KEY, []);
         const local = {
           id: `local-${Date.now()}`,
           ...record,
+          correction_count: 0,
+          correction_log: [],
           created_at: new Date().toISOString(),
           updated_at: new Date().toISOString()
         };
@@ -938,7 +1040,9 @@
       const { data, error } = await client
         .from(purchaseInvoicesTable)
         .insert({ ...record, created_by: user.id })
-        .select("id, supplier_name, order_date, status, items, total, notes, created_at, updated_at")
+        .select(
+          "id, supplier_name, supplier_ameen_guid, supplier_ameen_code, order_date, status, items, currency, pay_method, payment_amount, payment_date, payment_account, paid_total, remaining_total, idempotency_key, total, notes, created_at, updated_at"
+        )
         .limit(1);
       if (error) {
         if (error.code === "42P01") throw new Error("جدول purchase_invoices غير موجود. شغّل SQL الإعداد في Supabase أولاً.");
@@ -947,19 +1051,67 @@
       return data?.[0] ? normalizeDbPurchaseInvoice(data[0]) : normalizeDbPurchaseInvoice(record);
     },
 
-    async updatePurchaseInvoiceStatus(id, status) {
-      const nextStatus = status === "received" ? "received" : "open";
+    async setPurchaseInvoiceStatus(id, nextStatus, extra = {}) {
+      if (!PO_STATUS_VALUES.includes(nextStatus)) throw new Error("حالة فاتورة غير معروفة.");
+      const patch = { status: nextStatus, updated_at: new Date().toISOString() };
+      if (extra.approvedBy) patch.approved_by = extra.approvedBy;
+      if (extra.approvedAt) patch.approved_at = extra.approvedAt;
+      if (extra.syncError !== undefined) patch.sync_error = extra.syncError;
       if (!client) {
         const all = readJson(PURCHASE_INVOICES_KEY, []).map((row) =>
-          row.id === id ? { ...row, status: nextStatus, updated_at: new Date().toISOString() } : row
+          row.id === id ? { ...row, ...patch } : row
         );
         writeJson(PURCHASE_INVOICES_KEY, all);
         return;
       }
-      await requireUser();
+      const user = await requireUser();
+      // نختم مَن اعتمد الفاتورة ومتى تلقائياً هنا (وليس من app.js) — RLS على Supabase
+      // هي الحاجز الفعلي الذي يقرر إن كان هذا المستخدم يملك صلاحية الاعتماد أصلاً.
+      if (nextStatus === "approved" && !patch.approved_by) {
+        patch.approved_by = user.id;
+        patch.approved_at = new Date().toISOString();
+      }
+      const { error } = await client.from(purchaseInvoicesTable).update(patch).eq("id", id);
+      if (error) throw new Error(translateDbError(error.message));
+    },
+
+    // إجراء تصحيحي على فاتورة "مُزامَنة" — لا حذف ولا تعديل حر، فقط قيد تصحيحي موثّق
+    async correctPurchaseInvoice(id, note, patch = {}) {
+      const cleanNote = cleanText(note, 500);
+      if (!cleanNote) throw new Error("اكتب سبب الإجراء التصحيحي.");
+      if (!client) {
+        const all = readJson(PURCHASE_INVOICES_KEY, []).map((row) => {
+          if (row.id !== id) return row;
+          const log = Array.isArray(row.correction_log) ? row.correction_log : [];
+          return {
+            ...row,
+            ...patch,
+            correction_count: Number(row.correction_count || 0) + 1,
+            correction_log: [...log, { note: cleanNote, at: new Date().toISOString() }],
+            updated_at: new Date().toISOString()
+          };
+        });
+        writeJson(PURCHASE_INVOICES_KEY, all);
+        return;
+      }
+      const user = await requireUser();
+      const { data: current, error: readErr } = await client
+        .from(purchaseInvoicesTable)
+        .select("correction_count, correction_log")
+        .eq("id", id)
+        .limit(1);
+      if (readErr) throw new Error(translateDbError(readErr.message));
+      const row = current?.[0] || {};
+      const log = Array.isArray(row.correction_log) ? row.correction_log : [];
+      const entry = { note: cleanNote, at: new Date().toISOString(), by: user.id };
       const { error } = await client
         .from(purchaseInvoicesTable)
-        .update({ status: nextStatus, updated_at: new Date().toISOString() })
+        .update({
+          ...patch,
+          correction_count: Number(row.correction_count || 0) + 1,
+          correction_log: [...log, entry],
+          updated_at: new Date().toISOString()
+        })
         .eq("id", id);
       if (error) throw new Error(translateDbError(error.message));
     },
