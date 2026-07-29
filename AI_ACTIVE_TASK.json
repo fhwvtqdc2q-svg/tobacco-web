@@ -6,6 +6,7 @@
     "branch":  "task branch pending for: تصحيح مراجع قاعدة الأمين النشطة إلى AmnDb002",
     "files":  [
                   "CLAUDE.md",
+                  "AI_WORK_SYNC.md",
                   "tools/ameen-stock-query.sql",
                   "tools/setup-ameen-sync-env.ps1"
               ],
