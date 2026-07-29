@@ -57,6 +57,13 @@ comment on column purchase_invoices.approved_at is 'وقت الاعتماد';
 comment on column purchase_invoices.correction_count is 'عدد الإجراءات التصحيحية بعد المزامنة — الفاتورة المُزامَنة لا تُعدَّل مباشرة أبداً';
 comment on column purchase_invoices.correction_log is 'سجل تصحيحات jsonb: [{ actor, at, reason }] — كل تصحيح على فاتورة مُزامَنة يُضاف هنا، لا يُستبدل';
 
+-- ترحيل القيم القديمة open/received قبل تبديل القيد — أي صف قديم status='open'
+-- يصبح 'draft' (لم يُشترَ/يُستلَم بعد بمعنى الحالة الجديدة)، وstatus='received'
+-- يصبح 'approved' (وصلت واعتُمدت فعلياً، أقرب حالة جديدة لمعناها القديم). يُنفَّذ
+-- هذا التحديث قبل تبديل CHECK constraint كي لا يفشل القيد الجديد على صفوف قديمة.
+update purchase_invoices set status = 'draft' where status = 'open';
+update purchase_invoices set status = 'approved' where status = 'received';
+
 -- الحالات الجديدة تحل محل open/received القديمتين. تُطبَّق كقيد جديد منفصل
 -- (القيد القديم على status لم يُحذف من purchase-invoices-table.sql؛ حذفه هنا
 -- عبر drop constraint إن كان لا يزال باسمه الافتراضي، ثم إضافة القيد الجديد).
@@ -64,6 +71,11 @@ alter table purchase_invoices drop constraint if exists purchase_invoices_status
 alter table purchase_invoices
   add constraint purchase_invoices_status_check
   check (status in ('draft', 'approved', 'sync_pending', 'synced', 'failed'));
+
+-- default العمود كان 'open' (قيمة أُلغيت للتو) — يجب تبديله كي لا يفشل أي إدراج
+-- مستقبلي لا يُرسل status صراحة (العميل الحالي في createPurchaseInvoice يرسله
+-- دوماً 'draft'، لكن هذا دفاع مستوى قاعدة بيانات مستقل عن ذلك).
+alter table purchase_invoices alter column status set default 'draft';
 
 -- ملاحظة: PostgreSQL لا يدعم "ADD CONSTRAINT IF NOT EXISTS" — نستعمل DO block
 -- يتحقق من pg_constraint قبل الإضافة كي يبقى الملف قابلاً لإعادة التشغيل بأمان.
@@ -131,13 +143,89 @@ create trigger trg_purchase_invoice_status_guard
 
 comment on function purchase_invoice_guard_status_transition() is 'يمنع تحديث status عادي من كسر التسلسل draft→approved→sync_pending↔failed→synced، ويمنع أي خروج من synced';
 
--- ---------- ملاحظة أمنية على RLS الحالي ----------
--- الجدول أصلاً authenticated-only بلا anon (purchase-invoices-table.sql سطر 32-47)،
--- وهذا يبقى كما هو. التفريق بين "من يمكنه إنشاء مسودة" و"من يمكنه الاعتماد" يحتاج
--- دور تطبيقي (مثلاً عمود is_owner أو جدول أدوار) غير موجود بعد في هذا المستودع —
--- لذلك التقييد الإضافي هنا هو الـtrigger أعلاه فقط (تسلسل الحالة)، والتحقق من
--- "من يعتمد" يبقى مسؤولية الواجهة (isOwner() في app.js) إلى حين إضافة دور حقيقي
--- على مستوى قاعدة البيانات — موثّق كنقص معروف، غير مُخمَّن أو مُطبَّق بصمت هنا.
+-- ---------- RLS حقيقية: تفصل المُنشئ عن المُعتمِد عن عامل المزامنة ----------
+-- تستبدل هذه السياسات policies الأربع العامة في purchase-invoices-table.sql
+-- (سطر 32-47 هناك، authenticated بلا أي تفريق أدوار) بسياسات مضبوطة فعلياً.
+-- الدور "المُعتمِد" (approver) يطابق OWNER_EMAILS في src/app.js سطر 498 —
+-- نفس القائمة المستعملة لبوابات الواجهة الأخرى (item_costs وغيرها)، وليست
+-- قائمة جديدة مستقلة.
+create or replace function purchase_invoices_is_owner()
+returns boolean
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select coalesce(auth.jwt() ->> 'email', '') in ('ozk.kh@outlook.com', 'ozkkhalouf@gmail.com');
+$$;
+
+comment on function purchase_invoices_is_owner() is 'يطابق OWNER_EMAILS في src/app.js — أساس صلاحية اعتماد/تعديل فواتير المشتريات بعد المسودة';
+
+drop policy if exists "authenticated can select purchase_invoices" on purchase_invoices;
+drop policy if exists "authenticated can insert purchase_invoices" on purchase_invoices;
+drop policy if exists "authenticated can update purchase_invoices" on purchase_invoices;
+drop policy if exists "authenticated can delete purchase_invoices" on purchase_invoices;
+
+-- القراءة: كل الموظفين المسجّلين يحتاجون رؤية كل الفواتير للعمل اليومي — بلا تغيير.
+create policy "purchase_invoices_select_authenticated"
+  on purchase_invoices for select
+  using (auth.role() = 'authenticated');
+
+-- الإنشاء: أي موظف مسجّل (المُنشئ) — لكن حصراً كمسودة يملكها هو، بلا أي حقل
+-- من حقول الاعتماد/المزامنة مُعبَّأ مسبقاً (لا يمكن لأحد أن "يُنشئ" فاتورة
+-- مُعتمَدة أو مُزامَنة مباشرة، متجاوزاً تسلسل الحالة بالكامل).
+create policy "purchase_invoices_insert_creator"
+  on purchase_invoices for insert
+  with check (
+    auth.role() = 'authenticated'
+    and status = 'draft'
+    and created_by = auth.uid()
+    and approved_by is null
+    and synced_at is null
+    and ameen_document_guid is null
+    and ameen_document_number is null
+  );
+
+-- التعديل: يُقصى أي صف status='synced' كلياً من هذه السياسة عبر USING (حماية
+-- إضافية مستقلة عن الـtrigger). ضمن الصفوف غير المُزامَنة:
+--   - المُنشئ يعدّل سطور/بيانات فاتورته طالما بقيت مسودة (لا يستطيع اعتمادها بنفسه).
+--   - أي انتقال فعلي للحالة (draft→approved أو التعديل على صف غير-مسودة أصلاً)
+--     يتطلب purchase_invoices_is_owner() — هذا ما يمنع المُنشئ من اعتماد فاتورته.
+--   - لا أحد (لا مُنشئ ولا مُعتمِد) يستطيع كتابة synced_at/ameen_document_guid/
+--     ameen_document_number أو تحويل status إلى 'synced' من هذه السياسة إطلاقاً؛
+--     تلك الحقول service-role فقط (عامل المزامنة يتجاوز RLS بمفتاح service key
+--     تماماً كما تفعل بقية سكربتات tools/*.ps1 الحالية)، فلا حاجة لسياسة صريحة لها.
+create policy "purchase_invoices_update_client"
+  on purchase_invoices for update
+  using (
+    auth.role() = 'authenticated'
+    and status <> 'synced'
+  )
+  with check (
+    auth.role() = 'authenticated'
+    and status <> 'synced'
+    and (
+      (status = 'draft' and created_by = auth.uid())
+      or purchase_invoices_is_owner()
+    )
+    and synced_at is null
+    and ameen_document_guid is null
+    and ameen_document_number is null
+  );
+
+-- الحذف: ممنوع نهائياً على أي فاتورة مُزامَنة (USING يُقصيها بالكامل، طبقة
+-- مستقلة عن تحذير الواجهة في removePurchaseInvoice). قبل المزامنة: المُنشئ
+-- يحذف مسودته فقط، والمُعتمِد (owner) يحذف أي فاتورة غير مُزامَنة.
+create policy "purchase_invoices_delete_client"
+  on purchase_invoices for delete
+  using (
+    auth.role() = 'authenticated'
+    and status <> 'synced'
+    and (
+      (status = 'draft' and created_by = auth.uid())
+      or purchase_invoices_is_owner()
+    )
+  );
 
 -- ============================================================
 -- جدول جديد: لقطة صنف من الأمين (مخزون/تكلفة/آخر مورد/حركة مبيع)

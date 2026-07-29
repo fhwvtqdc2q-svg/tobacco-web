@@ -1064,7 +1064,13 @@
         writeJson(PURCHASE_INVOICES_KEY, all);
         return;
       }
-      await requireUser();
+      const user = await requireUser();
+      // نختم مَن اعتمد الفاتورة ومتى تلقائياً هنا (وليس من app.js) — RLS على Supabase
+      // هي الحاجز الفعلي الذي يقرر إن كان هذا المستخدم يملك صلاحية الاعتماد أصلاً.
+      if (nextStatus === "approved" && !patch.approved_by) {
+        patch.approved_by = user.id;
+        patch.approved_at = new Date().toISOString();
+      }
       const { error } = await client.from(purchaseInvoicesTable).update(patch).eq("id", id);
       if (error) throw new Error(translateDbError(error.message));
     },
