@@ -160,8 +160,15 @@ begin
     raise exception 'لا يمكن تغيير created_by — يمنع الاستيلاء على مسودة فاتورة غير مملوكة';
   end if;
   if old.status = 'draft' and new.status = 'approved' then
+    -- الختم الوحيد المسموح لهذين الحقلين: فور انتقال draft→approved فعلي.
     new.approved_by := auth.uid();
     new.approved_at := now();
+  elsif new.approved_by is distinct from old.approved_by
+     or new.approved_at is distinct from old.approved_at then
+    -- خارج تلك اللحظة، الحقلان مقفلان تماماً — لا اعتماد ثانٍ يُعدِّلهما ولا أي
+    -- تحديث آخر (بما فيها تحديثات service-role لحقول المزامنة، التي لا تلمس
+    -- هذين الحقلين أصلاً فلا يمنعها هذا الشرط عملياً).
+    raise exception 'approved_by/approved_at لا يمكن تعديلهما إلا عند انتقال draft→approved نفسه';
   end if;
   return new;
 end;
@@ -173,7 +180,7 @@ create trigger trg_purchase_invoice_immutable_and_stamp
   for each row
   execute function purchase_invoice_guard_immutable_and_stamp();
 
-comment on function purchase_invoice_guard_immutable_and_stamp() is 'يمنع تغيير created_by على أي تحديث، ويختم approved_by/approved_at من الخادم عند draft→approved — مصدر الحقيقة الوحيد لهذين الحقلين';
+comment on function purchase_invoice_guard_immutable_and_stamp() is 'يمنع تغيير created_by على أي تحديث، ويختم approved_by/approved_at من الخادم عند draft→approved فقط ثم يقفلهما نهائياً — مصدر الحقيقة الوحيد لهذين الحقلين';
 
 -- ---------- RLS حقيقية: تفصل المُنشئ عن المُعتمِد عن عامل المزامنة ----------
 -- تستبدل هذه السياسات policies الأربع العامة في purchase-invoices-table.sql
@@ -255,13 +262,17 @@ create policy "purchase_invoices_update_client"
 
 -- الحذف: ممنوع نهائياً على أي فاتورة مُزامَنة (USING يُقصيها بالكامل، طبقة
 -- مستقلة عن تحذير الواجهة في removePurchaseInvoice). قبل المزامنة: المُنشئ
--- يحذف مسودته فقط، والمُعتمِد (owner) يحذف أي فاتورة غير مُزامَنة.
+-- يحذف مسودته فقط طالما بقيت status='draft' (لا يستطيع حذف فاتورة اعتمدها
+-- هو أو غيره)، والمُعتمِد (owner) يحذف أي فاتورة غير مُزامَنة أياً كانت حالتها.
 create policy "purchase_invoices_delete_client"
   on purchase_invoices for delete
   to authenticated
   using (
     status <> 'synced'
-    and (created_by = auth.uid() or purchase_invoices_is_owner())
+    and (
+      (status = 'draft' and created_by = auth.uid())
+      or purchase_invoices_is_owner()
+    )
   );
 
 -- ============================================================

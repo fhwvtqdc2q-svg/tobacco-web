@@ -483,6 +483,24 @@ if (appJs.includes("dataStore.updatePurchaseInvoiceStatus")) {
   failed = true;
 }
 
+// عقود SQL فواتير المشتريات: حذف المسودة يقتصر على مالكها، وapproved_by/
+// approved_at مقفلان خارج انتقال draft→approved نفسه (مراجعة Codex الثالثة).
+const purchaseSql = readFileSync("supabase/purchase-invoices-ameen-sync.sql", "utf8");
+for (const contract of [
+  "(status = 'draft' and created_by = auth.uid())\n      or purchase_invoices_is_owner()",
+  "elsif new.approved_by is distinct from old.approved_by",
+  "or new.approved_at is distinct from old.approved_at then"
+]) {
+  if (!purchaseSql.includes(contract)) {
+    console.error(`Purchase invoice SQL contract is missing: ${contract}`);
+    failed = true;
+  }
+}
+if (/create policy "purchase_invoices_delete_client"[\s\S]*?using \(\s*status <> 'synced'\s*and \(created_by = auth\.uid\(\) or purchase_invoices_is_owner\(\)\)\s*\);/.test(purchaseSql)) {
+  console.error("purchase_invoices_delete_client must not let any authenticated user delete any non-synced invoice — creator must be limited to their own draft.");
+  failed = true;
+}
+
 if (failed) {
   process.exit(1);
 }
