@@ -1,4 +1,4 @@
--- Ameen live stock query for Al-Ameen 9 / AmnDb001.  (v2 — bills-based)
+-- Ameen live stock query for Al-Ameen 9 / AmnDb002.  (v2 — bills-based)
 -- Read-only. It does not write anything inside Al-Ameen.
 --
 -- لماذا v2: النسخة السابقة قرأت ms000 الذي صار يحمل رصيد أول المدة مرتين بعد

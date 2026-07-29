@@ -129,7 +129,7 @@ curl -s "https://dyxbirfpxeocqffnfdeb.supabase.co/rest/v1/" \
 | المعلومة | القيمة |
 |---|---|
 | Server | `OZK-TOBACCO` |
-| Database | `AmnDb001` |
+| Database | `AmnDb002` (النشطة؛ `AmnDb001` قديمة/مؤرشفة) |
 | User | `tobacco_sync_reader` (للقراءة) |
 | متغير البيئة | `AMEEN_SQL_CONNECTION_STRING` |
 
@@ -293,7 +293,7 @@ Supabase (approved_price_items)
     ↓ pull-approved-prices.ps1 (كل 5 دقائق)
 reports\prices\tobacco-approved-prices.csv
     ↓ sync-approved-prices-to-ameen.ps1 (كل 5 دقائق، مجدوَل)
-قاعدة بيانات الأمين (AmnDb001 → MaterialPriceListItem000)
+قاعدة بيانات الأمين (AmnDb002 → MaterialPriceListItem000)
 ```
 
 ---
