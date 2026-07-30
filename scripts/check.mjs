@@ -439,6 +439,35 @@ if (!Array.isArray(mergeNames) || mergeNames.some((name) => typeof name !== "str
     assertEqual("poValidatePayment over-total rejected", poCalc.poValidatePayment({ total: 100, amount: 150 }).ok, false);
     assertEqual("poValidatePayment valid accepted", poCalc.poValidatePayment({ total: 100, amount: 60 }).ok, true);
 
+    // النص الظاهر لصنف مختار: رقم — اسم دوماً، مع الحفاظ على الأصفار البادئة
+    assertEqual("poItemDisplayLabel number and name shown together", poCalc.poItemDisplayLabel("0005", "اسم المادة"), "0005 — اسم المادة");
+    assertEqual("poItemDisplayLabel leading zeros preserved", poCalc.poItemDisplayLabel("0005", "اسم المادة").startsWith("0005"), true);
+    assertEqual("poItemDisplayLabel name-only search still shows number when known", poCalc.poItemDisplayLabel("0012", "مادة بالاسم"), "0012 — مادة بالاسم");
+    assertEqual("poItemDisplayLabel falls back to name without number", poCalc.poItemDisplayLabel("", "اسم بلا رقم"), "اسم بلا رقم");
+    assertEqual("poItemDisplayLabel falls back to number without name", poCalc.poItemDisplayLabel("0009", ""), "0009");
+
+    // تعديل حقل البحث بعد اختيار صنف يُبطل الارتباط القديم فوراً
+    assertEqual(
+      "poNextRowAfterQueryInput clears stale selection when text changes after pick",
+      poCalc.poNextRowAfterQueryInput({ key: "k1", name: "صنف قديم", num: "0005", q: "0005 — صنف قديم" }, "0007"),
+      { key: "", name: "", num: "", q: "0007" }
+    );
+    assertEqual(
+      "poNextRowAfterQueryInput keeps selection when text unchanged",
+      poCalc.poNextRowAfterQueryInput({ key: "k1", name: "صنف قديم", num: "0005", q: "0005 — صنف قديم" }, "0005 — صنف قديم"),
+      { key: "k1", name: "صنف قديم", num: "0005", q: "0005 — صنف قديم" }
+    );
+    assertEqual(
+      "poNextRowAfterQueryInput plain typing with no prior selection",
+      poCalc.poNextRowAfterQueryInput({ key: "", name: "", num: "", q: "" }, "0005"),
+      { key: "", name: "", num: "", q: "0005" }
+    );
+
+    // منع حفظ سطر كُتب فيه نص بحث دون اختيار فعلي من الاقتراحات
+    assertEqual("poHasUnselectedEntry flags typed-but-unselected row", poCalc.poHasUnselectedEntry([{ key: "", q: "0005" }]), true);
+    assertEqual("poHasUnselectedEntry ignores empty rows", poCalc.poHasUnselectedEntry([{ key: "", q: "  " }]), false);
+    assertEqual("poHasUnselectedEntry passes when selected", poCalc.poHasUnselectedEntry([{ key: "k1", q: "0005 — صنف" }]), false);
+
     // كشف الأصناف المكررة
     assertEqual(
       "poDedupeLines detects duplicate item_key",
