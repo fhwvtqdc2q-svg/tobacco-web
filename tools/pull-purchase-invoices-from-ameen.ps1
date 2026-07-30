@@ -19,8 +19,10 @@
 #
 # سكيما الأمين المؤكدة (من تقرير الاكتشاف، لا تخمين):
 #   bu000 = رأس الفاتورة (GUID, Date, Cust_Name, Total, TypeGUID, CurrencyGUID, IsPosted)
-#   bi000 = أسطر الفاتورة (ParentGUID->bu000.GUID, MatGUID->mt000.GUID, Qty, Price, UnitCostPrice)
-#   mt000 = المواد (Code, Name, Unity)
+#   bi000 = أسطر الفاتورة (ParentGUID->bu000.GUID, MatGUID->mt000.GUID, Qty, Unity,
+#           Price, UnitCostPrice) — Unity هنا رقم الوحدة المُستخدمة فعلياً بالسطر
+#           (1/2/3)، وليس اسمها؛ يُطابَق باسم mt000.Unity/Unit2/Unit3 حسب القيمة.
+#   mt000 = المواد (Code, Name, Unity, Unit2, Unit3, Unit2Fact, Unit3Fact)
 #   my000 = جدول العملات المرجعي (GUID, CurrencyISO, LatinName) — لا تخمين على GUID خام
 #
 # نقاط غير محسومة عمداً (موثّقة في تقرير الاكتشاف، لا تُخمَّن هنا):
@@ -28,7 +30,10 @@
 #     تُؤكَّد يدوياً بفاتورة نقدية وأخرى آجلة معروفتين في واجهة الأمين.
 #   - لا يوجد عمود "آخر سعر شراء"/"سعر وسطي" مؤكَّد على mt000. بدلاً من التخمين،
 #     يُحسَب آخر سعر ومتوسط السعر هنا مباشرة من أسطر الفواتير المسحوبة نفسها
-#     (bi000.UnitCostPrice إن وُجد، وإلا bi000.Price) مع وسم صريح لأساس الحساب.
+#     (bi000.UnitCostPrice إن وُجد، وإلا bi000.Price). هذا الأساس هو تكلفة/سعر
+#     "الوحدة الأساسية" للمادة (وليس سعر الوحدة المختارة بسطر الفاتورة bi.Unity) —
+#     لذلك العناوين بالواجهة صريحة "للوحدة الأساسية"، والإحصاء بمفتاح MatGUID
+#     (لا رقم/كود المادة) ويستبعد فواتير مرتجع المشتريات من المتوسط.
 #
 # التشغيل (لاحقاً، بعد المراجعة والموافقة فقط):
 #   .\tools\pull-purchase-invoices-from-ameen.ps1 -Discover     # طباعة الأعمدة وعيّنة بدون رفع
@@ -141,6 +146,19 @@ try {
     $itemNumSel = if ($itemNumCol) { "LTRIM(RTRIM(COALESCE(CAST(m.[$itemNumCol] AS nvarchar(50)),'')))" } else { "CAST(m.GUID AS varchar(40))" }
     Write-Log "اكتشاف: رقم المادة = $(if($itemNumCol){$itemNumCol}else{'(GUID)'}) | عمود التكلفة للسطر = $(if($costCol){$costCol}else{'(غير موجود، استُخدم Price بدلاً منه)'})"
 
+    # اكتشاف أسماء وحدات المادة على mt000 — Unity هي الوحدة الأولى (مؤكَّدة)،
+    # Unit2/Unit3 مؤكَّدتان من تقرير الاكتشاف (وليستا عمودَي تحويل، تلك
+    # Unit2Fact/Unit3Fact). bi.Unity يحدّد أياً منها استُخدمت فعلياً بسطر الفاتورة.
+    $unit1Col = Pick $mtCols @("Unity") $null
+    $unit2Col = Pick $mtCols @("Unit2") $null
+    $unit3Col = Pick $mtCols @("Unit3") $null
+    $unitCaseParts = New-Object System.Collections.Generic.List[string]
+    if ($unit1Col) { $unitCaseParts.Add("WHEN 1 THEN LTRIM(RTRIM(COALESCE(m.[$unit1Col],'')))") }
+    if ($unit2Col) { $unitCaseParts.Add("WHEN 2 THEN LTRIM(RTRIM(COALESCE(m.[$unit2Col],'')))") }
+    if ($unit3Col) { $unitCaseParts.Add("WHEN 3 THEN LTRIM(RTRIM(COALESCE(m.[$unit3Col],'')))") }
+    $unitSel = if ($unitCaseParts.Count -gt 0) { "(CASE bi.Unity $($unitCaseParts -join ' ') ELSE NULL END)" } else { "NULL" }
+    Write-Log "اكتشاف: وحدات المادة = $(if($unit1Col){$unit1Col}else{'—'})/$(if($unit2Col){$unit2Col}else{'—'})/$(if($unit3Col){$unit3Col}else{'—'}) | الاختيار حسب bi.Unity"
+
     # جدول العملات المرجعي (my000) — مؤكَّد من تقرير الاكتشاف: GUID + CurrencyISO
     $myCols = Get-Columns "my000"
     $currencyIsoCol = Pick $myCols @("CurrencyISO") $null
@@ -160,7 +178,8 @@ SELECT TOP 15 $numSel AS bill_number, u.Date AS bill_date,
        LTRIM(RTRIM(COALESCE(u.Cust_Name,''))) AS supplier,
        $itemNumSel AS item_number,
        LTRIM(RTRIM(COALESCE(m.Name,''))) AS material,
-       bi.Qty AS qty, $priceSel AS price, $costSel AS unit_cost, $totalSel AS line_total,
+       bi.Qty AS qty, bi.Unity AS unity, $unitSel AS unit_name,
+       $priceSel AS price, $costSel AS unit_cost, $totalSel AS line_total,
        u.[$typeCol] AS type_guid, $currencyIsoSel AS currency_iso
 FROM bu000 u
 JOIN bi000 bi ON bi.ParentGUID = u.GUID
@@ -177,9 +196,9 @@ ORDER BY u.Date DESC
         while ($rd.Read()) {
             $n++
             $retTag = if ([string]$rd["type_guid"] -eq $PURCHASE_RETURN_TYPE_GUID) { " [مرتجع مشتريات]" } else { "" }
-            Write-Host ("  [{0}] {1} | {2} | {3} — {4} | كمية {5} × سعر {6} (تكلفة {7}) = {8} | عملة {9}{10}" -f `
+            Write-Host ("  [{0}] {1} | {2} | {3} — {4} | كمية {5} وحدة {6}({7}) × سعر {8} (تكلفة {9}) = {10} | عملة {11}{12}" -f `
                 $rd["bill_number"], ([datetime]$rd["bill_date"]).ToString("yyyy-MM-dd"), `
-                $rd["supplier"], $rd["item_number"], $rd["material"], $rd["qty"], $rd["price"], $rd["unit_cost"], $rd["line_total"], $rd["currency_iso"], $retTag)
+                $rd["supplier"], $rd["item_number"], $rd["material"], $rd["qty"], $rd["unity"], $rd["unit_name"], $rd["price"], $rd["unit_cost"], $rd["line_total"], $rd["currency_iso"], $retTag)
         }
         $rd.Close(); $conn.Close()
         Write-Host "الاكتشاف انتهى — $n سطر عيّنة. إذا الأسماء/القيم تبيّن صح، شغّل السكربت بدون -Discover."
@@ -200,9 +219,10 @@ SELECT CAST(u.GUID AS varchar(40)) AS bill_guid,
        CAST(COALESCE(u.Total,0) AS decimal(18,3)) AS bill_total,
        u.[$typeCol] AS type_guid,
        $itemNumSel AS item_number,
+       CAST(bi.MatGUID AS varchar(40)) AS mat_guid,
        LTRIM(RTRIM(COALESCE(m.Name,''))) AS material,
        CAST(COALESCE(bi.Qty,0) AS decimal(18,3)) AS qty,
-       LTRIM(RTRIM(COALESCE(m.Unity,''))) AS unit1,
+       $unitSel AS unit1,
        CAST($priceSel AS decimal(18,3)) AS price,
        CAST($costSel AS decimal(18,3)) AS unit_cost,
        CAST($totalSel AS decimal(18,3)) AS line_total,
@@ -254,17 +274,24 @@ ORDER BY u.Date DESC, u.GUID
             }
         }
         $itemNum = [string]$r["item_number"]
+        $matGuid = [string]$r["mat_guid"]
         $unitCost = [double]$r["unit_cost"]
-        if (-not $itemStats.ContainsKey($itemNum)) {
-            $itemStats[$itemNum] = @{ lastCost = $unitCost; sum = 0.0; count = 0 }
+        $unitName = if ($r["unit1"] -is [DBNull] -or -not $r["unit1"]) { "غير معروفة" } else { [string]$r["unit1"] }
+        # إحصاء آخر تكلفة/متوسط تكلفة يُحسَب بمفتاح MatGUID (لا رقم/كود المادة)،
+        # ويستبعد فواتير مرتجع المشتريات كي لا يشوّه المتوسط.
+        if (-not $bills[$g].isReturn) {
+            if (-not $itemStats.ContainsKey($matGuid)) {
+                $itemStats[$matGuid] = @{ lastCost = $unitCost; sum = 0.0; count = 0 }
+            }
+            $itemStats[$matGuid].sum += $unitCost
+            $itemStats[$matGuid].count += 1
         }
-        $itemStats[$itemNum].sum += $unitCost
-        $itemStats[$itemNum].count += 1
         $bills[$g].items.Add(@{
             itemNumber = $itemNum
+            matGuid    = $matGuid
             itemName   = [string]$r["material"]
             qty        = [double]$r["qty"]
-            unit       = [string]$r["unit1"]
+            unit       = $unitName
             price      = [double]$r["price"]
             unitCost   = $unitCost
             lineTotal  = [double]$r["line_total"]
@@ -274,7 +301,11 @@ ORDER BY u.Date DESC, u.GUID
 
     # --- تجميع الفواتير حسب المورد، وإرفاق آخر تكلفة/متوسط تكلفة محسوبَين من
     #     الأسطر المسحوبة نفسها (لا من mt000) مع وسم صريح لأساس الحساب ---
-    $priceBasis = if ($costCol) { "unit_cost_price" } else { "price_raw" }
+    # ⚠️ الأساس هنا يبقى UnitCostPrice (تكلفة الوحدة الأساسية للمادة)، وليس سعر
+    # الوحدة المختارة بسطر الفاتورة (bi.Unity) — لذلك العنوان صريح "للوحدة الأساسية"
+    # في الواجهة، بغضّ النظر عن الوحدة المعروضة بعمود "الوحدة". الإحصاء بمفتاح
+    # MatGUID ويستبعد مرتجعات المشتريات (راجع حلقة القراءة أعلاه).
+    $priceBasis = if ($costCol) { "unit_cost_price_base_unit" } else { "price_raw_base_unit" }
     $bySupplier = @{}
     foreach ($g in $billOrder) {
         $b = $bills[$g]
@@ -282,8 +313,9 @@ ORDER BY u.Date DESC, u.GUID
         if (-not $bySupplier.ContainsKey($name)) { $bySupplier[$name] = New-Object System.Collections.Generic.List[object] }
         $itemsOut = New-Object System.Collections.Generic.List[object]
         foreach ($it in $b.items) {
-            $stats = $itemStats[$it.itemNumber]
-            $avg = if ($stats.count -gt 0) { [math]::Round($stats.sum / $stats.count, 3) } else { $null }
+            $stats = $itemStats[$it.matGuid]
+            $lastPrice = if ($stats) { [math]::Round($stats.lastCost, 3) } else { $null }
+            $avg = if ($stats -and $stats.count -gt 0) { [math]::Round($stats.sum / $stats.count, 3) } else { $null }
             $itemsOut.Add(@{
                 itemNumber = $it.itemNumber
                 itemName   = $it.itemName
@@ -291,7 +323,7 @@ ORDER BY u.Date DESC, u.GUID
                 unit       = $it.unit
                 price      = $it.price
                 lineTotal  = $it.lineTotal
-                lastPrice  = [math]::Round($stats.lastCost, 3)
+                lastPrice  = $lastPrice
                 avgPrice   = $avg
                 priceBasis = $priceBasis
             })

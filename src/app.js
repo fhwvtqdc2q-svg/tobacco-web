@@ -7442,15 +7442,17 @@ function poAmeenPanelHtml() {
                 <th>الصنف</th>
                 <th style="width:90px">الكمية</th>
                 <th style="width:90px">الوحدة</th>
-                <th style="width:110px">آخر سعر شراء</th>
-                <th style="width:110px">السعر الوسطي</th>
+                <th style="width:130px">آخر تكلفة للوحدة الأساسية</th>
+                <th style="width:130px">متوسط تكلفة الوحدة الأساسية للفترة</th>
               </tr>
             </thead>
             <tbody data-po-ameen-items-body>${itemsRows}</tbody>
           </table>
         </div>
         <p class="muted" style="margin:6px 4px;font-size:0.85em">
-          آخر سعر/سعر وسطي محسوبان من فواتير الأمين الفعلية المسحوبة (تقريب، وليس رقماً محاسبياً مضموناً 100%).
+          آخر تكلفة/متوسط تكلفة للوحدة الأساسية للمادة (وليس سعر الوحدة المختارة بعمود
+          «الوحدة» أعلاه)، محسوبان من فواتير الأمين الفعلية المسحوبة${report.summary && report.summary.periodDays ? ` لآخر ${escapeHtml(String(report.summary.periodDays))} يوماً` : ""}
+          مع استبعاد مرتجعات المشتريات من المتوسط (تقريب، وليس رقماً محاسبياً مضموناً 100%).
         </p>
       ` : state.poAmeenSupplierName
         ? `<p class="muted" style="margin-top:12px">لا توجد فواتير مسجّلة لهذا المورد.</p>`
