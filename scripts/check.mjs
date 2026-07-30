@@ -468,6 +468,43 @@ if (!Array.isArray(mergeNames) || mergeNames.some((name) => typeof name !== "str
     assertEqual("poHasUnselectedEntry ignores empty rows", poCalc.poHasUnselectedEntry([{ key: "", q: "  " }]), false);
     assertEqual("poHasUnselectedEntry passes when selected", poCalc.poHasUnselectedEntry([{ key: "k1", q: "0005 — صنف" }]), false);
 
+    // عرض فواتير مشتريات الأمين (قراءة فقط): بحث موردين متسامح مع الهمزات/التاء المربوطة
+    assertEqual(
+      "poAmeenSupplierMatches tolerates hamza/taa marbouta variants",
+      poCalc.poAmeenSupplierMatches("الامين", ["شركة الأمين للتجارة", "مورد آخر"]),
+      ["شركة الأمين للتجارة"]
+    );
+    assertEqual("poAmeenSupplierMatches empty query returns no suggestions", poCalc.poAmeenSupplierMatches("", ["مورد"]), []);
+    assertEqual(
+      "poAmeenSupplierMatches caps at 8 suggestions",
+      poCalc.poAmeenSupplierMatches("مورد", Array.from({ length: 12 }, (_, i) => `مورد ${i}`)).length,
+      8
+    );
+
+    // التنقل بين فاتورة سابقة/تالية لمورد واحد بلا خروج عن حدود القائمة
+    assertEqual("poAmeenClampNavIndex moves to next invoice", poCalc.poAmeenClampNavIndex(5, 0, 1), 1);
+    assertEqual("poAmeenClampNavIndex moves to previous invoice", poCalc.poAmeenClampNavIndex(5, 2, -1), 1);
+    assertEqual("poAmeenClampNavIndex stops at newest (index 0)", poCalc.poAmeenClampNavIndex(5, 0, -1), 0);
+    assertEqual("poAmeenClampNavIndex stops at oldest (last index)", poCalc.poAmeenClampNavIndex(5, 4, 1), 4);
+    assertEqual("poAmeenClampNavIndex empty list stays at 0", poCalc.poAmeenClampNavIndex(0, 0, 1), 0);
+
+    // بحث بنود فاتورة الأمين برقم المادة أو اسمها، مع الحفاظ على الأصفار البادئة بالرقم
+    const ameenSampleItems = [
+      { itemNumber: "0005", itemName: "دخان أحمر" },
+      { itemNumber: "0012", itemName: "دخان أزرق" }
+    ];
+    assertEqual(
+      "poAmeenItemMatches matches by leading-zero number",
+      poCalc.poAmeenItemMatches("0005", ameenSampleItems).map((i) => i.itemNumber),
+      ["0005"]
+    );
+    assertEqual(
+      "poAmeenItemMatches matches by name",
+      poCalc.poAmeenItemMatches("ازرق", ameenSampleItems).map((i) => i.itemNumber),
+      ["0012"]
+    );
+    assertEqual("poAmeenItemMatches empty query returns all items", poCalc.poAmeenItemMatches("", ameenSampleItems).length, 2);
+
     // كشف الأصناف المكررة
     assertEqual(
       "poDedupeLines detects duplicate item_key",
@@ -527,6 +564,61 @@ for (const contract of [
 }
 if (/create policy "purchase_invoices_delete_client"[\s\S]*?using \(\s*status <> 'synced'\s*and \(created_by = auth\.uid\(\) or purchase_invoices_is_owner\(\)\)\s*\);/.test(purchaseSql)) {
   console.error("purchase_invoices_delete_client must not let any authenticated user delete any non-synced invoice — creator must be limited to their own draft.");
+  failed = true;
+}
+
+// فواتير مشتريات الأمين (موردون/أسعار/تكاليف/إجماليات/دفعات) بيانات حساسة
+// ويجب ألا تُكتب في inventory_reports (مقروء لكل موظف مسجّل) — يجب أن تبقى
+// حصراً في الجدول المستقل المحمي ameen_purchase_invoice_reports. مراجعة
+// Codex السادسة على PR #35.
+const pullPurchaseInvoicesScript = readFileSync("tools/pull-purchase-invoices-from-ameen.ps1", "utf8");
+if (/rest\/v1\/inventory_reports/.test(pullPurchaseInvoicesScript)) {
+  console.error("tools/pull-purchase-invoices-from-ameen.ps1 must write purchase-invoice reports to the protected ameen_purchase_invoice_reports table, not inventory_reports.");
+  failed = true;
+}
+if (!pullPurchaseInvoicesScript.includes("rest/v1/ameen_purchase_invoice_reports")) {
+  console.error("tools/pull-purchase-invoices-from-ameen.ps1 is missing its protected-table target ameen_purchase_invoice_reports.");
+  failed = true;
+}
+if (!appJs.includes('.from(purchaseInvoiceReportsTable)') && !readFileSync("src/supabase-client.js", "utf8").includes(".from(purchaseInvoiceReportsTable)")) {
+  console.error("src/supabase-client.js must read Ameen purchase-invoice reports from purchaseInvoiceReportsTable, not inventory_reports.");
+  failed = true;
+}
+const supabaseClientJs = readFileSync("src/supabase-client.js", "utf8");
+if (/getPurchaseInvoicesAmeenReport[\s\S]{0,400}\.from\(inventoryReportsTable\)/.test(supabaseClientJs)) {
+  console.error("getPurchaseInvoicesAmeenReport() must not read from the shared inventoryReportsTable — sensitive supplier/price/cost data would leak to every registered employee.");
+  failed = true;
+}
+const purchaseInvoiceReportsSql = readFileSync("supabase/ameen-purchase-invoice-reports.sql", "utf8");
+for (const contract of [
+  "alter table ameen_purchase_invoice_reports enable row level security",
+  "ameen_purchase_invoice_reports_is_owner()",
+  "ameen_purchase_invoice_reports_is_sync_writer()",
+  "created_by uuid not null default auth.uid()",
+  "created_by = auth.uid()"
+]) {
+  if (!purchaseInvoiceReportsSql.includes(contract)) {
+    console.error(`ameen_purchase_invoice_reports SQL contract is missing: ${contract}`);
+    failed = true;
+  }
+}
+
+// مراجعة Codex السابعة على PR #35: هذا الملف يجب أن يبقى self-contained تماماً —
+// لا اعتماد على purchase_invoices_is_owner() ولا على تطبيق
+// purchase-invoices-ameen-sync.sql كشرط مسبق، وإلا يتعذّر تطبيقه منفرداً.
+if (purchaseInvoiceReportsSql.includes("purchase_invoices_is_owner()")) {
+  console.error("supabase/ameen-purchase-invoice-reports.sql must not depend on purchase_invoices_is_owner() — it needs its own self-contained owner function.");
+  failed = true;
+}
+if (purchaseInvoiceReportsSql.includes("purchase-invoices-ameen-sync.sql")) {
+  console.error("supabase/ameen-purchase-invoice-reports.sql must not require applying purchase-invoices-ameen-sync.sql first — it must be self-contained.");
+  failed = true;
+}
+
+// created_by يجب أن يمنع NULL وانتحال الهوية معاً: عمود بقيمة افتراضية auth.uid()،
+// وسياسة INSERT تتحقق أن created_by المُرسَل يطابق auth.uid() فعلياً.
+if (!/with check \(\s*ameen_purchase_invoice_reports_is_sync_writer\(\)\s*and\s*created_by = auth\.uid\(\)\s*\)/.test(purchaseInvoiceReportsSql)) {
+  console.error("ameen_purchase_invoice_reports INSERT policy must require both the sync-writer account and created_by = auth.uid().");
   failed = true;
 }
 

@@ -86,6 +86,7 @@
   const dailyMovementTable = config.dailyMovementTable || "daily_movement_reports";
   const purchaseInvoicesTable = config.purchaseInvoicesTable || "purchase_invoices";
   const itemSnapshotTable = config.itemSnapshotTable || "ameen_item_snapshot";
+  const purchaseInvoiceReportsTable = config.purchaseInvoiceReportsTable || "ameen_purchase_invoice_reports";
   const client =
     hasConfig && hasLibrary
       ? window.supabase.createClient(config.url, config.publishableKey, {
@@ -599,6 +600,30 @@
         .from(inventoryReportsTable)
         .select("id, report_date, source, summary, items, created_at")
         .eq("source", "ameen_customer_invoices")
+        .order("created_at", { ascending: false })
+        .limit(1);
+
+      if (error) throw new Error(translateDbError(error.message));
+      return (data && data[0]) || null;
+    },
+
+    async getPurchaseInvoicesAmeenReport() {
+      // فواتير المشتريات الحقيقية من الأمين لكل مورد مع محتوياتها (يكتبها
+      // pull-purchase-invoices-from-ameen.ps1). قراءة فقط، من جدول مستقل محمي
+      // (ameen_purchase_invoice_reports) وليس inventory_reports العام — البيانات
+      // حساسة (موردون/أسعار/تكاليف/دفعات) ومحصورة بـRLS للمالك فقط. لا علاقة
+      // بجدول purchase_invoices اليدوي (مسودة/معتمدة/مزامنة).
+      if (!client) {
+        const local = readJson(INVENTORY_REPORTS_KEY, []).filter((report) => report.source === "ameen_purchase_invoices");
+        return local[0] || null;
+      }
+
+      const session = await getSupabaseSession();
+      if (!session) return null;
+
+      const { data, error } = await client
+        .from(purchaseInvoiceReportsTable)
+        .select("id, report_date, summary, items, created_at")
         .order("created_at", { ascending: false })
         .limit(1);
 
