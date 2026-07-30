@@ -7370,6 +7370,19 @@ function poAmeenNavigate(direction) {
   render();
 }
 
+function poAmeenItemsRowsHtml(invoice, query) {
+  const filteredItems = invoice ? poCalc.poAmeenItemMatches(query, invoice.items || []) : [];
+  return filteredItems.map((item) => `
+    <tr>
+      <td>${escapeHtml(poCalc.poItemDisplayLabel(item.itemNumber, item.itemName))}</td>
+      <td class="inv-num">${escapeHtml(String(item.qty ?? "—"))}</td>
+      <td>${escapeHtml(item.unit || "—")}</td>
+      <td class="inv-line-total">${item.lastPrice != null ? Number(item.lastPrice).toFixed(2) : "—"}</td>
+      <td class="inv-line-total">${item.avgPrice != null ? Number(item.avgPrice).toFixed(2) : "—"}</td>
+    </tr>
+  `).join("") || `<tr><td colspan="5" class="muted">لا توجد بنود مطابقة.</td></tr>`;
+}
+
 function poAmeenPanelHtml() {
   const report = state.poAmeenReport;
   if (!report) {
@@ -7384,18 +7397,11 @@ function poAmeenPanelHtml() {
   const invoices = poAmeenSelectedSupplierInvoices();
   const invoice = poAmeenCurrentInvoice();
   const idx = invoices.length ? poCalc.poAmeenClampNavIndex(invoices.length, state.poAmeenNavIndex, 0) : 0;
-  const currencySym = invoice && invoice.currency === "SYP" ? "ل.س" : "$";
+  const currencySym = invoice && invoice.currency === "SYP" ? "ل.س"
+    : invoice && invoice.currency === "USD" ? "$"
+    : invoice ? "؟" : "$";
 
-  const filteredItems = invoice ? poCalc.poAmeenItemMatches(state.poAmeenItemQuery, invoice.items || []) : [];
-  const itemsRows = filteredItems.map((item) => `
-    <tr>
-      <td>${escapeHtml(poCalc.poItemDisplayLabel(item.itemNumber, item.itemName))}</td>
-      <td class="inv-num">${escapeHtml(String(item.qty ?? "—"))}</td>
-      <td>${escapeHtml(item.unit || "—")}</td>
-      <td class="inv-line-total">${item.lastPrice != null ? Number(item.lastPrice).toFixed(2) : "—"}</td>
-      <td class="inv-line-total">${item.avgPrice != null ? Number(item.avgPrice).toFixed(2) : "—"}</td>
-    </tr>
-  `).join("") || `<tr><td colspan="5" class="muted">لا توجد بنود مطابقة.</td></tr>`;
+  const itemsRows = poAmeenItemsRowsHtml(invoice, state.poAmeenItemQuery);
 
   return `
     <section class="panel wide" style="margin-top:16px">
@@ -7419,7 +7425,7 @@ function poAmeenPanelHtml() {
 
         <p class="muted" style="margin:8px 4px">
           الإجمالي: ${Number(invoice.total || 0).toFixed(2)} ${currencySym}
-          · ${invoice.payMethod === "cash" ? "نقدي" : "آجل"}
+          · ${invoice.payMethod === "cash" ? "نقدي" : invoice.payMethod === "credit" ? "آجل" : "طريقة الدفع غير محددة"}
           · الدفعة المسجلة: ${invoice.paidAmount != null ? Number(invoice.paidAmount).toFixed(2) : "—"} ${currencySym}
           ${invoice.isReturn ? "· <strong>مرتجع مشتريات</strong>" : ""}
         </p>
@@ -7440,9 +7446,12 @@ function poAmeenPanelHtml() {
                 <th style="width:110px">السعر الوسطي</th>
               </tr>
             </thead>
-            <tbody>${itemsRows}</tbody>
+            <tbody data-po-ameen-items-body>${itemsRows}</tbody>
           </table>
         </div>
+        <p class="muted" style="margin:6px 4px;font-size:0.85em">
+          آخر سعر/سعر وسطي محسوبان من فواتير الأمين الفعلية المسحوبة (تقريب، وليس رقماً محاسبياً مضموناً 100%).
+        </p>
       ` : state.poAmeenSupplierName
         ? `<p class="muted" style="margin-top:12px">لا توجد فواتير مسجّلة لهذا المورد.</p>`
         : `<p class="muted" style="margin-top:12px">اختر مورداً من الاقتراحات لعرض فواتيره.</p>`}
@@ -8564,7 +8573,8 @@ function render() {
   });
   app.querySelector("#po-ameen-item-query")?.addEventListener("input", (e) => {
     state.poAmeenItemQuery = e.currentTarget.value;
-    render();
+    const body = app.querySelector("[data-po-ameen-items-body]");
+    if (body) body.innerHTML = poAmeenItemsRowsHtml(poAmeenCurrentInvoice(), state.poAmeenItemQuery);
   });
   app.querySelector("#po-date")?.addEventListener("change", (e) => {
     state.poDate = e.currentTarget.value;

@@ -1,4 +1,4 @@
-# ============================================================
+﻿# ============================================================
 # pull-purchase-invoices-from-ameen.ps1
 # سكربت قراءة فقط: يقرأ فواتير المشتريات الحقيقية من الأمين (بلا أي تعديل أو كتابة
 # على الأمين) ويرفع تقريراً جاهزاً إلى Supabase (inventory_reports /
@@ -8,16 +8,27 @@
 # ⚠️ هذا السكربت غير مُفعَّل حتى تتم مراجعته من Codex والموافقة عليه من المالك.
 # لم يُشغَّل ولا مرة — راجع القسم أسفله قبل أي تشغيل فعلي.
 #
-# التصنيف يعتمد على bt000.TypeGUID (وليس BillType الخام، لأنه مشترك مع المناقلات
-# الداخلية) — القيم المؤكدة من AI_WORK_SYNC.md / الذاكرة:
-#   91377a56-ebfc-48c0-b79e-72063e1d7e3a = فاتورة مشتريات (bIsInput)
-#   c9aca8fe-f50e-46eb-91ac-29ee32acbb3e = مرتجع مشتريات (bIsOutput)
+# مصدر الحقائق المستخدمة هنا: reports/ameen-purchase-schema-discovery.md
+# (اكتشاف قرائي فقط، منفّذ فعلياً ضد AmnDb002، الجولة الخامسة).
 #
-# سكيما الأمين المستخدمة (بأسماء تُكتشف تلقائياً لاختلاف نسخ الأمين):
-#   bu000 = رأس الفاتورة (GUID, Date, Cust_Name = اسم المورد هنا, Total, TypeGUID)
-#   bi000 = أسطر الفاتورة (ParentGUID->الرأس, MatGUID->المادة, Qty, Price, TotalPrice)
-#   mt000 = المواد (Number/Code = رقم المادة, Name, Unity, LastBuyPrice/AvgPrice)
-#   bt000 = أنواع الفواتير (GUID<->TypeGUID)
+# التصنيف يعتمد حصراً على TypeGUID الحرفي (u.TypeGUID) — وليس عبر ربط bt000
+# ولا عبر BillType/bIsInput الخام، لأن bIsInput=1 وحده يشمل أيضاً مرتجعات
+# المبيعات وأنواع فتح المدة، وحتى BillType=0 وحده مشترك مع أنواع تحويل أخرى:
+#   91377a56-ebfc-48c0-b79e-72063e1d7e3a = فاتورة مشتريات
+#   c9aca8fe-f50e-46eb-91ac-29ee32acbb3e = مرتجع مشتريات (لا بيانات فعلية بعد)
+#
+# سكيما الأمين المؤكدة (من تقرير الاكتشاف، لا تخمين):
+#   bu000 = رأس الفاتورة (GUID, Date, Cust_Name, Total, TypeGUID, CurrencyGUID, IsPosted)
+#   bi000 = أسطر الفاتورة (ParentGUID->bu000.GUID, MatGUID->mt000.GUID, Qty, Price, UnitCostPrice)
+#   mt000 = المواد (Code, Name, Unity)
+#   my000 = جدول العملات المرجعي (GUID, CurrencyISO, LatinName) — لا تخمين على GUID خام
+#
+# نقاط غير محسومة عمداً (موثّقة في تقرير الاكتشاف، لا تُخمَّن هنا):
+#   - دلالة PayType/FirstPay (نقدي/آجل) — التقرير لم يحسمها؛ نعرضها "غير محدد" حتى
+#     تُؤكَّد يدوياً بفاتورة نقدية وأخرى آجلة معروفتين في واجهة الأمين.
+#   - لا يوجد عمود "آخر سعر شراء"/"سعر وسطي" مؤكَّد على mt000. بدلاً من التخمين،
+#     يُحسَب آخر سعر ومتوسط السعر هنا مباشرة من أسطر الفواتير المسحوبة نفسها
+#     (bi000.UnitCostPrice إن وُجد، وإلا bi000.Price) مع وسم صريح لأساس الحساب.
 #
 # التشغيل (لاحقاً، بعد المراجعة والموافقة فقط):
 #   .\tools\pull-purchase-invoices-from-ameen.ps1 -Discover     # طباعة الأعمدة وعيّنة بدون رفع
@@ -39,7 +50,7 @@ exit 1
 
 $ErrorActionPreference = "Stop"
 
-# التصنيفات المؤكدة لأنواع فواتير المشتريات في الأمين (bt000.TypeGUID)
+# التصنيفات المؤكدة لأنواع فواتير المشتريات في الأمين (bu000.TypeGUID الحرفي)
 $PURCHASE_TYPE_GUID = "91377a56-ebfc-48c0-b79e-72063e1d7e3a"
 $PURCHASE_RETURN_TYPE_GUID = "c9aca8fe-f50e-46eb-91ac-29ee32acbb3e"
 
@@ -107,32 +118,41 @@ try {
     $currencyCol = Pick $buCols @("CurrencyGUID", "Currency", "CurGUID") $null
     $payMethodCol = Pick $buCols @("PayType", "PayMethod", "IsCash", "Cash") $null
     $paidCol = Pick $buCols @("Paid", "PaidAmount", "CashAmount", "PaidValue") $null
+    $postedCol = Pick $buCols @("IsPosted") $null
     if (-not $typeCol) { Write-Log "خطأ: ما لقيت عمود نوع الفاتورة على bu000. شغّل -Discover وابعتلي الأعمدة."; exit 1 }
     $numSel = if ($numCol) { "u.[$numCol]" } else { "CAST(u.GUID AS varchar(40))" }
-    Write-Log "اكتشاف: نوع الفاتورة = u.$typeCol | رقم الفاتورة = $(if($numCol){$numCol}else{'(GUID)'}) | عملة = $(if($currencyCol){$currencyCol}else{'(غير موجود)'}) | طريقة الدفع = $(if($payMethodCol){$payMethodCol}else{'(غير موجود)'}) | المدفوع = $(if($paidCol){$paidCol}else{'(غير موجود)'})"
+    $postedFilter = if ($postedCol) { "AND u.[$postedCol] = 1" } else { "" }
+    Write-Log "اكتشاف: نوع الفاتورة = u.$typeCol | رقم الفاتورة = $(if($numCol){$numCol}else{'(GUID)'}) | عملة = $(if($currencyCol){$currencyCol}else{'(غير موجود)'}) | طريقة الدفع (خام، غير مفسَّرة) = $(if($payMethodCol){$payMethodCol}else{'(غير موجود)'}) | المدفوع = $(if($paidCol){$paidCol}else{'(غير موجود)'}) | ترحيل = $(if($postedCol){$postedCol}else{'(غير موجود)'})"
 
-    # اكتشاف أعمدة السعر/الإجمالي على bi000
+    # اكتشاف أعمدة السعر/التكلفة على bi000 — UnitCostPrice هو المرشَّح الأفضل
+    # للمطابقة مع bu.Total (0.32% انحراف مقابل ~4273% لـPrice الخام، حسب تقرير
+    # الاكتشاف)، نستخدمه هنا للقراءة/العرض فقط وليس للكتابة.
     $biCols = Get-Columns "bi000"
     $priceCol = Pick $biCols @("Price", "UnitPrice", "BuyPrice", "PriceUnit") $null
+    $costCol = Pick $biCols @("UnitCostPrice") $null
     $totalCol = Pick $biCols @("TotalPrice", "Total", "Net", "NetTotal", "NetValue", "Value", "Amount", "SubTotal", "LineTotal") $null
     $priceSel = if ($priceCol) { "COALESCE(bi.[$priceCol],0)" } else { "0" }
+    $costSel = if ($costCol) { "COALESCE(bi.[$costCol],0)" } else { $priceSel }
     $totalSel = if ($totalCol) { "COALESCE(bi.[$totalCol],0)" } elseif ($priceCol) { "(COALESCE(bi.Qty,0)*COALESCE(bi.[$priceCol],0))" } else { "0" }
 
-    # اكتشاف أعمدة رقم المادة وسعرَي الشراء الأخير/الوسطي على mt000
+    # اكتشاف أعمدة رقم المادة على mt000 — Code/Name مؤكَّدان من تقرير الاكتشاف
     $mtCols = Get-Columns "mt000"
-    $itemNumCol = Pick $mtCols @("Number", "Code", "MatNumber", "MatCode") $null
-    $lastPriceCol = Pick $mtCols @("LastBuyPrice", "LastPrice", "LastCost") $null
-    $avgPriceCol = Pick $mtCols @("AvgPrice", "AvgCost", "AverageCost") $null
+    $itemNumCol = Pick $mtCols @("Code", "Number", "MatNumber", "MatCode") $null
     $itemNumSel = if ($itemNumCol) { "LTRIM(RTRIM(COALESCE(CAST(m.[$itemNumCol] AS nvarchar(50)),'')))" } else { "CAST(m.GUID AS varchar(40))" }
-    $lastPriceSel = if ($lastPriceCol) { "m.[$lastPriceCol]" } else { "NULL" }
-    $avgPriceSel = if ($avgPriceCol) { "m.[$avgPriceCol]" } else { "NULL" }
-    Write-Log "اكتشاف: رقم المادة = $(if($itemNumCol){$itemNumCol}else{'(GUID)'}) | آخر سعر شراء = $(if($lastPriceCol){$lastPriceCol}else{'(غير موجود)'}) | سعر وسطي = $(if($avgPriceCol){$avgPriceCol}else{'(غير موجود)'})"
+    Write-Log "اكتشاف: رقم المادة = $(if($itemNumCol){$itemNumCol}else{'(GUID)'}) | عمود التكلفة للسطر = $(if($costCol){$costCol}else{'(غير موجود، استُخدم Price بدلاً منه)'})"
+
+    # جدول العملات المرجعي (my000) — مؤكَّد من تقرير الاكتشاف: GUID + CurrencyISO
+    $myCols = Get-Columns "my000"
+    $currencyIsoCol = Pick $myCols @("CurrencyISO") $null
+    $currencyJoin = if ($currencyCol -and $currencyIsoCol) { "LEFT JOIN my000 cur ON cur.GUID = u.[$currencyCol]" } else { "" }
+    $currencyIsoSel = if ($currencyCol -and $currencyIsoCol) { "cur.[$currencyIsoCol]" } else { "NULL" }
 
     if ($Discover) {
-        Write-Log "=== وضع الاكتشاف: عيّنة أحدث فاتورة مشتريات مع محتوياتها ==="
-        Write-Log ("أعمدة bu000: " + (($buCols.Keys | Sort-Object) -join ", "))
-        Write-Log ("أعمدة bi000: " + (($biCols.Keys | Sort-Object) -join ", "))
-        Write-Log ("أعمدة mt000: " + (($mtCols.Keys | Sort-Object) -join ", "))
+        Write-Host "=== وضع الاكتشاف: عيّنة أحدث فاتورة مشتريات مع محتوياتها ==="
+        Write-Host ("أعمدة bu000: " + (($buCols.Keys | Sort-Object) -join ", "))
+        Write-Host ("أعمدة bi000: " + (($biCols.Keys | Sort-Object) -join ", "))
+        Write-Host ("أعمدة mt000: " + (($mtCols.Keys | Sort-Object) -join ", "))
+        Write-Host ("أعمدة my000: " + (($myCols.Keys | Sort-Object) -join ", "))
         $c = $conn.CreateCommand()
         $c.CommandTimeout = 180
         $c.CommandText = @"
@@ -140,13 +160,13 @@ SELECT TOP 15 $numSel AS bill_number, u.Date AS bill_date,
        LTRIM(RTRIM(COALESCE(u.Cust_Name,''))) AS supplier,
        $itemNumSel AS item_number,
        LTRIM(RTRIM(COALESCE(m.Name,''))) AS material,
-       bi.Qty AS qty, $priceSel AS price, $totalSel AS line_total,
-       bt.Name AS bill_type_name, bt.TypeGUID AS type_guid
+       bi.Qty AS qty, $priceSel AS price, $costSel AS unit_cost, $totalSel AS line_total,
+       u.[$typeCol] AS type_guid, $currencyIsoSel AS currency_iso
 FROM bu000 u
-JOIN bt000 bt ON bt.GUID = u.$typeCol
 JOIN bi000 bi ON bi.ParentGUID = u.GUID
 JOIN mt000 m  ON m.GUID = bi.MatGUID
-WHERE bt.TypeGUID IN (@purchaseType, @purchaseReturnType) AND u.Date >= @fromDate
+$currencyJoin
+WHERE u.[$typeCol] IN (@purchaseType, @purchaseReturnType) AND u.Date >= @fromDate $postedFilter
 ORDER BY u.Date DESC
 "@
         $c.Parameters.AddWithValue("@fromDate", $fromDate) | Out-Null
@@ -157,16 +177,19 @@ ORDER BY u.Date DESC
         while ($rd.Read()) {
             $n++
             $retTag = if ([string]$rd["type_guid"] -eq $PURCHASE_RETURN_TYPE_GUID) { " [مرتجع مشتريات]" } else { "" }
-            Write-Host ("  [{0}] {1} | {2} | {3} — {4} | كمية {5} × سعر {6} = {7}{8}" -f `
+            Write-Host ("  [{0}] {1} | {2} | {3} — {4} | كمية {5} × سعر {6} (تكلفة {7}) = {8} | عملة {9}{10}" -f `
                 $rd["bill_number"], ([datetime]$rd["bill_date"]).ToString("yyyy-MM-dd"), `
-                $rd["supplier"], $rd["item_number"], $rd["material"], $rd["qty"], $rd["price"], $rd["line_total"], $retTag)
+                $rd["supplier"], $rd["item_number"], $rd["material"], $rd["qty"], $rd["price"], $rd["unit_cost"], $rd["line_total"], $rd["currency_iso"], $retTag)
         }
         $rd.Close(); $conn.Close()
-        Write-Log "الاكتشاف انتهى — $n سطر عيّنة. إذا الأسماء/القيم تبيّن صح، شغّل السكربت بدون -Discover."
+        Write-Host "الاكتشاف انتهى — $n سطر عيّنة. إذا الأسماء/القيم تبيّن صح، شغّل السكربت بدون -Discover."
         exit 0
     }
 
     # --- جلب كل أسطر فواتير المشتريات ومرتجعات المشتريات للفترة ---
+    # الفلترة على u.TypeGUID مباشرة (لا عبر ربط bt000) — bIsInput/BillType الخام
+    # مشتركان مع أنواع فواتير أخرى (مرتجعات مبيعات، تحويلات، فتح مدة)، وTypeGUID
+    # الحرفي هو المعيار الآمن الوحيد حسب تقرير الاكتشاف.
     $cmd = $conn.CreateCommand()
     $cmd.CommandTimeout = 300
     $cmd.CommandText = @"
@@ -175,25 +198,25 @@ SELECT CAST(u.GUID AS varchar(40)) AS bill_guid,
        u.Date AS bill_date,
        LTRIM(RTRIM(COALESCE(u.Cust_Name,''))) AS supplier,
        CAST(COALESCE(u.Total,0) AS decimal(18,3)) AS bill_total,
-       bt.TypeGUID AS type_guid,
+       u.[$typeCol] AS type_guid,
        $itemNumSel AS item_number,
        LTRIM(RTRIM(COALESCE(m.Name,''))) AS material,
        CAST(COALESCE(bi.Qty,0) AS decimal(18,3)) AS qty,
        LTRIM(RTRIM(COALESCE(m.Unity,''))) AS unit1,
        CAST($priceSel AS decimal(18,3)) AS price,
+       CAST($costSel AS decimal(18,3)) AS unit_cost,
        CAST($totalSel AS decimal(18,3)) AS line_total,
-       CAST($lastPriceSel AS decimal(18,3)) AS last_price,
-       CAST($avgPriceSel AS decimal(18,3)) AS avg_price
-       $(if ($currencyCol) { ", u.[$currencyCol] AS currency_raw" } else { "" })
+       $currencyIsoSel AS currency_iso
        $(if ($payMethodCol) { ", u.[$payMethodCol] AS pay_method_raw" } else { "" })
        $(if ($paidCol) { ", CAST(COALESCE(u.[$paidCol],0) AS decimal(18,3)) AS paid_amount" } else { "" })
 FROM bu000 u
-JOIN bt000 bt ON bt.GUID = u.$typeCol
 JOIN bi000 bi ON bi.ParentGUID = u.GUID
 JOIN mt000 m  ON m.GUID = bi.MatGUID
-WHERE bt.TypeGUID IN (@purchaseType, @purchaseReturnType)
+$currencyJoin
+WHERE u.[$typeCol] IN (@purchaseType, @purchaseReturnType)
   AND u.Date >= @fromDate
   AND LTRIM(RTRIM(COALESCE(u.Cust_Name,''))) <> ''
+  $postedFilter
 ORDER BY u.Date DESC, u.GUID
 "@
     $cmd.Parameters.AddWithValue("@fromDate", $fromDate) | Out-Null
@@ -203,15 +226,20 @@ ORDER BY u.Date DESC, u.GUID
     # bills[guid] = @{ number,date,supplier,total,currency,payMethod,paidAmount,isReturn, items = List }
     $bills = [ordered]@{}
     $billOrder = New-Object System.Collections.Generic.List[string]
+    # آخر تكلفة/متوسط تكلفة لكل مادة، مُحسَبان من أسطر الفواتير المسحوبة نفسها
+    # (لا من عمود مخمَّن على mt000) — الصف الأول لكل مادة هو "الأحدث" لأن
+    # الاستعلام مرتَّب u.Date DESC.
+    $itemStats = @{}
     $r = $cmd.ExecuteReader()
     while ($r.Read()) {
         $g = [string]$r["bill_guid"]
         if (-not $bills.Contains($g)) {
             $billOrder.Add($g)
-            $currencyRaw = if ($currencyCol) { [string]$r["currency_raw"] } else { $null }
-            $currency = if ($currencyRaw -and $currencyRaw -match "(?i)syp|ليرة|SY") { "SYP" } else { "USD" }
-            $payRaw = if ($payMethodCol) { [string]$r["pay_method_raw"] } else { $null }
-            $payMethod = if ($payRaw -and ($payRaw -match "(?i)^(0|false|cash|نقد)")) { "cash" } elseif ($payRaw) { "credit" } else { "unknown" }
+            $currencyIso = if ($r["currency_iso"] -is [DBNull] -or -not $r["currency_iso"]) { $null } else { [string]$r["currency_iso"] }
+            $currency = if ($currencyIso) { $currencyIso.Trim().ToUpper() } else { "unknown" }
+            # ⚠️ دلالة PayType/FirstPay غير محسومة عمداً (تقرير الاكتشاف، البند 4) —
+            # لا نخمّن نقدي/آجل من القيمة الخام، نتركها "unknown" حتى تُؤكَّد يدوياً.
+            $payMethod = "unknown"
             $paidAmount = if ($paidCol) { [double]$r["paid_amount"] } else { $null }
             $bills[$g] = @{
                 number     = [string]$r["bill_number"]
@@ -221,31 +249,53 @@ ORDER BY u.Date DESC, u.GUID
                 currency   = $currency
                 payMethod  = $payMethod
                 paidAmount = $paidAmount
-                # مرتجع مشتريات — نميّزه عن فاتورة الشراء العادية بالاعتماد على TypeGUID
-                # (وليس BillType الخام، لأنه مشترك مع المناقلات الداخلية).
                 isReturn   = ([string]$r["type_guid"] -eq $PURCHASE_RETURN_TYPE_GUID)
                 items      = New-Object System.Collections.Generic.List[object]
             }
         }
+        $itemNum = [string]$r["item_number"]
+        $unitCost = [double]$r["unit_cost"]
+        if (-not $itemStats.ContainsKey($itemNum)) {
+            $itemStats[$itemNum] = @{ lastCost = $unitCost; sum = 0.0; count = 0 }
+        }
+        $itemStats[$itemNum].sum += $unitCost
+        $itemStats[$itemNum].count += 1
         $bills[$g].items.Add(@{
-            itemNumber = [string]$r["item_number"]
+            itemNumber = $itemNum
             itemName   = [string]$r["material"]
             qty        = [double]$r["qty"]
             unit       = [string]$r["unit1"]
             price      = [double]$r["price"]
+            unitCost   = $unitCost
             lineTotal  = [double]$r["line_total"]
-            lastPrice  = if ($r["last_price"] -is [DBNull]) { $null } else { [double]$r["last_price"] }
-            avgPrice   = if ($r["avg_price"] -is [DBNull]) { $null } else { [double]$r["avg_price"] }
         })
     }
     $r.Close(); $conn.Close()
 
-    # --- تجميع الفواتير حسب المورد ---
+    # --- تجميع الفواتير حسب المورد، وإرفاق آخر تكلفة/متوسط تكلفة محسوبَين من
+    #     الأسطر المسحوبة نفسها (لا من mt000) مع وسم صريح لأساس الحساب ---
+    $priceBasis = if ($costCol) { "unit_cost_price" } else { "price_raw" }
     $bySupplier = @{}
     foreach ($g in $billOrder) {
         $b = $bills[$g]
         $name = $b.supplier
         if (-not $bySupplier.ContainsKey($name)) { $bySupplier[$name] = New-Object System.Collections.Generic.List[object] }
+        $itemsOut = New-Object System.Collections.Generic.List[object]
+        foreach ($it in $b.items) {
+            $stats = $itemStats[$it.itemNumber]
+            $avg = if ($stats.count -gt 0) { [math]::Round($stats.sum / $stats.count, 3) } else { $null }
+            $itemsOut.Add(@{
+                itemNumber = $it.itemNumber
+                itemName   = $it.itemName
+                qty        = $it.qty
+                unit       = $it.unit
+                price      = $it.price
+                lineTotal  = $it.lineTotal
+                lastPrice  = [math]::Round($stats.lastCost, 3)
+                avgPrice   = $avg
+                priceBasis = $priceBasis
+            })
+        }
         $bySupplier[$name].Add(@{
             number     = $b.number
             date       = $b.date
@@ -255,7 +305,7 @@ ORDER BY u.Date DESC, u.GUID
             payMethod  = $b.payMethod
             paidAmount = $b.paidAmount
             isReturn   = $b.isReturn
-            items      = $b.items.ToArray()
+            items      = $itemsOut.ToArray()
         })
     }
 
@@ -274,7 +324,7 @@ ORDER BY u.Date DESC, u.GUID
         })
     }
 
-    Write-Log "تم تجهيز فواتير $($items.Count) مورد / $($billOrder.Count) فاتورة (من $fromIso)"
+    Write-Log "تم تجهيز فواتير $($items.Count) مورد / $($billOrder.Count) فاتورة (من $fromIso) — أساس السعر: $priceBasis"
 
     if (-not $apiKey) { Write-Log "خطأ: TOBACCO_SUPABASE_PUBLIC_KEY غير موجود."; exit 1 }
     if (-not $syncEmail -or -not $syncPassword) { Write-Log "خطأ: TOBACCO_SYNC_EMAIL / TOBACCO_SYNC_PASSWORD غير موجودين."; exit 1 }
@@ -303,6 +353,7 @@ ORDER BY u.Date DESC, u.GUID
             fromDate   = $fromIso
             suppliers  = $items.Count
             bills      = $billOrder.Count
+            priceBasis = $priceBasis
             syncedAt   = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ss.fffZ")
         }
         items       = $items
