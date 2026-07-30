@@ -10,8 +10,9 @@
 # راجع supabase/ameen-purchase-invoice-reports.sql. لا تعتمد أبداً على إخفاء
 # الواجهة وحده لحماية بيانات الموردين/الأسعار/التكاليف/الدفعات الحساسة.
 #
-# ⚠️ هذا السكربت غير مُفعَّل حتى تتم مراجعته من Codex والموافقة عليه من المالك.
-# لم يُشغَّل ولا مرة — راجع القسم أسفله قبل أي تشغيل فعلي.
+# ✅ فُعّلت مرحلة القراءة اليدوية بعد مراجعات مستقلة وموافقة المالك.
+# يقرأ السكربت من الأمين فقط ويرفع تقرير العرض إلى الجدول المحمي في Supabase.
+# لا يسجّل مهمة مجدولة ولا يكتب أي فاتورة أو حركة أو قيمة داخل الأمين.
 #
 # مصدر الحقائق المستخدمة هنا: reports/ameen-purchase-schema-discovery.md
 # (اكتشاف قرائي فقط، منفّذ فعلياً ضد AmnDb002، الجولة الخامسة).
@@ -40,7 +41,7 @@
 #     لذلك العناوين بالواجهة صريحة "للوحدة الأساسية"، والإحصاء بمفتاح MatGUID
 #     (لا رقم/كود المادة) ويستبعد فواتير مرتجع المشتريات من المتوسط.
 #
-# التشغيل (لاحقاً، بعد المراجعة والموافقة فقط):
+# التشغيل اليدوي:
 #   .\tools\pull-purchase-invoices-from-ameen.ps1 -Discover     # طباعة الأعمدة وعيّنة بدون رفع
 #   .\tools\pull-purchase-invoices-from-ameen.ps1               # الرفع الفعلي (آخر 60 يوماً)
 #   .\tools\pull-purchase-invoices-from-ameen.ps1 -PeriodDays 90
@@ -49,14 +50,9 @@ param(
     [int]$PeriodDays = 60,
     [int]$MaxInvoicesPerSupplier = 200,
     [switch]$Discover,
-    [string]$EnvFile = "$PSScriptRoot\.env",
+    [string]$EnvFile = "",
     [string]$LogFile = "$PSScriptRoot\logs\purchase-invoices-pull.log"
 )
-
-# --- قفل أمان: هذه المرحلة قراءة وعرض فقط، ولم توافَق للتشغيل بعد ---
-# لا تُزِل هذا السطر إلا بعد مراجعة Codex وموافقة صريحة من المالك (ozk.kh@outlook.com).
-Write-Host "هذا السكربت مقفل عمداً — لم تتم مراجعته أو الموافقة على تشغيله بعد. راجع تعليق القفل أعلى الملف."
-exit 1
 
 $ErrorActionPreference = "Stop"
 
@@ -64,7 +60,7 @@ $ErrorActionPreference = "Stop"
 $PURCHASE_TYPE_GUID = "91377a56-ebfc-48c0-b79e-72063e1d7e3a"
 $PURCHASE_RETURN_TYPE_GUID = "c9aca8fe-f50e-46eb-91ac-29ee32acbb3e"
 
-if (Test-Path $EnvFile) {
+if ($EnvFile -and (Test-Path -LiteralPath $EnvFile -PathType Leaf)) {
     Get-Content $EnvFile | Where-Object { $_ -match '^\s*[^#].+=.+' } | ForEach-Object {
         $parts = $_ -split '=', 2
         [System.Environment]::SetEnvironmentVariable($parts[0].Trim(), $parts[1].Trim())
