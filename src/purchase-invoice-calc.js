@@ -169,6 +169,58 @@
     return PO_STATUS_RANK[to] === PO_STATUS_RANK[from] + 1;
   }
 
+  // ===== عرض فواتير مشتريات الأمين (قراءة فقط) — لا علاقة بحالات المسودة أعلاه =====
+
+  // تطبيع نص بحث عربي (موردين/أصناف): همزات/تاء مربوطة/ألف مقصورة موحّدة
+  // وتشكيل محذوف، كي يتطابق «المؤمن» مع «الامين» مثلاً. معزول هنا عمداً عن
+  // normalizeItemName في app.js كي تبقى الدالة صِرفة قابلة للاختبار بمعزل عن DOM.
+  function poNormalizeSearchText(value) {
+    return String(value ?? "")
+      .trim()
+      .toLowerCase()
+      .replace(/[إأآا]/g, "ا")
+      .replace(/ة/g, "ه")
+      .replace(/ى/g, "ي")
+      .replace(/[ً-ْ]/g, "");
+  }
+
+  // أسماء الموردين المطابقة لنص بحث المستخدم من قائمة أسماء حقيقية (مستخرَجة من
+  // تقرير فواتير الأمين) — بلا نتائج إن كان البحث فارغاً، وسقف 8 اقتراحات.
+  function poAmeenSupplierMatches(query, supplierNames) {
+    const names = Array.isArray(supplierNames) ? supplierNames : [];
+    const raw = String(query || "").trim();
+    if (!raw) return [];
+    const normalizedQuery = poNormalizeSearchText(raw);
+    return names.filter((name) => poNormalizeSearchText(name).includes(normalizedQuery)).slice(0, 8);
+  }
+
+  // فهرس التنقل بين فواتير مورد واحد (0 = الأحدث ضمن قائمة مرتّبة تنازلياً
+  // بالتاريخ). direction: -1 = الفاتورة السابقة (أقدم)، +1 = التالية (أحدث).
+  // لا يخرج عن حدود القائمة أبداً مهما تكرر الاستدعاء.
+  function poAmeenClampNavIndex(count, index, direction) {
+    const total = Math.max(0, Number(count) || 0);
+    if (total === 0) return 0;
+    const current = Number.isFinite(Number(index)) ? Number(index) : 0;
+    const next = current + (Number(direction) || 0);
+    if (next < 0) return 0;
+    if (next > total - 1) return total - 1;
+    return next;
+  }
+
+  // بنود فاتورة مشتريات أمين مطابقة لنص بحث برقم المادة أو اسمها — بلا فلترة
+  // إن كان البحث فارغاً (تُعرض كل البنود).
+  function poAmeenItemMatches(query, items) {
+    const list = Array.isArray(items) ? items : [];
+    const raw = String(query || "").trim();
+    if (!raw) return list;
+    const normalizedQuery = poNormalizeSearchText(raw);
+    return list.filter((item) => {
+      const numText = String((item && item.itemNumber) ?? "").trim();
+      const nameNorm = poNormalizeSearchText((item && item.itemName) || "");
+      return numText.includes(raw) || nameNorm.includes(normalizedQuery);
+    });
+  }
+
   root.poCalc = {
     poToEnglishDigits,
     poNormalizeNumeric,
@@ -184,6 +236,10 @@
     poDedupeLines,
     poCanTransitionStatus,
     PO_STATUS_RANK,
-    PO_STATUS_LABELS
+    PO_STATUS_LABELS,
+    poNormalizeSearchText,
+    poAmeenSupplierMatches,
+    poAmeenClampNavIndex,
+    poAmeenItemMatches
   };
 })(typeof window !== "undefined" ? window : globalThis);

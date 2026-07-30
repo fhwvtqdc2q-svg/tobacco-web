@@ -468,6 +468,43 @@ if (!Array.isArray(mergeNames) || mergeNames.some((name) => typeof name !== "str
     assertEqual("poHasUnselectedEntry ignores empty rows", poCalc.poHasUnselectedEntry([{ key: "", q: "  " }]), false);
     assertEqual("poHasUnselectedEntry passes when selected", poCalc.poHasUnselectedEntry([{ key: "k1", q: "0005 — صنف" }]), false);
 
+    // عرض فواتير مشتريات الأمين (قراءة فقط): بحث موردين متسامح مع الهمزات/التاء المربوطة
+    assertEqual(
+      "poAmeenSupplierMatches tolerates hamza/taa marbouta variants",
+      poCalc.poAmeenSupplierMatches("الامين", ["شركة الأمين للتجارة", "مورد آخر"]),
+      ["شركة الأمين للتجارة"]
+    );
+    assertEqual("poAmeenSupplierMatches empty query returns no suggestions", poCalc.poAmeenSupplierMatches("", ["مورد"]), []);
+    assertEqual(
+      "poAmeenSupplierMatches caps at 8 suggestions",
+      poCalc.poAmeenSupplierMatches("مورد", Array.from({ length: 12 }, (_, i) => `مورد ${i}`)).length,
+      8
+    );
+
+    // التنقل بين فاتورة سابقة/تالية لمورد واحد بلا خروج عن حدود القائمة
+    assertEqual("poAmeenClampNavIndex moves to next invoice", poCalc.poAmeenClampNavIndex(5, 0, 1), 1);
+    assertEqual("poAmeenClampNavIndex moves to previous invoice", poCalc.poAmeenClampNavIndex(5, 2, -1), 1);
+    assertEqual("poAmeenClampNavIndex stops at newest (index 0)", poCalc.poAmeenClampNavIndex(5, 0, -1), 0);
+    assertEqual("poAmeenClampNavIndex stops at oldest (last index)", poCalc.poAmeenClampNavIndex(5, 4, 1), 4);
+    assertEqual("poAmeenClampNavIndex empty list stays at 0", poCalc.poAmeenClampNavIndex(0, 0, 1), 0);
+
+    // بحث بنود فاتورة الأمين برقم المادة أو اسمها، مع الحفاظ على الأصفار البادئة بالرقم
+    const ameenSampleItems = [
+      { itemNumber: "0005", itemName: "دخان أحمر" },
+      { itemNumber: "0012", itemName: "دخان أزرق" }
+    ];
+    assertEqual(
+      "poAmeenItemMatches matches by leading-zero number",
+      poCalc.poAmeenItemMatches("0005", ameenSampleItems).map((i) => i.itemNumber),
+      ["0005"]
+    );
+    assertEqual(
+      "poAmeenItemMatches matches by name",
+      poCalc.poAmeenItemMatches("ازرق", ameenSampleItems).map((i) => i.itemNumber),
+      ["0012"]
+    );
+    assertEqual("poAmeenItemMatches empty query returns all items", poCalc.poAmeenItemMatches("", ameenSampleItems).length, 2);
+
     // كشف الأصناف المكررة
     assertEqual(
       "poDedupeLines detects duplicate item_key",

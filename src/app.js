@@ -275,6 +275,12 @@ const state = {
   poOpenId: "",
   poCorrectionOpenId: "",  // فاتورة "مُزامَنة" قيد إجراء تصحيحي
   poCorrectionNote: "",
+  // ===== فواتير مشتريات الأمين — عرض قراءة فقط (لا علاقة بنموذج المسودة أعلاه) =====
+  poAmeenReport: null,     // آخر تقرير ameen_purchase_invoices (يكتبه pull-purchase-invoices-from-ameen.ps1)
+  poAmeenSupplierQuery: "",
+  poAmeenSupplierName: "", // المورد المختار حالياً للتصفح
+  poAmeenNavIndex: 0,      // فهرس الفاتورة الحالية ضمن فواتير المورد المختار (0 = الأحدث)
+  poAmeenItemQuery: "",    // بحث داخل بنود الفاتورة الحالية برقم/اسم المادة
   notifPermission: "default",
   seenRequestIds: new Set(),
   globalSearch: "",
@@ -724,6 +730,13 @@ async function loadCustomerBalanceReports() {
       : null;
   } catch {
     state.customerInvoicesReport = null;
+  }
+  try {
+    state.poAmeenReport = dataStore.getPurchaseInvoicesAmeenReport
+      ? await dataStore.getPurchaseInvoicesAmeenReport()
+      : null;
+  } catch {
+    state.poAmeenReport = null;
   }
   try {
     state.invoiceSeriesReport = dataStore.getInvoiceSeriesReport
@@ -7315,6 +7328,128 @@ function refreshPoTotals() {
   }
 }
 
+// ===== فواتير مشتريات الأمين — عرض قراءة فقط (بيانات pull-purchase-invoices-from-ameen.ps1) =====
+
+function poAmeenSuppliers() {
+  const items = (state.poAmeenReport && state.poAmeenReport.items) || [];
+  return items.map((entry) => entry.name).filter(Boolean);
+}
+
+function poAmeenSupplierSuggestionsHtml(query) {
+  const matches = poCalc.poAmeenSupplierMatches(query, poAmeenSuppliers());
+  if (!matches.length) return "";
+  return matches.map((name) => `
+    <button type="button" class="sales-suggest-item" data-po-ameen-supplier-pick="${escapeHtml(name)}">${escapeHtml(name)}</button>
+  `).join("");
+}
+
+function poAmeenSelectedSupplierInvoices() {
+  const items = (state.poAmeenReport && state.poAmeenReport.items) || [];
+  const entry = items.find((e) => e.name === state.poAmeenSupplierName);
+  return (entry && entry.invoices) || [];
+}
+
+function poAmeenCurrentInvoice() {
+  const invoices = poAmeenSelectedSupplierInvoices();
+  if (!invoices.length) return null;
+  const idx = poCalc.poAmeenClampNavIndex(invoices.length, state.poAmeenNavIndex, 0);
+  return invoices[idx] || null;
+}
+
+function poAmeenPickSupplier(name) {
+  state.poAmeenSupplierName = name;
+  state.poAmeenSupplierQuery = name;
+  state.poAmeenNavIndex = 0;
+  state.poAmeenItemQuery = "";
+  render();
+}
+
+function poAmeenNavigate(direction) {
+  const invoices = poAmeenSelectedSupplierInvoices();
+  state.poAmeenNavIndex = poCalc.poAmeenClampNavIndex(invoices.length, state.poAmeenNavIndex, direction);
+  render();
+}
+
+function poAmeenPanelHtml() {
+  const report = state.poAmeenReport;
+  if (!report) {
+    return `
+      <section class="panel wide" style="margin-top:16px">
+        <h2 style="margin:0">فواتير مشتريات الأمين (قراءة فقط)</h2>
+        <p class="muted">لا يوجد تقرير محفوظ بعد. يُعبَّأ هذا القسم تلقائياً بعد أول تشغيل لسكربت <code>pull-purchase-invoices-from-ameen.ps1</code> على جهاز Windows.</p>
+      </section>
+    `;
+  }
+
+  const invoices = poAmeenSelectedSupplierInvoices();
+  const invoice = poAmeenCurrentInvoice();
+  const idx = invoices.length ? poCalc.poAmeenClampNavIndex(invoices.length, state.poAmeenNavIndex, 0) : 0;
+  const currencySym = invoice && invoice.currency === "SYP" ? "ل.س" : "$";
+
+  const filteredItems = invoice ? poCalc.poAmeenItemMatches(state.poAmeenItemQuery, invoice.items || []) : [];
+  const itemsRows = filteredItems.map((item) => `
+    <tr>
+      <td>${escapeHtml(poCalc.poItemDisplayLabel(item.itemNumber, item.itemName))}</td>
+      <td class="inv-num">${escapeHtml(String(item.qty ?? "—"))}</td>
+      <td>${escapeHtml(item.unit || "—")}</td>
+      <td class="inv-line-total">${item.lastPrice != null ? Number(item.lastPrice).toFixed(2) : "—"}</td>
+      <td class="inv-line-total">${item.avgPrice != null ? Number(item.avgPrice).toFixed(2) : "—"}</td>
+    </tr>
+  `).join("") || `<tr><td colspan="5" class="muted">لا توجد بنود مطابقة.</td></tr>`;
+
+  return `
+    <section class="panel wide" style="margin-top:16px">
+      <div class="panel-title-row">
+        <h2 style="margin:0">فواتير مشتريات الأمين (قراءة فقط)</h2>
+        ${report.report_date ? `<small class="muted">آخر تحديث: ${escapeHtml(report.report_date)}</small>` : ""}
+      </div>
+
+      <label class="inv-label po-suggest-wrap">
+        اسم المورد
+        <input class="inv-input-main" id="po-ameen-supplier" value="${escapeHtml(state.poAmeenSupplierQuery)}" placeholder="ابحث باسم المورد…" autocomplete="off">
+        <div class="sales-suggest-box" data-po-ameen-supplier-suggest></div>
+      </label>
+
+      ${invoice ? `
+        <div class="inv-header-fields" style="margin-top:12px;align-items:center">
+          <button type="button" class="button secondary compact-button" data-po-ameen-nav="prev" ${idx >= invoices.length - 1 ? "disabled" : ""}>◀ فاتورة سابقة</button>
+          <strong>${escapeHtml(invoice.number || "—")} — ${escapeHtml(invoice.date || "")} (${idx + 1}/${invoices.length})</strong>
+          <button type="button" class="button secondary compact-button" data-po-ameen-nav="next" ${idx <= 0 ? "disabled" : ""}>فاتورة تالية ▶</button>
+        </div>
+
+        <p class="muted" style="margin:8px 4px">
+          الإجمالي: ${Number(invoice.total || 0).toFixed(2)} ${currencySym}
+          · ${invoice.payMethod === "cash" ? "نقدي" : "آجل"}
+          · الدفعة المسجلة: ${invoice.paidAmount != null ? Number(invoice.paidAmount).toFixed(2) : "—"} ${currencySym}
+          ${invoice.isReturn ? "· <strong>مرتجع مشتريات</strong>" : ""}
+        </p>
+
+        <label class="inv-label">
+          بحث ضمن بنود الفاتورة (رقم أو اسم المادة)
+          <input class="inv-input-main" id="po-ameen-item-query" value="${escapeHtml(state.poAmeenItemQuery)}" placeholder="مثال: 0005 أو اسم المادة" autocomplete="off">
+        </label>
+
+        <div class="inv-table-wrap" style="margin-top:8px">
+          <table class="inv-table">
+            <thead>
+              <tr>
+                <th>الصنف</th>
+                <th style="width:90px">الكمية</th>
+                <th style="width:90px">الوحدة</th>
+                <th style="width:110px">آخر سعر شراء</th>
+                <th style="width:110px">السعر الوسطي</th>
+              </tr>
+            </thead>
+            <tbody>${itemsRows}</tbody>
+          </table>
+        </div>
+      ` : state.poAmeenSupplierName
+        ? `<p class="muted" style="margin-top:12px">لا توجد فواتير مسجّلة لهذا المورد.</p>`
+        : `<p class="muted" style="margin-top:12px">اختر مورداً من الاقتراحات لعرض فواتيره.</p>`}
+    </section>
+  `;
+}
+
 function purchases() {
   if (!state.session) {
     return shell(`
@@ -7472,6 +7607,8 @@ function purchases() {
       </div>
       <div class="po-list">${savedList}</div>
     </section>
+
+    ${poAmeenPanelHtml()}
   `);
 }
 
@@ -8395,6 +8532,40 @@ function render() {
       e.preventDefault();
       poPickSupplier(pick.dataset.poSupplierPick, pick.dataset.poSupplierGuid, pick.dataset.poSupplierCode);
     });
+  // فواتير مشتريات الأمين (قراءة فقط) — منفصل تماماً عن نموذج المسودة أعلاه
+  app.querySelector("#po-ameen-supplier")?.addEventListener("input", (e) => {
+    state.poAmeenSupplierQuery = e.currentTarget.value;
+    const box = app.querySelector("[data-po-ameen-supplier-suggest]");
+    if (box) {
+      const html = poAmeenSupplierSuggestionsHtml(e.currentTarget.value);
+      box.innerHTML = html;
+      if (html) positionSalesSuggest(e.currentTarget, box);
+    }
+  });
+  app.querySelector("#po-ameen-supplier")?.addEventListener("blur", () => {
+    setTimeout(() => {
+      const box = app.querySelector("[data-po-ameen-supplier-suggest]");
+      if (box) box.innerHTML = "";
+    }, 180);
+  });
+  app.querySelector("[data-po-ameen-supplier-suggest]")?.parentElement
+    ?.addEventListener("mousedown", (e) => {
+      const pick = e.target.closest("[data-po-ameen-supplier-pick]");
+      if (!pick) return;
+      e.preventDefault();
+      poAmeenPickSupplier(pick.dataset.poAmeenSupplierPick);
+    });
+  app.querySelectorAll("[data-po-ameen-nav]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      // القائمة مرتّبة الأحدث أولاً (idx 0 = الأحدث) — «سابقة» = أقدم = فهرس أعلى،
+      // «تالية» = أحدث = فهرس أدنى.
+      poAmeenNavigate(btn.dataset.poAmeenNav === "prev" ? 1 : -1);
+    });
+  });
+  app.querySelector("#po-ameen-item-query")?.addEventListener("input", (e) => {
+    state.poAmeenItemQuery = e.currentTarget.value;
+    render();
+  });
   app.querySelector("#po-date")?.addEventListener("change", (e) => {
     state.poDate = e.currentTarget.value;
   });
