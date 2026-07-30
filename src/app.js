@@ -1927,15 +1927,20 @@ function pricePdfItemUnits(item) {
 
 function pricePdfRow(row) {
   if (row.type === "group") {
-    return `<h2 class="price-pdf-group-title">${escapeHtml(row.name)}</h2>`;
+    return `
+      <h2 class="price-pdf-group-title">
+        <span>${escapeHtml(row.name)}</span>
+        <small>${escapeHtml(row.count || 0)} صنف</small>
+      </h2>
+    `;
   }
   return pricePdfItem(row.item);
 }
 
 function pricePdfPages(groups) {
-  const maxUnits = 39;
-  const groupUnits = 1.4;
-  const pages = [{ columns: [[], [], []] }];
+  const maxUnits = 36;
+  const groupUnits = 1.65;
+  const pages = [{ columns: [[], []] }];
   let pageIndex = 0;
   let columnIndex = 0;
   let usedUnits = 0;
@@ -1947,8 +1952,8 @@ function pricePdfPages(groups) {
   function nextColumn() {
     columnIndex += 1;
     usedUnits = 0;
-    if (columnIndex >= 3) {
-      pages.push({ columns: [[], [], []] });
+    if (columnIndex >= 2) {
+      pages.push({ columns: [[], []] });
       pageIndex += 1;
       columnIndex = 0;
     }
@@ -1966,11 +1971,11 @@ function pricePdfPages(groups) {
       const itemUnits = pricePdfItemUnits(item);
       if (!hasGroupTitle) {
         if (usedUnits > 0 && usedUnits + groupUnits + itemUnits > maxUnits) nextColumn();
-        addRow({ type: "group", name: group.name }, groupUnits);
+        addRow({ type: "group", name: group.name, count: group.items.length }, groupUnits);
         hasGroupTitle = true;
       } else if (usedUnits > 0 && usedUnits + itemUnits > maxUnits) {
         nextColumn();
-        addRow({ type: "group", name: group.name }, groupUnits);
+        addRow({ type: "group", name: group.name, count: group.items.length }, groupUnits);
       }
       addRow({ type: "item", item }, itemUnits);
     });
@@ -1984,15 +1989,22 @@ function pricePdfPage(page, index, totalPages, pdfTitle = "قائمة أسعار
   return `
     <section class="price-pdf-page">
       <header class="price-pdf-header">
-        <img class="price-pdf-logo" src="${logoSrc}" alt="OZK TOBACCO" />
+        <div class="price-pdf-brand">
+          <img class="price-pdf-logo" src="${logoSrc}" alt="OZK TOBACCO" />
+          <div>
+            <b>OZK TOBACCO</b>
+            <span>نشرة الأسعار الرسمية</span>
+          </div>
+        </div>
         <div class="price-pdf-title-block">
+          <span class="price-pdf-eyebrow">الأسعار المتوفرة اليوم</span>
           <h1>${escapeHtml(pdfTitle)}</h1>
-          <p>نشرة أسعار الأصناف المتوفرة للزبائن</p>
-          <p class="price-pdf-cash">البيع حصراً نقدي</p>
+          <p>أسعار واضحة ومحدّثة لخدمة زبائننا</p>
         </div>
         <div class="price-pdf-date">
           <span>تاريخ النشرة</span>
           <b>${escapeHtml(todayIsoDate())}</b>
+          <em>نقدي فقط</em>
         </div>
       </header>
       <div class="price-pdf-meta">
@@ -2010,6 +2022,7 @@ function pricePdfPage(page, index, totalPages, pdfTitle = "قائمة أسعار
           .join("")}
       </main>
       <footer class="price-pdf-footer">
+        <span>OZK TOBACCO · الجودة والثقة في كل طلب</span>
         <b>صفحة ${escapeHtml(index + 1)} من ${escapeHtml(totalPages)}</b>
       </footer>
     </section>
