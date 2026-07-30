@@ -1,13 +1,13 @@
 {
     "schemaVersion":  1,
-    "status":  "active",
+    "status":  "closed",
     "owner":  "Claude",
     "task":  "فواتير المشتريات: عرض قراءة فقط من الأمين (موردون/أصناف/تنقل بين الفواتير)",
-    "branch":  "task branch pending for: فواتير المشتريات: عرض قراءة فقط من الأمين (موردون/أصناف/تنقل بين الفواتير)",
+    "branch":  "feat/purchase-invoices-ameen-readonly (merged)",
     "files":  [
                   "src/app.js,src/purchase-invoice-calc.js,src/supabase-client.js,scripts/check.mjs,public/service-worker.js,index.html"
               ],
     "startedAt":  "2026-07-30T14:00:09Z",
-    "updatedAt":  "2026-07-30T14:00:09Z",
-    "note":  "Work in progress. Do not edit the reserved files."
+    "updatedAt":  "2026-07-30T17:11:00Z",
+    "note":  "Task closed. PR #35 merged into main (commit 1a40f9a). No task currently active."
 }

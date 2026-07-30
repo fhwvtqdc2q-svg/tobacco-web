@@ -2,6 +2,22 @@
 
 يقرأه Claude وCodex قبل كل مهمة. أحدث سجل يكون في الأعلى. لا تحذف السجلات السابقة.
 
+## 2026-07-30 - Claude - إغلاق مهمة فواتير المشتريات: عرض قراءة فقط من الأمين
+
+- Status: completed (merged)
+- Branch: feat/purchase-invoices-ameen-readonly (PR #35، مدموج، الفرع محفوظ لم يُحذف)
+- Files: AI_ACTIVE_TASK.json, AI_HANDOFF.md (توثيق فقط بهذا السجل — لا كود)
+- Result: بعد ثماني جولات مراجعة Codex ودمج origin/main مرتين بلا force، PR #35 حُوِّل من
+  Draft إلى Ready بموافقة المالك واندُمج بـmerge commit عادي `1a40f9a` (parents
+  `ce503b0`/`be2df11`) في main. `npm run check` وgit diff --check نظيفان بعد الدمج،
+  وworkflow "Deploy TOBACCO Web" نجح. AI_ACTIVE_TASK.json أُغلق (status: closed) — لا
+  مهمة نشطة حالياً.
+- Pending: `tools/pull-purchase-invoices-from-ameen.ps1` لا يزال مقفلاً بـ`exit 1`، وملف
+  `supabase/ameen-purchase-invoice-reports.sql` لا يزال مرجعياً غير مُطبَّق (يحتاج استبدال
+  بريد TOBACCO_SYNC_EMAIL يدوياً قبل أي تطبيق). لم تُشغَّل أي مزامنة ولم يُقرأ tools/.env
+  بهذا السجل.
+- Handoff UTC: 2026-07-30T17:20:00Z
+
 ## 2026-07-30 - Codex - تحديث التصميم الخارجي لنشرات الأسعار في المعاينة وPDF العام
 
 - Status: completed
