@@ -1,11 +1,13 @@
 {
-  "schemaVersion": 1,
-  "status": "idle",
-  "owner": null,
-  "task": null,
-  "branch": null,
-  "files": [],
-  "startedAt": null,
-  "updatedAt": "2026-07-30T13:04:27Z",
-  "note": "No active task. Read AI_HANDOFF.md before starting work."
+    "schemaVersion":  1,
+    "status":  "active",
+    "owner":  "Claude",
+    "task":  "فواتير المشتريات: عرض قراءة فقط من الأمين (موردون/أصناف/تنقل بين الفواتير)",
+    "branch":  "task branch pending for: فواتير المشتريات: عرض قراءة فقط من الأمين (موردون/أصناف/تنقل بين الفواتير)",
+    "files":  [
+                  "src/app.js,src/purchase-invoice-calc.js,src/supabase-client.js,scripts/check.mjs,public/service-worker.js,index.html"
+              ],
+    "startedAt":  "2026-07-30T14:00:09Z",
+    "updatedAt":  "2026-07-30T14:00:09Z",
+    "note":  "Work in progress. Do not edit the reserved files."
 }
