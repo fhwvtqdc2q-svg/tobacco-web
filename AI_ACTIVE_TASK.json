@@ -1,13 +1,11 @@
 {
     "schemaVersion":  1,
-    "status":  "closed",
-    "owner":  "Claude",
-    "task":  "فواتير المشتريات: عرض قراءة فقط من الأمين (موردون/أصناف/تنقل بين الفواتير)",
-    "branch":  "feat/purchase-invoices-ameen-readonly (merged)",
-    "files":  [
-                  "src/app.js,src/purchase-invoice-calc.js,src/supabase-client.js,scripts/check.mjs,public/service-worker.js,index.html"
-              ],
-    "startedAt":  "2026-07-30T14:00:09Z",
-    "updatedAt":  "2026-07-30T17:11:00Z",
-    "note":  "Task closed. PR #35 merged into main (commit 1a40f9a). No task currently active."
+    "status":  "idle",
+    "owner":  null,
+    "task":  null,
+    "branch":  null,
+    "files":  [],
+    "startedAt":  null,
+    "updatedAt":  "2026-07-30T17:30:00Z",
+    "note":  "No active task. Previous task (purchase invoices Ameen readonly display) merged via PR #35; see AI_HANDOFF.md."
 }

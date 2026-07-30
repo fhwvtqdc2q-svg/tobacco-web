@@ -10,8 +10,8 @@
 - Result: بعد ثماني جولات مراجعة Codex ودمج origin/main مرتين بلا force، PR #35 حُوِّل من
   Draft إلى Ready بموافقة المالك واندُمج بـmerge commit عادي `1a40f9a` (parents
   `ce503b0`/`be2df11`) في main. `npm run check` وgit diff --check نظيفان بعد الدمج،
-  وworkflow "Deploy TOBACCO Web" نجح. AI_ACTIVE_TASK.json أُغلق (status: closed) — لا
-  مهمة نشطة حالياً.
+  وworkflow "Deploy TOBACCO Web" نجح. AI_ACTIVE_TASK.json أعيد لحالة `idle` (السكيما تقبل
+  فقط `idle`/`active`) مع تفريغ بيانات المهمة السابقة — لا مهمة نشطة حالياً.
 - Pending: `tools/pull-purchase-invoices-from-ameen.ps1` لا يزال مقفلاً بـ`exit 1`، وملف
   `supabase/ameen-purchase-invoice-reports.sql` لا يزال مرجعياً غير مُطبَّق (يحتاج استبدال
   بريد TOBACCO_SYNC_EMAIL يدوياً قبل أي تطبيق). لم تُشغَّل أي مزامنة ولم يُقرأ tools/.env
