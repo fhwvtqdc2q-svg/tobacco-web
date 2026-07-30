@@ -2,6 +2,14 @@
 
 يقرأه Claude وCodex قبل كل مهمة. أحدث سجل يكون في الأعلى. لا تحذف السجلات السابقة.
 
+## 2026-07-30 - Codex - تحديث التصميم الخارجي لنشرات الأسعار في المعاينة وPDF العام
+
+- Status: completed
+- Branch: task branch pending for: تحديث التصميم الخارجي لنشرات الأسعار في المعاينة وPDF العام
+- Files: src/app.js,src/styles.css,scripts/generate-price-lists.mjs,public/service-worker.js,AI_HANDOFF.md
+- Result: تم اعتماد تخطيط النشرة المرجعي الداكن والفاتح، ثلاث صفحات، والمعسل كاملاً في الصفحة الثالثة. نجحت فحوص المشروع والتوليد والنشر الحي عبر PR #34، والكاش v427.
+- Handoff UTC: 2026-07-30T13:04:27Z
+
 ## 2026-07-29 - Claude - تطوير شامل لفاتورة المشتريات ومزامنة الأمين (تطوير فقط، لا تفعيل)
 
 - Status: completed

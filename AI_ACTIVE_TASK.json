@@ -1,13 +1,11 @@
 {
-    "schemaVersion":  1,
-    "status":  "active",
-    "owner":  "Codex",
-    "task":  "تحديث التصميم الخارجي لنشرات الأسعار في المعاينة وPDF العام",
-    "branch":  "task branch pending for: تحديث التصميم الخارجي لنشرات الأسعار في المعاينة وPDF العام",
-    "files":  [
-                  "src/app.js,src/styles.css,scripts/generate-price-lists.mjs,public/service-worker.js,AI_HANDOFF.md"
-              ],
-    "startedAt":  "2026-07-30T11:44:57Z",
-    "updatedAt":  "2026-07-30T11:44:57Z",
-    "note":  "Work in progress. Do not edit the reserved files."
+  "schemaVersion": 1,
+  "status": "idle",
+  "owner": null,
+  "task": null,
+  "branch": null,
+  "files": [],
+  "startedAt": null,
+  "updatedAt": "2026-07-30T13:04:27Z",
+  "note": "No active task. Read AI_HANDOFF.md before starting work."
 }
