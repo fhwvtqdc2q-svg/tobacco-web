@@ -567,6 +567,40 @@ if (/create policy "purchase_invoices_delete_client"[\s\S]*?using \(\s*status <>
   failed = true;
 }
 
+// فواتير مشتريات الأمين (موردون/أسعار/تكاليف/إجماليات/دفعات) بيانات حساسة
+// ويجب ألا تُكتب في inventory_reports (مقروء لكل موظف مسجّل) — يجب أن تبقى
+// حصراً في الجدول المستقل المحمي ameen_purchase_invoice_reports. مراجعة
+// Codex السادسة على PR #35.
+const pullPurchaseInvoicesScript = readFileSync("tools/pull-purchase-invoices-from-ameen.ps1", "utf8");
+if (/rest\/v1\/inventory_reports/.test(pullPurchaseInvoicesScript)) {
+  console.error("tools/pull-purchase-invoices-from-ameen.ps1 must write purchase-invoice reports to the protected ameen_purchase_invoice_reports table, not inventory_reports.");
+  failed = true;
+}
+if (!pullPurchaseInvoicesScript.includes("rest/v1/ameen_purchase_invoice_reports")) {
+  console.error("tools/pull-purchase-invoices-from-ameen.ps1 is missing its protected-table target ameen_purchase_invoice_reports.");
+  failed = true;
+}
+if (!appJs.includes('.from(purchaseInvoiceReportsTable)') && !readFileSync("src/supabase-client.js", "utf8").includes(".from(purchaseInvoiceReportsTable)")) {
+  console.error("src/supabase-client.js must read Ameen purchase-invoice reports from purchaseInvoiceReportsTable, not inventory_reports.");
+  failed = true;
+}
+const supabaseClientJs = readFileSync("src/supabase-client.js", "utf8");
+if (/getPurchaseInvoicesAmeenReport[\s\S]{0,400}\.from\(inventoryReportsTable\)/.test(supabaseClientJs)) {
+  console.error("getPurchaseInvoicesAmeenReport() must not read from the shared inventoryReportsTable — sensitive supplier/price/cost data would leak to every registered employee.");
+  failed = true;
+}
+const purchaseInvoiceReportsSql = readFileSync("supabase/ameen-purchase-invoice-reports.sql", "utf8");
+for (const contract of [
+  "alter table ameen_purchase_invoice_reports enable row level security",
+  "purchase_invoices_is_owner()",
+  "ameen_purchase_invoice_reports_is_sync_writer()"
+]) {
+  if (!purchaseInvoiceReportsSql.includes(contract)) {
+    console.error(`ameen_purchase_invoice_reports SQL contract is missing: ${contract}`);
+    failed = true;
+  }
+}
+
 if (failed) {
   process.exit(1);
 }

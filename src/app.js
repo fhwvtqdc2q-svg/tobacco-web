@@ -276,7 +276,7 @@ const state = {
   poCorrectionOpenId: "",  // فاتورة "مُزامَنة" قيد إجراء تصحيحي
   poCorrectionNote: "",
   // ===== فواتير مشتريات الأمين — عرض قراءة فقط (لا علاقة بنموذج المسودة أعلاه) =====
-  poAmeenReport: null,     // آخر تقرير ameen_purchase_invoices (يكتبه pull-purchase-invoices-from-ameen.ps1)
+  poAmeenReport: null,     // آخر تقرير من جدول ameen_purchase_invoice_reports المحمي (يكتبه pull-purchase-invoices-from-ameen.ps1)
   poAmeenSupplierQuery: "",
   poAmeenSupplierName: "", // المورد المختار حالياً للتصفح
   poAmeenNavIndex: 0,      // فهرس الفاتورة الحالية ضمن فواتير المورد المختار (0 = الأحدث)

@@ -1,9 +1,14 @@
 ﻿# ============================================================
 # pull-purchase-invoices-from-ameen.ps1
 # سكربت قراءة فقط: يقرأ فواتير المشتريات الحقيقية من الأمين (بلا أي تعديل أو كتابة
-# على الأمين) ويرفع تقريراً جاهزاً إلى Supabase (inventory_reports /
-# source = ameen_purchase_invoices) ليعرضه تبويب «فواتير المشتريات» في الموقع
-# عبر poAmeenPanelHtml() في src/app.js.
+# على الأمين) ويرفع تقريراً جاهزاً إلى Supabase — جدول مستقل ومحمي
+# ameen_purchase_invoice_reports (وليس inventory_reports العام) ليعرضه تبويب
+# «فواتير المشتريات» في الموقع عبر poAmeenPanelHtml() في src/app.js.
+#
+# ⚠️ الجدول محمي بـRLS: قراءة فقط للمالك (purchase_invoices_is_owner())، وكتابة
+# فقط لحساب المزامنة الموثوق (ameen_purchase_invoice_reports_is_sync_writer()) —
+# راجع supabase/ameen-purchase-invoice-reports.sql. لا تعتمد أبداً على إخفاء
+# الواجهة وحده لحماية بيانات الموردين/الأسعار/التكاليف/الدفعات الحساسة.
 #
 # ⚠️ هذا السكربت غير مُفعَّل حتى تتم مراجعته من Codex والموافقة عليه من المالك.
 # لم يُشغَّل ولا مرة — راجع القسم أسفله قبل أي تشغيل فعلي.
@@ -375,9 +380,8 @@ ORDER BY u.Date DESC, u.GUID
         "Content-Profile" = "public"
     }
 
-    # --- رفع التقرير ---
+    # --- رفع التقرير إلى الجدول المستقل المحمي (لا inventory_reports العام) ---
     $payload = @{
-        source      = "ameen_purchase_invoices"
         report_date = (Get-Date).ToString("yyyy-MM-dd")
         created_by  = $session.user.id
         summary     = @{
@@ -392,7 +396,7 @@ ORDER BY u.Date DESC, u.GUID
     }
     $json = $payload | ConvertTo-Json -Depth 10 -Compress
     Write-Log ("حجم البيانات: {0:N0} حرف" -f $json.Length)
-    Invoke-RestMethod -Method Post -Uri "$supabaseUrl/rest/v1/inventory_reports" `
+    Invoke-RestMethod -Method Post -Uri "$supabaseUrl/rest/v1/ameen_purchase_invoice_reports" `
         -Headers $authHeaders -ContentType "application/json; charset=utf-8" `
         -Body ([System.Text.Encoding]::UTF8.GetBytes($json)) | Out-Null
 
@@ -402,7 +406,7 @@ ORDER BY u.Date DESC, u.GUID
     $cutoff = (Get-Date).ToUniversalTime().AddDays(-2).ToString("yyyy-MM-ddTHH:mm:ssZ")
     try {
         Invoke-RestMethod -Method Delete `
-            -Uri "$supabaseUrl/rest/v1/inventory_reports?source=eq.ameen_purchase_invoices&created_at=lt.$cutoff" `
+            -Uri "$supabaseUrl/rest/v1/ameen_purchase_invoice_reports?created_at=lt.$cutoff" `
             -Headers $authHeaders | Out-Null
     } catch { Write-Log "تنبيه: تعذّر حذف التقارير القديمة: $($_.Exception.Message)" }
 
