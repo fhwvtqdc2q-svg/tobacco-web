@@ -592,13 +592,34 @@ if (/getPurchaseInvoicesAmeenReport[\s\S]{0,400}\.from\(inventoryReportsTable\)/
 const purchaseInvoiceReportsSql = readFileSync("supabase/ameen-purchase-invoice-reports.sql", "utf8");
 for (const contract of [
   "alter table ameen_purchase_invoice_reports enable row level security",
-  "purchase_invoices_is_owner()",
-  "ameen_purchase_invoice_reports_is_sync_writer()"
+  "ameen_purchase_invoice_reports_is_owner()",
+  "ameen_purchase_invoice_reports_is_sync_writer()",
+  "created_by uuid not null default auth.uid()",
+  "created_by = auth.uid()"
 ]) {
   if (!purchaseInvoiceReportsSql.includes(contract)) {
     console.error(`ameen_purchase_invoice_reports SQL contract is missing: ${contract}`);
     failed = true;
   }
+}
+
+// مراجعة Codex السابعة على PR #35: هذا الملف يجب أن يبقى self-contained تماماً —
+// لا اعتماد على purchase_invoices_is_owner() ولا على تطبيق
+// purchase-invoices-ameen-sync.sql كشرط مسبق، وإلا يتعذّر تطبيقه منفرداً.
+if (purchaseInvoiceReportsSql.includes("purchase_invoices_is_owner()")) {
+  console.error("supabase/ameen-purchase-invoice-reports.sql must not depend on purchase_invoices_is_owner() — it needs its own self-contained owner function.");
+  failed = true;
+}
+if (purchaseInvoiceReportsSql.includes("purchase-invoices-ameen-sync.sql")) {
+  console.error("supabase/ameen-purchase-invoice-reports.sql must not require applying purchase-invoices-ameen-sync.sql first — it must be self-contained.");
+  failed = true;
+}
+
+// created_by يجب أن يمنع NULL وانتحال الهوية معاً: عمود بقيمة افتراضية auth.uid()،
+// وسياسة INSERT تتحقق أن created_by المُرسَل يطابق auth.uid() فعلياً.
+if (!/with check \(\s*ameen_purchase_invoice_reports_is_sync_writer\(\)\s*and\s*created_by = auth\.uid\(\)\s*\)/.test(purchaseInvoiceReportsSql)) {
+  console.error("ameen_purchase_invoice_reports INSERT policy must require both the sync-writer account and created_by = auth.uid().");
+  failed = true;
 }
 
 if (failed) {
