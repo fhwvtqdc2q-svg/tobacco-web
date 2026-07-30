@@ -7142,7 +7142,7 @@ function poPickItem(rowIndex, key) {
   row.key = item.itemKey;
   row.name = item.itemName;
   row.num = poItemCode(item);
-  row.q = row.num || item.itemName;
+  row.q = window.poCalc.poItemDisplayLabel(row.num, row.name);
   if (row.unit !== "unit1" && row.unit !== "unit2") row.unit = "unit2";
   const auto = poAutoUnitPrice(item, row.unit, state.poCurrency);
   row.price = auto > 0 ? String(auto) : "";
@@ -7460,7 +7460,7 @@ function purchaseInvoiceCard(po) {
   const detailRows = po.items.map((item, idx) => `
     <tr>
       <td style="width:32px;color:var(--muted)">${idx + 1}</td>
-      <td>${escapeHtml(item.name)}</td>
+      <td>${escapeHtml(window.poCalc.poItemDisplayLabel(item.item_number, item.name))}</td>
       <td class="inv-num">${escapeHtml(String(item.qty))}</td>
       <td class="inv-line-total">${item.price > 0 ? item.price.toFixed(2) : "—"}</td>
       <td class="inv-line-total">${item.price > 0 ? (item.qty * item.price).toFixed(2) : "—"}</td>
@@ -7525,6 +7525,11 @@ function purchaseInvoiceCard(po) {
 async function savePurchaseInvoice() {
   if (state.poSaving) return;
   const supplier = state.poSupplierQuery.trim();
+  if (window.poCalc.poHasUnselectedEntry(state.poRows)) {
+    setNotice("error", "اختر الصنف من قائمة الاقتراحات");
+    render();
+    return;
+  }
   const items = state.poRows
     .filter((r) => r.key)
     .map((r) => {
@@ -7679,7 +7684,7 @@ async function submitPurchaseInvoiceCorrection(id) {
 function buildPurchaseInvoiceText(po) {
   const sym = po.currency === "SYP" ? "ل.س" : "$";
   const lines = po.items.map((item, idx) => {
-    const base = `${idx + 1}) ${item.name} — الكمية: ${item.qty}`;
+    const base = `${idx + 1}) ${window.poCalc.poItemDisplayLabel(item.item_number, item.name)} — الكمية: ${item.qty}`;
     return item.price > 0 ? `${base} — السعر: ${item.price.toFixed(2)} ${sym}` : base;
   });
   const parts = [
@@ -7733,7 +7738,7 @@ function printPurchaseInvoice(id) {
   const rowsHtml = po.items.map((item, i) => `
     <tr>
       <td class="col-num">${i + 1}</td>
-      <td>${escapeHtml(item.name)}</td>
+      <td>${escapeHtml(window.poCalc.poItemDisplayLabel(item.item_number, item.name))}</td>
       <td>${escapeHtml(String(item.qty))}</td>
       <td class="col-price">${item.price > 0 ? item.price.toFixed(2) : "—"}</td>
       <td class="col-total">${item.price > 0 ? (item.qty * item.price).toFixed(2) : "—"}</td>
@@ -8413,7 +8418,8 @@ function render() {
         if (field === "price") state.poRows[i].edited = true;
         refreshPoTotals();
       } else if (field === "q") {
-        state.poRows[i].q = e.currentTarget.value;
+        const next = window.poCalc.poNextRowAfterQueryInput(state.poRows[i], e.currentTarget.value);
+        Object.assign(state.poRows[i], next);
         const box = app.querySelector(`[data-po-suggest="${i}"]`);
         if (box) {
           const html = poSuggestionsHtml(i, e.currentTarget.value);

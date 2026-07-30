@@ -99,6 +99,40 @@
     return { ok: true, error: "" };
   }
 
+  // النص الظاهر لصنف مختار: "رقم — اسم" دوماً كي لا يظهر السطر باسم فقط أو رقم
+  // فقط. الرقم نص خام (لا Number()) كي لا تُفقد الأصفار البادئة (مثال: "0005").
+  function poItemDisplayLabel(num, name) {
+    const numText = String(num ?? "").trim();
+    const nameText = String(name ?? "").trim();
+    if (numText && nameText) return `${numText} — ${nameText}`;
+    return numText || nameText;
+  }
+
+  // عند تعديل المستخدم لحقل البحث بعد اختيار صنف: يجب إبطال key/name/num فوراً
+  // كي لا يُحفَظ صنف قديم تحت رقم/اسم جديد كتبه المستخدم لاحقاً بلا اختيار فعلي
+  // من قائمة الاقتراحات. لا إبطال إن كانت القيمة الجديدة مطابقة لنص الاختيار نفسه
+  // (مثال: إعادة رسم الحقل بلا تغيير فعلي من المستخدم).
+  function poNextRowAfterQueryInput(row, newValue) {
+    const prevQ = (row && row.q) || "";
+    const hadSelection = !!(row && row.key);
+    if (hadSelection && newValue !== prevQ) {
+      return { key: "", name: "", num: "", q: newValue };
+    }
+    return {
+      key: (row && row.key) || "",
+      name: (row && row.name) || "",
+      num: (row && row.num) || "",
+      q: newValue
+    };
+  }
+
+  // يمنع حفظ سطر كُتب فيه نص بحث (رقم أو اسم) دون اختيار فعلي من الاقتراحات —
+  // بدل حسمه بصمت (كان سلوك الفلترة السابق: r.key فقط بلا تنبيه للمستخدم).
+  function poHasUnselectedEntry(rows) {
+    const list = Array.isArray(rows) ? rows : [];
+    return list.some((row) => row && !row.key && String(row.q || "").trim());
+  }
+
   // يمنع تسجيل نفس الصنف مرتين في فاتورة واحدة (يجب دمج الكمية بدل سطر ثانٍ).
   function poDedupeLines(rows) {
     const list = Array.isArray(rows) ? rows : [];
@@ -144,6 +178,9 @@
     poTotals,
     poRemainingState,
     poValidatePayment,
+    poItemDisplayLabel,
+    poNextRowAfterQueryInput,
+    poHasUnselectedEntry,
     poDedupeLines,
     poCanTransitionStatus,
     PO_STATUS_RANK,
