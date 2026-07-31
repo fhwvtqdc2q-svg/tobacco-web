@@ -2,13 +2,27 @@
 
 يقرأه Claude وCodex قبل كل مهمة. أحدث سجل يكون في الأعلى. لا تحذف السجلات السابقة.
 
-## 2026-07-31 - Claude - مرتجعات المبيعات (جملة/مفرق) ومرتجعات المشتريات — واجهة إدخال وتخزين محلي فقط، بدون مزامنة أمين
+## 2026-07-31 - Claude - مرتجعات المبيعات (جملة/مركز) والمشتريات — PR #37 (مسودة)
 
-- Status: completed
-- Branch: feature/sales-purchase-returns
-- Files: src/app.js, src/purchase-invoice-calc.js, scripts/check.mjs
-- Result: إلغاء حجز جلسة متضاربة على نفس الجهاز بموافقة صريحة من المالك؛ لا عمل فعلي أُنجز على الفرع/الـworktree (نظيف، بلا كوميتات). سيُعاد حجز المهمة فوراً بجلسة واحدة.
-- Handoff UTC: 2026-07-31T02:30:39Z
+- Status: draft PR opened, awaiting review
+- Branch: feature/sales-purchase-returns (PR #37: https://github.com/fhwvtqdc2q-svg/tobacco-web/pull/37)
+- Files: src/returns-calc.js (جديد), src/app.js, src/supabase-client.js, scripts/check.mjs,
+  supabase/returns-table.sql (جديد، مرجعي فقط)، tools/ameen-returns-config.json (جديد)،
+  tools/discover-ameen-returns-schema.ps1 (جديد، قراءة فقط)، tools/sync-returns-to-ameen.ps1
+  (جديد، مقفل بـ exit 1)، index.html، public/service-worker.js، .gitattributes.
+- Result: تطوير كامل لواجهة مرتجعات المبيعات (جملة/مركز) والمشتريات: بحث عن الفاتورة
+  الأصلية، منع تجاوز الكمية الأصلية (بعد خصم المرتجعات السابقة)، عكس ربح/تكلفة نسبي فقط،
+  أثر تسوية (ذمم زبون/مورد أو استرداد نقدي من نفس الصندوق الأصلي)، دورة حالة مستند، طباعة
+  PDF وسجل مستندات بتصفية وتنقل. اختبارات retCalc كاملة + عقد ربط واجهة في scripts/check.mjs
+  — npm run check ناجح. اكتُشف أن git diff --check كان يُعلِّم أسطر index.html المعدَّلة
+  خطأً كـ"مسافات زائدة" لأن .gitattributes لم يكن يضع whitespace=cr-at-eol لملف CRLF أصلي
+  (كما هو مطبَّق على src/styles.css) — أُضيف نفس الإعداد لـ index.html، وأصبح git diff
+  --check نظيفاً. لم تُطبَّق أي SQL على الإنتاج، ولم يُشغَّل أي سكريبت كتابة على الأمين.
+- Blocker: اكتشاف سلاسل ترقيم الأمين الثلاث الفعلية (مرتجع مبيعات/مرتجع مبيعات مركز/مرتجع
+  مشتريات) لم يتم — خدمة SQL Server كانت متوقفة وقت التطوير، فـ GUID السلاسل في
+  tools/ameen-returns-config.json لا تزال null. يتطلب تشغيل discover-ameen-returns-schema.ps1
+  فعلياً بعد تشغيل الخدمة ومراجعة المالك قبل أي تفعيل مستقبلي لسكريبت الكتابة المقفل.
+- Handoff UTC: 2026-07-31T00:00:00Z (تقريبي)
 ## 2026-07-30 - Claude - إغلاق مهمة فواتير المشتريات: عرض قراءة فقط من الأمين
 
 - Status: completed (merged)
