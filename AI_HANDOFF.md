@@ -2,6 +2,13 @@
 
 يقرأه Claude وCodex قبل كل مهمة. أحدث سجل يكون في الأعلى. لا تحذف السجلات السابقة.
 
+## 2026-07-31 - Claude - مرتجعات المبيعات جملة/مفرق ومرتجعات المشتريات
+
+- Status: completed
+- Branch: task branch pending for: مرتجعات المبيعات جملة/مفرق ومرتجعات المشتريات
+- Files: src/app.js,src/returns-calc.js
+- Result: Task completed and handed off.
+- Handoff UTC: 2026-07-31T03:23:51Z
 ## 2026-07-31 - Claude - مرتجعات المبيعات (جملة/مركز) والمشتريات — PR #37 (مسودة)
 
 - Status: draft PR opened, awaiting review
