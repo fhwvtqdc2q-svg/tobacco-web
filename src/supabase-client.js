@@ -5,6 +5,7 @@
   const CUSTOMER_LIMITS_KEY = "tobacco-customer-credit-limits";
   const APPROVED_PRICES_KEY = "tobacco-approved-price-items";
   const PURCHASE_INVOICES_KEY = "tobacco-purchase-invoices";
+  const RETURNS_KEY = "tobacco-returns";
 
   const defaultRequests = [
     {
@@ -87,6 +88,7 @@
   const purchaseInvoicesTable = config.purchaseInvoicesTable || "purchase_invoices";
   const itemSnapshotTable = config.itemSnapshotTable || "ameen_item_snapshot";
   const purchaseInvoiceReportsTable = config.purchaseInvoiceReportsTable || "ameen_purchase_invoice_reports";
+  const returnsTable = config.returnsTable || "returns";
   const client =
     hasConfig && hasLibrary
       ? window.supabase.createClient(config.url, config.publishableKey, {
@@ -208,6 +210,60 @@
       correctionLog: Array.isArray(row.correction_log) ? row.correction_log : [],
       total,
       notes: row.notes || "",
+      createdAt: row.created_at || "",
+      updatedAt: row.updated_at || row.created_at || ""
+    };
+  }
+
+  // مستندات المرتجعات (مبيعات جملة/مركز، مشتريات) — نفس نمط فواتير المشتريات أعلاه.
+  const RET_KIND_VALUES = ["sales_wholesale", "sales_retail", "purchase"];
+  const RET_STATUS_VALUES = ["draft", "approved", "sync_pending", "synced", "failed"];
+  const RET_PAY_METHOD_VALUES = ["cash", "credit"];
+
+  function normalizeReturnItems(items) {
+    return (Array.isArray(items) ? items : [])
+      .map((item) => ({
+        item_key: item.item_key == null ? null : String(item.item_key),
+        name: cleanText(item.name, 240),
+        unit: item.unit === "unit1" ? "unit1" : "unit2",
+        original_qty: Math.max(0, parseNumber(item.original_qty)),
+        qty: Math.max(0, parseNumber(item.qty)),
+        price: Math.max(0, parseNumber(item.price)),
+        unit_cost: Math.max(0, parseNumber(item.unit_cost || 0))
+      }))
+      .filter((item) => item.name && item.qty > 0);
+  }
+
+  function normalizeDbReturn(row) {
+    const shortId = String(row.id || Date.now()).slice(0, 8).toUpperCase();
+    const items = normalizeReturnItems(row.items);
+    const kindPrefix = row.kind === "purchase" ? "RETP" : row.kind === "sales_retail" ? "RETR" : "RETW";
+    return {
+      id: row.id,
+      publicId: `${kindPrefix}-${shortId}`,
+      kind: RET_KIND_VALUES.includes(row.kind) ? row.kind : "sales_wholesale",
+      partyName: row.party_name || "",
+      partyAmeenGuid: row.party_ameen_guid || "",
+      partyAmeenCode: row.party_ameen_code || "",
+      originalInvoiceNumber: row.original_invoice_number || "",
+      originalInvoiceGuid: row.original_invoice_guid || "",
+      originalInvoiceDate: row.original_invoice_date || "",
+      originalPayMethod: RET_PAY_METHOD_VALUES.includes(row.original_pay_method) ? row.original_pay_method : "credit",
+      treasuryName: row.treasury_name || "",
+      reason: row.reason || "",
+      items,
+      total: parseNumber(row.total || 0),
+      status: RET_STATUS_VALUES.includes(row.status) ? row.status : "draft",
+      idempotencyKey: row.idempotency_key || "",
+      syncAttempts: Number(row.sync_attempts || 0),
+      syncError: row.sync_error || "",
+      ameenDocumentGuid: row.ameen_document_guid || "",
+      ameenDocumentNumber: row.ameen_document_number || "",
+      syncedAt: row.synced_at || "",
+      approvedBy: row.approved_by || "",
+      approvedAt: row.approved_at || "",
+      correctionCount: Number(row.correction_count || 0),
+      correctionLog: Array.isArray(row.correction_log) ? row.correction_log : [],
       createdAt: row.created_at || "",
       updatedAt: row.updated_at || row.created_at || ""
     };
@@ -1149,6 +1205,108 @@
       }
       await requireUser();
       const { error } = await client.from(purchaseInvoicesTable).delete().eq("id", id);
+      if (error) throw new Error(translateDbError(error.message));
+    },
+
+    // مستندات المرتجعات (مبيعات جملة/مركز، مشتريات) — جدول returns، غير مُطبَّق بعد
+    // على قاعدة الإنتاج (supabase/returns-table.sql مرجعي فقط)، لذا 42P01 متوقع حالياً.
+    async listReturnDocuments() {
+      if (!client) {
+        return readJson(RETURNS_KEY, []).map(normalizeDbReturn);
+      }
+      const session = await getSupabaseSession();
+      if (!session) return [];
+      const { data, error } = await client
+        .from(returnsTable)
+        .select(
+          "id, kind, party_name, party_ameen_guid, party_ameen_code, original_invoice_number, original_invoice_guid, original_invoice_date, original_pay_method, treasury_name, reason, items, total, status, idempotency_key, sync_attempts, sync_error, ameen_document_guid, ameen_document_number, synced_at, approved_by, approved_at, correction_count, correction_log, created_at, updated_at"
+        )
+        .order("created_at", { ascending: false })
+        .limit(300);
+      if (error) {
+        if (error.code === "42P01") return []; // الجدول لم يُطبَّق بعد على قاعدة الإنتاج
+        throw new Error(translateDbError(error.message));
+      }
+      return (data || []).map(normalizeDbReturn);
+    },
+
+    async createReturnDocument(input) {
+      const items = normalizeReturnItems(input.items);
+      const total = roundPrice(items.reduce((sum, item) => sum + item.qty * item.price, 0));
+      const record = {
+        kind: RET_KIND_VALUES.includes(input.kind) ? input.kind : "sales_wholesale",
+        party_name: cleanText(input.partyName, 240),
+        party_ameen_guid: input.partyAmeenGuid ? String(input.partyAmeenGuid) : null,
+        party_ameen_code: input.partyAmeenCode ? cleanText(input.partyAmeenCode, 60) : null,
+        original_invoice_number: cleanText(input.originalInvoiceNumber, 60),
+        original_invoice_guid: input.originalInvoiceGuid ? String(input.originalInvoiceGuid) : null,
+        original_invoice_date: input.originalInvoiceDate || null,
+        original_pay_method: RET_PAY_METHOD_VALUES.includes(input.originalPayMethod) ? input.originalPayMethod : "credit",
+        treasury_name: input.treasuryName ? cleanText(input.treasuryName, 120) : null,
+        reason: cleanText(input.reason, 500),
+        items,
+        idempotency_key: window.crypto?.randomUUID ? window.crypto.randomUUID() : `${Date.now()}-${Math.random().toString(16).slice(2)}`,
+        total,
+        status: "draft"
+      };
+      if (!record.party_name) throw new Error("اختر الزبون أو المورد أولاً.");
+      if (!record.original_invoice_number) throw new Error("اختر الفاتورة الأصلية أولاً.");
+      if (!record.items.length) throw new Error("أضف صنفاً واحداً على الأقل مع كمية مرتجعة.");
+      if (record.original_pay_method === "cash" && !record.treasury_name) {
+        throw new Error("أدخل صندوق الاسترداد (نفس صندوق الفاتورة الأصلية) لأن الفاتورة نقدية.");
+      }
+
+      if (!client) {
+        const all = readJson(RETURNS_KEY, []);
+        const local = {
+          id: `local-${Date.now()}`,
+          ...record,
+          correction_count: 0,
+          correction_log: [],
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString()
+        };
+        writeJson(RETURNS_KEY, [local, ...all].slice(0, 300));
+        return normalizeDbReturn(local);
+      }
+
+      const user = await requireUser();
+      const { data, error } = await client
+        .from(returnsTable)
+        .insert({ ...record, created_by: user.id })
+        .select(
+          "id, kind, party_name, party_ameen_guid, party_ameen_code, original_invoice_number, original_invoice_guid, original_invoice_date, original_pay_method, treasury_name, reason, items, total, status, created_at, updated_at"
+        )
+        .limit(1);
+      if (error) {
+        if (error.code === "42P01") throw new Error("جدول returns غير موجود بعد. طبّق supabase/returns-table.sql في Supabase أولاً.");
+        throw new Error(translateDbError(error.message));
+      }
+      return data?.[0] ? normalizeDbReturn(data[0]) : normalizeDbReturn(record);
+    },
+
+    async setReturnDocumentStatus(id, nextStatus, extra = {}) {
+      if (!RET_STATUS_VALUES.includes(nextStatus)) throw new Error("حالة مرتجع غير معروفة.");
+      const patch = { status: nextStatus, updated_at: new Date().toISOString() };
+      if (extra.syncError !== undefined) patch.sync_error = extra.syncError;
+      if (!client) {
+        const all = readJson(RETURNS_KEY, []).map((row) => (row.id === id ? { ...row, ...patch } : row));
+        writeJson(RETURNS_KEY, all);
+        return;
+      }
+      await requireUser();
+      const { error } = await client.from(returnsTable).update(patch).eq("id", id);
+      if (error) throw new Error(translateDbError(error.message));
+    },
+
+    async deleteReturnDocument(id) {
+      if (!client) {
+        const all = readJson(RETURNS_KEY, []).filter((row) => row.id !== id);
+        writeJson(RETURNS_KEY, all);
+        return;
+      }
+      await requireUser();
+      const { error } = await client.from(returnsTable).delete().eq("id", id);
       if (error) throw new Error(translateDbError(error.message));
     },
 

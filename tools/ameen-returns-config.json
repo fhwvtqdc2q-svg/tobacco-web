@@ -1,0 +1,23 @@
+{
+  "_تنبيه": "ملف إعداد مبدئي غير مكتمل — لا تُشغَّل أي عملية Apply عليه قبل تعبئة القيم الحقيقية بعد تشغيل discover-ameen-returns-schema.ps1 فعلياً على هذا الجهاز ومراجعة النتائج مع المالك. لم يُشغَّل هذا الاكتشاف بعد (خدمة SQL Server كانت متوقفة وقت التطوير).",
+  "_الحالة": "مسودة تطوير — لم يُعتمد، لم يُختبر، لم يُنفَّذ",
+  "salesWholesaleReturnSeriesGuid": null,
+  "salesWholesaleReturnSeriesName": "مرتجع مبيعات",
+  "salesRetailReturnSeriesGuid": null,
+  "salesRetailReturnSeriesName": "مرتجع مبيعات مركز",
+  "purchaseReturnSeriesGuid": null,
+  "purchaseReturnSeriesName": "مرتجع مشتريات",
+  "ameenBillHeaderTable": "bu000",
+  "ameenBillLineTable": null,
+  "supabaseTable": "returns",
+  "dryRunDefault": true,
+  "notes": [
+    "لا تضع كلمات مرور أو سلاسل اتصال هنا — تبقى في tools\\.env فقط.",
+    "أي قيمة null هنا تعني: لم تُكتشف/تُؤكَّد بعد عبر discover-ameen-returns-schema.ps1.",
+    "أسماء السلاسل الثلاث (salesWholesaleReturnSeriesName/salesRetailReturnSeriesName/",
+    "purchaseReturnSeriesName) هي الأسماء المطلوبة بموجب مواصفة المهمة نفسها، وليست",
+    "مؤكَّدة بعد من بيانات الأمين الفعلية — يجب التحقق منها عبر discover-ameen-returns-schema.ps1",
+    "أولاً (مطابقة نص Name في bt000) قبل استخدامها في أي كتابة فعلية.",
+    "كل تعديل لهذا الملف بعد الاكتشاف الفعلي يجب أن يوثّق مصدر كل قيمة (اسم الاستعلام الذي أثبتها)."
+  ]
+}

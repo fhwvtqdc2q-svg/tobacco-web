@@ -527,6 +527,120 @@ if (!Array.isArray(mergeNames) || mergeNames.some((name) => typeof name !== "str
   }
 }
 
+// اختبارات حقيقية لدوال returns-calc.js (retCalc): منع تجاوز الكمية الأصلية عبر
+// المرتجعات التراكمية، عكس الربح/التكلفة بنسبة الكمية المرتجعة، أثر التسوية
+// (ذمم زبون/مورد أو استرداد نقدي من نفس الصندوق)، وحارس انتقالات الحالة.
+{
+  const retCalcSource = readFileSync("src/returns-calc.js", "utf8");
+  const sandbox = { window: {}, console };
+  vm.createContext(sandbox);
+  vm.runInContext(retCalcSource, sandbox, { filename: "returns-calc.js" });
+  const retCalc = sandbox.window.retCalc;
+  if (!retCalc) {
+    console.error("src/returns-calc.js did not expose window.retCalc.");
+    failed = true;
+  } else {
+    const assertEqual = (label, actual, expected) => {
+      const a = JSON.stringify(actual);
+      const e = JSON.stringify(expected);
+      if (a !== e) {
+        console.error(`retCalc test failed: ${label} — got ${a}, expected ${e}`);
+        failed = true;
+      }
+    };
+
+    // منع تجاوز الكمية الأصلية بعد خصم مرتجعات سابقة معتمدة لنفس السطر
+    assertEqual(
+      "retAlreadyReturnedQty sums only non-draft/cancelled prior returns",
+      retCalc.retAlreadyReturnedQty(
+        [{ itemKey: "a", qty: 3, status: "approved" }, { itemKey: "a", qty: 2, status: "draft" }, { itemKey: "b", qty: 5, status: "synced" }],
+        "a"
+      ),
+      3
+    );
+    assertEqual(
+      "retRemainingQty never negative",
+      retCalc.retRemainingQty(5, [{ itemKey: "a", qty: 5, status: "approved" }, { itemKey: "a", qty: 2, status: "approved" }], "a"),
+      0
+    );
+    assertEqual(
+      "retValidateReturnQty rejects exceeding remaining",
+      retCalc.retValidateReturnQty({ qty: 4, originalQty: 5, priorReturns: [{ itemKey: "a", qty: 2, status: "approved" }], itemKey: "a" }).ok,
+      false
+    );
+    assertEqual(
+      "retValidateReturnQty accepts exactly the remaining amount",
+      retCalc.retValidateReturnQty({ qty: 3, originalQty: 5, priorReturns: [{ itemKey: "a", qty: 2, status: "approved" }], itemKey: "a" }).ok,
+      true
+    );
+    assertEqual(
+      "retValidateReturnQty rejects zero/negative qty",
+      retCalc.retValidateReturnQty({ qty: 0, originalQty: 5, priorReturns: [], itemKey: "a" }).ok,
+      false
+    );
+
+    // احتساب سطر/إجمالي المرتجع
+    assertEqual("retLineComputed without itemKey", retCalc.retLineComputed({ qty: "5", price: "2" }), { qty: 0, price: 0, lineTotal: 0 });
+    assertEqual("retLineComputed with itemKey", retCalc.retLineComputed({ itemKey: "a", qty: "5", price: "2" }), { qty: 5, price: 2, lineTotal: 10 });
+    assertEqual(
+      "retTotals sums only rows with itemKey",
+      retCalc.retTotals([{ itemKey: "a", qty: "2", price: "3" }, { qty: "9", price: "9" }, { itemKey: "b", qty: "1", price: "1.5" }]),
+      { grand: 7.5 }
+    );
+
+    // عكس الربح بنسبة الكمية المرتجعة وبنفس أساس السعر/التكلفة الأصلي
+    assertEqual(
+      "retLineProfitReversal computes revenue/cost/profit reversed",
+      retCalc.retLineProfitReversal({ returnQty: 4, unitPrice: 10, unitCost: 6 }),
+      { returnQty: 4, revenueReversed: 40, costReversed: 24, profitReversed: 16 }
+    );
+
+    // أثر التسوية: مشتريات دوماً تنقص ذمم المورد؛ مبيعات آجلة تنقص ذمم الزبون؛
+    // مبيعات نقدية تتطلب صندوق الاسترداد الأصلي إلزامياً
+    assertEqual(
+      "retSettlementImpact purchase requires supplierId",
+      retCalc.retSettlementImpact({ kind: "purchase", amount: 50 }).ok,
+      false
+    );
+    assertEqual(
+      "retSettlementImpact purchase reduces supplier balance",
+      retCalc.retSettlementImpact({ kind: "purchase", amount: 50, supplierId: "s1" }).type,
+      "supplier_credit"
+    );
+    assertEqual(
+      "retSettlementImpact sales credit requires customerId",
+      retCalc.retSettlementImpact({ kind: "sales", amount: 50, originalPayMethod: "credit" }).ok,
+      false
+    );
+    assertEqual(
+      "retSettlementImpact sales cash requires original treasury",
+      retCalc.retSettlementImpact({ kind: "sales", amount: 50, originalPayMethod: "cash" }).ok,
+      false
+    );
+    assertEqual(
+      "retSettlementImpact sales cash refunds from original treasury",
+      retCalc.retSettlementImpact({ kind: "sales", amount: 50, originalPayMethod: "cash", treasuryId: "t1" }).type,
+      "cash_refund"
+    );
+
+    // اتجاه أثر المخزون: مبيعات تعيد للمخزون، مشتريات تُخرج منه
+    assertEqual("retInventoryDirection sales returns stock in", retCalc.retInventoryDirection("sales_wholesale"), "in");
+    assertEqual("retInventoryDirection purchase returns stock out", retCalc.retInventoryDirection("purchase"), "out");
+
+    // حارس انتقالات حالة المرتجع: نفس رتبة poCanTransitionStatus
+    assertEqual("retCanTransitionStatus draft->approved", retCalc.retCanTransitionStatus("draft", "approved"), true);
+    assertEqual("retCanTransitionStatus draft->synced skip forbidden", retCalc.retCanTransitionStatus("draft", "synced"), false);
+    assertEqual("retCanTransitionStatus synced is terminal", retCalc.retCanTransitionStatus("synced", "approved"), false);
+    assertEqual("retCanTransitionStatus never back to draft", retCalc.retCanTransitionStatus("approved", "draft"), false);
+    assertEqual("retCanTransitionStatus sync_pending<->failed both ways", retCalc.retCanTransitionStatus("sync_pending", "failed"), true);
+
+    // تنقّل السابق/التالي بين المستندات
+    assertEqual("retClampNavIndex moves to next", retCalc.retClampNavIndex(5, 0, 1), 1);
+    assertEqual("retClampNavIndex stops at oldest", retCalc.retClampNavIndex(5, 4, 1), 4);
+    assertEqual("retClampNavIndex empty list stays at 0", retCalc.retClampNavIndex(0, 0, 1), 0);
+  }
+}
+
 // عقد ربط واجهة فواتير المشتريات بملف poCalc ومصدر Supabase الجديد — يمنع رجوع
 // الواجهة لاستدعاء أسماء دوال قديمة أُزيلت من supabase-client.js.
 for (const contract of [
@@ -547,6 +661,23 @@ for (const contract of [
 if (appJs.includes("dataStore.updatePurchaseInvoiceStatus")) {
   console.error("src/app.js must not call the removed dataStore.updatePurchaseInvoiceStatus method.");
   failed = true;
+}
+
+// عقد ربط واجهة المرتجعات بملف retCalc ومصدر Supabase الجديد
+for (const contract of [
+  "retCalc.retValidateReturnQty",
+  "retCalc.retTotals",
+  "retCalc.retCanTransitionStatus",
+  "retCalc.retClampNavIndex",
+  "dataStore.listReturnDocuments",
+  "dataStore.createReturnDocument",
+  "dataStore.setReturnDocumentStatus",
+  "dataStore.deleteReturnDocument"
+]) {
+  if (!appJs.includes(contract)) {
+    console.error(`Returns UI/data-layer contract is missing: ${contract}`);
+    failed = true;
+  }
 }
 
 // عقود SQL فواتير المشتريات: حذف المسودة يقتصر على مالكها، وapproved_by/

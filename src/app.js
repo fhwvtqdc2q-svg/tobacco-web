@@ -253,6 +253,21 @@ const state = {
   itemDetails: null,       // خريطة مفتاح ← تفاصيل (تكلفة/مستودعات) من تقرير الأمين
   itemDetailsAt: "",       // وقت التقرير — يُعرض كي يعرف المستخدم حداثة الأرقام
   salesRows: [{ q: "", key: "", name: "", num: "", unit: "unit2", qty: "1", price: "", edited: false }],
+  // ===== مرتجعات المبيعات (جملة/مركز) والمشتريات (route: returns) =====
+  returns: [],
+  retKind: "sales_wholesale",
+  retPartyName: "",
+  retPartyQuery: "",
+  retOrigNavIndex: 0,
+  retOrigInvoice: null,
+  retLines: [],
+  retReason: "",
+  retPayMethod: "credit",
+  retTreasury: "",
+  retError: "",
+  retSaving: false,
+  retListFilterKind: "",
+  retDocNavIndex: 0,
   // ===== فاتورة مشتريات (route: purchases) — مسودة/معتمدة/بانتظار مزامنة/مُزامَنة/فشلت =====
   purchaseInvoices: [],
   poItemSnapshots: [],     // تخزين مؤقت للقطة أصناف الأمين (فارغة عملياً حتى تفعيل push-purchase-item-snapshot.ps1)
@@ -281,6 +296,21 @@ const state = {
   poAmeenSupplierName: "", // المورد المختار حالياً للتصفح
   poAmeenNavIndex: 0,      // فهرس الفاتورة الحالية ضمن فواتير المورد المختار (0 = الأحدث)
   poAmeenItemQuery: "",    // بحث داخل بنود الفاتورة الحالية برقم/اسم المادة
+  // ===== مرتجعات المبيعات (جملة/مركز) والمشتريات (route: returns) =====
+  returns: [],             // مستندات المرتجع المحفوظة في Supabase (جدول returns)
+  retKind: "sales_wholesale", // sales_wholesale | sales_retail | purchase — يحدد سلسلة الأمين والجهة
+  retPartyQuery: "",       // بحث اسم الزبون (مبيعات) أو المورد (مشتريات)
+  retPartyName: "",        // الجهة المختارة حالياً
+  retOrigNavIndex: 0,      // فهرس الفاتورة الأصلية ضمن فواتير الجهة المختارة (0 = الأحدث)
+  retOrigInvoice: null,    // الفاتورة الأصلية المختارة (من تقرير الأمين للقراءة فقط)
+  retLines: [],            // بنود المرتجع الجاري تحضيرها: [{ itemKey, name, unit, originalQty, qty, price, unitCost }]
+  retReason: "",
+  retPayMethod: "credit",  // نقدي/آجل — يُدخَل يدوياً لأن تقرير الأمين الحالي لا يحمل طريقة الدفع لكل فاتورة
+  retTreasury: "",         // صندوق الاسترداد النقدي (نفس صندوق الفاتورة الأصلية — نص حر بانتظار ربط حقيقي بصناديق الأمين)
+  retError: "",
+  retSaving: false,
+  retDocNavIndex: 0,       // فهرس التصفح ضمن قائمة مستندات المرتجع المحفوظة (سابق/تالي)
+  retListFilterKind: "",   // فارغ = كل الأنواع
   notifPermission: "default",
   seenRequestIds: new Set(),
   globalSearch: "",
@@ -402,6 +432,7 @@ async function boot() {
   await loadApprovedPriceItems();
   await loadCustomerProfiles();
   await loadPurchaseInvoices();
+  await loadReturns();
   state.seenRequestIds = new Set(state.requests.map((r) => r.id));
   state.notifPermission = notifSupported() ? Notification.permission : "denied";
   state.loading = false;
@@ -477,6 +508,20 @@ async function loadPurchaseInvoices() {
   } catch {
     state.poItemSnapshots = [];
     state.poItemSnapshotsAt = "";
+  }
+}
+
+// مستندات مرتجعات المبيعات (جملة/مركز) والمشتريات — جدول returns (قد لا يكون
+// مُطبَّقاً بعد على قاعدة الإنتاج، فيرجع فارغاً بهدوء، تماماً مثل purchase_invoices).
+async function loadReturns() {
+  try {
+    if (dataStore.isConfigured() && !state.session) {
+      state.returns = [];
+      return;
+    }
+    state.returns = dataStore.listReturnDocuments ? await dataStore.listReturnDocuments() : [];
+  } catch {
+    state.returns = [];
   }
 }
 
@@ -973,6 +1018,7 @@ async function saveSession(form, action) {
     await loadCustomerCreditLimits();
     await loadApprovedPriceItems();
     await loadPurchaseInvoices();
+    await loadReturns();
     setRoute("overview", false);
   } catch (error) {
     setNotice("error", safeErrorMessage(error));
@@ -2663,6 +2709,7 @@ function shell(content) {
           ${state.session ? navButton("invoice", "📄 الفواتير") : ""}
           ${state.session ? navButton("sales", "🧮 فاتورة مبيعات") : ""}
           ${state.session ? navButton("purchases", "🧾 فواتير مشتريات") : ""}
+          ${state.session ? navButton("returns", "↩️ المرتجعات") : ""}
           ${state.session ? navButton("staff", "👥 الموظفون") : ""}
           ${state.session ? navButton("ai", "🤖 المساعد الذكي") : ""}
         </nav>
@@ -2730,6 +2777,7 @@ function pageTitle() {
     invoice: "الفواتير بالدولار",
     sales: "فاتورة مبيعات",
     purchases: "فواتير المشتريات",
+    returns: "المرتجعات",
     dashboard: "التقارير",
     staff: "إدارة الموظفين",
     search: `نتائج: ${escapeHtml(state.globalSearch)}`
@@ -7623,6 +7671,449 @@ function purchases() {
   `);
 }
 
+// ===== مرتجعات المبيعات (جملة/مركز) والمشتريات =====
+// المصادر: تقرير ameen_customer_invoices (customerInvoicesFor) لفواتير المبيعات
+// الأصلية، وتقرير ameen_purchase_invoice_reports (state.poAmeenReport) لفواتير
+// المشتريات الأصلية — كلاهما موجود ومُزامَن أصلاً، لا اكتشاف جديد بالأمين هنا.
+
+const RET_KIND_LABELS = {
+  sales_wholesale: "مرتجع مبيعات (جملة)",
+  sales_retail: "مرتجع مبيعات (مركز/مفرق)",
+  purchase: "مرتجع مشتريات"
+};
+
+function retPartyNames() {
+  if (state.retKind === "purchase") return poAmeenSuppliers();
+  const items = (state.customerInvoicesReport && state.customerInvoicesReport.items) || [];
+  return items.map((it) => it.name).filter(Boolean);
+}
+
+function retPartySuggestionsHtml(query) {
+  const matches = poCalc.poAmeenSupplierMatches(query, retPartyNames());
+  if (!matches.length) return "";
+  return matches.map((name) => `
+    <button type="button" class="sales-suggest-item" data-ret-party-pick="${escapeHtml(name)}">${escapeHtml(name)}</button>
+  `).join("");
+}
+
+function retPickParty(name) {
+  state.retPartyName = name;
+  state.retPartyQuery = name;
+  state.retOrigNavIndex = 0;
+  state.retOrigInvoice = null;
+  state.retLines = [];
+  state.retError = "";
+  render();
+}
+
+// فواتير الجهة المختارة الصالحة كأصل لمرتجع (نستبعد فواتير المرتجع نفسها من
+// قائمة "الفاتورة الأصلية" — لا يجوز إرجاع مرتجع). لا يوجد حقل جملة/مفرق ولا
+// طريقة دفع بتقرير ameen_customer_invoices، لذا كلا نوعي مرتجع المبيعات يعرضان
+// نفس قائمة فواتير الزبون (قيد بيانات موثّق في AI_HANDOFF.md).
+function retInvoicesForParty() {
+  if (!state.retPartyName) return [];
+  if (state.retKind === "purchase") {
+    const items = (state.poAmeenReport && state.poAmeenReport.items) || [];
+    const entry = items.find((e) => e.name === state.retPartyName);
+    return (entry && entry.invoices) || [];
+  }
+  return customerInvoicesFor(state.retPartyName).filter((inv) => !inv.isReturn);
+}
+
+function retCurrentOrigInvoice() {
+  const invoices = retInvoicesForParty();
+  if (!invoices.length) return null;
+  const idx = retCalc.retClampNavIndex(invoices.length, state.retOrigNavIndex, 0);
+  return invoices[idx] || null;
+}
+
+function retNavigate(direction) {
+  const invoices = retInvoicesForParty();
+  state.retOrigNavIndex = retCalc.retClampNavIndex(invoices.length, state.retOrigNavIndex, direction);
+  state.retOrigInvoice = null;
+  state.retLines = [];
+  render();
+}
+
+// يحمّل بنود الفاتورة الأصلية المعروضة حالياً إلى جدول تحضير المرتجع (qty=0 لكل سطر).
+function retSelectOrigInvoice() {
+  const invoice = retCurrentOrigInvoice();
+  if (!invoice) return;
+  state.retOrigInvoice = invoice;
+  state.retError = "";
+  if (state.retKind === "purchase") {
+    state.retLines = (invoice.items || []).map((item) => ({
+      itemKey: String(item.itemNumber || item.itemName || ""),
+      name: item.itemName || "",
+      unit: item.unit || "",
+      originalQty: Number(item.qty || 0),
+      qty: "",
+      // لا يحمل تقرير مشتريات الأمين تفصيل سعر×كمية دقيق لكل سطر — نعتمد آخر سعر
+      // شراء أو متوسط التكلفة كأقرب تقريب موثّق (قيد بيانات، وليس تخميناً عشوائياً).
+      price: Number(item.lastPrice ?? item.avgPrice ?? 0),
+      unitCost: Number(item.avgPrice ?? item.lastPrice ?? 0)
+    }));
+  } else {
+    state.retLines = (invoice.lines || []).map((line) => ({
+      itemKey: String(line.material || ""),
+      name: line.material || "",
+      unit: line.unit2 || line.unit1 || "",
+      originalQty: Number(line.qtyUnits || line.qty || 0),
+      qty: "",
+      price: Number(line.price || 0),
+      unitCost: 0 // لا تكلفة بتقرير المبيعات — إدخال يدوي اختياري إن رغب المستخدم
+    }));
+  }
+  render();
+}
+
+// كل المرتجعات المعتمدة فأعلى (وليست مسودة/ملغاة) لنفس الجهة+الفاتورة+الصنف —
+// أساس منع تجاوز الكمية الأصلية عبر retCalc.retValidateReturnQty.
+function retPriorReturnsForItem(itemKey) {
+  if (!state.retOrigInvoice) return [];
+  const invNum = state.retOrigInvoice.number || state.retOrigInvoice.guid || "";
+  return state.returns
+    .filter((r) => r.kind === state.retKind && r.partyName === state.retPartyName && r.originalInvoiceNumber === String(invNum))
+    .flatMap((r) => (r.items || [])
+      .filter((it) => (it.item_key || it.name) === itemKey)
+      .map((it) => ({ itemKey, qty: it.qty, status: r.status })));
+}
+
+function retSetLineQty(itemKey, value) {
+  const line = state.retLines.find((l) => l.itemKey === itemKey);
+  if (line) line.qty = value;
+}
+
+function retLinesRowsHtml() {
+  return state.retLines.map((line) => {
+    const remaining = retCalc.retRemainingQty(line.originalQty, retPriorReturnsForItem(line.itemKey), line.itemKey);
+    const computed = retCalc.retLineComputed({ itemKey: line.itemKey, qty: line.qty, price: line.price });
+    return `
+    <tr class="inv-row">
+      <td>${escapeHtml(line.name)}</td>
+      <td class="inv-num">${escapeHtml(String(line.originalQty))}</td>
+      <td class="inv-num">${escapeHtml(remaining.toString())}</td>
+      <td><input class="inv-input inv-num" data-ret-item-qty="${escapeHtml(line.itemKey)}" value="${escapeHtml(String(line.qty))}" placeholder="0" inputmode="decimal"></td>
+      <td class="inv-line-total">${line.price.toFixed(2)}</td>
+      <td class="inv-line-total">${computed.lineTotal.toFixed(2)}</td>
+    </tr>`;
+  }).join("") || `<tr><td colspan="6" class="muted">اختر الفاتورة الأصلية أولاً لتحميل بنودها.</td></tr>`;
+}
+
+function retTotals() {
+  return retCalc.retTotals(state.retLines.map((l) => ({ itemKey: l.itemKey, qty: l.qty, price: l.price })));
+}
+
+async function retSubmit() {
+  state.retError = "";
+  if (!state.retPartyName) {
+    state.retError = "اختر الزبون أو المورد أولاً.";
+    render();
+    return;
+  }
+  if (!state.retOrigInvoice) {
+    state.retError = "اختر الفاتورة الأصلية أولاً.";
+    render();
+    return;
+  }
+  const activeLines = state.retLines.filter((l) => retCalc.retToNumber(l.qty) > 0);
+  if (!activeLines.length) {
+    state.retError = "أدخل كمية مرتجعة لصنف واحد على الأقل.";
+    render();
+    return;
+  }
+  for (const line of activeLines) {
+    const check = retCalc.retValidateReturnQty({
+      qty: line.qty,
+      originalQty: line.originalQty,
+      priorReturns: retPriorReturnsForItem(line.itemKey),
+      itemKey: line.itemKey
+    });
+    if (!check.ok) {
+      state.retError = `${line.name}: ${check.error}`;
+      render();
+      return;
+    }
+  }
+  if (state.retPayMethod === "cash" && !state.retTreasury.trim()) {
+    state.retError = "أدخل صندوق الاسترداد (نفس صندوق الفاتورة الأصلية) لأن الفاتورة نقدية.";
+    render();
+    return;
+  }
+
+  state.retSaving = true;
+  render();
+  try {
+    await dataStore.createReturnDocument({
+      kind: state.retKind,
+      partyName: state.retPartyName,
+      originalInvoiceNumber: String(state.retOrigInvoice.number || ""),
+      originalInvoiceGuid: state.retOrigInvoice.guid || null,
+      originalInvoiceDate: state.retOrigInvoice.date || null,
+      originalPayMethod: state.retPayMethod,
+      treasuryName: state.retPayMethod === "cash" ? state.retTreasury : null,
+      reason: state.retReason,
+      items: activeLines.map((l) => ({
+        item_key: l.itemKey,
+        name: l.name,
+        unit: "unit2",
+        original_qty: l.originalQty,
+        qty: retCalc.retToNumber(l.qty),
+        price: l.price,
+        unit_cost: l.unitCost || 0
+      }))
+    });
+    await loadReturns();
+    state.retOrigInvoice = null;
+    state.retLines = [];
+    state.retReason = "";
+    state.retTreasury = "";
+    state.retPartyQuery = "";
+    state.retPartyName = "";
+    setNotice("success", "تم حفظ مستند المرتجع كمسودة.");
+  } catch (error) {
+    state.retError = safeErrorMessage(error);
+  } finally {
+    state.retSaving = false;
+    render();
+  }
+}
+
+async function retSetStatus(id, nextStatus) {
+  const doc = state.returns.find((r) => r.id === id);
+  if (!doc || !retCalc.retCanTransitionStatus(doc.status, nextStatus)) return;
+  try {
+    await dataStore.setReturnDocumentStatus(id, nextStatus);
+    await loadReturns();
+    setNotice("success", `تم تحديث حالة المرتجع إلى: ${retCalc.RET_STATUS_LABELS[nextStatus] || nextStatus}.`);
+  } catch (error) {
+    setNotice("error", safeErrorMessage(error));
+  }
+  render();
+}
+
+async function retDeleteDoc(id) {
+  const doc = state.returns.find((r) => r.id === id);
+  if (!doc || doc.status !== "draft") return;
+  if (!confirm("حذف مستند المرتجع هذا نهائياً؟")) return;
+  try {
+    await dataStore.deleteReturnDocument(id);
+    await loadReturns();
+    setNotice("success", "تم حذف مستند المرتجع.");
+  } catch (error) {
+    setNotice("error", safeErrorMessage(error));
+  }
+  render();
+}
+
+function retFilteredDocs() {
+  return state.retListFilterKind
+    ? state.returns.filter((r) => r.kind === state.retListFilterKind)
+    : state.returns;
+}
+
+function retDocNav(direction) {
+  const docs = retFilteredDocs();
+  state.retDocNavIndex = retCalc.retClampNavIndex(docs.length, state.retDocNavIndex, direction);
+  render();
+}
+
+function retStatusChipHtml(status) {
+  const label = retCalc.RET_STATUS_LABELS[status] || status;
+  return `<span class="chip chip-${escapeHtml(status)}">${escapeHtml(label)}</span>`;
+}
+
+function retDocCard(doc, focused) {
+  const rows = doc.items.map((item, idx) => `
+    <tr>
+      <td style="width:32px;color:var(--muted)">${idx + 1}</td>
+      <td>${escapeHtml(item.name)}</td>
+      <td class="inv-num">${escapeHtml(String(item.qty))}</td>
+      <td class="inv-line-total">${item.price.toFixed(2)}</td>
+      <td class="inv-line-total">${(item.qty * item.price).toFixed(2)}</td>
+    </tr>
+  `).join("");
+
+  const actions = doc.status === "draft"
+    ? `<button class="button secondary compact-button" type="button" data-ret-transition="${escapeHtml(doc.id)}" data-ret-next="approved">✓ اعتماد</button>
+       <button class="button secondary compact-button" type="button" data-ret-delete="${escapeHtml(doc.id)}">🗑 حذف</button>`
+    : doc.status === "approved"
+      ? `<button class="button secondary compact-button" type="button" data-ret-transition="${escapeHtml(doc.id)}" data-ret-next="sync_pending">↻ إرسال للمزامنة</button>`
+      : "";
+
+  return `
+    <article class="po-card ${focused ? "focused" : ""}">
+      <div class="po-card-head">
+        <div class="po-card-info">
+          <strong>${escapeHtml(doc.publicId)} — ${escapeHtml(RET_KIND_LABELS[doc.kind] || doc.kind)}</strong>
+          <small class="muted">${escapeHtml(doc.partyName)} · فاتورة أصلية: ${escapeHtml(doc.originalInvoiceNumber)} · ${escapeHtml(doc.total.toFixed(2))}</small>
+        </div>
+        <div class="po-card-actions">
+          ${retStatusChipHtml(doc.status)}
+          <button class="button secondary compact-button" type="button" data-ret-print="${escapeHtml(doc.id)}">🖨 طباعة</button>
+          ${actions}
+        </div>
+      </div>
+      ${doc.reason ? `<p class="muted" style="margin:6px 0">السبب: ${escapeHtml(doc.reason)}</p>` : ""}
+      <table class="inv-table" style="margin-top:8px">
+        <thead><tr><th></th><th>الصنف</th><th>الكمية</th><th>السعر</th><th>الإجمالي</th></tr></thead>
+        <tbody>${rows}</tbody>
+      </table>
+    </article>
+  `;
+}
+
+function retPrintMarkup(doc) {
+  const rows = doc.items.map((item, idx) => `
+    <tr>
+      <td>${idx + 1}</td>
+      <td>${escapeHtml(item.name)}</td>
+      <td>${escapeHtml(String(item.qty))}</td>
+      <td>${item.price.toFixed(2)}</td>
+      <td>${(item.qty * item.price).toFixed(2)}</td>
+    </tr>
+  `).join("");
+  return `
+    <!doctype html><html dir="rtl" lang="ar"><head><meta charset="utf-8">
+    <title>${escapeHtml(doc.publicId)}</title>
+    <style>
+      body{font-family:Tahoma,Arial,sans-serif;padding:24px;color:#111;background:#fff}
+      h1{font-size:20px;margin:0 0 4px}
+      table{width:100%;border-collapse:collapse;margin-top:16px}
+      th,td{border:1px solid #ccc;padding:6px 8px;text-align:right;font-size:13px}
+      .meta{margin-top:10px;font-size:13px;line-height:1.9}
+    </style></head><body>
+    <h1>${escapeHtml(RET_KIND_LABELS[doc.kind] || doc.kind)}</h1>
+    <div class="meta">
+      رقم المستند: ${escapeHtml(doc.publicId)}<br>
+      ${doc.kind === "purchase" ? "المورد" : "الزبون"}: ${escapeHtml(doc.partyName)}<br>
+      الفاتورة الأصلية رقم: ${escapeHtml(doc.originalInvoiceNumber)} بتاريخ ${escapeHtml(doc.originalInvoiceDate || "—")}<br>
+      طريقة الدفع الأصلية: ${doc.originalPayMethod === "cash" ? "نقدي" : "آجل"}${doc.treasuryName ? ` — الصندوق: ${escapeHtml(doc.treasuryName)}` : ""}<br>
+      السبب: ${escapeHtml(doc.reason || "—")}<br>
+      تاريخ الإنشاء: ${escapeHtml(String(doc.createdAt || "").slice(0, 10))}
+    </div>
+    <table>
+      <thead><tr><th>#</th><th>الصنف</th><th>الكمية</th><th>السعر</th><th>الإجمالي</th></tr></thead>
+      <tbody>${rows}</tbody>
+    </table>
+    <p style="margin-top:16px;font-weight:bold">الإجمالي: ${doc.total.toFixed(2)}</p>
+    </body></html>
+  `;
+}
+
+function retPrint(id) {
+  const doc = state.returns.find((r) => r.id === id);
+  if (!doc) return;
+  printHtmlDocument(retPrintMarkup(doc), { title: doc.publicId });
+}
+
+function returns() {
+  if (!state.session) {
+    return shell(`
+      <section class="panel">
+        <h2>المرتجعات</h2>
+        <p class="muted">سجّل الدخول أولاً للوصول إلى مرتجعات المبيعات والمشتريات.</p>
+      </section>
+    `);
+  }
+
+  const invoice = retCurrentOrigInvoice();
+  const invoices = retInvoicesForParty();
+  const idx = invoices.length ? retCalc.retClampNavIndex(invoices.length, state.retOrigNavIndex, 0) : 0;
+  const totals = retTotals();
+  const docs = retFilteredDocs();
+  const docIdx = docs.length ? retCalc.retClampNavIndex(docs.length, state.retDocNavIndex, 0) : 0;
+
+  return shell(`
+    <section class="notice-panel warning" style="margin-bottom:16px">
+      <span>🗒 المرتجع هنا تسجيل ومراجعة داخلي فقط — لا يُزامَن مع الأمين بعد (سكربت المزامنة مقفل بانتظار اكتشاف سلاسل ترقيم الأمين الثلاث). طريقة الدفع الأصلية تُدخَل يدوياً لعدم توفرها بتقرير الأمين الحالي.</span>
+    </section>
+
+    <section class="panel wide inv-panel">
+      <h2 style="margin:0">تسجيل مرتجع جديد</h2>
+      <div class="inv-actions" style="margin-top:8px">
+        ${["sales_wholesale", "sales_retail", "purchase"].map((k) => `
+          <button type="button" class="button ${state.retKind === k ? "primary" : "secondary"} compact-button" data-ret-kind="${k}">${escapeHtml(RET_KIND_LABELS[k])}</button>
+        `).join("")}
+      </div>
+
+      <label class="inv-label po-suggest-wrap" style="margin-top:12px">
+        ${state.retKind === "purchase" ? "اسم المورد" : "اسم الزبون"}
+        <input class="inv-input-main" id="ret-party" value="${escapeHtml(state.retPartyQuery)}" placeholder="ابحث بالاسم…" autocomplete="off">
+        <div class="sales-suggest-box" data-ret-party-suggest></div>
+      </label>
+
+      ${invoice ? `
+        <div class="inv-header-fields" style="margin-top:12px;align-items:center">
+          <button type="button" class="button secondary compact-button" data-ret-nav="prev" ${idx >= invoices.length - 1 ? "disabled" : ""}>◀ فاتورة سابقة</button>
+          <strong>${escapeHtml(String(invoice.number || "—"))} — ${escapeHtml(invoice.date || "")} (${idx + 1}/${invoices.length})</strong>
+          <button type="button" class="button secondary compact-button" data-ret-nav="next" ${idx <= 0 ? "disabled" : ""}>فاتورة تالية ▶</button>
+          <button type="button" class="button primary compact-button" data-action="ret-select-invoice">تحميل بنود هذه الفاتورة</button>
+        </div>
+      ` : state.retPartyName ? `<p class="muted" style="margin-top:12px">لا توجد فواتير لهذه الجهة بالتقرير المتوفر.</p>` : ""}
+
+      ${state.retOrigInvoice ? `
+        <div class="inv-table-wrap" style="margin-top:12px">
+          <table class="inv-table">
+            <thead><tr><th>الصنف</th><th style="width:90px">الكمية الأصلية</th><th style="width:90px">المتبقي القابل للإرجاع</th><th style="width:100px">الكمية المرتجعة</th><th style="width:90px">السعر</th><th style="width:100px">الإجمالي</th></tr></thead>
+            <tbody id="ret-lines-body">${retLinesRowsHtml()}</tbody>
+          </table>
+        </div>
+
+        <label class="inv-label" style="margin-top:10px">
+          سبب المرتجع
+          <input class="inv-input-main" id="ret-reason" value="${escapeHtml(state.retReason)}" placeholder="مثال: بضاعة تالفة، خطأ بالكمية…" maxlength="500">
+        </label>
+
+        <div class="inv-header-fields">
+          <label class="inv-label">
+            طريقة الدفع بالفاتورة الأصلية
+            <div class="inv-actions" style="margin-top:4px">
+              <button type="button" class="button ${state.retPayMethod === "cash" ? "primary" : "secondary"} compact-button" data-ret-pay="cash">نقدي</button>
+              <button type="button" class="button ${state.retPayMethod === "credit" ? "primary" : "secondary"} compact-button" data-ret-pay="credit">آجل</button>
+            </div>
+          </label>
+          ${state.retPayMethod === "cash" ? `
+          <label class="inv-label">
+            صندوق الاسترداد (نفس صندوق الفاتورة الأصلية)
+            <input class="inv-input-main" id="ret-treasury" value="${escapeHtml(state.retTreasury)}" placeholder="مثال: صندوق الدولار" maxlength="120">
+          </label>` : ""}
+        </div>
+
+        ${state.retError ? `<p class="po-pay-error">${escapeHtml(state.retError)}</p>` : ""}
+
+        <div class="inv-footer">
+          <div class="inv-total-box">
+            <span>إجمالي المرتجع</span>
+            <strong class="inv-grand-total">${totals.grand.toFixed(2)}</strong>
+          </div>
+          <button class="button primary" data-action="ret-save" ${state.retSaving ? "disabled" : ""}>${state.retSaving ? "جاري الحفظ…" : "💾 حفظ المرتجع كمسودة"}</button>
+        </div>
+      ` : ""}
+    </section>
+
+    <section class="panel wide" style="margin-top:16px">
+      <div class="panel-title-row">
+        <h2 style="margin:0">مستندات المرتجعات المسجّلة (${docs.length})</h2>
+        <div class="inv-actions">
+          <button type="button" class="button ${!state.retListFilterKind ? "primary" : "secondary"} compact-button" data-ret-filter="">الكل</button>
+          ${["sales_wholesale", "sales_retail", "purchase"].map((k) => `
+            <button type="button" class="button ${state.retListFilterKind === k ? "primary" : "secondary"} compact-button" data-ret-filter="${k}">${escapeHtml(RET_KIND_LABELS[k])}</button>
+          `).join("")}
+        </div>
+      </div>
+      ${docs.length ? `
+        <div class="inv-header-fields" style="align-items:center">
+          <button type="button" class="button secondary compact-button" data-ret-doc-nav="prev" ${docIdx >= docs.length - 1 ? "disabled" : ""}>◀ السابق</button>
+          <span class="muted">${docIdx + 1} / ${docs.length}</span>
+          <button type="button" class="button secondary compact-button" data-ret-doc-nav="next" ${docIdx <= 0 ? "disabled" : ""}>التالي ▶</button>
+        </div>
+        <div class="po-list">${docs.map((d, i) => retDocCard(d, i === docIdx)).join("")}</div>
+      ` : '<p class="muted">لا توجد مستندات مرتجع مسجلة بعد.</p>'}
+    </section>
+  `);
+}
+
 function purchaseInvoiceCard(po) {
   const expanded = state.poOpenId === po.id;
   const correctionOpen = state.poCorrectionOpenId === po.id;
@@ -8418,6 +8909,7 @@ function render() {
     invoice,
     sales: salesInvoice,
     purchases,
+    returns,
     dashboard: reportsPage,
     staff: staffPage,
     search: searchPage,
@@ -8577,6 +9069,92 @@ function render() {
     state.poAmeenItemQuery = e.currentTarget.value;
     const body = app.querySelector("[data-po-ameen-items-body]");
     if (body) body.innerHTML = poAmeenItemsRowsHtml(poAmeenCurrentInvoice(), state.poAmeenItemQuery);
+  });
+
+  // ===== مرتجعات المبيعات/المشتريات (route: returns) =====
+  app.querySelectorAll("[data-ret-kind]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      state.retKind = btn.dataset.retKind;
+      state.retPartyName = "";
+      state.retPartyQuery = "";
+      state.retOrigNavIndex = 0;
+      state.retOrigInvoice = null;
+      state.retLines = [];
+      state.retError = "";
+      render();
+    });
+  });
+  app.querySelector("#ret-party")?.addEventListener("input", (e) => {
+    state.retPartyQuery = e.currentTarget.value;
+    const box = app.querySelector("[data-ret-party-suggest]");
+    if (box) {
+      const html = retPartySuggestionsHtml(e.currentTarget.value);
+      box.innerHTML = html;
+      if (html) positionSalesSuggest(e.currentTarget, box);
+    }
+  });
+  app.querySelector("#ret-party")?.addEventListener("blur", () => {
+    setTimeout(() => {
+      const box = app.querySelector("[data-ret-party-suggest]");
+      if (box) box.innerHTML = "";
+    }, 180);
+  });
+  app.querySelector("[data-ret-party-suggest]")?.parentElement
+    ?.addEventListener("mousedown", (e) => {
+      const pick = e.target.closest("[data-ret-party-pick]");
+      if (!pick) return;
+      e.preventDefault();
+      retPickParty(pick.dataset.retPartyPick);
+    });
+  app.querySelectorAll("[data-ret-nav]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      retNavigate(btn.dataset.retNav === "prev" ? 1 : -1);
+    });
+  });
+  app.querySelector("[data-action='ret-select-invoice']")?.addEventListener("click", retSelectOrigInvoice);
+  app.querySelectorAll("[data-ret-item-qty]").forEach((input) => {
+    input.addEventListener("input", (e) => {
+      retSetLineQty(e.currentTarget.dataset.retItemQty, e.currentTarget.value);
+      const body = app.querySelector("#ret-lines-body");
+      if (body) body.innerHTML = retLinesRowsHtml();
+    });
+  });
+  app.querySelector("#ret-reason")?.addEventListener("input", (e) => {
+    state.retReason = e.currentTarget.value;
+  });
+  app.querySelector("#ret-treasury")?.addEventListener("input", (e) => {
+    state.retTreasury = e.currentTarget.value;
+  });
+  app.querySelectorAll("[data-ret-pay]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      state.retPayMethod = btn.dataset.retPay;
+      state.retError = "";
+      render();
+    });
+  });
+  app.querySelector("[data-action='ret-save']")?.addEventListener("click", retSubmit);
+  app.querySelectorAll("[data-ret-filter]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      state.retListFilterKind = btn.dataset.retFilter;
+      state.retDocNavIndex = 0;
+      render();
+    });
+  });
+  app.querySelectorAll("[data-ret-doc-nav]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      retDocNav(btn.dataset.retDocNav === "prev" ? 1 : -1);
+    });
+  });
+  app.querySelectorAll("[data-ret-transition]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      retSetStatus(btn.dataset.retTransition, btn.dataset.retNext);
+    });
+  });
+  app.querySelectorAll("[data-ret-delete]").forEach((btn) => {
+    btn.addEventListener("click", () => retDeleteDoc(btn.dataset.retDelete));
+  });
+  app.querySelectorAll("[data-ret-print]").forEach((btn) => {
+    btn.addEventListener("click", () => retPrint(btn.dataset.retPrint));
   });
   app.querySelector("#po-date")?.addEventListener("change", (e) => {
     state.poDate = e.currentTarget.value;
