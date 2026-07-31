@@ -1,11 +1,15 @@
 {
     "schemaVersion":  1,
-    "status":  "idle",
-    "owner":  null,
-    "task":  null,
-    "branch":  null,
-    "files":  [],
-    "startedAt":  null,
-    "updatedAt":  "2026-07-30T17:30:00Z",
-    "note":  "No active task. Previous task (purchase invoices Ameen readonly display) merged via PR #35; see AI_HANDOFF.md."
+    "status":  "active",
+    "owner":  "Claude",
+    "task":  "مرتجعات المبيعات (جملة/مفرق) ومرتجعات المشتريات — واجهة إدخال وتخزين محلي فقط، بدون مزامنة أمين",
+    "branch":  "feature/sales-purchase-returns",
+    "files":  [
+                  "src/app.js",
+                  "src/purchase-invoice-calc.js",
+                  "scripts/check.mjs"
+              ],
+    "startedAt":  "2026-07-31T02:12:49Z",
+    "updatedAt":  "2026-07-31T02:12:49Z",
+    "note":  "واجهة إدخال + تخزين محلي فقط (dataStore.createSharedDocument)؛ بدون أي اتصال أو مزامنة نحو الأمين."
 }
