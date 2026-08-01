@@ -784,7 +784,7 @@ for (const contract of [
     "created_by     uuid          references auth.users(id)",
     "created_by لا يمكن تعديله بعد الإنشاء",
     "اعتماد الجلسة محصور بحساب المالك",
-    "بلا كمية فعلية أو سبب لفرق غير صفري",
+    "بلا كمية فعلية أو سبب أو تكلفة معروفة لفرق غير صفري",
     "security definer set search_path = public",
     "created_by = auth.uid()"
   ]) {
@@ -875,8 +875,7 @@ for (const contract of [
     "check (trim(item_key) <> '')",
     "check (trim(item_name) <> '')",
     "check (actual_qty is null or actual_qty >= 0)",
-    "check (unit_cost is null or unit_cost >= 0)",
-    "check (currency in ('USD', 'SYP'))"
+    "check (unit_cost is null or unit_cost >= 0)"
   ]) {
     if (!invReconSql.includes(contract)) {
       console.error(`inventory-reconciliation-table.sql SQL contract (round 4) is missing: ${contract}`);
@@ -930,6 +929,43 @@ for (const contract of [
   }
   if (!/if \(!state\.reconWarehouseStockReportId\) \{/.test(appJs)) {
     console.error("reconSaveDraft() must guard on state.reconWarehouseStockReportId before allowing a save.");
+    failed = true;
+  }
+}
+
+// عقد SQL — مراجعة الجولة الخامسة (موانع دمج): unit_cost/currency/settlement_value
+// محجوبة عن غير المالك عبر RLS owner-only + RPC مقنَّعة، مطابقة التكلفة بـitem_guid
+// لا بالاسم، رفض item_key فارغ، تحقق عدد السطور المُدرجة، وسباق idempotency عبر
+// ON CONFLICT ذرّي بدل SELECT ثم INSERT منفصلين.
+{
+  const invReconSql = readFileSync("supabase/inventory-reconciliation-table.sql", "utf8");
+  for (const contract of [
+    "using (inventory_recon_is_owner())",
+    "create or replace function inventory_recon_lines_for_session(p_session_id uuid)",
+    "revoke execute on function inventory_recon_lines_for_session(uuid) from public",
+    "revoke execute on function inventory_recon_lines_for_session(uuid) from anon",
+    "grant execute on function inventory_recon_lines_for_session(uuid) to authenticated",
+    "raise exception 'inventory_recon: % سطر بمفتاح صنف فارغ",
+    "on conflict (created_by, idempotency_key) do nothing",
+    "raise exception 'inventory_recon: عدد السطور المُدرجة (%) لا يطابق عدد الأصناف المطلوبة"
+  ]) {
+    if (!invReconSql.includes(contract)) {
+      console.error(`inventory-reconciliation-table.sql SQL contract (round 5) is missing: ${contract}`);
+      failed = true;
+    }
+  }
+  if (/create policy "inventory_recon_lines_select"[\s\S]{0,80}using \(true\)/.test(invReconSql)) {
+    console.error("inventory_recon_lines_select must no longer be using(true) — cost columns (unit_cost/currency/settlement_value) must be owner-only, masked for everyone else via inventory_recon_lines_for_session().");
+    failed = true;
+  }
+  if (!/where ic1\.item_guid = coalesce\(it ->> 'itemGuid', it ->> 'item_guid'\)/.test(invReconSql)) {
+    console.error("inventory_recon_create_session_with_lines must match item_costs by item_guid (matching push-item-costs.ps1's GUID/code/name priority), not by item_name alone with LIMIT 1.");
+    failed = true;
+  }
+
+  const supabaseClientJs = readFileSync("src/supabase-client.js", "utf8");
+  if (!/client\.rpc\(\s*["']inventory_recon_lines_for_session["']/.test(supabaseClientJs)) {
+    console.error("getReconSession() must fetch lines via the inventory_recon_lines_for_session RPC, not a direct .from(reconLinesTable) select — the owner-only RLS policy would otherwise return an empty line list to non-owner session creators.");
     failed = true;
   }
 }

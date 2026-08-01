@@ -88,7 +88,6 @@
   const itemSnapshotTable = config.itemSnapshotTable || "ameen_item_snapshot";
   const purchaseInvoiceReportsTable = config.purchaseInvoiceReportsTable || "ameen_purchase_invoice_reports";
   const reconSessionsTable = config.reconSessionsTable || "inventory_recon_sessions";
-  const reconLinesTable = config.reconLinesTable || "inventory_recon_lines";
   const client =
     hasConfig && hasLibrary
       ? window.supabase.createClient(config.url, config.publishableKey, {
@@ -1247,7 +1246,7 @@
       try {
         const { data, error } = await client
           .from(reconSessionsTable)
-          .select("id, session_date, session_month, warehouse_key, warehouse_name, status, idempotency_key, notes, created_by, created_at, updated_at, reviewed_at, reviewed_by, approved_at, approved_by")
+          .select("id, session_date, session_month, warehouse_key, warehouse_name, status, idempotency_key, notes, created_by, created_at, updated_at, reviewed_at, reviewed_by, approved_at, approved_by, source_report_id, source_report_date")
           .order("session_date", { ascending: false })
           .limit(50);
         if (error) return [];
@@ -1263,17 +1262,19 @@
       if (!session) return null;
       const { data: sessionRow, error: sessionError } = await client
         .from(reconSessionsTable)
-        .select("id, session_date, session_month, warehouse_key, warehouse_name, status, idempotency_key, notes, created_by, created_at, updated_at, reviewed_at, reviewed_by, approved_at, approved_by")
+        .select("id, session_date, session_month, warehouse_key, warehouse_name, status, idempotency_key, notes, created_by, created_at, updated_at, reviewed_at, reviewed_by, approved_at, approved_by, source_report_id, source_report_date")
         .eq("id", sessionId)
         .maybeSingle();
       if (sessionError) throw new Error(translateDbError(sessionError.message));
       if (!sessionRow) return null;
 
-      const { data: lines, error: linesError } = await client
-        .from(reconLinesTable)
-        .select("id, session_id, item_key, item_number, item_name, unit_name, system_qty, actual_qty, diff_qty, unit_cost, currency, settlement_value, reason, created_at, updated_at")
-        .eq("session_id", sessionId)
-        .order("item_name", { ascending: true });
+      // inventory_recon_lines_select أصبحت owner-only بحسب RLS — القراءة
+      // تمر عبر RPC مقنَّعة (SECURITY DEFINER) تُخفي unit_cost/currency/
+      // settlement_value لغير المالك بدل .from() المباشر الذي كان سيُرجع
+      // صفوفاً فارغة تماماً لمنشئ الجلسة نفسه إن لم يكن هو المالك.
+      const { data: lines, error: linesError } = await client.rpc("inventory_recon_lines_for_session", {
+        p_session_id: sessionId
+      });
       if (linesError) throw new Error(translateDbError(linesError.message));
 
       return { ...sessionRow, lines: lines || [] };

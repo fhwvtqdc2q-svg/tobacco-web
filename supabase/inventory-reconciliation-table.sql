@@ -50,9 +50,9 @@ create table if not exists inventory_recon_lines (
                      case when actual_qty is null then null else actual_qty - system_qty end
                    ) stored,
   unit_cost        numeric(18,4) check (unit_cost is null or unit_cost >= 0),
-  currency         text          default 'USD' check (currency in ('USD', 'SYP')),
+  currency         text          check (currency is null or currency in ('USD', 'SYP')),
   settlement_value numeric(18,2) generated always as (
-                     case when actual_qty is null then null else (actual_qty - system_qty) * coalesce(unit_cost, 0) end
+                     case when actual_qty is null or unit_cost is null then null else (actual_qty - system_qty) * unit_cost end
                    ) stored,
   reason           text,
   created_at       timestamptz   default now(),
@@ -65,7 +65,9 @@ comment on constraint inventory_recon_lines_item_key_check on inventory_recon_li
 comment on constraint inventory_recon_lines_item_name_check on inventory_recon_lines is 'يمنع اسم صنف فارغ/مسافات فقط لنفس السبب';
 comment on constraint inventory_recon_lines_actual_qty_check on inventory_recon_lines is 'يمنع كمية فعلية سالبة — دفاع مستوى قاعدة بيانات مستقل عن أي تحقق في الواجهة';
 comment on constraint inventory_recon_lines_unit_cost_check on inventory_recon_lines is 'يمنع تكلفة وحدة سالبة لنفس السبب';
-comment on constraint inventory_recon_lines_currency_check on inventory_recon_lines is 'قائمة العملات المسموحة USD/SYP فقط — نفس نمط purchase_invoices_currency_check في purchase-invoices-ameen-sync.sql';
+comment on constraint inventory_recon_lines_currency_check on inventory_recon_lines is 'قائمة العملات المسموحة USD/SYP فقط أو NULL إن لم تُعرف تكلفة موثوقة للصنف بعد — لا افتراض ضمني لعملة بلا تكلفة فعلية';
+comment on column inventory_recon_lines.unit_cost is 'تكلفة الوحدة من item_costs عبر item_guid فقط (لا مطابقة اسم) — تبقى NULL إن لم توجد تكلفة موثوقة، ولا تُصفَّر أبداً كي لا يظهر settlement_value=0 مضلِّلاً';
+comment on column inventory_recon_lines.settlement_value is 'قيمة تقديرية = (الفعلي - النظام) × التكلفة — تبقى NULL صراحة إن لم تُجرَد الكمية الفعلية بعد أو لم تُعرف تكلفة الصنف، بدل صفر مضلِّل';
 
 -- session_id/line_id بلا foreign key عمداً: سجل التدقيق يجب أن يبقى دائماً
 -- حتى بعد حذف الجلسة/السطر التي يوثّقها. لو كانا مرتبطين بـFK فسيفشل DELETE
@@ -87,6 +89,15 @@ create table if not exists inventory_recon_audit_log (
 comment on table inventory_recon_audit_log is 'سجل تدقيق لتغييرات جلسات وسطور الجرد — يُملأ حصراً من triggers، لا يقبل إدخالاً مباشراً من العميل، ويبقى بعد حذف الجلسة/السطر (بلا FK) لأنه سجل تاريخي دائم';
 comment on column inventory_recon_audit_log.session_id is 'معرف الجلسة وقت الحدث — بلا FK عمداً كي لا يُحذف سجل التدقيق مع الجلسة';
 comment on column inventory_recon_audit_log.line_id is 'معرف السطر وقت الحدث — بلا FK عمداً لنفس السبب';
+
+-- إعادة تطبيق آمنة: تعبير العمود المولَّد settlement_value لا يمكن تعديله
+-- بـALTER COLUMN مباشرة في PostgreSQL — لو كان هذا الملف قد طُبِّق سابقاً
+-- بالصيغة القديمة (تُصفِّر unit_cost المفقود بدل NULL)، نعيد إنشاء العمود
+-- بالتعريف الصحيح. آمن أيضاً على قاعدة جديدة (لا يوجد عمود ليُحذف).
+alter table inventory_recon_lines drop column if exists settlement_value;
+alter table inventory_recon_lines add column settlement_value numeric(18,2) generated always as (
+  case when actual_qty is null or unit_cost is null then null else (actual_qty - system_qty) * unit_cost end
+) stored;
 
 create index if not exists idx_inventory_recon_sessions_date
   on inventory_recon_sessions (session_date desc);
@@ -168,9 +179,9 @@ begin
       from inventory_recon_lines
       where session_id = OLD.id
         and diff_qty is distinct from 0
-        and (actual_qty is null or reason is null or trim(reason) = '');
+        and (actual_qty is null or reason is null or trim(reason) = '' or unit_cost is null);
       if incomplete_count > 0 then
-        raise exception 'inventory_recon_sessions: % سطر بلا كمية فعلية أو سبب لفرق غير صفري — لا يمكن الاعتماد', incomplete_count;
+        raise exception 'inventory_recon_sessions: % سطر بلا كمية فعلية أو سبب أو تكلفة معروفة لفرق غير صفري — لا يمكن الاعتماد قبل أن يراجع المالك التكلفة', incomplete_count;
       end if;
 
       NEW.approved_by := auth.uid();
@@ -278,16 +289,23 @@ alter table inventory_recon_sessions enable row level security;
 alter table inventory_recon_lines enable row level security;
 alter table inventory_recon_audit_log enable row level security;
 
+-- كل policy تُسبَق بـdrop policy if exists كي يبقى الملف قابلاً لإعادة
+-- التشغيل بأمان على قاعدة طُبِّق عليها إصدار سابق منه (create policy وحدها
+-- تفشل بخطأ "already exists" عند إعادة التشغيل، بخلاف create or replace).
+
+drop policy if exists "inventory_recon_sessions_select" on inventory_recon_sessions;
 create policy "inventory_recon_sessions_select"
   on inventory_recon_sessions for select
   to authenticated
   using (true);
 
+drop policy if exists "inventory_recon_sessions_insert" on inventory_recon_sessions;
 create policy "inventory_recon_sessions_insert"
   on inventory_recon_sessions for insert
   to authenticated
   with check (created_by = auth.uid());
 
+drop policy if exists "inventory_recon_sessions_update" on inventory_recon_sessions;
 create policy "inventory_recon_sessions_update"
   on inventory_recon_sessions for update
   to authenticated
@@ -300,6 +318,7 @@ create policy "inventory_recon_sessions_update"
     or (created_by = auth.uid() and status in ('draft', 'reviewed'))
   );
 
+drop policy if exists "inventory_recon_sessions_delete" on inventory_recon_sessions;
 create policy "inventory_recon_sessions_delete"
   on inventory_recon_sessions for delete
   to authenticated
@@ -311,11 +330,19 @@ create policy "inventory_recon_sessions_delete"
     )
   );
 
+-- القراءة المباشرة من الجدول محصورة بالمالك فقط: unit_cost/currency/
+-- settlement_value بيانات تكلفة حسّاسة (item_costs نفسه "محمي — يقرأه المدير
+-- فقط" حسب tools/push-item-costs.ps1)، وusing(true) السابقة كانت تعرض هذه
+-- الأعمدة لأي مستخدم authenticated عبر أي جلسة، ليس فقط جلسته. كل قراءة غير
+-- المالك يجب أن تمر عبر inventory_recon_lines_for_session() أدناه، التي
+-- تُخفي هذه الأعمدة صراحةً بدل الاعتماد على أن الواجهة فقط لا تعرضها.
+drop policy if exists "inventory_recon_lines_select" on inventory_recon_lines;
 create policy "inventory_recon_lines_select"
   on inventory_recon_lines for select
   to authenticated
-  using (true);
+  using (inventory_recon_is_owner());
 
+drop policy if exists "inventory_recon_lines_write" on inventory_recon_lines;
 create policy "inventory_recon_lines_write"
   on inventory_recon_lines for all
   to authenticated
@@ -336,6 +363,7 @@ create policy "inventory_recon_lines_write"
     )
   );
 
+drop policy if exists "inventory_recon_audit_log_select" on inventory_recon_audit_log;
 create policy "inventory_recon_audit_log_select"
   on inventory_recon_audit_log for select
   to authenticated
@@ -355,6 +383,68 @@ create policy "inventory_recon_audit_log_select"
 grant select, insert, update, delete on inventory_recon_sessions to authenticated;
 grant select, insert, update, delete on inventory_recon_lines to authenticated;
 grant select on inventory_recon_audit_log to authenticated;
+
+-- ============================================================
+-- قراءة سطور جلسة بعرض مقنَّع: inventory_recon_lines_select أعلاه أصبحت
+-- owner-only، فمنشئ الجلسة نفسه (غير المالك) لم يعد يقدر يقرأ سطور جلسته
+-- عبر .from() مباشرة. هذه الدالة SECURITY DEFINER تتجاوز RLS لتُرجع سطور أي
+-- جلسة يملك المستخدم الحالي صلاحية الوصول لها فعلياً (منشئها أو المالك)،
+-- لكنها تُخفي unit_cost/currency/settlement_value (تُرجعها NULL) لغير
+-- المالك — نفس البيانات الحسّاسة الممنوعة أصلاً على item_costs.
+-- ============================================================
+
+create or replace function inventory_recon_lines_for_session(p_session_id uuid)
+returns table (
+  id uuid,
+  session_id uuid,
+  item_key text,
+  item_number text,
+  item_name text,
+  unit_name text,
+  system_qty numeric,
+  actual_qty numeric,
+  diff_qty numeric,
+  unit_cost numeric,
+  currency text,
+  settlement_value numeric,
+  reason text,
+  created_at timestamptz,
+  updated_at timestamptz
+)
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_is_owner boolean;
+begin
+  if not exists (
+    select 1 from inventory_recon_sessions s
+    where s.id = p_session_id
+      and (s.created_by = auth.uid() or inventory_recon_is_owner())
+  ) then
+    raise exception 'inventory_recon: الجلسة % غير موجودة أو لا تملك صلاحية الوصول إليها', p_session_id;
+  end if;
+
+  v_is_owner := inventory_recon_is_owner();
+
+  return query
+  select
+    l.id, l.session_id, l.item_key, l.item_number, l.item_name, l.unit_name,
+    l.system_qty, l.actual_qty, l.diff_qty,
+    case when v_is_owner then l.unit_cost else null end,
+    case when v_is_owner then l.currency else null end,
+    case when v_is_owner then l.settlement_value else null end,
+    l.reason, l.created_at, l.updated_at
+  from inventory_recon_lines l
+  where l.session_id = p_session_id
+  order by l.item_name;
+end;
+$$;
+
+revoke execute on function inventory_recon_lines_for_session(uuid) from public;
+revoke execute on function inventory_recon_lines_for_session(uuid) from anon;
+grant execute on function inventory_recon_lines_for_session(uuid) to authenticated;
 
 -- ============================================================
 -- إنشاء الجلسة وسطورها في معاملة واحدة ذرية: بدون هذه الدالة، createReconSession
@@ -398,9 +488,22 @@ declare
   v_missing_keys text;
   v_new_digest text;
   v_existing_digest text;
+  v_empty_key_count int;
+  v_requested_distinct_count int;
+  v_inserted_count int;
 begin
   if p_lines is null or jsonb_typeof(p_lines) <> 'array' or jsonb_array_length(p_lines) = 0 then
     raise exception 'inventory_recon: لا يمكن إنشاء جلسة جرد بلا سطور';
+  end if;
+
+  -- item_key فارغ/مسافات فقط كان سيسقط بصمت من الـjoin مع v_report_items
+  -- لاحقاً (لن يطابق أي itemKey فعلي) فيقل عدد السطور المُدرجة بلا أي خطأ
+  -- ظاهر للعميل — نرفض الطلب صراحة قبل حساب البصمة بدل ذلك.
+  select count(*) into v_empty_key_count
+  from jsonb_array_elements(p_lines) as line
+  where trim(coalesce(line ->> 'item_key', '')) = '';
+  if v_empty_key_count > 0 then
+    raise exception 'inventory_recon: % سطر بمفتاح صنف فارغ — لا يمكن إرسال جلسة تحوي item_key فارغاً', v_empty_key_count;
   end if;
 
   if p_source_report_id is null then
@@ -455,15 +558,30 @@ begin
   end if;
 
   -- idempotency: التفرد على (created_by, idempotency_key) — لا يمكن أبداً
-  -- أن نرجع جلسة مستخدم آخر. عند تكرار المفتاح لنفس المستخدم نتحقق أن
-  -- المستودع/الشهر/التقرير المصدر/محتوى السطور مطابقة تماماً؛ خلاف ذلك نرفض
-  -- بخطأ واضح بدل نجاح وهمي يعيد جلسة قديمة لا تطابق الطلب الجديد.
-  select * into v_existing
-  from inventory_recon_sessions
-  where created_by = auth.uid()
-    and idempotency_key = p_idempotency_key;
+  -- أن نرجع جلسة مستخدم آخر. النسخة السابقة كانت SELECT ثم INSERT منفصلين —
+  -- بينهما نافذة سباق: طلبان متزامنان بنفس المفتاح كلاهما يجد "not found" ثم
+  -- يحاول الإدخال، فيفشل أحدهما بخطأ تعارض قيد فريد خام بدل رسالة idempotency
+  -- واضحة. INSERT ... ON CONFLICT DO NOTHING RETURNING * ذرّي على مستوى
+  -- القاعدة: يضمن أن إدخالاً واحداً فقط ينجح مهما تزامنت الطلبات.
+  insert into inventory_recon_sessions
+    (session_date, session_month, warehouse_key, warehouse_name, notes, idempotency_key,
+     source_report_id, source_report_date, status, created_by)
+  values
+    (p_session_date, p_session_month, p_warehouse_key, p_warehouse_name, p_notes, p_idempotency_key,
+     p_source_report_id, v_report_date, 'draft', auth.uid())
+  on conflict (created_by, idempotency_key) do nothing
+  returning * into v_session;
 
-  if found then
+  if not found then
+    -- تعارض: مفتاح idempotency مستخدم مسبقاً (بهذا الطلب أو بطلب متزامن سبقنا
+    -- بمايكروثانية). نتحقق أن المستودع/الشهر/التقرير المصدر/محتوى السطور
+    -- مطابقة تماماً؛ خلاف ذلك نرفض بخطأ واضح بدل نجاح وهمي يعيد جلسة قديمة
+    -- لا تطابق الطلب الجديد.
+    select * into v_existing
+    from inventory_recon_sessions
+    where created_by = auth.uid()
+      and idempotency_key = p_idempotency_key;
+
     if v_existing.warehouse_key is distinct from p_warehouse_key
        or v_existing.session_month is distinct from p_session_month
        or v_existing.source_report_id is distinct from p_source_report_id
@@ -488,14 +606,11 @@ begin
     return v_existing;
   end if;
 
-  insert into inventory_recon_sessions
-    (session_date, session_month, warehouse_key, warehouse_name, notes, idempotency_key,
-     source_report_id, source_report_date, status, created_by)
-  values
-    (p_session_date, p_session_month, p_warehouse_key, p_warehouse_name, p_notes, p_idempotency_key,
-     p_source_report_id, v_report_date, 'draft', auth.uid())
-  returning * into v_session;
-
+  -- مطابقة item_costs.item_guid تتبع نفس أولوية المفتاح المستعملة عند
+  -- كتابته في tools/push-item-costs.ps1 (GUID فالكود فالاسم أياً وُجد أولاً)،
+  -- لأن العمود item_guid هناك يخزّن فعلياً أياً من الثلاثة بحسب توفره —
+  -- مطابقة بالاسم وحده كما كانت سابقاً كانت تفوّت أي صنف كُتبت تكلفته بـGUID
+  -- أو كود مختلفَي الصياغة عن اسمه في تقرير المخزون.
   insert into inventory_recon_lines
     (session_id, item_key, item_number, item_name, unit_name, system_qty, actual_qty, unit_cost, currency, reason)
   select
@@ -506,23 +621,59 @@ begin
     coalesce(it ->> 'unitName', it ->> 'unit_name') as unit_name,
     coalesce((coalesce(it ->> 'qty', it ->> 'stockQty', it ->> 'stock_qty'))::numeric, 0) as system_qty,
     nullif(line ->> 'actual_qty', '')::numeric as actual_qty,
-    (
-      select ic.avg_cost
-      from item_costs ic
-      where lower(trim(ic.item_name)) = lower(trim(coalesce(it ->> 'itemName', it ->> 'item_name', '')))
-      limit 1
-    ) as unit_cost,
-    coalesce(
-      (select ic.currency
-       from item_costs ic
-       where lower(trim(ic.item_name)) = lower(trim(coalesce(it ->> 'itemName', it ->> 'item_name', '')))
-       limit 1),
-      'USD'
-    ) as currency,
+    ic.avg_cost as unit_cost,
+    -- item_costs.currency تُخزَّن حرفياً "$" من push-item-costs.ps1 (لا "USD")
+    -- — بدون هذا التطبيع كانت كل الأسعار المشتقة ترفض قيد التحقق على العملة.
+    case
+      when ic.currency in ('$', 'USD', 'usd') then 'USD'
+      when ic.currency in ('SYP', 'syp', 'ل.س') then 'SYP'
+      else null
+    end as currency,
     line ->> 'reason' as reason
   from jsonb_array_elements(p_lines) as line
   join jsonb_array_elements(v_report_items) as it
-    on coalesce(it ->> 'itemKey', it ->> 'item_key') = (line ->> 'item_key');
+    on coalesce(it ->> 'itemKey', it ->> 'item_key') = (line ->> 'item_key')
+  left join lateral (
+    select ic1.avg_cost, ic1.currency
+    from item_costs ic1
+    where ic1.item_guid = coalesce(it ->> 'itemGuid', it ->> 'item_guid')
+    limit 1
+  ) ic_by_guid on true
+  left join lateral (
+    select ic2.avg_cost, ic2.currency
+    from item_costs ic2
+    where ic_by_guid.avg_cost is null
+      and ic2.item_guid = coalesce(it ->> 'itemNumber', it ->> 'item_number')
+    limit 1
+  ) ic_by_number on true
+  left join lateral (
+    select ic3.avg_cost, ic3.currency
+    from item_costs ic3
+    where ic_by_guid.avg_cost is null
+      and ic_by_number.avg_cost is null
+      and lower(trim(ic3.item_guid)) = lower(trim(coalesce(it ->> 'itemName', it ->> 'item_name', '')))
+    limit 1
+  ) ic_by_name on true
+  left join lateral (
+    select coalesce(ic_by_guid.avg_cost, ic_by_number.avg_cost, ic_by_name.avg_cost) as avg_cost,
+           coalesce(ic_by_guid.currency, ic_by_number.currency, ic_by_name.currency) as currency
+  ) ic on true;
+
+  -- تحقق ذرّي أن كل مفتاح صنف فريد طلبه العميل فعلاً أُدرج كسطر — الـjoin
+  -- أعلاه يُسقط بصمت أي item_key كان قد اجتاز فحص v_missing_keys لكن لسبب
+  -- آخر (تكرار v_report_items لنفس itemKey، تعارض unique(session_id,item_key)
+  -- من صف كُتب بالتزامن، إلخ) لم يُدرج فعلاً؛ بدون هذا الفحص تنجح الدالة
+  -- وترجع جلسة أنقص من الطلب الأصلي بصمت.
+  select count(distinct line ->> 'item_key') into v_requested_distinct_count
+  from jsonb_array_elements(p_lines) as line;
+
+  select count(*) into v_inserted_count
+  from inventory_recon_lines
+  where session_id = v_session.id;
+
+  if v_inserted_count <> v_requested_distinct_count then
+    raise exception 'inventory_recon: عدد السطور المُدرجة (%) لا يطابق عدد الأصناف المطلوبة (%) — تراجع كامل عن إنشاء الجلسة', v_inserted_count, v_requested_distinct_count;
+  end if;
 
   return v_session;
 end;

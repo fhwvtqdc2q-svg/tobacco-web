@@ -7669,6 +7669,27 @@ function reconStatusLabel(status) {
   return "مسودة";
 }
 
+const RECON_SOURCE_REPORT_MAX_AGE_DAYS = 3;
+
+// عمر تقرير المخزون المصدر بالأيام بين وقته ووقت جلسة الجرد نفسها — لا بـ"الآن"،
+// لأن فتح جلسة قديمة لاحقاً للاطلاع لا يجب أن يظهر دائماً كـ"تقرير قديم" حتى لو
+// كان فعلاً حديثاً وقت إنشائها.
+function reconSourceReportAgeDays(session) {
+  const reportAt = session?.source_report_date || session?.sourceReportDate;
+  if (!reportAt) return null;
+  const sessionAt = session?.session_date || session?.sessionDate;
+  const reportMs = new Date(reportAt).getTime();
+  const sessionMs = sessionAt ? new Date(sessionAt).getTime() : Date.now();
+  if (!Number.isFinite(reportMs) || !Number.isFinite(sessionMs)) return null;
+  return Math.max(0, Math.round((sessionMs - reportMs) / 86400000));
+}
+
+function reconSourceReportLabel(session) {
+  const reportAt = session?.source_report_date || session?.sourceReportDate;
+  if (!reportAt) return "غير معروف";
+  return formatDateTime(reportAt) || String(reportAt);
+}
+
 async function reconToggleSession(id) {
   if (state.reconOpenId === id) {
     state.reconOpenId = "";
@@ -7717,6 +7738,8 @@ function reconSessionCard(session) {
       ${open ? `
         <div class="po-card-body">
           <p class="muted">صافي فرق التسوية: ${summary.netValue.toFixed(2)} $ (زيادة ${summary.increaseCount} · نقص ${summary.decreaseCount} · مطابق ${summary.matchedCount})</p>
+          <p class="muted">تقرير المخزون المصدر: ${escapeHtml(reconSourceReportLabel(session))}${reconSourceReportAgeDays(session) !== null ? ` (منذ ${reconSourceReportAgeDays(session)} يوم)` : ""}</p>
+          ${reconSourceReportAgeDays(session) !== null && reconSourceReportAgeDays(session) > RECON_SOURCE_REPORT_MAX_AGE_DAYS ? `<p class="sales-info-warn">⚠ تقرير المخزون المصدر قديم (${reconSourceReportAgeDays(session)} يوم) — راجع الكميات قبل الاعتماد.</p>` : ""}
           <div class="inv-table-wrap">
             <table class="inv-table">
               <thead><tr><th>الصنف</th><th>النظام</th><th>الفعلي</th><th>الفرق</th><th>القيمة $</th><th>السبب</th></tr></thead>
@@ -7765,9 +7788,15 @@ function reconSessionPdfMarkup(session) {
       <div class="rtitle"><h2>تقرير الجرد الشهري</h2><span>رقم: ${escapeHtml(stmtNo)} · ${escapeHtml(todayIsoDate())}</span></div>
     </div>`;
 
+  const sourceReportAgeDays = reconSourceReportAgeDays(session);
+  const sourceReportStale = sourceReportAgeDays !== null && sourceReportAgeDays > RECON_SOURCE_REPORT_MAX_AGE_DAYS;
+
   const balbox = `
     <div class="balbox"><div><div class="nm">${escapeHtml(warehouseName)}</div>
-      <div class="muted">تاريخ الجرد: ${escapeHtml(sessionDate)}${sessionMonth ? ` — شهر: ${escapeHtml(String(sessionMonth).slice(0, 7))}` : ""} — الحالة: ${escapeHtml(reconStatusLabel(session.status))}</div></div>
+      <div class="muted">تاريخ الجرد: ${escapeHtml(sessionDate)}${sessionMonth ? ` — شهر: ${escapeHtml(String(sessionMonth).slice(0, 7))}` : ""} — الحالة: ${escapeHtml(reconStatusLabel(session.status))}</div>
+      <div class="muted">تقرير المخزون المصدر: ${escapeHtml(reconSourceReportLabel(session))}${sourceReportAgeDays !== null ? ` (منذ ${sourceReportAgeDays} يوم)` : ""}</div>
+      ${sourceReportStale ? `<div class="sales-info-warn">⚠ تقرير المخزون المصدر قديم (${sourceReportAgeDays} يوم) — راجع الكميات قبل الاعتماد.</div>` : ""}
+      </div>
       <div style="text-align:left"><div class="muted">صافي فرق التسوية</div><div class="big">${escapeHtml(summary.netValue.toFixed(2))} $</div></div></div>`;
 
   const cards = `
