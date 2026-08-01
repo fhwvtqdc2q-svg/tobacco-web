@@ -4375,7 +4375,6 @@ function customerDetailsPanel(item) {
   }
 
   const key = customerKey(item);
-  const profile = customerProfile(key);
   const ameenPayments = (Array.isArray(item.recentPayments) ? item.recentPayments : [])
     .map((p) => ({ amount: p.amount, date: p.date || "", notes: p.notes, source: "ameen" }));
   const manualPayments = ((state.paymentRecords && state.paymentRecords[key]) || [])
@@ -4400,7 +4399,7 @@ function customerDetailsPanel(item) {
       <div class="panel-title-row inventory-browser-head">
         <div>
           <h3>${escapeHtml(item.name)}</h3>
-          <p class="muted">الرصيد، تسجيل الدفعات، معلومات التواصل.</p>
+          <p class="muted">الرصيد، تسجيل الدفعات، والفواتير والمرتجعات وسندات القبض.</p>
         </div>
         <div style="display:flex;gap:8px">
           <button class="button secondary compact-button" type="button" data-action="toggle-currency" title="تبديل عملة الزبون بين الدولار والليرة (يُحفظ)">💱 العملة: ${escapeHtml(customerCurrency(item))}</button>
@@ -4430,18 +4429,6 @@ function customerDetailsPanel(item) {
           ${state.paymentError ? `<p style="color:var(--danger);font-size:0.82rem;margin:6px 0 0">${escapeHtml(state.paymentError)}</p>` : ""}
         </div>
       ` : ""}
-
-      <details class="customer-profile-details">
-        <summary>معلومات التواصل ${profile ? "✓" : ""}</summary>
-        <form class="form-card compact" data-form="customer-profile" data-customer-key="${escapeHtml(key)}" data-customer-name="${escapeHtml(item.name || "")}">
-          <div class="profile-form-row">
-            <label>رقم الهاتف<input name="phone" type="tel" dir="ltr" value="${escapeHtml(profile?.phone || "")}" placeholder="+963..."></label>
-            <label>العنوان<input name="address" value="${escapeHtml(profile?.address || "")}" placeholder="حي، مدينة..."></label>
-          </div>
-          <label>ملاحظات<input name="notes" value="${escapeHtml(profile?.notes || "")}" placeholder="أي معلومات إضافية..."></label>
-          <button class="button secondary mini-button" type="submit">حفظ</button>
-        </form>
-      </details>
 
       <div class="customer-detail-grid">
         <article>
