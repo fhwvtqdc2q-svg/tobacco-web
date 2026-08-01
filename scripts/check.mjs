@@ -991,6 +991,33 @@ for (const contract of [
     console.error("inventory_recon_create_session_with_lines must be SECURITY DEFINER — as SECURITY INVOKER, a non-owner caller cannot read item_costs or inventory_recon_lines under owner-only RLS, permanently losing cost data and breaking idempotency retries.");
     failed = true;
   }
+
+  // الجولة السابعة: تشديد الدالتين SECURITY DEFINER — search_path فارغ بدل
+  // "public" (لا اسم مخطط ثابت قابل للاعتراض)، ورفض صريح لـauth.uid() null
+  // بدل الاعتماد الضمني فقط على revoke execute from anon.
+  const linesForSessionBlock = (invReconSql.split("create or replace function inventory_recon_lines_for_session")[1] || "").slice(0, 1600);
+  if (!/security definer\s*\nset search_path = ''/.test(linesForSessionBlock)) {
+    console.error("inventory_recon_lines_for_session must use SET search_path = '' (empty), not a named schema — Supabase best practice for SECURITY DEFINER functions to prevent search_path hijacking.");
+    failed = true;
+  }
+  if (!/auth\.uid\(\) is null/.test(linesForSessionBlock)) {
+    console.error("inventory_recon_lines_for_session must explicitly reject auth.uid() is null before touching session/line data.");
+    failed = true;
+  }
+
+  const createSessionBlock = (invReconSql.split("create or replace function inventory_recon_create_session_with_lines")[1] || "").slice(0, 6000);
+  if (!/security definer\s*\nset search_path = ''/.test(createSessionBlock)) {
+    console.error("inventory_recon_create_session_with_lines must use SET search_path = '' (empty), not a named schema — Supabase best practice for SECURITY DEFINER functions to prevent search_path hijacking.");
+    failed = true;
+  }
+  if (!/auth\.uid\(\) is null/.test(createSessionBlock)) {
+    console.error("inventory_recon_create_session_with_lines must explicitly reject auth.uid() is null before creating a session.");
+    failed = true;
+  }
+  if (/[^.]\bfrom inventory_recon_lines\b|[^.]\bfrom inventory_recon_sessions\b|[^.]\bfrom inventory_reports\b|[^.]\bfrom item_costs\b|[^.]\binsert into inventory_recon_lines\b|[^.]\binsert into inventory_recon_sessions\b/.test(createSessionBlock)) {
+    console.error("inventory_recon_create_session_with_lines must fully qualify every relation with the public. prefix (search_path is now empty, so unqualified names would fail to resolve or silently resolve to the wrong schema).");
+    failed = true;
+  }
 }
 
 // اختبار حارس RLS الصامت في setReconSessionStatus (src/supabase-client.js): التحديث

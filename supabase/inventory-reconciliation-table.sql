@@ -395,6 +395,10 @@ grant select on inventory_recon_audit_log to authenticated;
 -- جلسة يملك المستخدم الحالي صلاحية الوصول لها فعلياً (منشئها أو المالك)،
 -- لكنها تُخفي unit_cost/currency/settlement_value (تُرجعها NULL) لغير
 -- المالك — نفس البيانات الحسّاسة الممنوعة أصلاً على item_costs.
+-- تشديد SECURITY DEFINER (مراجعة PR-38-review-1def403): search_path فارغ
+-- بدل "public" وكل الأسماء مؤهَّلة صراحة بالمخطط (public./auth.) لمنع أي
+-- اعتراض عبر search_path hijacking، مع رفض صريح لجلسة بلا auth.uid() بدل
+-- الاعتماد الضمني على anon المرفوض أصلاً بـrevoke execute أدناه.
 -- ============================================================
 
 create or replace function inventory_recon_lines_for_session(p_session_id uuid)
@@ -417,20 +421,24 @@ returns table (
 )
 language plpgsql
 security definer
-set search_path = public
+set search_path = ''
 as $$
 declare
   v_is_owner boolean;
 begin
+  if auth.uid() is null then
+    raise exception 'inventory_recon: يجب تسجيل الدخول للوصول إلى سطور الجلسة';
+  end if;
+
   if not exists (
-    select 1 from inventory_recon_sessions s
+    select 1 from public.inventory_recon_sessions s
     where s.id = p_session_id
-      and (s.created_by = auth.uid() or inventory_recon_is_owner())
+      and (s.created_by = auth.uid() or public.inventory_recon_is_owner())
   ) then
     raise exception 'inventory_recon: الجلسة % غير موجودة أو لا تملك صلاحية الوصول إليها', p_session_id;
   end if;
 
-  v_is_owner := inventory_recon_is_owner();
+  v_is_owner := public.inventory_recon_is_owner();
 
   return query
   select
@@ -440,7 +448,7 @@ begin
     case when v_is_owner then l.currency else null end,
     case when v_is_owner then l.settlement_value else null end,
     l.reason, l.created_at, l.updated_at
-  from inventory_recon_lines l
+  from public.inventory_recon_lines l
   where l.session_id = p_session_id
   order by l.item_name;
 end;
@@ -475,8 +483,12 @@ grant execute on function inventory_recon_lines_for_session(uuid) to authenticat
 -- سابقة بنفس idempotency_key عند إعادة الإرسال فتفشل كل محاولة تكرار من موظف
 -- برسالة "محتوى مختلف" رغم تطابق الطلب فعلياً. الدالة تتحقق من هوية المستخدم
 -- بنفسها (auth.uid() لكل عمليات الإدخال/التصفية، ومطابقة المستودع والتقرير
--- الموثوق قبل أي كتابة) فلا حاجة لصلاحيات RLS الحية للمنفّذ؛ search_path مُثبَّت
--- وأسماء الجداول بلا مؤهل schema صريح لأنها كلها في public.
+-- الموثوق قبل أي كتابة) فلا حاجة لصلاحيات RLS الحية للمنفّذ.
+--
+-- تشديد إضافي (مراجعة PR-38-review-1def403): search_path فارغ بدل "public"
+-- وكل أسماء الجداول مؤهَّلة صراحة (public.) بدل الاعتماد على search_path
+-- لمنع اعتراض عبر schema يسبق public لو أُنشئ لاحقاً، مع رفض صريح لاستدعاء
+-- بلا auth.uid() بدل الاعتماد الضمني فقط على revoke execute from anon أدناه.
 -- ============================================================
 
 create or replace function inventory_recon_create_session_with_lines(
@@ -489,14 +501,14 @@ create or replace function inventory_recon_create_session_with_lines(
   p_source_report_id uuid,
   p_lines jsonb
 )
-returns inventory_recon_sessions
+returns public.inventory_recon_sessions
 language plpgsql
 security definer
-set search_path = public
+set search_path = ''
 as $$
 declare
-  v_session inventory_recon_sessions;
-  v_existing inventory_recon_sessions;
+  v_session public.inventory_recon_sessions;
+  v_existing public.inventory_recon_sessions;
   v_report_summary jsonb;
   v_report_items jsonb;
   v_report_date timestamptz;
@@ -507,6 +519,10 @@ declare
   v_requested_distinct_count int;
   v_inserted_count int;
 begin
+  if auth.uid() is null then
+    raise exception 'inventory_recon: يجب تسجيل الدخول لإنشاء جلسة جرد';
+  end if;
+
   if p_lines is null or jsonb_typeof(p_lines) <> 'array' or jsonb_array_length(p_lines) = 0 then
     raise exception 'inventory_recon: لا يمكن إنشاء جلسة جرد بلا سطور';
   end if;
@@ -527,7 +543,7 @@ begin
 
   select report_date::timestamptz, summary, items
     into v_report_date, v_report_summary, v_report_items
-  from inventory_reports
+  from public.inventory_reports
   where id = p_source_report_id
     and source = 'ameen_warehouse_stock';
 
@@ -578,7 +594,7 @@ begin
   -- يحاول الإدخال، فيفشل أحدهما بخطأ تعارض قيد فريد خام بدل رسالة idempotency
   -- واضحة. INSERT ... ON CONFLICT DO NOTHING RETURNING * ذرّي على مستوى
   -- القاعدة: يضمن أن إدخالاً واحداً فقط ينجح مهما تزامنت الطلبات.
-  insert into inventory_recon_sessions
+  insert into public.inventory_recon_sessions
     (session_date, session_month, warehouse_key, warehouse_name, notes, idempotency_key,
      source_report_id, source_report_date, status, created_by)
   values
@@ -593,7 +609,7 @@ begin
     -- مطابقة تماماً؛ خلاف ذلك نرفض بخطأ واضح بدل نجاح وهمي يعيد جلسة قديمة
     -- لا تطابق الطلب الجديد.
     select * into v_existing
-    from inventory_recon_sessions
+    from public.inventory_recon_sessions
     where created_by = auth.uid()
       and idempotency_key = p_idempotency_key;
 
@@ -611,7 +627,7 @@ begin
              E'\n' order by item_key
            ))
       into v_existing_digest
-    from inventory_recon_lines
+    from public.inventory_recon_lines
     where session_id = v_existing.id;
 
     if v_existing_digest is distinct from v_new_digest then
@@ -626,7 +642,7 @@ begin
   -- لأن العمود item_guid هناك يخزّن فعلياً أياً من الثلاثة بحسب توفره —
   -- مطابقة بالاسم وحده كما كانت سابقاً كانت تفوّت أي صنف كُتبت تكلفته بـGUID
   -- أو كود مختلفَي الصياغة عن اسمه في تقرير المخزون.
-  insert into inventory_recon_lines
+  insert into public.inventory_recon_lines
     (session_id, item_key, item_number, item_name, unit_name, system_qty, actual_qty, unit_cost, currency, reason)
   select
     v_session.id,
@@ -650,20 +666,20 @@ begin
     on coalesce(it ->> 'itemKey', it ->> 'item_key') = (line ->> 'item_key')
   left join lateral (
     select ic1.avg_cost, ic1.currency
-    from item_costs ic1
+    from public.item_costs ic1
     where ic1.item_guid = coalesce(it ->> 'itemGuid', it ->> 'item_guid')
     limit 1
   ) ic_by_guid on true
   left join lateral (
     select ic2.avg_cost, ic2.currency
-    from item_costs ic2
+    from public.item_costs ic2
     where ic_by_guid.avg_cost is null
       and ic2.item_guid = coalesce(it ->> 'itemNumber', it ->> 'item_number')
     limit 1
   ) ic_by_number on true
   left join lateral (
     select ic3.avg_cost, ic3.currency
-    from item_costs ic3
+    from public.item_costs ic3
     where ic_by_guid.avg_cost is null
       and ic_by_number.avg_cost is null
       and lower(trim(ic3.item_guid)) = lower(trim(coalesce(it ->> 'itemName', it ->> 'item_name', '')))
@@ -683,7 +699,7 @@ begin
   from jsonb_array_elements(p_lines) as line;
 
   select count(*) into v_inserted_count
-  from inventory_recon_lines
+  from public.inventory_recon_lines
   where session_id = v_session.id;
 
   if v_inserted_count <> v_requested_distinct_count then
