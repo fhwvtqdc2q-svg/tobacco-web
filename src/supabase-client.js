@@ -1287,9 +1287,10 @@
         session_month: input.sessionMonth,
         warehouse_key: cleanText(input.warehouseKey, 60),
         warehouse_name: cleanText(input.warehouseName, 120),
+        notes: cleanText(input.notes, 500),
         idempotency_key: cleanText(input.idempotencyKey, 200),
         status: "draft",
-        created_by: input.createdBy || user.id
+        created_by: user.id
       };
       if (!payload.warehouse_key || !payload.idempotency_key) {
         throw new Error("لا يمكن إنشاء جلسة جرد بدون مستودع.");
@@ -1359,7 +1360,7 @@
     // الحالية (.eq status expectedStatus) للكشف عن حجب RLS الصامت — إن لم يتغيّر
     // صف واحد بالضبط نعتبرها فشلاً صريحاً بدل نجاح وهمي. الاعتماد لا يمس أي
     // مخزون أو حساب في الأمين أو Supabase، فقط يقفل الحالة ويختم من/متى.
-    async setReconSessionStatus(sessionId, nextStatus, expectedStatus, actorFields = {}) {
+    async setReconSessionStatus(sessionId, nextStatus, expectedStatus) {
       if (!client) throw new Error("تحديث حالة جلسة الجرد يتطلب اتصالاً بـ Supabase.");
       const canTransition = window.invRecCalc && typeof window.invRecCalc.canTransitionStatus === "function"
         ? window.invRecCalc.canTransitionStatus(expectedStatus, nextStatus)
@@ -1371,10 +1372,10 @@
       const patch = { status: nextStatus, updated_at: new Date().toISOString() };
       if (nextStatus === "reviewed") {
         patch.reviewed_at = new Date().toISOString();
-        patch.reviewed_by = actorFields.reviewedBy || user.id;
+        patch.reviewed_by = user.id;
       } else if (nextStatus === "approved") {
         patch.approved_at = new Date().toISOString();
-        patch.approved_by = actorFields.approvedBy || user.id;
+        patch.approved_by = user.id;
       }
 
       const { data, error } = await client
@@ -1397,17 +1398,18 @@
       if (!client) return null;
       const session = await getSupabaseSession();
       if (!session) return null;
+      // نجلب أحدث بضع تقارير عامة ثم نختار أحدث تقرير يطابق المستودع فعلياً —
+      // بما أن warehouse_key مخزّن داخل summary (JSON) لا كعمود مفهرس مستقل،
+      // لا يمكن تصفيته بـ.eq() على مستوى الاستعلام مباشرة.
       const { data, error } = await client
         .from(inventoryReportsTable)
         .select("summary, items, created_at")
         .eq("source", "ameen_warehouse_stock")
         .order("created_at", { ascending: false })
-        .limit(1)
-        .maybeSingle();
-      if (error) return null;
-      if (!data) return null;
-      if (warehouseKey && data.summary && data.summary.warehouseKey && data.summary.warehouseKey !== warehouseKey) return null;
-      return data;
+        .limit(20);
+      if (error || !data) return null;
+      if (!warehouseKey) return data[0] || null;
+      return data.find((row) => row.summary && row.summary.warehouseKey === warehouseKey) || null;
     }
   };
 

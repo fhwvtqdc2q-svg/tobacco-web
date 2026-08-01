@@ -17,16 +17,19 @@ create table if not exists inventory_recon_sessions (
   status         text          not null default 'draft' check (status in ('draft', 'reviewed', 'approved')),
   idempotency_key text         not null unique,
   notes          text,
-  created_by     text,
+  created_by     uuid          references auth.users(id) on delete set null,
   created_at     timestamptz   default now(),
   updated_at     timestamptz   default now(),
   reviewed_at    timestamptz,
-  reviewed_by    text,
+  reviewed_by    uuid          references auth.users(id) on delete set null,
   approved_at    timestamptz,
-  approved_by    text
+  approved_by    uuid          references auth.users(id) on delete set null
 );
 
 comment on table inventory_recon_sessions is 'جلسات الجرد الشهري — تسجيل داخلي فقط، لا تُزامَن مع الأمين ولا تُغيّر مخزوناً';
+comment on column inventory_recon_sessions.created_by is 'مالك المسودة — يُختم تلقائياً من auth.uid() عند الإنشاء ولا يمكن تعديله لاحقاً';
+comment on column inventory_recon_sessions.reviewed_by is 'من راجع الجلسة (draft → reviewed) — يُختم من الخادم فقط';
+comment on column inventory_recon_sessions.approved_by is 'من اعتمد الجلسة (reviewed → approved) — يُختم من الخادم فقط، وحصراً لحساب المالك';
 
 create table if not exists inventory_recon_lines (
   id               uuid          default gen_random_uuid() primary key,
@@ -64,7 +67,7 @@ create table if not exists inventory_recon_audit_log (
   created_at  timestamptz default now()
 );
 
-comment on table inventory_recon_audit_log is 'سجل تدقيق لتغييرات جلسات وسطور الجرد';
+comment on table inventory_recon_audit_log is 'سجل تدقيق لتغييرات جلسات وسطور الجرد — يُملأ حصراً من triggers، لا يقبل إدخالاً مباشراً من العميل';
 
 create index if not exists idx_inventory_recon_sessions_date
   on inventory_recon_sessions (session_date desc);
@@ -79,8 +82,28 @@ create index if not exists idx_inventory_recon_audit_log_session
   on inventory_recon_audit_log (session_id);
 
 -- ============================================================
--- حارس الثبات: بعد status='approved' يُمنع أي تعديل على الجلسة أو سطورها
--- (نفس فكرة returns_guard_immutable_and_stamp في returns-table.sql)
+-- دالة المالك — نفس نمط purchase_invoices_is_owner() في
+-- purchase-invoices-ameen-sync.sql، وتطابق OWNER_EMAILS في src/app.js
+-- سطر ~498 (نفس القائمة المستعملة لبوابات واجهة أخرى مثل item_costs).
+-- بلا SECURITY DEFINER: تقرأ فقط auth.jwt() الخاص بالجلسة الحالية.
+-- ============================================================
+
+create or replace function inventory_recon_is_owner()
+returns boolean
+language sql
+stable
+set search_path = public
+as $$
+  select coalesce(auth.jwt() ->> 'email', '') in ('ozk.kh@outlook.com', 'ozkkhalouf@gmail.com');
+$$;
+
+-- ============================================================
+-- حارس الثبات + الختم: يمنع أي تعديل بعد status='approved'، يقفل
+-- created_by ضد الانتحال، يختم reviewed_by/approved_by من الخادم حصراً
+-- عند الانتقال الفعلي فقط، ويمنع الاعتماد قبل اكتمال كل سطر (كمية فعلية
+-- + سبب) لأي فرق غير صفري.
+-- (نفس فكرة purchase_invoice_guard_immutable_and_stamp في
+-- purchase-invoices-ameen-sync.sql)
 -- ============================================================
 
 create or replace function inventory_recon_guard_immutable()
@@ -89,6 +112,7 @@ declare
   status_rank constant jsonb := '{"draft": 0, "reviewed": 1, "approved": 2}';
   old_rank int;
   new_rank int;
+  incomplete_count int;
 begin
   if OLD.status = 'approved' then
     raise exception 'inventory_recon_sessions: session % is approved and cannot be modified or deleted', OLD.id;
@@ -98,11 +122,43 @@ begin
     return OLD;
   end if;
 
+  if NEW.created_by is distinct from OLD.created_by then
+    raise exception 'inventory_recon_sessions: created_by لا يمكن تعديله بعد الإنشاء';
+  end if;
+
   if NEW.status is distinct from OLD.status then
     old_rank := (status_rank ->> OLD.status)::int;
     new_rank := (status_rank ->> NEW.status)::int;
     if new_rank is null or new_rank <> old_rank + 1 then
       raise exception 'inventory_recon_sessions: invalid status transition % -> % for session %', OLD.status, NEW.status, OLD.id;
+    end if;
+
+    if OLD.status = 'draft' and NEW.status = 'reviewed' then
+      NEW.reviewed_by := auth.uid();
+      NEW.reviewed_at := now();
+    elsif OLD.status = 'reviewed' and NEW.status = 'approved' then
+      if not inventory_recon_is_owner() then
+        raise exception 'inventory_recon_sessions: اعتماد الجلسة محصور بحساب المالك';
+      end if;
+
+      select count(*) into incomplete_count
+      from inventory_recon_lines
+      where session_id = OLD.id
+        and diff_qty is distinct from 0
+        and (actual_qty is null or reason is null or trim(reason) = '');
+      if incomplete_count > 0 then
+        raise exception 'inventory_recon_sessions: % سطر بلا كمية فعلية أو سبب لفرق غير صفري — لا يمكن الاعتماد', incomplete_count;
+      end if;
+
+      NEW.approved_by := auth.uid();
+      NEW.approved_at := now();
+    end if;
+  else
+    if NEW.reviewed_by is distinct from OLD.reviewed_by or NEW.reviewed_at is distinct from OLD.reviewed_at then
+      raise exception 'inventory_recon_sessions: reviewed_by/reviewed_at لا يمكن تعديلهما إلا عند انتقال draft→reviewed نفسه';
+    end if;
+    if NEW.approved_by is distinct from OLD.approved_by or NEW.approved_at is distinct from OLD.approved_at then
+      raise exception 'inventory_recon_sessions: approved_by/approved_at لا يمكن تعديلهما إلا عند انتقال reviewed→approved نفسه';
     end if;
   end if;
 
@@ -140,51 +196,111 @@ create trigger trg_inventory_recon_guard_lines
   execute function inventory_recon_guard_lines_immutable();
 
 -- ============================================================
--- RLS — نفس نمط purchase-invoices-table.sql (auth.role() = 'authenticated')
+-- سجل التدقيق: يُملأ حصراً من trigger عبر دالة SECURITY DEFINER
+-- (تعمل بصلاحيات مالك الدالة فتتجاوز RLS)، لا إدخال مباشر من العميل.
+-- ============================================================
+
+create or replace function inventory_recon_write_audit_log()
+returns trigger as $$
+begin
+  insert into inventory_recon_audit_log(session_id, line_id, actor, action, before_data, after_data)
+  values (
+    case when TG_TABLE_NAME = 'inventory_recon_sessions' then coalesce(NEW.id, OLD.id)
+         else coalesce(NEW.session_id, OLD.session_id) end,
+    case when TG_TABLE_NAME = 'inventory_recon_lines' then coalesce(NEW.id, OLD.id) else null end,
+    auth.uid()::text,
+    TG_OP,
+    case when TG_OP = 'INSERT' then null else to_jsonb(OLD) end,
+    case when TG_OP = 'DELETE' then null else to_jsonb(NEW) end
+  );
+  return coalesce(NEW, OLD);
+end;
+$$ language plpgsql security definer set search_path = public;
+
+drop trigger if exists trg_inventory_recon_audit_sessions on inventory_recon_sessions;
+create trigger trg_inventory_recon_audit_sessions
+  after insert or update or delete on inventory_recon_sessions
+  for each row
+  execute function inventory_recon_write_audit_log();
+
+drop trigger if exists trg_inventory_recon_audit_lines on inventory_recon_lines;
+create trigger trg_inventory_recon_audit_lines
+  after insert or update or delete on inventory_recon_lines
+  for each row
+  execute function inventory_recon_write_audit_log();
+
+-- ============================================================
+-- RLS — القراءة متاحة لكل مستخدم authenticated، والتعديل/الاعتماد
+-- محصوران بمنشئ الجلسة (مسودته فقط) أو حساب المالك.
 -- ============================================================
 
 alter table inventory_recon_sessions enable row level security;
 alter table inventory_recon_lines enable row level security;
 alter table inventory_recon_audit_log enable row level security;
 
-create policy "authenticated can select inventory_recon_sessions"
+create policy "inventory_recon_sessions_select"
   on inventory_recon_sessions for select
-  using (auth.role() = 'authenticated');
+  to authenticated
+  using (true);
 
-create policy "authenticated can insert inventory_recon_sessions"
+create policy "inventory_recon_sessions_insert"
   on inventory_recon_sessions for insert
-  with check (auth.role() = 'authenticated');
+  to authenticated
+  with check (created_by = auth.uid());
 
-create policy "authenticated can update inventory_recon_sessions"
+create policy "inventory_recon_sessions_update"
   on inventory_recon_sessions for update
-  using (auth.role() = 'authenticated' and status <> 'approved')
-  with check (auth.role() = 'authenticated');
+  to authenticated
+  using (
+    status <> 'approved'
+    and (created_by = auth.uid() or inventory_recon_is_owner())
+  )
+  with check (
+    inventory_recon_is_owner()
+    or (created_by = auth.uid() and status in ('draft', 'reviewed'))
+  );
 
-create policy "authenticated can delete inventory_recon_sessions"
+create policy "inventory_recon_sessions_delete"
   on inventory_recon_sessions for delete
-  using (auth.role() = 'authenticated' and status <> 'approved');
+  to authenticated
+  using (
+    status <> 'approved'
+    and (
+      (status = 'draft' and created_by = auth.uid())
+      or inventory_recon_is_owner()
+    )
+  );
 
-create policy "authenticated can select inventory_recon_lines"
+create policy "inventory_recon_lines_select"
   on inventory_recon_lines for select
-  using (auth.role() = 'authenticated');
+  to authenticated
+  using (true);
 
-create policy "authenticated can insert inventory_recon_lines"
-  on inventory_recon_lines for insert
-  with check (auth.role() = 'authenticated');
+create policy "inventory_recon_lines_write"
+  on inventory_recon_lines for all
+  to authenticated
+  using (
+    exists (
+      select 1 from inventory_recon_sessions s
+      where s.id = inventory_recon_lines.session_id
+        and s.status <> 'approved'
+        and (s.created_by = auth.uid() or inventory_recon_is_owner())
+    )
+  )
+  with check (
+    exists (
+      select 1 from inventory_recon_sessions s
+      where s.id = inventory_recon_lines.session_id
+        and s.status <> 'approved'
+        and (s.created_by = auth.uid() or inventory_recon_is_owner())
+    )
+  );
 
-create policy "authenticated can update inventory_recon_lines"
-  on inventory_recon_lines for update
-  using (auth.role() = 'authenticated')
-  with check (auth.role() = 'authenticated');
-
-create policy "authenticated can delete inventory_recon_lines"
-  on inventory_recon_lines for delete
-  using (auth.role() = 'authenticated');
-
-create policy "authenticated can select inventory_recon_audit_log"
+create policy "inventory_recon_audit_log_select"
   on inventory_recon_audit_log for select
-  using (auth.role() = 'authenticated');
+  to authenticated
+  using (true);
 
-create policy "authenticated can insert inventory_recon_audit_log"
-  on inventory_recon_audit_log for insert
-  with check (auth.role() = 'authenticated');
+-- ملاحظة: لا توجد policy إدخال/تعديل/حذف لـinventory_recon_audit_log —
+-- الكتابة الوحيدة المسموحة تمر عبر inventory_recon_write_audit_log()
+-- (SECURITY DEFINER)، فأي محاولة إدخال مباشر من العميل تُرفض تلقائياً.

@@ -293,6 +293,7 @@ const state = {
   reconSaving: false,
   reconOpenId: "",
   reconWarehouseStockMap: null,   // itemKey -> qty من تقرير مخزون المستودع الموثوق (null = غير متوفر بعد)
+  reconWarehouseStockItems: null, // مصفوفة أصناف المستودع نفسه (name/number/unit/qty) — null = لا تقرير، [] = تقرير فارغ
   reconWarehouseStockLoading: false,
   notifPermission: "default",
   seenRequestIds: new Set(),
@@ -507,10 +508,13 @@ async function loadReconSessions() {
   await loadReconWarehouseStock(state.reconWarehouseKey);
 }
 
-// يبني خريطة itemKey → كمية النظام من أحدث تقرير مخزون موثوق لهذا المستودع.
-// يبقى null إن لم يوجد تقرير بعد (لا سكريبت سحب فعلي حتى الآن) — لا تُخترَع كمية صفرية بديلة.
+// يبني قائمة أصناف المستودع نفسه (وخريطة itemKey → كمية) من أحدث تقرير مخزون موثوق.
+// يبقيان null إن لم يوجد تقرير بعد (لا سكريبت سحب فعلي حتى الآن) — لا تُخترَع كمية صفرية
+// بديلة، ولا يُرجع الجرد إلى مخزون النشرة العام (قد يشمل أصنافاً غير موجودة بهذا المستودع
+// أصلاً أو بكمية مختلفة عن المستودع المختار).
 async function loadReconWarehouseStock(warehouseKey) {
   state.reconWarehouseStockMap = null;
+  state.reconWarehouseStockItems = null;
   if (!dataStore.getLatestWarehouseStockReport) return;
   state.reconWarehouseStockLoading = true;
   try {
@@ -518,15 +522,28 @@ async function loadReconWarehouseStock(warehouseKey) {
     const items = report && Array.isArray(report.items) ? report.items : [];
     if (report && items.length) {
       const map = {};
+      const list = [];
       items.forEach((it) => {
         const key = it.itemKey || it.item_key;
         if (!key) return;
-        map[key] = Number(it.qty ?? it.stockQty ?? it.stock_qty ?? 0);
+        const qty = Number(it.qty ?? it.stockQty ?? it.stock_qty ?? 0);
+        map[key] = qty;
+        list.push({
+          itemKey: key,
+          itemName: it.itemName || it.item_name || key,
+          itemNumber: it.itemNumber || it.item_number || it.itemCode || it.item_code || "",
+          unitName: it.unitName || it.unit_name || it.unit1Name || "",
+          qty
+        });
       });
       state.reconWarehouseStockMap = map;
+      state.reconWarehouseStockItems = list;
+    } else if (report) {
+      state.reconWarehouseStockItems = []; // تقرير موجود لكن بلا أصناف — لا يوجد ما يُضاف
     }
   } catch {
     state.reconWarehouseStockMap = null;
+    state.reconWarehouseStockItems = null;
   } finally {
     state.reconWarehouseStockLoading = false;
   }
@@ -7509,10 +7526,12 @@ function reconUnitCostFor(item) {
 function reconSearchItems(query, limit = 8) {
   const raw = String(query || "").trim();
   if (!raw) return [];
-  const list = state.approvedPriceItems || [];
+  // الأصناف تُقتَرح حصراً من تقرير مخزون المستودع المختار — لا رجوع لمخزون النشرة العام،
+  // كي لا يُضاف صنف بكمية أو من مستودع لا ينتمي إليه فعلاً.
+  const list = Array.isArray(state.reconWarehouseStockItems) ? state.reconWarehouseStockItems : [];
   const already = new Set((state.reconRows || []).map((r) => r.itemKey));
   return list
-    .filter((item) => item.itemKey && !already.has(item.itemKey) && window.invRecCalc.itemMatches({ itemName: item.itemName, itemNumber: item.itemCode || item.itemNumber }, raw))
+    .filter((item) => item.itemKey && !already.has(item.itemKey) && window.invRecCalc.itemMatches({ itemName: item.itemName, itemNumber: item.itemNumber }, raw))
     .slice(0, limit);
 }
 
@@ -7531,20 +7550,18 @@ function reconSuggestionsHtml(query) {
 }
 
 function reconAddItem(key) {
-  const item = (state.approvedPriceItems || []).find((it) => it.itemKey === key);
-  if (!item) return;
+  const list = Array.isArray(state.reconWarehouseStockItems) ? state.reconWarehouseStockItems : [];
+  const item = list.find((it) => it.itemKey === key);
+  if (!item) return; // لا وجود لهذا الصنف بتقرير مخزون المستودع المختار
   if ((state.reconRows || []).some((r) => r.itemKey === key)) return;
   const unitCost = reconUnitCostFor(item);
-  const warehouseMap = state.reconWarehouseStockMap;
-  const hasWarehouseStock = warehouseMap && Object.prototype.hasOwnProperty.call(warehouseMap, item.itemKey);
   state.reconRows.push({
     itemKey: item.itemKey,
-    itemNumber: item.itemCode || item.itemNumber || "",
+    itemNumber: item.itemNumber || "",
     itemName: item.itemName,
-    unitName: item.unit1Name || "كروز",
-    // كمية النظام من تقرير مخزون المستودع الموثوق إن توفّر، وإلا مخزون النشرة العام كتقدير مؤقت.
-    systemQty: hasWarehouseStock ? warehouseMap[item.itemKey] : Number(item.stockQty || 0),
-    systemQtySource: hasWarehouseStock ? "warehouse" : "general",
+    unitName: item.unitName || "كروز",
+    systemQty: item.qty, // من تقرير مخزون المستودع الموثوق حصراً
+    systemQtySource: "warehouse",
     actualQty: "",
     unitCost,
     reason: ""
@@ -7581,6 +7598,10 @@ function reconResetForm() {
 }
 
 async function reconSaveDraft() {
+  if (!Array.isArray(state.reconWarehouseStockItems) || !state.reconWarehouseStockItems.length) {
+    toast("لا يتوفر تقرير مخزون موثوق لهذا المستودع بعد — لا يمكن حفظ الجرد.");
+    return;
+  }
   if (!state.reconRows.length) {
     toast("أضف صنفاً واحداً على الأقل قبل الحفظ.");
     return;
@@ -7597,8 +7618,7 @@ async function reconSaveDraft() {
       sessionDate: state.reconSessionDate || todayIsoDate(),
       sessionMonth: month,
       notes: state.reconNotes,
-      idempotencyKey: window.invRecCalc.buildIdempotencyKey(state.reconWarehouseKey, month, nonce),
-      createdBy: state.session?.email || ""
+      idempotencyKey: window.invRecCalc.buildIdempotencyKey(state.reconWarehouseKey, month, nonce)
     });
     await dataStore.saveReconLines(session.id, state.reconRows);
     toast("تم حفظ مسودة الجرد.");
@@ -7624,10 +7644,7 @@ async function reconSetStatus(session, nextStatus) {
   state.reconSaving = true;
   render();
   try {
-    await dataStore.setReconSessionStatus(session.id, nextStatus, session.status, {
-      reviewedBy: state.session?.email || "",
-      approvedBy: state.session?.email || ""
-    });
+    await dataStore.setReconSessionStatus(session.id, nextStatus, session.status);
     toast(nextStatus === "approved" ? "تم اعتماد الجرد (تسجيلي فقط، بلا أثر على المخزون)." : "تم تحديث حالة الجرد.");
     await loadReconSessions();
   } catch (err) {
@@ -7793,6 +7810,7 @@ function inventoryRecon() {
   }
 
   const summary = reconSummary();
+  const hasWarehouseStock = Array.isArray(state.reconWarehouseStockItems) && state.reconWarehouseStockItems.length > 0;
   const rowsHtml = (state.reconRows || []).map((row) => {
     const computed = reconRowComputed(row);
     const diffLabel = computed.diffType === "increase" ? "زيادة" : computed.diffType === "decrease" ? "نقص" : "—";
@@ -7800,7 +7818,7 @@ function inventoryRecon() {
     <tr class="inv-row">
       <td>${escapeHtml(row.itemName)}<div class="muted" style="font-size:0.85em">${escapeHtml(row.itemNumber || "")}</div></td>
       <td>${escapeHtml(row.unitName || "")}</td>
-      <td>${escapeHtml(String(row.systemQty))}<div class="muted" style="font-size:0.78em">${row.systemQtySource === "warehouse" ? "من تقرير المستودع" : "تقدير من النشرة العامة"}</div></td>
+      <td>${escapeHtml(String(row.systemQty))}<div class="muted" style="font-size:0.78em">من تقرير المستودع</div></td>
       <td><input class="inv-input inv-num" data-recon-field="actualQty" data-recon-key="${escapeHtml(row.itemKey)}" value="${escapeHtml(String(row.actualQty))}" placeholder="—" inputmode="decimal"></td>
       <td>${diffLabel}${computed.diffType !== "none" ? ` ${Math.abs(computed.diffQty).toFixed(2)}` : ""}</td>
       <td>${computed.settlementValue.toFixed(2)}</td>
@@ -7843,9 +7861,13 @@ function inventoryRecon() {
         <input class="inv-input-main" id="recon-notes" value="${escapeHtml(state.reconNotes)}" placeholder="ملاحظات عامة عن الجرد…" maxlength="500">
       </label>
 
+      ${hasWarehouseStock ? "" : `<section class="notice-panel warning" style="margin:8px 0">
+        <span>⚠ لا يتوفر تقرير مخزون موثوق لهذا المستودع بعد — تعذّر بناء قائمة الأصناف. لا يمكن إضافة أصناف أو حفظ الجرد حتى توفّر التقرير.</span>
+      </section>`}
+
       <label class="inv-label po-suggest-wrap">
         إضافة صنف للجرد
-        <input class="inv-input-main" id="recon-item-query" value="${escapeHtml(state.reconRowQuery)}" placeholder="ابحث بالاسم أو الكود…" autocomplete="off">
+        <input class="inv-input-main" id="recon-item-query" value="${escapeHtml(state.reconRowQuery)}" placeholder="ابحث بالاسم أو الكود…" autocomplete="off" ${hasWarehouseStock ? "" : "disabled"}>
         <div class="sales-suggest-box" data-recon-suggest></div>
       </label>
 
@@ -7867,7 +7889,7 @@ function inventoryRecon() {
       </p>
 
       <div class="inv-actions">
-        <button class="button primary" data-action="recon-save" ${state.reconSaving ? "disabled" : ""}>${state.reconSaving ? "جاري الحفظ…" : "💾 حفظ كمسودة"}</button>
+        <button class="button primary" data-action="recon-save" ${state.reconSaving || !hasWarehouseStock ? "disabled" : ""}>${state.reconSaving ? "جاري الحفظ…" : "💾 حفظ كمسودة"}</button>
         <button class="button secondary" data-action="recon-reset" ${state.reconSaving ? "disabled" : ""}>مسح</button>
       </div>
     </section>

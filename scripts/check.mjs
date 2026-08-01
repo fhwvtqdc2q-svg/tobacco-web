@@ -744,6 +744,62 @@ for (const contract of [
   }
 }
 
+// انحدار: منع الرجوع إلى مخزون النشرة العام عند غياب تقرير مخزون المستودع —
+// مراجعة الجولة الثانية على PR الجرد الشهري (نقطة حاسمة). reconAddItem وreconSaveDraft
+// يجب أن يعتمدا حصراً على state.reconWarehouseStockItems، لا على أي قائمة أسعار عامة.
+{
+  const reconAddItemMatch = appJs.match(/function reconAddItem\(key\) \{[\s\S]{0,700}?\n\}/);
+  if (!reconAddItemMatch) {
+    console.error("reconAddItem() function not found in src/app.js.");
+    failed = true;
+  } else {
+    const body = reconAddItemMatch[0];
+    if (!body.includes("state.reconWarehouseStockItems")) {
+      console.error("reconAddItem() must build its item list from state.reconWarehouseStockItems only.");
+      failed = true;
+    }
+    if (/state\.(priceItems|reconPriceListItems)\b/.test(body) || /itemCostFor\(.*priceItems/.test(body)) {
+      console.error("reconAddItem() must not fall back to the general price-list stock.");
+      failed = true;
+    }
+  }
+
+  const reconSaveDraftMatch = appJs.match(/async function reconSaveDraft\(\) \{[\s\S]{0,300}/);
+  if (!reconSaveDraftMatch || !reconSaveDraftMatch[0].includes("reconWarehouseStockItems")) {
+    console.error("reconSaveDraft() must guard on state.reconWarehouseStockItems before allowing a save (no warehouse report = no save).");
+    failed = true;
+  }
+
+  if (!appJs.includes("hasWarehouseStock")) {
+    console.error("inventoryRecon() render must gate item-add UI and the save button on a hasWarehouseStock flag.");
+    failed = true;
+  }
+}
+
+// عقد SQL لتصليب RLS/الملكية على الجرد الشهري — مراجعة الجولة الثانية (نقطة حاسمة):
+// created_by غير قابل للانتحال، الاعتماد محصور بالمالك، سجل التدقيق trigger-only.
+{
+  const invReconSql = readFileSync("supabase/inventory-reconciliation-table.sql", "utf8");
+  for (const contract of [
+    "inventory_recon_is_owner()",
+    "created_by     uuid          references auth.users(id)",
+    "created_by لا يمكن تعديله بعد الإنشاء",
+    "اعتماد الجلسة محصور بحساب المالك",
+    "بلا كمية فعلية أو سبب لفرق غير صفري",
+    "security definer set search_path = public",
+    "created_by = auth.uid()"
+  ]) {
+    if (!invReconSql.includes(contract)) {
+      console.error(`inventory-reconciliation-table.sql SQL contract is missing: ${contract}`);
+      failed = true;
+    }
+  }
+  if (/create policy "authenticated can insert inventory_recon_audit_log"/.test(invReconSql)) {
+    console.error("inventory-reconciliation-table.sql must not allow direct client INSERT into inventory_recon_audit_log — trigger-only.");
+    failed = true;
+  }
+}
+
 // اختبار حارس RLS الصامت في setReconSessionStatus (src/supabase-client.js): التحديث
 // مشروط بـ.eq("status", expectedStatus) — إن حجبت RLS الصف (0 نتيجة) يجب رمي خطأ
 // صريح بدل اعتبارها نجاحاً وهمياً. نبني عميل Supabase وهمياً بدل الاتصال الحقيقي.
