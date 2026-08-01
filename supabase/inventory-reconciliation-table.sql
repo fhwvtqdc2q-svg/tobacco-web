@@ -363,11 +363,15 @@ create policy "inventory_recon_lines_write"
     )
   );
 
+-- سجل التدقيق يحفظ نسخة كاملة من السطر (before_data/after_data عبر to_jsonb(NEW))
+-- بما فيها unit_cost/currency/settlement_value — نفس الأعمدة الممنوعة على غير
+-- المالك في inventory_recon_lines_select. لذلك لا يجوز using(true) هنا؛ قراءة
+-- سجل التدقيق تبقى حكراً على المالك مثل قراءة السطور الخام مباشرة.
 drop policy if exists "inventory_recon_audit_log_select" on inventory_recon_audit_log;
 create policy "inventory_recon_audit_log_select"
   on inventory_recon_audit_log for select
   to authenticated
-  using (true);
+  using (inventory_recon_is_owner());
 
 -- ملاحظة: لا توجد policy إدخال/تعديل/حذف لـinventory_recon_audit_log —
 -- الكتابة الوحيدة المسموحة تمر عبر inventory_recon_write_audit_log()
@@ -449,9 +453,7 @@ grant execute on function inventory_recon_lines_for_session(uuid) to authenticat
 -- ============================================================
 -- إنشاء الجلسة وسطورها في معاملة واحدة ذرية: بدون هذه الدالة، createReconSession
 -- ثم saveReconLines طلبان منفصلان من العميل — فشل الثاني (انقطاع شبكة، إلخ)
--- يترك جلسة فارغة محفوظة بلا سطور تظهر في السجل. security invoker (الافتراضي)
--- عمداً: الإدخالان يمران عبر RLS بصلاحيات المستخدم الحالي نفسها كما لو استُدعيا
--- منفصلين — لا تجاوز صلاحيات، فقط ذرية على مستوى المعاملة.
+-- يترك جلسة فارغة محفوظة بلا سطور تظهر في السجل.
 --
 -- ثقة البيانات: النسخة السابقة كانت تقبل system_qty وunit_cost وهوية الصنف
 -- (item_number/item_name/unit_name) كما يرسلها المتصفح حرفياً — أي مستخدم
@@ -461,9 +463,20 @@ grant execute on function inventory_recon_lines_for_session(uuid) to authenticat
 -- والدالة تتحقق من صحته ومطابقة مستودعه محلياً هنا، ثم تشتق system_qty
 -- وitem_number/item_name/unit_name من items الخاصة بالتقرير نفسه — لا من
 -- p_lines. العميل يرسل فقط item_key (لتحديد أي صنف) وactual_qty وreason.
--- unit_cost يُشتق من item_costs (مطابقة اسم دقيقة على item_name الموثوق من
--- التقرير، لا مما يرسله العميل) ويبقى NULL إن لم توجد تكلفة مسجّلة — لا بديل
+-- unit_cost يُشتق من item_costs (مطابقة GUID/كود/اسم على ما ورد بالتقرير
+-- الموثوق، لا مما يرسله العميل) ويبقى NULL إن لم توجد تكلفة مسجّلة — لا بديل
 -- عن تكلفة يرسلها المتصفح.
+--
+-- SECURITY DEFINER (وليس invoker): item_costs محمي بسياسة is_owner() (راجع
+-- commit bfb4717 على الفرع الرئيسي) وinventory_recon_lines_select owner-only
+-- أعلاه — فموظف غير مالك يستدعي الدالة بصلاحياته الخاصة (invoker) لن يقدر أصلاً
+-- على قراءة item_costs عند الإدخال، فتُخزَّن كل التكاليف NULL نهائياً لا مؤقتاً
+-- (فقدان بيانات حقيقي يمنع المالك من مراجعتها لاحقاً)، ولا على قراءة سطور جلسة
+-- سابقة بنفس idempotency_key عند إعادة الإرسال فتفشل كل محاولة تكرار من موظف
+-- برسالة "محتوى مختلف" رغم تطابق الطلب فعلياً. الدالة تتحقق من هوية المستخدم
+-- بنفسها (auth.uid() لكل عمليات الإدخال/التصفية، ومطابقة المستودع والتقرير
+-- الموثوق قبل أي كتابة) فلا حاجة لصلاحيات RLS الحية للمنفّذ؛ search_path مُثبَّت
+-- وأسماء الجداول بلا مؤهل schema صريح لأنها كلها في public.
 -- ============================================================
 
 create or replace function inventory_recon_create_session_with_lines(
@@ -478,6 +491,8 @@ create or replace function inventory_recon_create_session_with_lines(
 )
 returns inventory_recon_sessions
 language plpgsql
+security definer
+set search_path = public
 as $$
 declare
   v_session inventory_recon_sessions;

@@ -968,6 +968,29 @@ for (const contract of [
     console.error("getReconSession() must fetch lines via the inventory_recon_lines_for_session RPC, not a direct .from(reconLinesTable) select — the owner-only RLS policy would otherwise return an empty line list to non-owner session creators.");
     failed = true;
   }
+
+  // الجولة السادسة: سجل التدقيق يخزّن نسخة كاملة من السطر (unit_cost/currency
+  // ضمناً) عبر to_jsonb(NEW) — using(true) على قراءته يسرّب التكلفة لكل
+  // authenticated رغم إخفائها في القراءة المقنَّعة. والدالة create_session_with_lines
+  // يجب أن تكون SECURITY DEFINER وإلا يفشل موظف غير مالك بقراءة item_costs (تكلفة
+  // NULL دائماً) وinventory_recon_lines (فشل تكرار idempotency) بسبب RLS owner-only.
+  for (const contract of [
+    'create policy "inventory_recon_audit_log_select"',
+    "using (inventory_recon_is_owner())"
+  ]) {
+    if (!invReconSql.includes(contract)) {
+      console.error(`inventory-reconciliation-table.sql SQL contract (round 6) is missing: ${contract}`);
+      failed = true;
+    }
+  }
+  if (/create policy "inventory_recon_audit_log_select"[\s\S]{0,80}using \(true\)/.test(invReconSql)) {
+    console.error("inventory_recon_audit_log_select must no longer be using(true) — audit rows carry full before/after_data including unit_cost/currency, must be owner-only.");
+    failed = true;
+  }
+  if (!/create or replace function inventory_recon_create_session_with_lines[\s\S]{0,400}security definer/.test(invReconSql)) {
+    console.error("inventory_recon_create_session_with_lines must be SECURITY DEFINER — as SECURITY INVOKER, a non-owner caller cannot read item_costs or inventory_recon_lines under owner-only RLS, permanently losing cost data and breaking idempotency retries.");
+    failed = true;
+  }
 }
 
 // اختبار حارس RLS الصامت في setReconSessionStatus (src/supabase-client.js): التحديث
