@@ -7932,6 +7932,14 @@ async function retSetStatus(id, nextStatus) {
     render();
     return;
   }
+  // المزامنة مع الأمين معطّلة حالياً (tools/sync-returns-to-ameen.ps1 ما زال مقفلاً
+  // بـexit 1)، فلا يُسمَح بنقل مستند إلى "بانتظار المزامنة" — يمنع بقاء مستندات
+  // معلّقة بلا أي عملية تعالجها.
+  if (nextStatus === "sync_pending") {
+    setNotice("error", "المزامنة مع الأمين غير مفعّلة حالياً — لا يمكن إرسال هذا المرتجع للمزامنة بعد.");
+    render();
+    return;
+  }
   try {
     if (nextStatus === "approved") {
       // اعتماد تسجيلي فقط (2026-08-01): لا تعديل على المخزون ولا احتساب ربح/تسوية
@@ -7939,7 +7947,7 @@ async function retSetStatus(id, nextStatus) {
       await dataStore.approveReturnDocument(id, doc);
       setNotice("success", "تم اعتماد المرتجع تسجيلياً (بلا تعديل تلقائي على المخزون أو الربح — راجع الأمين يدوياً).");
     } else {
-      await dataStore.setReturnDocumentStatus(id, nextStatus);
+      await dataStore.setReturnDocumentStatus(id, nextStatus, doc.status);
       setNotice("success", `تم تحديث حالة المرتجع إلى: ${retCalc.RET_STATUS_LABELS[nextStatus] || nextStatus}.`);
     }
     await loadReturns();
@@ -7997,7 +8005,10 @@ function retDocCard(doc, focused) {
        <button class="button secondary compact-button" type="button" data-ret-delete="${escapeHtml(doc.id)}">🗑 حذف</button>
        ${hasReason ? "" : `<small class="muted" style="display:block;margin-top:4px">اكتب سبب المرتجع قبل الاعتماد.</small>`}`
     : doc.status === "approved"
-      ? `<button class="button secondary compact-button" type="button" data-ret-transition="${escapeHtml(doc.id)}" data-ret-next="sync_pending">↻ إرسال للمزامنة</button>`
+      // المزامنة مع الأمين غير مفعّلة حالياً (sync-returns-to-ameen.ps1 مقفل بـexit 1) —
+      // الزر معطَّل عمداً بدل السماح بإرسال المستند لحالة "بانتظار المزامنة" بلا أي
+      // عملية تعالجها لاحقاً.
+      ? `<button class="button secondary compact-button" type="button" disabled title="المزامنة مع الأمين غير مفعّلة حالياً">↻ إرسال للمزامنة (معطّل)</button>`
       : "";
 
   return `

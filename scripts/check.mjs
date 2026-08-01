@@ -841,6 +841,88 @@ for (const contract of [
   }
 }
 
+// اختبار انحدار: setReturnDocumentStatus يجب ألا يُظهر "نجاحاً" وهمياً حين يرفض
+// RLS التحديث بصمت (0 صف متأثر، بلا error من Postgres) — نفس نمط approveReturnDocument
+// (eq("status", expectedStatus) + select("id") + تحقّق صف واحد بالضبط). يبني sandbox
+// بمسار Supabase الحقيقي (appConfig.supabase + window.supabase.createClient وهمي)
+// كي يُجبَر client على عدم كونه null، بخلاف اختبار approveReturnDocument أعلاه الذي
+// يبقى بمسار localStorage المحلي.
+{
+  const retCalcSource = readFileSync("src/returns-calc.js", "utf8");
+  const supabaseClientSource = readFileSync("src/supabase-client.js", "utf8");
+
+  function makeFakeStorage() {
+    let store = {};
+    return {
+      getItem: (k) => (Object.prototype.hasOwnProperty.call(store, k) ? store[k] : null),
+      setItem: (k, v) => { store[k] = String(v); },
+      removeItem: (k) => { delete store[k]; },
+      clear: () => { store = {}; }
+    };
+  }
+
+  function makeFakeSupabaseClient(updateResult) {
+    const fakeUser = { id: "test-user-1", email: "tester@ozk.local" };
+    const queryBuilder = {
+      eq() { return this; },
+      select: async () => updateResult
+    };
+    return {
+      auth: {
+        getSession: async () => ({ data: { session: { user: fakeUser } }, error: null }),
+        getUser: async () => ({ data: { user: fakeUser }, error: null })
+      },
+      from() {
+        return { update: () => queryBuilder };
+      }
+    };
+  }
+
+  async function runSetStatusScenario(updateResult) {
+    const fakeStorage = makeFakeStorage();
+    const sandbox = {
+      window: {
+        appConfig: { supabase: { url: "https://test.example.supabase.co", publishableKey: "test-key" } },
+        supabase: { createClient: () => makeFakeSupabaseClient(updateResult) },
+        crypto: { randomUUID: () => "test-uuid-" + Math.random().toString(16).slice(2) }
+      },
+      localStorage: fakeStorage,
+      console
+    };
+    vm.createContext(sandbox);
+    vm.runInContext(retCalcSource, sandbox, { filename: "returns-calc.js" });
+    sandbox.retCalc = sandbox.window.retCalc;
+    vm.runInContext(supabaseClientSource, sandbox, { filename: "supabase-client.js" });
+    const testDataStore = sandbox.window.tobaccoData;
+    if (!testDataStore || typeof testDataStore.setReturnDocumentStatus !== "function") {
+      throw new Error("src/supabase-client.js did not expose window.tobaccoData.setReturnDocumentStatus for testing.");
+    }
+    return testDataStore.setReturnDocumentStatus("remote-test-return-1", "sync_pending", "approved");
+  }
+
+  let rlsRejectionThrew = false;
+  try {
+    await runSetStatusScenario({ data: [], error: null });
+  } catch (err) {
+    rlsRejectionThrew = true;
+  }
+  if (!rlsRejectionThrew) {
+    console.error("setReturnDocumentStatus regression test failed: must throw (not silently succeed) when the update matches zero rows (RLS-blocked update simulated with { data: [], error: null }).");
+    failed = true;
+  }
+
+  let normalUpdateThrew = null;
+  try {
+    await runSetStatusScenario({ data: [{ id: "remote-test-return-1" }], error: null });
+  } catch (err) {
+    normalUpdateThrew = err;
+  }
+  if (normalUpdateThrew) {
+    console.error(`setReturnDocumentStatus regression test failed: unexpected error on a normal single-row update — ${normalUpdateThrew.message}`);
+    failed = true;
+  }
+}
+
 // عقد ربط واجهة فواتير المشتريات بملف poCalc ومصدر Supabase الجديد — يمنع رجوع
 // الواجهة لاستدعاء أسماء دوال قديمة أُزيلت من supabase-client.js.
 for (const contract of [

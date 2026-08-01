@@ -1312,7 +1312,10 @@
       return data?.[0] ? normalizeDbReturn(data[0]) : normalizeDbReturn(record);
     },
 
-    async setReturnDocumentStatus(id, nextStatus, extra = {}) {
+    // expectedStatus: الحالة الحالية المتوقعة قبل التحديث (نفس نمط approveReturnDocument) —
+    // تُمرَّر في شرط eq("status", ...) ويُتحقَّق أن صفاً واحداً بالضبط تأثّر، وإلا يُرمى خطأ
+    // بدل عرض "نجاح" وهمي حين يرفض RLS التحديث بصمت (0 صف متأثر بلا error من Postgres).
+    async setReturnDocumentStatus(id, nextStatus, expectedStatus, extra = {}) {
       if (!RET_STATUS_VALUES.includes(nextStatus)) throw new Error("حالة مرتجع غير معروفة.");
       // اعتماد ("approved") له مسار مخصص (approveReturnDocument) يعكس الربح/التكلفة
       // ويطبّق أثر التسوية والمخزون فعلياً — هذه الدالة العامة لا يجوز أن تُستخدَم
@@ -1323,13 +1326,25 @@
       const patch = { status: nextStatus, updated_at: new Date().toISOString() };
       if (extra.syncError !== undefined) patch.sync_error = extra.syncError;
       if (!client) {
-        const all = readJson(RETURNS_KEY, []).map((row) => (row.id === id ? { ...row, ...patch } : row));
-        writeJson(RETURNS_KEY, all);
+        const all = readJson(RETURNS_KEY, []);
+        const row = all.find((r) => r.id === id);
+        if (!row || row.status !== expectedStatus) {
+          throw new Error("تغيّرت حالة المستند من جهة أخرى، أعد تحميل الصفحة قبل المتابعة.");
+        }
+        writeJson(RETURNS_KEY, all.map((r) => (r.id === id ? { ...r, ...patch } : r)));
         return;
       }
       await requireUser();
-      const { error } = await client.from(returnsTable).update(patch).eq("id", id);
+      const { data, error } = await client
+        .from(returnsTable)
+        .update(patch)
+        .eq("id", id)
+        .eq("status", expectedStatus)
+        .select("id");
       if (error) throw new Error(translateDbError(error.message));
+      if (!data || data.length !== 1) {
+        throw new Error("تعذّر تحديث حالة المستند (لم يتغيّر أي صف) — أعد تحميل الصفحة وتحقّق من صلاحيتك على هذا المستند.");
+      }
     },
 
     // اعتماد مستند مرتجع — تسجيلي فقط بقرار صريح من المالك (2026-08-01): يثبّت
