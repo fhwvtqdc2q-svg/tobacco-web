@@ -1,13 +1,13 @@
 {
     "schemaVersion":  1,
-    "status":  "active",
-    "owner":  "Codex",
-    "task":  "إصلاح دمج أصناف ماستر في نشرتي الدولار والسوري",
-    "branch":  "task branch pending for: إصلاح دمج أصناف ماستر في نشرتي الدولار والسوري",
+    "status":  "idle",
+    "owner":  null,
+    "task":  null,
+    "branch":  null,
     "files":  [
-                  "src/app.js,scripts/generate-price-lists.mjs,scripts/bulletin-merge-names.json,scripts/check.mjs,public/service-worker.js"
+
               ],
-    "startedAt":  "2026-08-01T10:01:41Z",
-    "updatedAt":  "2026-08-01T10:01:41Z",
-    "note":  "Work in progress. Do not edit the reserved files."
+    "startedAt":  null,
+    "updatedAt":  "2026-08-01T10:16:04Z",
+    "note":  "No active task. Read AI_HANDOFF.md before starting work."
 }

@@ -2,6 +2,13 @@
 
 يقرأه Claude وCodex قبل كل مهمة. أحدث سجل يكون في الأعلى. لا تحذف السجلات السابقة.
 
+## 2026-08-01 - Codex - إصلاح دمج أصناف ماستر في نشرتي الدولار والسوري
+
+- Status: completed
+- Branch: task branch pending for: إصلاح دمج أصناف ماستر في نشرتي الدولار والسوري
+- Files: src/app.js,scripts/generate-price-lists.mjs,scripts/bulletin-merge-names.json,scripts/check.mjs,public/service-worker.js
+- Result: دُمج codex/fix-master-bulletin-merge إلى main بـmerge commit عادي (8d3d27e)، ثم أعاد الـworkflow توليد النشرات تلقائياً (447952a)، وتحقّق Claude من نشر GitHub Pages وأن كل نشرة تعرض سطراً واحداً لماستر طويل ورق وسطراً واحداً لماستر قصير أزرق. لم يُلمس PR #37.
+- Handoff UTC: 2026-08-01T10:16:04Z
 ## 2026-08-01 - Claude - إصلاح 10 ملاحظات مراجعة المالك على PR #37 (مسودة، لم تُدمج)
 
 - Status: pushed, awaiting fresh independent Codex review (لا يزال Draft)
