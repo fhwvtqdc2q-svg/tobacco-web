@@ -56,10 +56,16 @@ create table if not exists inventory_recon_lines (
 
 comment on table inventory_recon_lines is 'سطور الجرد لكل صنف — الفرق والقيمة تقديريان لأغراض العرض والتقرير فقط، لا يُنشأ منهما أي قيد محاسبي';
 
+-- session_id/line_id بلا foreign key عمداً: سجل التدقيق يجب أن يبقى دائماً
+-- حتى بعد حذف الجلسة/السطر التي يوثّقها. لو كانا مرتبطين بـFK فسيفشل DELETE
+-- (الـtrigger يحاول إدخال سطر تدقيق بعد الحذف يشير لصف لم يعد موجوداً)، وأي
+-- FK بـon delete cascade كان سيمحو تاريخ التدقيق نفسه عند حذف الجلسة — وهذا
+-- يناقض الغرض من وجود سجل تدقيق دائم. المعرّف الكامل محفوظ أيضاً داخل
+-- before_data/after_data (to_jsonb) لمن يحتاج لقراءته بعد حذف الصف الأصلي.
 create table if not exists inventory_recon_audit_log (
   id          bigint generated always as identity primary key,
-  session_id  uuid references inventory_recon_sessions(id) on delete cascade,
-  line_id     uuid references inventory_recon_lines(id) on delete set null,
+  session_id  uuid,
+  line_id     uuid,
   actor       text,
   action      text not null,
   before_data jsonb,
@@ -67,7 +73,9 @@ create table if not exists inventory_recon_audit_log (
   created_at  timestamptz default now()
 );
 
-comment on table inventory_recon_audit_log is 'سجل تدقيق لتغييرات جلسات وسطور الجرد — يُملأ حصراً من triggers، لا يقبل إدخالاً مباشراً من العميل';
+comment on table inventory_recon_audit_log is 'سجل تدقيق لتغييرات جلسات وسطور الجرد — يُملأ حصراً من triggers، لا يقبل إدخالاً مباشراً من العميل، ويبقى بعد حذف الجلسة/السطر (بلا FK) لأنه سجل تاريخي دائم';
+comment on column inventory_recon_audit_log.session_id is 'معرف الجلسة وقت الحدث — بلا FK عمداً كي لا يُحذف سجل التدقيق مع الجلسة';
+comment on column inventory_recon_audit_log.line_id is 'معرف السطر وقت الحدث — بلا FK عمداً لنفس السبب';
 
 create index if not exists idx_inventory_recon_sessions_date
   on inventory_recon_sessions (session_date desc);
@@ -141,6 +149,10 @@ begin
         raise exception 'inventory_recon_sessions: اعتماد الجلسة محصور بحساب المالك';
       end if;
 
+      if not exists (select 1 from inventory_recon_lines where session_id = OLD.id) then
+        raise exception 'inventory_recon_sessions: لا يمكن اعتماد جلسة بلا أي سطر';
+      end if;
+
       select count(*) into incomplete_count
       from inventory_recon_lines
       where session_id = OLD.id
@@ -181,8 +193,8 @@ begin
   from inventory_recon_sessions
   where id = coalesce(NEW.session_id, OLD.session_id);
 
-  if session_status = 'approved' then
-    raise exception 'inventory_recon_lines: parent session % is approved and its lines cannot be modified', coalesce(NEW.session_id, OLD.session_id);
+  if session_status is distinct from 'draft' then
+    raise exception 'inventory_recon_lines: parent session % is not a draft (status=%) — its lines are locked', coalesce(NEW.session_id, OLD.session_id), session_status;
   end if;
 
   return coalesce(NEW, OLD);
@@ -216,6 +228,13 @@ begin
   return coalesce(NEW, OLD);
 end;
 $$ language plpgsql security definer set search_path = public;
+
+-- SECURITY DEFINER تعمل بصلاحيات مالكها بغض النظر عن EXECUTE — لا يحتاجها
+-- العميل عبر RPC مباشر (يُستدعى فقط من الـtriggers)، فنسحب الصلاحية الافتراضية
+-- من public/anon/authenticated لتضييق سطح الهجوم على أي دالة SECURITY DEFINER
+-- ظاهرة في schema عام. راجع إرشادات Supabase لتأمين API.
+revoke execute on function inventory_recon_write_audit_log() from public;
+revoke execute on function inventory_recon_write_audit_log() from anon, authenticated;
 
 drop trigger if exists trg_inventory_recon_audit_sessions on inventory_recon_sessions;
 create trigger trg_inventory_recon_audit_sessions
@@ -283,7 +302,7 @@ create policy "inventory_recon_lines_write"
     exists (
       select 1 from inventory_recon_sessions s
       where s.id = inventory_recon_lines.session_id
-        and s.status <> 'approved'
+        and s.status = 'draft'
         and (s.created_by = auth.uid() or inventory_recon_is_owner())
     )
   )
@@ -291,7 +310,7 @@ create policy "inventory_recon_lines_write"
     exists (
       select 1 from inventory_recon_sessions s
       where s.id = inventory_recon_lines.session_id
-        and s.status <> 'approved'
+        and s.status = 'draft'
         and (s.created_by = auth.uid() or inventory_recon_is_owner())
     )
   );
@@ -304,3 +323,75 @@ create policy "inventory_recon_audit_log_select"
 -- ملاحظة: لا توجد policy إدخال/تعديل/حذف لـinventory_recon_audit_log —
 -- الكتابة الوحيدة المسموحة تمر عبر inventory_recon_write_audit_log()
 -- (SECURITY DEFINER)، فأي محاولة إدخال مباشر من العميل تُرفض تلقائياً.
+
+-- ============================================================
+-- GRANT صريحة — دفاع مستوى ثانٍ مستقل عن RLS، ونفس السبب العملي المذكور في
+-- purchase-invoices-ameen-sync.sql: مشاريع Supabase الحديثة لا تُعرِّض الجداول
+-- المُنشأة تلقائياً لـData API/PostgREST بدون GRANT صريحة لأي دور، حتى مع
+-- RLS مفعّلة وصحيحة — فتفشل استدعاءات supabase-js بخطأ لا علاقة له بالسياسات.
+-- ============================================================
+
+grant select, insert, update, delete on inventory_recon_sessions to authenticated;
+grant select, insert, update, delete on inventory_recon_lines to authenticated;
+grant select on inventory_recon_audit_log to authenticated;
+
+-- ============================================================
+-- إنشاء الجلسة وسطورها في معاملة واحدة ذرية: بدون هذه الدالة، createReconSession
+-- ثم saveReconLines طلبان منفصلان من العميل — فشل الثاني (انقطاع شبكة، إلخ)
+-- يترك جلسة فارغة محفوظة بلا سطور تظهر في السجل. security invoker (الافتراضي)
+-- عمداً: الإدخالان يمران عبر RLS بصلاحيات المستخدم الحالي نفسها كما لو استُدعيا
+-- منفصلين — لا تجاوز صلاحيات، فقط ذرية على مستوى المعاملة.
+-- ============================================================
+
+create or replace function inventory_recon_create_session_with_lines(
+  p_session_date date,
+  p_session_month date,
+  p_warehouse_key text,
+  p_warehouse_name text,
+  p_notes text,
+  p_idempotency_key text,
+  p_lines jsonb
+)
+returns inventory_recon_sessions
+language plpgsql
+as $$
+declare
+  v_session inventory_recon_sessions;
+begin
+  if p_lines is null or jsonb_typeof(p_lines) <> 'array' or jsonb_array_length(p_lines) = 0 then
+    raise exception 'inventory_recon: لا يمكن إنشاء جلسة جرد بلا سطور';
+  end if;
+
+  insert into inventory_recon_sessions
+    (session_date, session_month, warehouse_key, warehouse_name, notes, idempotency_key, status, created_by)
+  values
+    (p_session_date, p_session_month, p_warehouse_key, p_warehouse_name, p_notes, p_idempotency_key, 'draft', auth.uid())
+  on conflict (idempotency_key) do nothing
+  returning * into v_session;
+
+  if v_session.id is null then
+    -- تكرار idempotency_key: نعيد الجلسة الموجودة فعلاً (نفس سلوك العميل السابق)
+    select * into v_session from inventory_recon_sessions where idempotency_key = p_idempotency_key;
+    return v_session;
+  end if;
+
+  insert into inventory_recon_lines
+    (session_id, item_key, item_number, item_name, unit_name, system_qty, actual_qty, unit_cost, currency, reason)
+  select
+    v_session.id,
+    line ->> 'item_key',
+    line ->> 'item_number',
+    line ->> 'item_name',
+    line ->> 'unit_name',
+    coalesce((line ->> 'system_qty')::numeric, 0),
+    nullif(line ->> 'actual_qty', '')::numeric,
+    nullif(line ->> 'unit_cost', '')::numeric,
+    coalesce(line ->> 'currency', 'USD'),
+    line ->> 'reason'
+  from jsonb_array_elements(p_lines) as line;
+
+  return v_session;
+end;
+$$;
+
+grant execute on function inventory_recon_create_session_with_lines(date, date, text, text, text, text, jsonb) to authenticated;

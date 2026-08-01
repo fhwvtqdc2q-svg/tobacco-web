@@ -7612,15 +7612,14 @@ async function reconSaveDraft() {
   try {
     const month = state.reconSessionMonth || todayIsoDate().slice(0, 7) + "-01";
     const nonce = Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
-    const session = await dataStore.createReconSession({
+    await dataStore.createReconSessionWithLines({
       warehouseKey: state.reconWarehouseKey,
       warehouseName: state.reconWarehouseName,
       sessionDate: state.reconSessionDate || todayIsoDate(),
       sessionMonth: month,
       notes: state.reconNotes,
       idempotencyKey: window.invRecCalc.buildIdempotencyKey(state.reconWarehouseKey, month, nonce)
-    });
-    await dataStore.saveReconLines(session.id, state.reconRows);
+    }, state.reconRows);
     toast("تم حفظ مسودة الجرد.");
     reconResetForm();
     await loadReconSessions();

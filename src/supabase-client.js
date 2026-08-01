@@ -1279,61 +1279,21 @@
       return { ...sessionRow, lines: lines || [] };
     },
 
-    async createReconSession(input) {
+    // يستدعي inventory_recon_create_session_with_lines (RPC) بدل طلبين منفصلين
+    // (إنشاء جلسة ثم حفظ سطور) — بدون ذلك يترك انقطاع الشبكة بين الطلبين جلسة
+    // فارغة محفوظة بلا سطور. الدالة تُدرج الجلسة والسطور ضمن معاملة واحدة على
+    // الخادم وترفض أي محاولة إنشاء جلسة بلا سطر إطلاقاً.
+    async createReconSessionWithLines(input, lines) {
       if (!client) throw new Error("إنشاء جلسة جرد يتطلب اتصالاً بـ Supabase.");
-      const user = await requireUser();
-      const payload = {
-        session_date: input.sessionDate,
-        session_month: input.sessionMonth,
-        warehouse_key: cleanText(input.warehouseKey, 60),
-        warehouse_name: cleanText(input.warehouseName, 120),
-        notes: cleanText(input.notes, 500),
-        idempotency_key: cleanText(input.idempotencyKey, 200),
-        status: "draft",
-        created_by: user.id
-      };
-      if (!payload.warehouse_key || !payload.idempotency_key) {
+      await requireUser();
+
+      const warehouseKey = cleanText(input.warehouseKey, 60);
+      const idempotencyKey = cleanText(input.idempotencyKey, 200);
+      if (!warehouseKey || !idempotencyKey) {
         throw new Error("لا يمكن إنشاء جلسة جرد بدون مستودع.");
       }
 
-      const { data, error } = await client
-        .from(reconSessionsTable)
-        .insert(payload)
-        .select("id, session_date, session_month, warehouse_key, warehouse_name, status, idempotency_key, notes, created_by, created_at, updated_at, reviewed_at, reviewed_by, approved_at, approved_by")
-        .limit(1);
-
-      if (error) {
-        if (error.code === "23505") {
-          const { data: existing, error: fetchError } = await client
-            .from(reconSessionsTable)
-            .select("id, session_date, session_month, warehouse_key, warehouse_name, status, idempotency_key, notes, created_by, created_at, updated_at, reviewed_at, reviewed_by, approved_at, approved_by")
-            .eq("idempotency_key", payload.idempotency_key)
-            .maybeSingle();
-          if (fetchError) throw new Error(translateDbError(fetchError.message));
-          if (existing) return existing;
-        }
-        throw new Error(translateDbError(error.message));
-      }
-      return data?.[0] || null;
-    },
-
-    async saveReconLines(sessionId, lines) {
-      if (!client) throw new Error("حفظ سطور الجرد يتطلب اتصالاً بـ Supabase.");
-      if (!sessionId) throw new Error("لا يمكن حفظ سطور جرد بدون جلسة.");
-      await requireUser();
-
-      const { data: sessionRow, error: sessionError } = await client
-        .from(reconSessionsTable)
-        .select("status")
-        .eq("id", sessionId)
-        .maybeSingle();
-      if (sessionError) throw new Error(translateDbError(sessionError.message));
-      if (!sessionRow || sessionRow.status !== "draft") {
-        throw new Error("لا يمكن تعديل سطور جلسة غير مسودة.");
-      }
-
       const rows = (Array.isArray(lines) ? lines : []).map((line) => ({
-        session_id: sessionId,
         item_key: line.itemKey,
         item_number: line.itemNumber || null,
         item_name: line.itemName,
@@ -1342,18 +1302,24 @@
         actual_qty: line.actualQty === "" || line.actualQty === undefined ? null : line.actualQty,
         unit_cost: line.unitCost || null,
         currency: line.currency || "USD",
-        reason: line.reason || null,
-        updated_at: new Date().toISOString()
+        reason: line.reason || null
       }));
-      if (!rows.length) return [];
+      if (!rows.length) {
+        throw new Error("أضف صنفاً واحداً على الأقل قبل الحفظ.");
+      }
 
-      const { data, error } = await client
-        .from(reconLinesTable)
-        .upsert(rows, { onConflict: "session_id,item_key" })
-        .select("id, session_id, item_key, item_number, item_name, unit_name, system_qty, actual_qty, diff_qty, unit_cost, currency, settlement_value, reason, created_at, updated_at");
+      const { data, error } = await client.rpc("inventory_recon_create_session_with_lines", {
+        p_session_date: input.sessionDate,
+        p_session_month: input.sessionMonth,
+        p_warehouse_key: warehouseKey,
+        p_warehouse_name: cleanText(input.warehouseName, 120),
+        p_notes: cleanText(input.notes, 500),
+        p_idempotency_key: idempotencyKey,
+        p_lines: rows
+      });
 
       if (error) throw new Error(translateDbError(error.message));
-      return data || [];
+      return data || null;
     },
 
     // نفس نمط setReturnDocumentStatus (returns feature): تحديث مشروط بالحالة

@@ -734,8 +734,7 @@ for (const contract of [
   "window.invRecCalc.sessionSummary",
   "window.invRecCalc.canTransitionStatus",
   "window.invRecCalc.buildIdempotencyKey",
-  "dataStore.createReconSession(",
-  "dataStore.saveReconLines(",
+  "dataStore.createReconSessionWithLines(",
   "dataStore.setReconSessionStatus("
 ]) {
   if (!appJs.includes(contract)) {
@@ -796,6 +795,58 @@ for (const contract of [
   }
   if (/create policy "authenticated can insert inventory_recon_audit_log"/.test(invReconSql)) {
     console.error("inventory-reconciliation-table.sql must not allow direct client INSERT into inventory_recon_audit_log — trigger-only.");
+    failed = true;
+  }
+}
+
+// عقد SQL — مراجعة الجولة الثالثة (3 نقاط حاسمة): سجل التدقيق بلا FK (وإلا يفشل
+// الحذف ويُمحى التاريخ بالـcascade)، اعتماد جلسة بلا سطور مرفوض، كتابة السطور
+// محصورة بحالة draft فقط، GRANT صريحة، سحب EXECUTE من دالة SECURITY DEFINER،
+// وRPC ذرية لإنشاء الجلسة مع سطورها.
+{
+  const invReconSql = readFileSync("supabase/inventory-reconciliation-table.sql", "utf8");
+  if (/session_id\s+uuid\s+references inventory_recon_sessions/.test(invReconSql)) {
+    console.error("inventory_recon_audit_log.session_id must not carry a foreign key — deleting a session would then either fail (trigger insert after delete) or cascade-erase the audit trail.");
+    failed = true;
+  }
+  if (/line_id\s+uuid\s+references inventory_recon_lines/.test(invReconSql)) {
+    console.error("inventory_recon_audit_log.line_id must not carry a foreign key, for the same reason as session_id.");
+    failed = true;
+  }
+  for (const contract of [
+    "لا يمكن اعتماد جلسة بلا أي سطر",
+    "s.status = 'draft'",
+    "grant select, insert, update, delete on inventory_recon_sessions to authenticated",
+    "grant select, insert, update, delete on inventory_recon_lines to authenticated",
+    "revoke execute on function inventory_recon_write_audit_log() from public",
+    "create or replace function inventory_recon_create_session_with_lines",
+    "raise exception 'inventory_recon: لا يمكن إنشاء جلسة جرد بلا سطور'"
+  ]) {
+    if (!invReconSql.includes(contract)) {
+      console.error(`inventory-reconciliation-table.sql SQL contract (round 3) is missing: ${contract}`);
+      failed = true;
+    }
+  }
+  if (/s\.status\s*<>\s*'approved'/.test(invReconSql.split("inventory_recon_lines_write")[1] || "")) {
+    console.error("inventory_recon_lines_write policy must gate on status = 'draft', not <> 'approved' — lines must lock as soon as a session leaves draft.");
+    failed = true;
+  }
+}
+
+// انحدار: إنشاء الجلسة وحفظ سطورها يجب أن يمرّا عبر نداء ذرّي واحد (RPC) لا
+// طلبين منفصلين — وإلا يترك انقطاع الشبكة بين الطلبين جلسة فارغة بلا سطور.
+{
+  if (!appJs.includes("createReconSessionWithLines")) {
+    console.error("reconSaveDraft() must call dataStore.createReconSessionWithLines(...) — a single atomic call, not separate createReconSession/saveReconLines requests.");
+    failed = true;
+  }
+  if (/dataStore\.createReconSession\(/.test(appJs) || /dataStore\.saveReconLines\(/.test(appJs)) {
+    console.error("src/app.js must not call the old separate createReconSession/saveReconLines methods anymore.");
+    failed = true;
+  }
+  const supabaseClientJs = readFileSync("src/supabase-client.js", "utf8");
+  if (!/client\.rpc\(\s*["']inventory_recon_create_session_with_lines["']/.test(supabaseClientJs)) {
+    console.error("src/supabase-client.js must call the inventory_recon_create_session_with_lines RPC for atomic session+lines creation.");
     failed = true;
   }
 }
