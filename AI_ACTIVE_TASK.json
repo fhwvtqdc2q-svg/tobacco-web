@@ -1,13 +1,13 @@
 {
     "schemaVersion":  1,
-    "status":  "idle",
-    "owner":  null,
-    "task":  null,
-    "branch":  null,
+    "status":  "active",
+    "owner":  "Codex",
+    "task":  "ترتيب فواتير ومرتجعات ودفعات الزبون في ثلاثة أعمدة وإخفاء معلومات التواصل",
+    "branch":  "task branch pending for: ترتيب فواتير ومرتجعات ودفعات الزبون في ثلاثة أعمدة وإخفاء معلومات التواصل",
     "files":  [
-
+                  "\u0027src/app.js\u0027,\u0027src/styles.css\u0027,\u0027public/service-worker.js\u0027"
               ],
-    "startedAt":  null,
-    "updatedAt":  "2026-08-01T10:16:04Z",
-    "note":  "No active task. Read AI_HANDOFF.md before starting work."
+    "startedAt":  "2026-08-01T11:37:05Z",
+    "updatedAt":  "2026-08-01T11:37:05Z",
+    "note":  "Work in progress. Do not edit the reserved files."
 }
