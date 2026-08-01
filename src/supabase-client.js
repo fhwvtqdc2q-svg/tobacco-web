@@ -1292,16 +1292,16 @@
       if (!warehouseKey || !idempotencyKey) {
         throw new Error("لا يمكن إنشاء جلسة جرد بدون مستودع.");
       }
+      if (!input.sourceReportId) {
+        throw new Error("لا يمكن إنشاء جلسة جرد بدون تقرير مخزون مستودع موثوق.");
+      }
 
+      // لا تُرسَل system_qty/unit_cost/item_number/item_name/unit_name/currency من المتصفح:
+      // الخادم يشتقّها داخل الـRPC من تقرير inventory_reports الموثوق (p_source_report_id)
+      // وجدول item_costs — العميل يرسل فقط الكمية الفعلية والسبب.
       const rows = (Array.isArray(lines) ? lines : []).map((line) => ({
         item_key: line.itemKey,
-        item_number: line.itemNumber || null,
-        item_name: line.itemName,
-        unit_name: line.unitName || null,
-        system_qty: line.systemQty || 0,
         actual_qty: line.actualQty === "" || line.actualQty === undefined ? null : line.actualQty,
-        unit_cost: line.unitCost || null,
-        currency: line.currency || "USD",
         reason: line.reason || null
       }));
       if (!rows.length) {
@@ -1315,6 +1315,7 @@
         p_warehouse_name: cleanText(input.warehouseName, 120),
         p_notes: cleanText(input.notes, 500),
         p_idempotency_key: idempotencyKey,
+        p_source_report_id: input.sourceReportId,
         p_lines: rows
       });
 
@@ -1369,7 +1370,7 @@
       // لا يمكن تصفيته بـ.eq() على مستوى الاستعلام مباشرة.
       const { data, error } = await client
         .from(inventoryReportsTable)
-        .select("summary, items, created_at")
+        .select("id, summary, items, created_at")
         .eq("source", "ameen_warehouse_stock")
         .order("created_at", { ascending: false })
         .limit(20);

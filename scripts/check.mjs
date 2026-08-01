@@ -818,7 +818,7 @@ for (const contract of [
     "s.status = 'draft'",
     "grant select, insert, update, delete on inventory_recon_sessions to authenticated",
     "grant select, insert, update, delete on inventory_recon_lines to authenticated",
-    "revoke execute on function inventory_recon_write_audit_log() from public",
+    "revoke execute on function private.inventory_recon_write_audit_log() from public",
     "create or replace function inventory_recon_create_session_with_lines",
     "raise exception 'inventory_recon: لا يمكن إنشاء جلسة جرد بلا سطور'"
   ]) {
@@ -847,6 +847,89 @@ for (const contract of [
   const supabaseClientJs = readFileSync("src/supabase-client.js", "utf8");
   if (!/client\.rpc\(\s*["']inventory_recon_create_session_with_lines["']/.test(supabaseClientJs)) {
     console.error("src/supabase-client.js must call the inventory_recon_create_session_with_lines RPC for atomic session+lines creation.");
+    failed = true;
+  }
+}
+
+// عقد SQL — مراجعة الجولة الرابعة (4 نقاط حاسمة): الخادم يشتق system_qty/unit_cost/
+// هوية الصنف من تقرير inventory_reports موثوق لا من المتصفح، idempotency محصور
+// بـcreated_by مع تحقق تعارض المحتوى، تصليب صلاحيات RPC الرئيسية + نقل دالة التدقيق
+// لمخطط private، وقيود CHECK تمنع قيماً سالبة/عملة غير مسموحة/مفتاح أو اسم فارغ.
+{
+  const invReconSql = readFileSync("supabase/inventory-reconciliation-table.sql", "utf8");
+  for (const contract of [
+    "source_report_id",
+    "source_report_date",
+    "unique (created_by, idempotency_key)",
+    "and source = 'ameen_warehouse_stock'",
+    "تقرير المخزون المحدد لا يطابق المستودع المختار",
+    "الأصناف التالية غير موجودة في تقرير المستودع الموثوق",
+    "مفتاح idempotency % مستخدم مسبقاً لجلسة مختلفة",
+    "مفتاح idempotency % مستخدم مسبقاً بمحتوى سطور مختلف",
+    "create schema if not exists private;",
+    "create or replace function private.inventory_recon_write_audit_log()",
+    "execute function private.inventory_recon_write_audit_log();",
+    "revoke execute on function inventory_recon_create_session_with_lines(date, date, text, text, text, text, uuid, jsonb) from public",
+    "revoke execute on function inventory_recon_create_session_with_lines(date, date, text, text, text, text, uuid, jsonb) from anon",
+    "grant execute on function inventory_recon_create_session_with_lines(date, date, text, text, text, text, uuid, jsonb) to authenticated",
+    "check (trim(item_key) <> '')",
+    "check (trim(item_name) <> '')",
+    "check (actual_qty is null or actual_qty >= 0)",
+    "check (unit_cost is null or unit_cost >= 0)",
+    "check (currency in ('USD', 'SYP'))"
+  ]) {
+    if (!invReconSql.includes(contract)) {
+      console.error(`inventory-reconciliation-table.sql SQL contract (round 4) is missing: ${contract}`);
+      failed = true;
+    }
+  }
+  if (/create (or replace )?function inventory_recon_write_audit_log\(\)/.test(invReconSql)) {
+    console.error("inventory_recon_write_audit_log() must be defined inside the private schema, not public — plain function name (unqualified) must not remain.");
+    failed = true;
+  }
+}
+
+// انحدار: العميل لا يرسل system_qty/unit_cost/item_number/item_name/unit_name/currency
+// كقيم موثوقة إلى الـRPC — الخادم يشتقّها من تقرير المخزون الموثوق. src/supabase-client.js
+// يمرّر source_report_id ويبني سطوراً مختزلة فقط (item_key/actual_qty/reason).
+{
+  const supabaseClientJs = readFileSync("src/supabase-client.js", "utf8");
+  const createReconMatch = supabaseClientJs.match(/async createReconSessionWithLines\(input, lines\) \{[\s\S]*?\n    \},/);
+  if (!createReconMatch) {
+    console.error("src/supabase-client.js: createReconSessionWithLines(input, lines) not found.");
+    failed = true;
+  } else {
+    const body = createReconMatch[0];
+    if (!/p_source_report_id:\s*input\.sourceReportId/.test(body)) {
+      console.error("createReconSessionWithLines must pass p_source_report_id: input.sourceReportId to the RPC.");
+      failed = true;
+    }
+    for (const clientTrustedField of ["item_number:", "item_name:", "unit_name:", "system_qty:", "unit_cost:", "currency:"]) {
+      if (body.includes(clientTrustedField)) {
+        console.error(`createReconSessionWithLines must not send client-supplied "${clientTrustedField}" to the RPC — the server derives it from the trusted inventory_reports row.`);
+        failed = true;
+      }
+    }
+  }
+  if (!/\.select\(\s*["']id, summary, items, created_at["']\s*\)/.test(supabaseClientJs)) {
+    console.error("getLatestWarehouseStockReport must select the report's id (needed as source_report_id) alongside summary/items/created_at.");
+    failed = true;
+  }
+}
+
+// انحدار: src/app.js يلتقط id تقرير مخزون المستودع ويمرره كـsourceReportId، ويرفض
+// الحفظ إن لم يتوفر تقرير موثوق (لا يُنشئ جلسة بلا مصدر موثوق).
+{
+  if (!/state\.reconWarehouseStockReportId\s*=\s*report\.id/.test(appJs)) {
+    console.error("loadReconWarehouseStock() must capture the trusted report's id into state.reconWarehouseStockReportId.");
+    failed = true;
+  }
+  if (!/sourceReportId:\s*state\.reconWarehouseStockReportId/.test(appJs)) {
+    console.error("reconSaveDraft() must pass sourceReportId: state.reconWarehouseStockReportId to dataStore.createReconSessionWithLines(...).");
+    failed = true;
+  }
+  if (!/if \(!state\.reconWarehouseStockReportId\) \{/.test(appJs)) {
+    console.error("reconSaveDraft() must guard on state.reconWarehouseStockReportId before allowing a save.");
     failed = true;
   }
 }

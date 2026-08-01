@@ -515,6 +515,7 @@ async function loadReconSessions() {
 async function loadReconWarehouseStock(warehouseKey) {
   state.reconWarehouseStockMap = null;
   state.reconWarehouseStockItems = null;
+  state.reconWarehouseStockReportId = null;
   if (!dataStore.getLatestWarehouseStockReport) return;
   state.reconWarehouseStockLoading = true;
   try {
@@ -538,12 +539,15 @@ async function loadReconWarehouseStock(warehouseKey) {
       });
       state.reconWarehouseStockMap = map;
       state.reconWarehouseStockItems = list;
+      state.reconWarehouseStockReportId = report.id || null;
     } else if (report) {
       state.reconWarehouseStockItems = []; // تقرير موجود لكن بلا أصناف — لا يوجد ما يُضاف
+      state.reconWarehouseStockReportId = report.id || null;
     }
   } catch {
     state.reconWarehouseStockMap = null;
     state.reconWarehouseStockItems = null;
+    state.reconWarehouseStockReportId = null;
   } finally {
     state.reconWarehouseStockLoading = false;
   }
@@ -7602,6 +7606,10 @@ async function reconSaveDraft() {
     toast("لا يتوفر تقرير مخزون موثوق لهذا المستودع بعد — لا يمكن حفظ الجرد.");
     return;
   }
+  if (!state.reconWarehouseStockReportId) {
+    toast("تعذّر تحديد تقرير مخزون المستودع الموثوق — أعد تحميل الصفحة وحاول من جديد.");
+    return;
+  }
   if (!state.reconRows.length) {
     toast("أضف صنفاً واحداً على الأقل قبل الحفظ.");
     return;
@@ -7618,7 +7626,8 @@ async function reconSaveDraft() {
       sessionDate: state.reconSessionDate || todayIsoDate(),
       sessionMonth: month,
       notes: state.reconNotes,
-      idempotencyKey: window.invRecCalc.buildIdempotencyKey(state.reconWarehouseKey, month, nonce)
+      idempotencyKey: window.invRecCalc.buildIdempotencyKey(state.reconWarehouseKey, month, nonce),
+      sourceReportId: state.reconWarehouseStockReportId
     }, state.reconRows);
     toast("تم حفظ مسودة الجرد.");
     reconResetForm();
