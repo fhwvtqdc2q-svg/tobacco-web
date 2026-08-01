@@ -1,13 +1,13 @@
 {
     "schemaVersion":  1,
-    "status":  "active",
-    "owner":  "Claude",
-    "task":  "مرتجعات المبيعات جملة/مفرق ومرتجعات المشتريات",
-    "branch":  "task branch pending for: مرتجعات المبيعات جملة/مفرق ومرتجعات المشتريات",
+    "status":  "idle",
+    "owner":  null,
+    "task":  null,
+    "branch":  null,
     "files":  [
-                  "src/app.js,src/returns-calc.js"
+
               ],
-    "startedAt":  "2026-07-31T02:33:33Z",
-    "updatedAt":  "2026-07-31T02:33:33Z",
-    "note":  "Work in progress. Do not edit the reserved files."
+    "startedAt":  null,
+    "updatedAt":  "2026-08-01T10:16:04Z",
+    "note":  "No active task. Read AI_HANDOFF.md before starting work."
 }

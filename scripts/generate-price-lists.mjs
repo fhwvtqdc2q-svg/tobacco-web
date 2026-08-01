@@ -224,25 +224,10 @@ const normalizeMergeName = (value) => String(value || "")
   .replace(/[^\p{L}\p{N}]+/gu, " ")
   .trim();
 
-// مفتاح مقارنة السعر: خانتان عشريتان لكل من الجملة والمفرق. **الدالة نفسها
-// حرفياً** مستعملة في `mergeBulletinNamedGroups` داخل `src/app.js` كي يقرّر
-// الموقع والنشرة على المجموعة نفسها بالضبط.
-// تقريب مزدوج مقصود: ثلاث منازل ثم قروش — لأن الموقع يقرّب إلى ثلاث منازل قبل
-// المقارنة، فلولا التقريب نفسه لاختلف القراران عند حدود مثل 190.0049.
-const mergePriceKey = (value) => {
-  const n = Number(value || 0);
-  if (!Number.isFinite(n) || Math.abs(n) > 1e12) return `raw:${String(value)}`;
-  return String(Math.round(Math.round(n * 1000) / 1000 * 100));
-};
-
-// أسماء نُبّه عليها مسبقاً: الدالة تُستدعى مرتين (دولار وسوري) فلا نكرّر التنبيه.
-const mergeWarned = new Set();
-
 const mergeNamedGroups = (items, mode) => {
-  // القرار **لكل نشرة على حدة**: نشرة الدولار تقارن سعر الجملة، ونشرة السوري
-  // تقارن سعر المفرق. هذا ما يجعل قرار المولّد مطابقاً لقرار الموقع، إذ يعرض
-  // الموقع أيضاً نشرة واحدة حسب الوضع المختار.
-  const priceOf = (item) => (mode === "syp" ? Number(item.retailCarton || 0) : Number(item.usd || 0));
+  // القائمة إدارية وصريحة: كل اسم أساسي وما يبدأ به aliases لصنف واحد حتى لو
+  // بقيت لهما أسعار قديمة مختلفة في Supabase. نأخذ سعر الاسم الأساسي حرفياً،
+  // أو أول alias متاح عند غيابه، وننشر سطراً واحداً بالاسم الأساسي.
   const result = [...items];
   for (const display of BULLETIN_MERGE_NAMES) {
     const base = normalizeMergeName(display);
@@ -251,19 +236,8 @@ const mergeNamedGroups = (items, mode) => {
       .filter(({ item }) => {
         const n = normalizeMergeName(item.name);
         return n === base || n.startsWith(base + " ");
-      })
-      // غير المسعّر في هذه النشرة لا يظهر فيها ولا يشارك في قرارها.
-      .filter(({ item }) => priceOf(item) > 0);
-    if (entries.length < 2) continue;
-    const keys = new Set(entries.map(({ item }) => mergePriceKey(priceOf(item))));
-    if (keys.size > 1) {
-      const warnKey = `${display}|${mode}`;
-      if (!mergeWarned.has(warnKey)) {
-        mergeWarned.add(warnKey);
-        console.log(`تنبيه: «${display}» له أكثر من سعر في نشرة ${mode} (${[...keys].join(" / ")}) — لم يُدمج، والأسماء بقيت كما هي.`);
-      }
-      continue;
-    }
+      });
+    if (!entries.length) continue;
     const exact = entries.find(({ item }) => normalizeMergeName(item.name) === base);
     const rep = exact || entries[0];
     const anchor = Math.min(...entries.map(({ index }) => index));

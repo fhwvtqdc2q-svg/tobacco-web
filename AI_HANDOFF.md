@@ -2,6 +2,13 @@
 
 يقرأه Claude وCodex قبل كل مهمة. أحدث سجل يكون في الأعلى. لا تحذف السجلات السابقة.
 
+## 2026-08-01 - Codex - إصلاح دمج أصناف ماستر في نشرتي الدولار والسوري
+
+- Status: completed
+- Branch: task branch pending for: إصلاح دمج أصناف ماستر في نشرتي الدولار والسوري
+- Files: src/app.js,scripts/generate-price-lists.mjs,scripts/bulletin-merge-names.json,scripts/check.mjs,public/service-worker.js
+- Result: دُمج codex/fix-master-bulletin-merge إلى main بـmerge commit عادي (8d3d27e)، ثم أعاد الـworkflow توليد النشرات تلقائياً (447952a)، وتحقّق Claude من نشر GitHub Pages وأن كل نشرة تعرض سطراً واحداً لماستر طويل ورق وسطراً واحداً لماستر قصير أزرق. لم يُلمس PR #37.
+
 ## 2026-08-01 - Claude - إصلاح 10 ملاحظات المالك على مراجعة PR #37 (مرتجعات المبيعات/المشتريات)
 
 - Status: completed (بند 9 مغلق جزئياً — انظر التفصيل أدناه، موثّق بصدق وليس ادّعاءً كاملاً)
@@ -24,12 +31,67 @@
 - Handoff UTC: 2026-08-01T00:00:00Z
 
 ## 2026-07-31 - Claude - مرتجعات المبيعات (جملة/مفرق) ومرتجعات المشتريات — واجهة إدخال وتخزين محلي فقط، بدون مزامنة أمين
+- Handoff UTC: 2026-08-01T10:16:04Z
+## 2026-08-01 - Claude - إصلاح 10 ملاحظات مراجعة المالك على PR #37 (مسودة، لم تُدمج)
+
+- Status: pushed, awaiting fresh independent Codex review (لا يزال Draft)
+- Branch: feature/sales-purchase-returns (PR #37: https://github.com/fhwvtqdc2q-svg/tobacco-web/pull/37)
+- Commit: `16e09c6` "fix(returns): إصلاح 10 ملاحظات مراجعة المالك على PR #37"
+- Result: أُصلحت العشرة ملاحظات كاملة: (1) سعر مرتجع المشتريات أصبح من سعر سطر الفاتورة
+  الأصلي item.price بدل lastPrice/avgPrice، والتكلفة UnitCostPrice منفصلة تماماً؛ (2) الوحدة
+  الأصلية للسطر تُحفظ كما هي بلا تحويل قسري إلى unit2؛ (3) هوية السطر أصبحت GUID الفاتورة +
+  مفتاح المادة + رقم السطر بدل رقم الفاتورة وحده، ومطابقة المرتجعات السابقة عبر
+  original_invoice_guid؛ (4) أُضيف حارس ذري (قفل استشاري Postgres) في مقترح SQL غير المُطبَّق
+  ضد تجاوز الكمية عند التزامن؛ (5) الحقول المالية تُقفل بعد الاعتماد بمقترح SQL وبكود العميل
+  معاً؛ (6) السبب أصبح إلزامياً قبل الاعتماد بالواجهة والكود وقيد SQL؛ (7) سكريبت
+  discover-ameen-returns-schema.ps1 لم يعد يقرأ tools\.env ويرفض العمل صراحة إن وُجد متغير
+  الكتابة بالبيئة (لم يُشغَّل)؛ (8) أُدخلت GUID السلاسل الثلاث الفعلية في
+  tools/ameen-returns-config.json كما زوّدها المالك (مرتجع مبيعات
+  2F20674C-2D81-45FF-A513-A0A160C3BFEE، مرتجع مبيعات مركز BA87AC60-A404-4C68-80C4-7DB1DDF6B5CF،
+  مرتجع مشتريات C9ACA8FE-F50E-46EB-91AC-29EE32ACBB3E)؛ (9) مسار الاعتماد الفعلي أصبح يستدعي
+  ويُثبِّت فعلياً أثر عكس الربح/التكلفة وأثر المخزون الحقيقي — لكن لا يوجد بعد دفتر تسوية
+  خارجي لحساب الزبون/المورد، فالتسوية تبقى مسجّلة على مستند المرتجع نفسه فقط (مذكور بصراحة،
+  غير مغلق كلياً)؛ (10) أُضيفت 6 اختبارات انحدار جديدة تغطي كل ما سبق، منها اختبار يشغّل مسار
+  الاعتماد الفعلي لا دوال معزولة. `npm run check` و`git diff --check` نظيفان، وسكريبت
+  الـPowerShell محلَّل وبقي UTF-8 BOM. أُضيف تعليق على PR #37 يطلب مراجعة Codex جديدة. لم
+  تُطبَّق أي SQL على الإنتاج، ولم يُشغَّل أي سكريبت كتابة، ولم يُقرأ tools/.env.
+- Known blocker (لتتولاه جلسة Codex منفصلة بعد إخلاء القفل): PR #37 أصبح
+  `mergeStateStatus: DIRTY` / `mergeable: CONFLICTING` مقابل `main` لأن `main` تقدّم بتغييرات
+  أخرى (تعارض نصي في src/app.js وindex.html). **لم يُدمج PR #37 ولم تُحل هذه التعارضات في هذا
+  السجل بناءً على تعليمات المالك** — إصلاح دمج أصناف main يُترك لجلسة/فرع مستقل يتولاه Codex
+  بعد إخلاء قفل المهمة أدناه. سلاسل ترقيم الأمين (البند 8 أعلاه) أصبحت معروفة ومحدَّثة، فبند
+  "discover-ameen-returns-schema.ps1 لم يُشغَّل بعد" في السجل السابق (2026-07-31) لا يزال
+  قائماً فقط للتحقق النهائي من صحة الاتصال الفعلي، لا لاكتشاف الـGUID (أصبحت معروفة).
+- Handoff UTC: 2026-08-01T00:00:00Z (تقريبي)
+
+## 2026-07-31 - Claude - مرتجعات المبيعات جملة/مفرق ومرتجعات المشتريات
 
 - Status: completed
-- Branch: feature/sales-purchase-returns
-- Files: src/app.js, src/purchase-invoice-calc.js, scripts/check.mjs
-- Result: إلغاء حجز جلسة متضاربة على نفس الجهاز بموافقة صريحة من المالك؛ لا عمل فعلي أُنجز على الفرع/الـworktree (نظيف، بلا كوميتات). سيُعاد حجز المهمة فوراً بجلسة واحدة.
-- Handoff UTC: 2026-07-31T02:30:39Z
+- Branch: task branch pending for: مرتجعات المبيعات جملة/مفرق ومرتجعات المشتريات
+- Files: src/app.js,src/returns-calc.js
+- Result: Task completed and handed off.
+- Handoff UTC: 2026-07-31T03:23:51Z
+## 2026-07-31 - Claude - مرتجعات المبيعات (جملة/مركز) والمشتريات — PR #37 (مسودة)
+
+- Status: draft PR opened, awaiting review
+- Branch: feature/sales-purchase-returns (PR #37: https://github.com/fhwvtqdc2q-svg/tobacco-web/pull/37)
+- Files: src/returns-calc.js (جديد), src/app.js, src/supabase-client.js, scripts/check.mjs,
+  supabase/returns-table.sql (جديد، مرجعي فقط)، tools/ameen-returns-config.json (جديد)،
+  tools/discover-ameen-returns-schema.ps1 (جديد، قراءة فقط)، tools/sync-returns-to-ameen.ps1
+  (جديد، مقفل بـ exit 1)، index.html، public/service-worker.js، .gitattributes.
+- Result: تطوير كامل لواجهة مرتجعات المبيعات (جملة/مركز) والمشتريات: بحث عن الفاتورة
+  الأصلية، منع تجاوز الكمية الأصلية (بعد خصم المرتجعات السابقة)، عكس ربح/تكلفة نسبي فقط،
+  أثر تسوية (ذمم زبون/مورد أو استرداد نقدي من نفس الصندوق الأصلي)، دورة حالة مستند، طباعة
+  PDF وسجل مستندات بتصفية وتنقل. اختبارات retCalc كاملة + عقد ربط واجهة في scripts/check.mjs
+  — npm run check ناجح. اكتُشف أن git diff --check كان يُعلِّم أسطر index.html المعدَّلة
+  خطأً كـ"مسافات زائدة" لأن .gitattributes لم يكن يضع whitespace=cr-at-eol لملف CRLF أصلي
+  (كما هو مطبَّق على src/styles.css) — أُضيف نفس الإعداد لـ index.html، وأصبح git diff
+  --check نظيفاً. لم تُطبَّق أي SQL على الإنتاج، ولم يُشغَّل أي سكريبت كتابة على الأمين.
+- Blocker: اكتشاف سلاسل ترقيم الأمين الثلاث الفعلية (مرتجع مبيعات/مرتجع مبيعات مركز/مرتجع
+  مشتريات) لم يتم — خدمة SQL Server كانت متوقفة وقت التطوير، فـ GUID السلاسل في
+  tools/ameen-returns-config.json لا تزال null. يتطلب تشغيل discover-ameen-returns-schema.ps1
+  فعلياً بعد تشغيل الخدمة ومراجعة المالك قبل أي تفعيل مستقبلي لسكريبت الكتابة المقفل.
+- Handoff UTC: 2026-07-31T00:00:00Z (تقريبي)
 ## 2026-07-30 - Claude - إغلاق مهمة فواتير المشتريات: عرض قراءة فقط من الأمين
 
 - Status: completed (merged)

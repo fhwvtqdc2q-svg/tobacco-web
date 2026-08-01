@@ -55,6 +55,8 @@ if (!html.includes("number-normalizer.js")) {
 
 const app = readFileSync("src/app.js", "utf8");
 const priceGenerator = readFileSync("scripts/generate-price-lists.mjs", "utf8");
+const usdBulletin = readFileSync("public/downloads/price-list-usd.html", "utf8");
+const sypBulletin = readFileSync("public/downloads/price-list-syp-14050.html", "utf8");
 const ameenSyncAgent = readFileSync("tools/ameen-sync-agent.ps1", "utf8");
 const ameenPriceApply = readFileSync("tools/apply-approved-prices-to-ameen.ps1", "utf8");
 const ameenPriceVerify = readFileSync("tools/verify-prices.ps1", "utf8");
@@ -134,6 +136,24 @@ for (const contract of [
 for (const contract of ["const merged = new Map();", "counts.set(price", "findLast((candidate)"]) {
   if (!priceGenerator.includes(contract)) {
     console.error(`Merged bulletin price selection contract is missing: ${contract}`);
+    failed = true;
+  }
+}
+
+// أصناف الدمج الإداري يجب أن تظهر مرة واحدة في كل نشرة حتى لو كانت aliases
+// القديمة تحمل أسعاراً مختلفة قبل أن يوحّدها الحفظ التالي من الموقع.
+for (const [label, bulletin] of [["USD", usdBulletin], ["SYP", sypBulletin]]) {
+  for (const name of ["ماستر طويل ورق", "ماستر قصير أزرق"]) {
+    const count = bulletin.split(name).length - 1;
+    if (count !== 1) {
+      console.error(`${label} bulletin must contain one merged row for ${name}; found ${count}.`);
+      failed = true;
+    }
+  }
+}
+for (const contract of ["sourceKeys: named.map", "const exact = named.find"]) {
+  if (!app.includes(contract)) {
+    console.error(`Administrative bulletin alias merge contract is missing: ${contract}`);
     failed = true;
   }
 }
