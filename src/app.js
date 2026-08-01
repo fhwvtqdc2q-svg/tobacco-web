@@ -7720,6 +7720,17 @@ function retInvoicesForParty() {
   return customerInvoicesFor(state.retPartyName).filter((inv) => !inv.isReturn);
 }
 
+// مفتاح سطر ثابت/فريد لمرتجع: نعتمد GUID الفاتورة الأصلية (متاح لكل من فواتير
+// المبيعات والمشتريات) + مفتاح المادة (matGuid إن توفّر مستقبلاً، وإلا رقم/اسم
+// الصنف كما هو متاح اليوم من مخرجات pull-purchase-invoices-from-ameen.ps1 /
+// push-customer-invoices.ps1 — كلاهما لا يحمل GUID سطر ولا MatGUID فعلياً لكل
+// سطر حالياً، قيد بيانات موثّق في AI_HANDOFF.md) + رقم ترتيب السطر بالفاتورة،
+// كي لا يتكرر المفتاح عند وجود نفس الصنف بأكثر من سطر بنفس الفاتورة.
+// أبداً لا نستخدم رقم الفاتورة وحده (قد يتكرر رقم فاتورة بمصادر مختلفة).
+function retLineKey(invoiceGuid, matKey, index) {
+  return `${invoiceGuid || ""}::${matKey || ""}::${index}`;
+}
+
 function retCurrentOrigInvoice() {
   const invoices = retInvoicesForParty();
   if (!invoices.length) return null;
@@ -7742,58 +7753,87 @@ function retSelectOrigInvoice() {
   state.retOrigInvoice = invoice;
   state.retError = "";
   if (state.retKind === "purchase") {
-    state.retLines = (invoice.items || []).map((item) => ({
-      itemKey: String(item.itemNumber || item.itemName || ""),
-      name: item.itemName || "",
-      unit: item.unit || "",
-      originalQty: Number(item.qty || 0),
-      qty: "",
-      // لا يحمل تقرير مشتريات الأمين تفصيل سعر×كمية دقيق لكل سطر — نعتمد آخر سعر
-      // شراء أو متوسط التكلفة كأقرب تقريب موثّق (قيد بيانات، وليس تخميناً عشوائياً).
-      price: Number(item.lastPrice ?? item.avgPrice ?? 0),
-      unitCost: Number(item.avgPrice ?? item.lastPrice ?? 0)
-    }));
+    state.retLines = (invoice.items || []).map((item, idx) => {
+      const matKey = item.matGuid || item.itemNumber || item.itemName || "";
+      return {
+        itemKey: String(item.itemNumber || item.itemName || ""),
+        lineKey: retLineKey(invoice.guid, matKey, idx),
+        name: item.itemName || "",
+        unit: item.unit || "",
+        originalQty: Number(item.qty || 0),
+        qty: "",
+        // السعر هو السعر الفعلي المسجَّل على هذا السطر بالذات بفاتورة الشراء
+        // الأصلية (bi.Price الخام) — أبداً ليس lastPrice/avgPrice المُجمَّعَين.
+        price: Number(item.price || 0),
+        // لا يحمل تقرير مشتريات الأمين تكلفة خام لكل سطر بمفرده (raw unit_cost
+        // يُحسَب أثناء السحب لكن لا يُصدَّر بالتقرير الحالي — قيد بيانات موثّق)،
+        // فنعتمد آخر تكلفة/متوسط تكلفة كأقرب تقريب لأساس التكلفة فقط (cost basis)،
+        // وهذا الحقل لا يُستخدم إطلاقاً لتسعير سطر المرتجع (ذلك من item.price أعلاه).
+        unitCost: Number(item.lastPrice ?? item.avgPrice ?? 0)
+      };
+    });
   } else {
-    state.retLines = (invoice.lines || []).map((line) => ({
-      itemKey: String(line.material || ""),
-      name: line.material || "",
-      unit: line.unit2 || line.unit1 || "",
-      originalQty: Number(line.qtyUnits || line.qty || 0),
-      qty: "",
-      price: Number(line.price || 0),
-      unitCost: 0 // لا تكلفة بتقرير المبيعات — إدخال يدوي اختياري إن رغب المستخدم
-    }));
+    // نحسم أساس سعر الفاتورة (كروز/كرتونة) بمطابقة المجموع مع إجمالي الفاتورة
+    // الموثوق (نفس نواة invoicePriceBasis المستخدمة بعرض الفاتورة)، بدل افتراض
+    // unit2 دائماً — كي نحافظ على الوحدة/الكمية الأصليتين المسجّلتين فعلاً بالسطر
+    // ونطابقهما مع السعر المسجَّل (line.price) دون أي تحويل.
+    const basis = invoicePriceBasis(invoice);
+    state.retLines = (invoice.lines || []).map((line, idx) => {
+      const matKey = line.material || "";
+      const useUnit1 = basis === "unit1";
+      const unit = useUnit1 ? (line.unit1 || "") : (line.unit2 || line.unit1 || "");
+      const originalQty = useUnit1 ? Number(line.qty || 0) : Number(line.qtyUnits || line.qty || 0);
+      return {
+        itemKey: String(matKey),
+        lineKey: retLineKey(invoice.guid, matKey, idx),
+        name: line.material || "",
+        unit,
+        originalQty,
+        qty: "",
+        price: Number(line.price || 0),
+        unitCost: 0 // لا تكلفة بتقرير المبيعات — إدخال يدوي اختياري إن رغب المستخدم
+      };
+    });
   }
   render();
 }
 
-// كل المرتجعات المعتمدة فأعلى (وليست مسودة/ملغاة) لنفس الجهة+الفاتورة+الصنف —
-// أساس منع تجاوز الكمية الأصلية عبر retCalc.retValidateReturnQty.
-function retPriorReturnsForItem(itemKey) {
+// كل المرتجعات المعتمدة فأعلى (وليست مسودة/ملغاة) لنفس الجهة+الفاتورة الأصلية
+// (بمطابقة GUID الفاتورة أولاً، لا رقمها فقط — رقم الفاتورة قد يتكرر بمصادر
+// مختلفة) + نفس سطر الصنف (line_key، أو item_key كتراجع للمستندات القديمة قبل
+// إضافة line_key) — أساس منع تجاوز الكمية الأصلية عبر retCalc.retValidateReturnQty.
+function retPriorReturnsForItem(lineKey, itemKey) {
   if (!state.retOrigInvoice) return [];
-  const invNum = state.retOrigInvoice.number || state.retOrigInvoice.guid || "";
+  const invGuid = state.retOrigInvoice.guid || "";
+  const invNum = String(state.retOrigInvoice.number || "");
   return state.returns
-    .filter((r) => r.kind === state.retKind && r.partyName === state.retPartyName && r.originalInvoiceNumber === String(invNum))
+    .filter((r) => {
+      if (r.kind !== state.retKind || r.partyName !== state.retPartyName) return false;
+      if (invGuid) return r.originalInvoiceGuid === invGuid;
+      return r.originalInvoiceNumber === invNum; // تراجع فقط إن لم تتوفر GUID للفاتورة أصلاً
+    })
     .flatMap((r) => (r.items || [])
-      .filter((it) => (it.item_key || it.name) === itemKey)
+      .filter((it) => (it.line_key || `${r.originalInvoiceGuid || ""}::${it.item_key || it.name}`) === lineKey
+        || (!it.line_key && (it.item_key || it.name) === itemKey))
       .map((it) => ({ itemKey, qty: it.qty, status: r.status })));
 }
 
-function retSetLineQty(itemKey, value) {
-  const line = state.retLines.find((l) => l.itemKey === itemKey);
+function retSetLineQty(lineKey, value) {
+  const line = state.retLines.find((l) => l.lineKey === lineKey);
   if (line) line.qty = value;
 }
 
 function retLinesRowsHtml() {
   return state.retLines.map((line) => {
-    const remaining = retCalc.retRemainingQty(line.originalQty, retPriorReturnsForItem(line.itemKey), line.itemKey);
+    const priorReturns = retPriorReturnsForItem(line.lineKey, line.itemKey);
+    const remaining = retCalc.retRemainingQty(line.originalQty, priorReturns, line.itemKey);
     const computed = retCalc.retLineComputed({ itemKey: line.itemKey, qty: line.qty, price: line.price });
     return `
     <tr class="inv-row">
       <td>${escapeHtml(line.name)}</td>
-      <td class="inv-num">${escapeHtml(String(line.originalQty))}</td>
+      <td class="inv-num">${escapeHtml(String(line.originalQty))} ${escapeHtml(line.unit || "")}</td>
       <td class="inv-num">${escapeHtml(remaining.toString())}</td>
-      <td><input class="inv-input inv-num" data-ret-item-qty="${escapeHtml(line.itemKey)}" value="${escapeHtml(String(line.qty))}" placeholder="0" inputmode="decimal"></td>
+      <td><input class="inv-input inv-num" data-ret-item-qty="${escapeHtml(line.lineKey)}" value="${escapeHtml(String(line.qty))}" placeholder="0" inputmode="decimal"></td>
       <td class="inv-line-total">${line.price.toFixed(2)}</td>
       <td class="inv-line-total">${computed.lineTotal.toFixed(2)}</td>
     </tr>`;
@@ -7826,7 +7866,7 @@ async function retSubmit() {
     const check = retCalc.retValidateReturnQty({
       qty: line.qty,
       originalQty: line.originalQty,
-      priorReturns: retPriorReturnsForItem(line.itemKey),
+      priorReturns: retPriorReturnsForItem(line.lineKey, line.itemKey),
       itemKey: line.itemKey
     });
     if (!check.ok) {
@@ -7855,8 +7895,12 @@ async function retSubmit() {
       reason: state.retReason,
       items: activeLines.map((l) => ({
         item_key: l.itemKey,
+        // مفتاح سطر ثابت/فريد (GUID الفاتورة + مفتاح الصنف + رقم السطر) — أساس
+        // مطابقة سقف الكمية المرتجعة مستقبلاً، وليس رقم الفاتورة وحده.
+        line_key: l.lineKey,
         name: l.name,
-        unit: "unit2",
+        // الوحدة الأصلية المسجَّلة فعلياً بهذا السطر — لا تحويل قسري لـ unit2 هنا.
+        unit: l.unit || "",
         original_qty: l.originalQty,
         qty: retCalc.retToNumber(l.qty),
         price: l.price,
@@ -7882,10 +7926,31 @@ async function retSubmit() {
 async function retSetStatus(id, nextStatus) {
   const doc = state.returns.find((r) => r.id === id);
   if (!doc || !retCalc.retCanTransitionStatus(doc.status, nextStatus)) return;
+  // سبب المرتجع إلزامي قبل الاعتماد (طبقة تحقق بالواجهة — القيد الحقيقي بقاعدة
+  // البيانات موجود أيضاً بـ supabase/returns-table.sql فور تطبيقه؛ هذه رسالة
+  // فورية بالعربية بدل انتظار خطأ من الخادم فقط).
+  if (nextStatus === "approved" && !String(doc.reason || "").trim()) {
+    setNotice("error", "لا يمكن اعتماد مرتجع بلا سبب مكتوب — أدخل سبب المرتجع أولاً.");
+    render();
+    return;
+  }
   try {
-    await dataStore.setReturnDocumentStatus(id, nextStatus);
+    if (nextStatus === "approved") {
+      // اعتماد فعلي: يستدعي retCalc.retLineProfitReversal/retSettlementImpact
+      // ويُثبِّت نتائجهما على المستند نفسه، ويحاول تطبيق أثر المخزون الفعلي على
+      // approved_price_items.stock_qty (أفضل جهد لكل سطر — انظر توثيق الأخطاء
+      // الجزئية في AI_HANDOFF.md إن تعذّر تحديد وحدة أي صنف بثقة).
+      const result = await dataStore.approveReturnDocument(id, doc);
+      if (result && Array.isArray(result.stockWarnings) && result.stockWarnings.length) {
+        setNotice("error", `تم الاعتماد، لكن تعذّر تحديث مخزون بعض الأصناف: ${result.stockWarnings.join("؛ ")}`);
+      } else {
+        setNotice("success", "تم اعتماد المرتجع وتسجيل أثره على الربح/التسوية/المخزون.");
+      }
+    } else {
+      await dataStore.setReturnDocumentStatus(id, nextStatus);
+      setNotice("success", `تم تحديث حالة المرتجع إلى: ${retCalc.RET_STATUS_LABELS[nextStatus] || nextStatus}.`);
+    }
     await loadReturns();
-    setNotice("success", `تم تحديث حالة المرتجع إلى: ${retCalc.RET_STATUS_LABELS[nextStatus] || nextStatus}.`);
   } catch (error) {
     setNotice("error", safeErrorMessage(error));
   }
@@ -7934,9 +7999,11 @@ function retDocCard(doc, focused) {
     </tr>
   `).join("");
 
+  const hasReason = !!String(doc.reason || "").trim();
   const actions = doc.status === "draft"
-    ? `<button class="button secondary compact-button" type="button" data-ret-transition="${escapeHtml(doc.id)}" data-ret-next="approved">✓ اعتماد</button>
-       <button class="button secondary compact-button" type="button" data-ret-delete="${escapeHtml(doc.id)}">🗑 حذف</button>`
+    ? `<button class="button secondary compact-button" type="button" data-ret-transition="${escapeHtml(doc.id)}" data-ret-next="approved" ${hasReason ? "" : "disabled title=\"اكتب سبب المرتجع أولاً\""}>✓ اعتماد</button>
+       <button class="button secondary compact-button" type="button" data-ret-delete="${escapeHtml(doc.id)}">🗑 حذف</button>
+       ${hasReason ? "" : `<small class="muted" style="display:block;margin-top:4px">اكتب سبب المرتجع قبل الاعتماد.</small>`}`
     : doc.status === "approved"
       ? `<button class="button secondary compact-button" type="button" data-ret-transition="${escapeHtml(doc.id)}" data-ret-next="sync_pending">↻ إرسال للمزامنة</button>`
       : "";

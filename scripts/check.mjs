@@ -641,6 +641,187 @@ if (!Array.isArray(mergeNames) || mergeNames.some((name) => typeof name !== "str
   }
 }
 
+// عقود بند 10 (مراجعة المالك على PR #37، إصلاحات 1-4): سعر سطر مرتجع المشتريات
+// من سطر الفاتورة الأصلي نفسه لا المتوسط، الوحدة الأصلية محفوظة بلا تحويل قسري
+// لـ unit2، هوية السطر عبر GUID الفاتورة + مفتاح السطر لا رقم الفاتورة، وسقف
+// الكمية التراكمي يطابق originalInvoiceGuid أولاً. هذه فحوص شكل كود حقيقية على
+// src/app.js (وليست دوال معزولة) لأن retSelectOrigInvoice/retPriorReturnsForItem
+// تعتمدان على state/DOM ولا يمكن تشغيلهما بمعزل داخل vm.
+for (const contract of [
+  // 1) سعر مرتجع المشتريات من bi.Price الخام لهذا السطر بالذات، وليس lastPrice/avgPrice
+  "price: Number(item.price || 0)",
+  "unitCost: Number(item.lastPrice ?? item.avgPrice ?? 0)",
+  // 2) الوحدة الأصلية تُحفَظ كما وردت بالسطر — لا افتراض unit2 دائماً
+  "unit: item.unit || \"\",",
+  "const useUnit1 = basis === \"unit1\";",
+  "const unit = useUnit1 ? (line.unit1 || \"\") : (line.unit2 || line.unit1 || \"\");",
+  // 3) هوية السطر: GUID الفاتورة + مفتاح المادة + رقم السطر (لا رقم الفاتورة وحده)
+  "function retLineKey(invoiceGuid, matKey, index) {",
+  "lineKey: retLineKey(invoice.guid, matKey, idx)",
+  // 4) سقف الكمية التراكمي يطابق originalInvoiceGuid أولاً، ورقم الفاتورة تراجعاً فقط
+  "if (invGuid) return r.originalInvoiceGuid === invGuid;",
+  // 6) السبب إلزامي بالواجهة قبل الاعتماد (مكرر بقاعدة البيانات وبـ supabase-client.js)
+  "if (nextStatus === \"approved\" && !String(doc.reason || \"\").trim())"
+]) {
+  if (!appJs.includes(contract)) {
+    console.error(`Returns bug-fix contract is missing from src/app.js: ${contract}`);
+    failed = true;
+  }
+}
+
+// نفس بند 1: يجب ألا يُعاد أبداً افتراض lastPrice/avgPrice كسعر سطر مرتجع المشتريات
+if (/purchase[\s\S]{0,400}price:\s*Number\(item\.(lastPrice|avgPrice)/i.test(appJs)) {
+  console.error("src/app.js must never price a purchase-return line from lastPrice/avgPrice — only the original invoice line's own price.");
+  failed = true;
+}
+
+// عقود بند 4/5/6 على مستوى قاعدة البيانات (مقترح supabase/returns-table.sql — لم يُطبَّق بعد)
+const returnsSqlProposal = readFileSync("supabase/returns-table.sql", "utf8");
+for (const contract of [
+  // بند 4: حارس ذري ضد تجاوز الكمية عبر قفل استشاري + FOR UPDATE ضمن نفس المعاملة
+  "pg_advisory_xact_lock(hashtext(new.original_invoice_guid))",
+  "returns_guard_status_transition",
+  // بند 5: قفل الحقول المالية بعد approved — تصحيح فقط عبر correction_log/الحقول المتزامنة
+  "returns_guard_immutable_and_stamp",
+  // بند 6: السبب إلزامي بقاعدة البيانات أيضاً، وليس فقط بالواجهة
+  "constraint returns_reason_required_after_draft",
+  "check (status = 'draft' or coalesce(trim(reason), '') <> '')"
+]) {
+  if (!returnsSqlProposal.includes(contract)) {
+    console.error(`Returns SQL proposal contract is missing from supabase/returns-table.sql: ${contract}`);
+    failed = true;
+  }
+}
+
+// اختبارات حقيقية للمسار الفعلي approveReturnDocument في supabase-client.js (بند 10-و):
+// وليس فقط دوال retCalc المعزولة — تحقّق أن الاعتماد الفعلي (أ) يرفض بلا سبب،
+// و(ب) يعكس الربح/التكلفة ويثبّت أثر التسوية على المستند، و(ج) يطبّق أثر مخزون
+// حقيقي مكتوب على approved_price_items.stock_qty بالوحدة الأصلية المحفوظة (بلا
+// تحويل قسري)، عبر sandbox يحمّل returns-calc.js + supabase-client.js معاً بوضع
+// محلي (بلا إعداد Supabase) فيُجبَر على مسار localStorage.
+{
+  const retCalcSource = readFileSync("src/returns-calc.js", "utf8");
+  const supabaseClientSource = readFileSync("src/supabase-client.js", "utf8");
+
+  function makeFakeStorage() {
+    let store = {};
+    return {
+      getItem: (k) => (Object.prototype.hasOwnProperty.call(store, k) ? store[k] : null),
+      setItem: (k, v) => { store[k] = String(v); },
+      removeItem: (k) => { delete store[k]; },
+      clear: () => { store = {}; }
+    };
+  }
+
+  const fakeStorage = makeFakeStorage();
+  const sandbox = {
+    window: {
+      appConfig: {},
+      crypto: { randomUUID: () => "test-uuid-" + Math.random().toString(16).slice(2) }
+    },
+    localStorage: fakeStorage,
+    console
+  };
+  vm.createContext(sandbox);
+  vm.runInContext(retCalcSource, sandbox, { filename: "returns-calc.js" });
+  sandbox.retCalc = sandbox.window.retCalc;
+  vm.runInContext(supabaseClientSource, sandbox, { filename: "supabase-client.js" });
+  const testDataStore = sandbox.window.tobaccoData;
+
+  if (!testDataStore || typeof testDataStore.approveReturnDocument !== "function") {
+    console.error("src/supabase-client.js did not expose window.tobaccoData.approveReturnDocument for testing.");
+    failed = true;
+  } else {
+    fakeStorage.setItem("tobacco-approved-price-items", JSON.stringify([
+      { item_key: "ITEM1", stock_qty: 100, unit1_name: "علبة", unit2_name: "كرتونة", unit2_factor: 12 }
+    ]));
+
+    const draftDoc = {
+      id: "local-test-return-1",
+      status: "draft",
+      kind: "sales_wholesale",
+      reason: "",
+      originalPayMethod: "cash",
+      treasuryName: "الصندوق الرئيسي",
+      partyAmeenGuid: "cust-guid-1",
+      total: 40,
+      items: [
+        {
+          item_key: "ITEM1",
+          itemKey: "ITEM1",
+          name: "صنف تجريبي",
+          unit: "كرتونة",
+          original_qty: 10,
+          qty: 4,
+          price: 10,
+          unit_cost: 6
+        }
+      ]
+    };
+    fakeStorage.setItem("tobacco-returns", JSON.stringify([draftDoc]));
+
+    let rejectedWithoutReason = false;
+    try {
+      await testDataStore.approveReturnDocument(draftDoc.id, draftDoc);
+    } catch (err) {
+      rejectedWithoutReason = /سبب/.test(String(err && err.message));
+    }
+    if (!rejectedWithoutReason) {
+      console.error("approveReturnDocument test failed: must reject approval when doc.reason is empty.");
+      failed = true;
+    }
+
+    const approvedDoc = { ...draftDoc, reason: "بضاعة تالفة" };
+    fakeStorage.setItem("tobacco-returns", JSON.stringify([approvedDoc]));
+    let result = null;
+    let approveError = null;
+    try {
+      result = await testDataStore.approveReturnDocument(approvedDoc.id, approvedDoc);
+    } catch (err) {
+      approveError = err;
+    }
+    if (approveError) {
+      console.error(`approveReturnDocument test failed: unexpected error on valid approval — ${approveError.message}`);
+      failed = true;
+    } else {
+      if (!(Array.isArray(result?.stockWarnings) && result.stockWarnings.length === 0)) {
+        console.error(`approveReturnDocument test failed: expected no stock warnings, got ${JSON.stringify(result)}`);
+        failed = true;
+      }
+      const savedReturns = JSON.parse(fakeStorage.getItem("tobacco-returns") || "[]");
+      const saved = savedReturns.find((r) => r.id === approvedDoc.id);
+      if (!saved) {
+        console.error("approveReturnDocument test failed: returned document not found after approval.");
+        failed = true;
+      } else {
+        const checks = [
+          ["status", saved.status, "approved"],
+          ["reversed_revenue", saved.reversed_revenue, 40],
+          ["reversed_cost", saved.reversed_cost, 24],
+          ["reversed_profit", saved.reversed_profit, 16],
+          ["settlement_type", saved.settlement_type, "cash_refund"],
+          ["settlement_amount", saved.settlement_amount, 40],
+          ["stock_applied", saved.stock_applied, true]
+        ];
+        for (const [label, actual, expected] of checks) {
+          if (JSON.stringify(actual) !== JSON.stringify(expected)) {
+            console.error(`approveReturnDocument persisted-effect test failed: ${label} — got ${JSON.stringify(actual)}, expected ${JSON.stringify(expected)}`);
+            failed = true;
+          }
+        }
+      }
+
+      const savedPrices = JSON.parse(fakeStorage.getItem("tobacco-approved-price-items") || "[]");
+      const priceRow = savedPrices.find((r) => r.item_key === "ITEM1");
+      // 4 كرتونة × عامل تحويل 12 = 48 علبة تُضاف للمخزون (مبيعات ترجع للمخزون)
+      if (!priceRow || priceRow.stock_qty !== 148) {
+        console.error(`approveReturnDocument stock effect test failed: expected stock_qty 148, got ${priceRow && priceRow.stock_qty}`);
+        failed = true;
+      }
+    }
+  }
+}
+
 // عقد ربط واجهة فواتير المشتريات بملف poCalc ومصدر Supabase الجديد — يمنع رجوع
 // الواجهة لاستدعاء أسماء دوال قديمة أُزيلت من supabase-client.js.
 for (const contract of [
@@ -672,6 +853,7 @@ for (const contract of [
   "dataStore.listReturnDocuments",
   "dataStore.createReturnDocument",
   "dataStore.setReturnDocumentStatus",
+  "dataStore.approveReturnDocument",
   "dataStore.deleteReturnDocument"
 ]) {
   if (!appJs.includes(contract)) {

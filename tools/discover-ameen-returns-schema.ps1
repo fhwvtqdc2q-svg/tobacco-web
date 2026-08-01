@@ -7,18 +7,21 @@
 # في الأمين ولا في Supabase.
 # ============================================================
 param(
-    [string]$EnvFile = "$PSScriptRoot\.env",
     [string]$OutFile = "$PSScriptRoot\logs\discover-returns-schema.txt"
 )
 $ErrorActionPreference = "Stop"
-if (Test-Path $EnvFile) {
-    Get-Content $EnvFile | Where-Object { $_ -match '^\s*[^#].+=.+' } | ForEach-Object {
-        $kv = $_ -split '=', 2; [System.Environment]::SetEnvironmentVariable($kv[0].Trim(), $kv[1].Trim())
-    }
+
+# هذا السكربت للقراءة فقط ولا يجوز له أن يقترب من أي اتصال كتابة. لا نقرأ
+# tools\.env هنا إطلاقاً (يجب أن تكون AMEEN_SQL_CONNECTION_STRING قد صُدِّرت
+# مسبقاً في متغيرات بيئة العملية الحالية عبر setup-ameen-sync-env.ps1 أو ما
+# يعادله) — ونرفض العمل صراحة إن كان متغير الكتابة موجوداً أصلاً بالبيئة،
+# حتى لو كان متغير القراءة متوفراً أيضاً، منعاً لأي خطأ بشري يستخدم هذا
+# السكربت مع بيئة فيها صلاحية كتابة على الأمين.
+if ($env:AMEEN_SQL_WRITE_CONNECTION_STRING) {
+    throw "رُفض التشغيل: AMEEN_SQL_WRITE_CONNECTION_STRING موجود في متغيرات البيئة. هذا السكربت قراءة فقط ولا يجوز تشغيله أبداً في بيئة فيها اتصال كتابة على الأمين — أزل المتغير من هذه الجلسة أولاً."
 }
 $connStr = $env:AMEEN_SQL_CONNECTION_STRING
-if (-not $connStr) { $connStr = $env:AMEEN_SQL_WRITE_CONNECTION_STRING }
-if (-not $connStr) { throw "No AMEEN SQL connection string found." }
+if (-not $connStr) { throw "لا يوجد AMEEN_SQL_CONNECTION_STRING في متغيرات بيئة العملية الحالية. صدّره أولاً (مثلاً عبر setup-ameen-sync-env.ps1) — هذا السكربت لا يقرأ tools\.env." }
 
 Add-Type -AssemblyName "System.Data"
 $conn = New-Object System.Data.SqlClient.SqlConnection($connStr); $conn.Open()

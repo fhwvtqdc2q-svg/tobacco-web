@@ -1,11 +1,11 @@
 {
-  "_تنبيه": "ملف إعداد مبدئي غير مكتمل — لا تُشغَّل أي عملية Apply عليه قبل تعبئة القيم الحقيقية بعد تشغيل discover-ameen-returns-schema.ps1 فعلياً على هذا الجهاز ومراجعة النتائج مع المالك. لم يُشغَّل هذا الاكتشاف بعد (خدمة SQL Server كانت متوقفة وقت التطوير).",
+  "_تنبيه": "ملف إعداد مبدئي غير مكتمل — GUID السلاسل الثلاث أدناه أدخلها المالك يدوياً (وليس عبر discover-ameen-returns-schema.ps1)، لذا تبقى غير مؤكَّدة من بيانات الأمين الفعلية (bt000) حتى تشغيل الاكتشاف ومراجعة تطابق الاسم/النوع مع المالك؛ لا تُشغَّل أي عملية Apply قبل ذلك التأكيد.",
   "_الحالة": "مسودة تطوير — لم يُعتمد، لم يُختبر، لم يُنفَّذ",
-  "salesWholesaleReturnSeriesGuid": null,
+  "salesWholesaleReturnSeriesGuid": "2f20674c-2d81-45ff-a513-a0a160c3bfee",
   "salesWholesaleReturnSeriesName": "مرتجع مبيعات",
-  "salesRetailReturnSeriesGuid": null,
+  "salesRetailReturnSeriesGuid": "ba87ac60-a404-4c68-80c4-7db1ddf6b5cf",
   "salesRetailReturnSeriesName": "مرتجع مبيعات مركز",
-  "purchaseReturnSeriesGuid": null,
+  "purchaseReturnSeriesGuid": "c9aca8fe-f50e-46eb-91ac-29ee32acbb3e",
   "purchaseReturnSeriesName": "مرتجع مشتريات",
   "ameenBillHeaderTable": "bu000",
   "ameenBillLineTable": null,
@@ -13,11 +13,13 @@
   "dryRunDefault": true,
   "notes": [
     "لا تضع كلمات مرور أو سلاسل اتصال هنا — تبقى في tools\\.env فقط.",
-    "أي قيمة null هنا تعني: لم تُكتشف/تُؤكَّد بعد عبر discover-ameen-returns-schema.ps1.",
+    "قيم GUID الثلاث أدخلها المالك يدوياً بتاريخ 2026-08-01 — مصدرها تصريح مباشر من",
+    "ozk.kh@outlook.com وليست مؤكَّدة بعد بمطابقة استعلام فعلي مقابل bt000.",
     "أسماء السلاسل الثلاث (salesWholesaleReturnSeriesName/salesRetailReturnSeriesName/",
     "purchaseReturnSeriesName) هي الأسماء المطلوبة بموجب مواصفة المهمة نفسها، وليست",
-    "مؤكَّدة بعد من بيانات الأمين الفعلية — يجب التحقق منها عبر discover-ameen-returns-schema.ps1",
-    "أولاً (مطابقة نص Name في bt000) قبل استخدامها في أي كتابة فعلية.",
+    "مؤكَّدة بعد من بيانات الأمين الفعلية — يجب التحقق من الاسم والنوع معاً عبر",
+    "discover-ameen-returns-schema.ps1 (مطابقة GUID و Name في bt000) قبل أي كتابة فعلية،",
+    "لأن sync-returns-to-ameen.ps1 يبقى مقفلاً بـ exit 1 حتى تتم تلك المراجعة.",
     "كل تعديل لهذا الملف بعد الاكتشاف الفعلي يجب أن يوثّق مصدر كل قيمة (اسم الاستعلام الذي أثبتها)."
   ]
 }

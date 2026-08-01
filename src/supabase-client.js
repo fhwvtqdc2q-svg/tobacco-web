@@ -224,8 +224,14 @@
     return (Array.isArray(items) ? items : [])
       .map((item) => ({
         item_key: item.item_key == null ? null : String(item.item_key),
+        // مفتاح سطر ثابت/فريد (GUID الفاتورة + مفتاح الصنف + رقم السطر) — أساس
+        // مطابقة سقف الكمية المرتجعة، وليس item_key وحده (قد يتكرر بأكثر من سطر).
+        line_key: item.line_key == null ? null : String(item.line_key),
         name: cleanText(item.name, 240),
-        unit: item.unit === "unit1" ? "unit1" : "unit2",
+        // الوحدة الأصلية المسجَّلة فعلياً بهذا السطر كما وردت من app.js — نص حر
+        // (اسم الوحدة الحقيقي: كروز/كرتونة/شرحة/طرد...)، وليس تحويلاً قسرياً
+        // لثنائية "unit1"/"unit2". لا نُسقط أي قيمة حقيقية هنا.
+        unit: cleanText(item.unit, 60),
         original_qty: Math.max(0, parseNumber(item.original_qty)),
         qty: Math.max(0, parseNumber(item.qty)),
         price: Math.max(0, parseNumber(item.price)),
@@ -264,6 +270,16 @@
       approvedAt: row.approved_at || "",
       correctionCount: Number(row.correction_count || 0),
       correctionLog: Array.isArray(row.correction_log) ? row.correction_log : [],
+      // أثر عكس الربح/التكلفة والتسوية والمخزون بعد الاعتماد — قيم محفوظة فعلياً
+      // على المستند نفسه (وليست محسوبة ومهملة فقط)، انظر approveReturnDocument.
+      reversedRevenue: parseNumber(row.reversed_revenue || 0),
+      reversedCost: parseNumber(row.reversed_cost || 0),
+      reversedProfit: parseNumber(row.reversed_profit || 0),
+      settlementType: row.settlement_type || "",
+      settlementTargetId: row.settlement_target_id || "",
+      settlementAmount: parseNumber(row.settlement_amount || 0),
+      stockApplied: Boolean(row.stock_applied),
+      stockAppliedAt: row.stock_applied_at || "",
       createdAt: row.created_at || "",
       updatedAt: row.updated_at || row.created_at || ""
     };
@@ -420,6 +436,63 @@
     if (error) throw new Error(translateAuthError(error.message));
     if (!data.user) throw new Error(missingSessionMessage());
     return data.user;
+  }
+
+  // يحدّد كمية المخزون بوحدة1 (الوحدة الأساسية المخزَّنة بـ stock_qty) المقابلة
+  // لسطر مرتجع بوحدته الحقيقية المسجَّلة (item.unit)، بمطابقة اسم الوحدة الفعلي
+  // أولاً (unit1_name/unit2_name)، وبتراجع توافقي لثنائية "unit1"/"unit2" الحرفية
+  // فقط لمستندات قديمة أُنشئت قبل هذا الإصلاح. null صراحة إن تعذّرت المطابقة
+  // بثقة — لا نخمّن الوحدة أبداً.
+  function returnItemUnit1Delta(priceRow, unitLabel, qty, direction) {
+    const sign = direction === "out" ? -1 : 1;
+    const unit2Factor = Number(priceRow.unit2_factor) > 0 ? Number(priceRow.unit2_factor) : 1;
+    const u1 = String(priceRow.unit1_name || "").trim();
+    const u2 = String(priceRow.unit2_name || "").trim();
+    const label = String(unitLabel || "").trim();
+    if (!label) return null;
+    if (u1 && label === u1) return sign * qty;
+    if (u2 && label === u2) return sign * qty * unit2Factor;
+    if (label === "unit1") return sign * qty;
+    if (label === "unit2") return sign * qty * unit2Factor;
+    return null;
+  }
+
+  // يطبّق أثر مخزون فعلي (كتابة مُثبَّتة، وليست محسوبة فقط) على approved_price_items.stock_qty
+  // لسطر مرتجع واحد. يرمي خطأً عربياً صريحاً عند أي غموض (صنف غير موجود، أو تعذّر
+  // مطابقة الوحدة بثقة) بدل تخمين النتيجة أو الفشل الصامت — الاستدعاء في
+  // approveReturnDocument يجمع هذه الأخطاء في stockWarnings بدل إيقاف الاعتماد كاملاً.
+  async function applyReturnStockAdjustment(item, direction) {
+    const itemKey = item.item_key != null ? item.item_key : item.itemKey;
+    if (!itemKey) throw new Error("لا يوجد مفتاح صنف (item_key) لمطابقة المخزون");
+    const qty = Math.max(0, parseNumber(item.qty));
+    if (qty <= 0) return;
+
+    if (!client) {
+      const all = readJson(APPROVED_PRICES_KEY, []);
+      const idx = all.findIndex((row) => String(row.item_key) === String(itemKey));
+      if (idx === -1) throw new Error("الصنف غير موجود في قائمة الأسعار المعتمدة");
+      const row = all[idx];
+      const delta = returnItemUnit1Delta(row, item.unit, qty, direction);
+      if (delta == null) throw new Error("تعذّر تحديد وحدة الصنف بثقة");
+      row.stock_qty = Math.max(0, roundPrice(Number(row.stock_qty || 0) + delta));
+      all[idx] = row;
+      writeJson(APPROVED_PRICES_KEY, all);
+      return;
+    }
+
+    const { data, error } = await client
+      .from(approvedPricesTable)
+      .select("id, item_key, stock_qty, unit1_name, unit2_name, unit2_factor")
+      .eq("item_key", itemKey)
+      .limit(1);
+    if (error) throw new Error(translateDbError(error.message));
+    const row = data?.[0];
+    if (!row) throw new Error("الصنف غير موجود في approved_price_items");
+    const delta = returnItemUnit1Delta(row, item.unit, qty, direction);
+    if (delta == null) throw new Error("تعذّر تحديد وحدة الصنف بثقة");
+    const newStock = Math.max(0, roundPrice(Number(row.stock_qty || 0) + delta));
+    const { error: updErr } = await client.from(approvedPricesTable).update({ stock_qty: newStock }).eq("id", row.id);
+    if (updErr) throw new Error(translateDbError(updErr.message));
   }
 
   const service = {
@@ -1287,6 +1360,12 @@
 
     async setReturnDocumentStatus(id, nextStatus, extra = {}) {
       if (!RET_STATUS_VALUES.includes(nextStatus)) throw new Error("حالة مرتجع غير معروفة.");
+      // اعتماد ("approved") له مسار مخصص (approveReturnDocument) يعكس الربح/التكلفة
+      // ويطبّق أثر التسوية والمخزون فعلياً — هذه الدالة العامة لا يجوز أن تُستخدَم
+      // لتمرير حالة "approved" لأنها ستتخطى ذلك المسار وتترك المستند بلا أثر حقيقي.
+      if (nextStatus === "approved") {
+        throw new Error("استخدم approveReturnDocument للاعتماد الفعلي، وليس setReturnDocumentStatus.");
+      }
       const patch = { status: nextStatus, updated_at: new Date().toISOString() };
       if (extra.syncError !== undefined) patch.sync_error = extra.syncError;
       if (!client) {
@@ -1296,6 +1375,129 @@
       }
       await requireUser();
       const { error } = await client.from(returnsTable).update(patch).eq("id", id);
+      if (error) throw new Error(translateDbError(error.message));
+    },
+
+    // اعتماد فعلي لمستند مرتجع: يعكس الربح/التكلفة (retCalc.retInvoiceProfitReversal)،
+    // يحدد أثر التسوية (retCalc.retSettlementImpact) ويثبّته على المستند نفسه (لا يوجد
+    // دفتر أرصدة زبائن/موردين قابل للكتابة محلياً بعد، لذا التسوية تُحفَظ كحقل بيانات
+    // على returns نفسه: settlement_type/target_id/amount — وليست مطبَّقة فعلياً على أي
+    // رصيد خارجي؛ هذا موثّق صراحة في AI_HANDOFF.md)، ثم تحاول (أفضل جهد لكل صنف) تطبيق
+    // أثر المخزون الحقيقي على approved_price_items.stock_qty. فشل تحديد وحدة/صنف بثقة
+    // لا يوقف الاعتماد المالي (يبقى صحيحاً ومحفوظاً) لكنه يُجمَّع في stockWarnings
+    // ليعرضه app.js صراحة للمستخدم — لا كتمان صامت لفشل جزئي (بند 9 من مواصفة المهمة).
+    async approveReturnDocument(id, doc) {
+      if (!doc) throw new Error("مستند المرتجع غير موجود.");
+      // دفاع بعمق: قيد السبب موجود بالواجهة (retSetStatus) وبقاعدة البيانات
+      // (returns_reason_required_after_draft) — نكرره هنا لأن المسار المحلي (بلا
+      // Supabase) لا يمر بذلك القيد إطلاقاً.
+      if (!String(doc.reason || "").trim()) {
+        throw new Error("لا يمكن اعتماد مرتجع بلا سبب مكتوب.");
+      }
+      if (!retCalc.retCanTransitionStatus(doc.status, "approved")) {
+        throw new Error("لا يمكن الانتقال إلى حالة معتمد من الحالة الحالية.");
+      }
+
+      const items = Array.isArray(doc.items) ? doc.items : [];
+      const reversal = retCalc.retInvoiceProfitReversal(
+        items.map((item) => ({
+          returnQty: item.qty,
+          unitPrice: item.price,
+          unitCost: item.unitCost != null ? item.unitCost : item.unit_cost || 0
+        }))
+      );
+
+      const kind = doc.kind === "purchase" ? "purchase" : "sales";
+      const settlement = retCalc.retSettlementImpact({
+        kind,
+        amount: doc.total,
+        supplierId: kind === "purchase" ? doc.partyAmeenGuid || doc.partyAmeenCode || null : null,
+        customerId: kind === "sales" ? doc.partyAmeenGuid || doc.partyAmeenCode || null : null,
+        originalPayMethod: doc.originalPayMethod,
+        treasuryId: doc.treasuryName || null
+      });
+      if (!settlement.ok) {
+        throw new Error(settlement.error || "تعذّر احتساب أثر التسوية لهذا المرتجع.");
+      }
+
+      const direction = retCalc.retInventoryDirection(doc.kind);
+      const stockWarnings = [];
+      for (const item of items) {
+        try {
+          await applyReturnStockAdjustment(item, direction);
+        } catch (err) {
+          stockWarnings.push(`${item.name || item.itemKey || item.item_key || "صنف"}: ${err?.message || err}`);
+        }
+      }
+
+      const patch = {
+        status: "approved",
+        reversed_revenue: reversal.revenueReversed,
+        reversed_cost: reversal.costReversed,
+        reversed_profit: reversal.profitReversed,
+        settlement_type: settlement.type,
+        settlement_target_id: String(settlement.supplierId || settlement.customerId || settlement.treasuryId || ""),
+        settlement_amount: settlement.amount,
+        stock_applied: stockWarnings.length < items.length,
+        stock_applied_at: new Date().toISOString(),
+        updated_at: new Date().toISOString()
+      };
+
+      if (!client) {
+        const all = readJson(RETURNS_KEY, []).map((row) => (row.id === id ? { ...row, ...patch } : row));
+        writeJson(RETURNS_KEY, all);
+        return { stockWarnings };
+      }
+
+      const user = await requireUser();
+      patch.approved_by = user.id;
+      patch.approved_at = new Date().toISOString();
+      const { error } = await client.from(returnsTable).update(patch).eq("id", id);
+      if (error) throw new Error(translateDbError(error.message));
+      return { stockWarnings };
+    },
+
+    // إجراء تصحيحي موثّق على مرتجع بعد اعتماده — نفس نمط correctPurchaseInvoice.
+    // لا يعدّل الحقول المالية المقفلة مباشرة (تلك محمية بقيد قاعدة البيانات
+    // returns_guard_immutable_and_stamp)؛ الاستخدام المقصود هو تسجيل ملاحظة/تصحيح
+    // موثّق (وربما تعديل حقول غير مالية مسموحة) لا تعديل حر لمحتوى المرتجع المعتمد.
+    async correctReturnDocument(id, note, patch = {}) {
+      const cleanNote = cleanText(note, 500);
+      if (!cleanNote) throw new Error("اكتب سبب الإجراء التصحيحي.");
+      if (!client) {
+        const all = readJson(RETURNS_KEY, []).map((row) => {
+          if (row.id !== id) return row;
+          const log = Array.isArray(row.correction_log) ? row.correction_log : [];
+          return {
+            ...row,
+            ...patch,
+            correction_count: Number(row.correction_count || 0) + 1,
+            correction_log: [...log, { note: cleanNote, at: new Date().toISOString() }],
+            updated_at: new Date().toISOString()
+          };
+        });
+        writeJson(RETURNS_KEY, all);
+        return;
+      }
+      const user = await requireUser();
+      const { data: current, error: readErr } = await client
+        .from(returnsTable)
+        .select("correction_count, correction_log")
+        .eq("id", id)
+        .limit(1);
+      if (readErr) throw new Error(translateDbError(readErr.message));
+      const row = current?.[0] || {};
+      const log = Array.isArray(row.correction_log) ? row.correction_log : [];
+      const entry = { note: cleanNote, at: new Date().toISOString(), by: user.id };
+      const { error } = await client
+        .from(returnsTable)
+        .update({
+          ...patch,
+          correction_count: Number(row.correction_count || 0) + 1,
+          correction_log: [...log, entry],
+          updated_at: new Date().toISOString()
+        })
+        .eq("id", id);
       if (error) throw new Error(translateDbError(error.message));
     },
 

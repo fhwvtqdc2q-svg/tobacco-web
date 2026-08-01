@@ -68,7 +68,26 @@ create table if not exists returns (
   approved_at            timestamptz   default null,
 
   correction_count       integer       not null default 0,
-  correction_log         jsonb         not null default '[]'
+  correction_log         jsonb         not null default '[]',
+
+  -- أثر الاعتماد الفعلي (تُملأ عند الانتقال draft → approved من الكود، لا يدوياً):
+  -- الربح/التكلفة/الإيراد المعكوس فعلياً لهذا المستند (retCalc.retInvoiceProfitReversal)،
+  -- ونوع/هدف/قيمة التسوية المالية (retCalc.retSettlementImpact)، وعَلَم/توقيت تطبيق
+  -- أثر المخزون فعلياً على approved_price_items.stock_qty (قد يبقى false إن تعذّر
+  -- تحديد الوحدة بثقة لأحد الأصناف — انظر AI_HANDOFF.md لتوثيق أي حالة كهذه).
+  reversed_revenue       numeric(15,2) not null default 0,
+  reversed_cost          numeric(15,2) not null default 0,
+  reversed_profit        numeric(15,2) not null default 0,
+  settlement_type        text          default null check (settlement_type in ('customer_credit', 'supplier_credit', 'cash_refund')),
+  settlement_target_id   text          default null,
+  settlement_amount      numeric(15,2) not null default 0,
+  stock_applied          boolean       not null default false,
+  stock_applied_at       timestamptz   default null,
+
+  -- سبب المرتجع إلزامي بمجرد مغادرة حالة المسودة (طبقة دفاع ثانية عن التحقق
+  -- بالواجهة في app.js — لا اعتماد على الواجهة وحدها).
+  constraint returns_reason_required_after_draft
+    check (status = 'draft' or coalesce(trim(reason), '') <> '')
 );
 
 comment on table returns is 'مستندات مرتجعات المبيعات (جملة/مركز) والمشتريات — تسجيل داخلي، لم تُفعَّل مزامنة الأمين بعد';
@@ -104,6 +123,13 @@ declare
   rank_map jsonb := '{"draft":0,"approved":1,"sync_pending":2,"failed":2,"synced":3}'::jsonb;
   from_rank int;
   to_rank int;
+  item jsonb;
+  other_item jsonb;
+  other_row record;
+  item_line_key text;
+  item_qty numeric;
+  already_qty numeric;
+  original_qty numeric;
 begin
   if new.status is not distinct from old.status then
     return new;
@@ -120,12 +146,57 @@ begin
     raise exception 'لا يمكن الرجوع إلى حالة مسودة بعد الاعتماد';
   end if;
 
+  if not (new.status = 'draft' or coalesce(trim(new.reason), '') <> '') then
+    raise exception 'لا يمكن اعتماد مرتجع بلا سبب مكتوب';
+  end if;
+
   if from_rank = 2 and to_rank = 2 then
     return new; -- sync_pending <-> failed مسموح بالاتجاهين
   end if;
 
   if to_rank <> from_rank + 1 then
     raise exception 'انتقال حالة غير مسموح: % → %', old.status, new.status;
+  end if;
+
+  -- ===== حارس ذري ضد تجاوز الكمية المرتجعة (عند الاعتماد فقط) =====
+  -- حجّة الذرّية: pg_advisory_xact_lock مأخوذ هنا بمعرّف مشتق من original_invoice_guid
+  -- قبل قراءة أي مجاميع مُلتزَمة (committed) من صفوف returns الأخرى لنفس الفاتورة
+  -- الأصلية. القفل معاملي (xact) ويُحرَّر تلقائياً عند commit/rollback. لأن كل
+  -- معاملة تحاول اعتماد مرتجع لنفس original_invoice_guid يجب أن تحصل على نفس
+  -- القفل قبل قراءة المجموع، تُسلسَل (serialize) المعاملات المتزامنة على نفس
+  -- الفاتورة الأصلية بعضها خلف بعض — فلا يمكن لمعاملتين متزامنتين أن تريا نفس
+  -- "المجموع القديم" وتوافقا معاً على تجاوز original_qty (سباق read-then-write
+  -- كلاسيكي). هذا يعادل "SELECT ... FOR UPDATE" لكن دون الحاجة لصف قفل حقيقي
+  -- بجدول آخر، لأن original_invoice_guid ثابت ومعروف قبل الالتزام.
+  if new.status = 'approved' and new.original_invoice_guid is not null then
+    perform pg_advisory_xact_lock(hashtext(new.original_invoice_guid));
+
+    for item in select * from jsonb_array_elements(coalesce(new.items, '[]'::jsonb))
+    loop
+      item_line_key := coalesce(item ->> 'line_key', item ->> 'item_key', item ->> 'name');
+      item_qty := coalesce((item ->> 'qty')::numeric, 0);
+      original_qty := coalesce((item ->> 'original_qty')::numeric, 0);
+      already_qty := 0;
+
+      for other_row in
+        select items
+        from returns
+        where id <> new.id
+          and original_invoice_guid = new.original_invoice_guid
+          and status in ('approved', 'sync_pending', 'synced', 'failed')
+      loop
+        for other_item in select * from jsonb_array_elements(coalesce(other_row.items, '[]'::jsonb))
+        loop
+          if coalesce(other_item ->> 'line_key', other_item ->> 'item_key', other_item ->> 'name') = item_line_key then
+            already_qty := already_qty + coalesce((other_item ->> 'qty')::numeric, 0);
+          end if;
+        end loop;
+      end loop;
+
+      if already_qty + item_qty > original_qty then
+        raise exception 'الكمية المرتجعة لهذا الصنف (%) تتجاوز المتبقي من الفاتورة الأصلية', item_line_key;
+      end if;
+    end loop;
   end if;
 
   return new;
@@ -139,7 +210,8 @@ create trigger trg_returns_status_guard
   when (new.status is distinct from old.status)
   execute function returns_guard_status_transition();
 
--- ===== محفّز: منع تعديل created_by، وتوقيع approved_by/approved_at تلقائياً =====
+-- ===== محفّز: منع تعديل created_by، وتوقيع approved_by/approved_at تلقائياً،
+--       وتجميد الحقول المالية بمجرد اعتماد المستند (draft) =====
 create or replace function returns_guard_immutable_and_stamp()
 returns trigger
 language plpgsql
@@ -154,6 +226,30 @@ begin
     new.approved_at := now();
   elsif new.approved_by is distinct from old.approved_by or new.approved_at is distinct from old.approved_at then
     raise exception 'حقول approved_by/approved_at محجوزة للنظام فقط';
+  end if;
+
+  -- بمجرد مغادرة حالة المسودة (approved أو أعلى)، تُقفَل الحقول المالية
+  -- الجوهرية للمستند: النوع، الجهة، مرجع الفاتورة الأصلية، طريقة الدفع،
+  -- الصندوق، بنود الأصناف والكميات والأسعار والتكلفة، والإجمالي. لا يجوز
+  -- تعديل أي منها بعد الاعتماد إطلاقاً — فقط عبر آلية correctReturnDocument
+  -- (سجل تصحيحي موثّق) وليس تعديلاً حراً. حقول المزامنة (sync_*، synced_at،
+  -- ameen_document_*) وحقول أثر الاعتماد (reversed_*، settlement_*،
+  -- stock_applied*) وحقول التصحيح (correction_*) تبقى قابلة للتعديل بعد الاعتماد.
+  if old.status <> 'draft' then
+    if new.kind is distinct from old.kind
+      or new.party_name is distinct from old.party_name
+      or new.party_ameen_guid is distinct from old.party_ameen_guid
+      or new.party_ameen_code is distinct from old.party_ameen_code
+      or new.original_invoice_number is distinct from old.original_invoice_number
+      or new.original_invoice_guid is distinct from old.original_invoice_guid
+      or new.original_invoice_date is distinct from old.original_invoice_date
+      or new.original_pay_method is distinct from old.original_pay_method
+      or new.treasury_name is distinct from old.treasury_name
+      or new.items is distinct from old.items
+      or new.total is distinct from old.total
+    then
+      raise exception 'لا يمكن تعديل المحتوى المالي لمرتجع بعد اعتماده — استخدم إجراء تصحيحي موثّق بدلاً من ذلك';
+    end if;
   end if;
 
   new.updated_at := now();
