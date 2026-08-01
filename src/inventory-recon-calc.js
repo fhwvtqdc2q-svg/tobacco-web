@@ -46,8 +46,11 @@
 
   function lineComputed(line) {
     const l = line || {};
-    const { diffQty, diffType } = diffOf(l.systemQty, l.actualQty);
-    const value = settlementValue(diffQty, l.unitCost);
+    const systemQty = l.systemQty !== undefined ? l.systemQty : l.system_qty;
+    const actualQty = l.actualQty !== undefined ? l.actualQty : l.actual_qty;
+    const unitCost = l.unitCost !== undefined ? l.unitCost : l.unit_cost;
+    const { diffQty, diffType } = diffOf(systemQty, actualQty);
+    const value = settlementValue(diffQty, unitCost);
     const reasonRequired = diffType !== "none";
     const reasonOk = !reasonRequired || (typeof l.reason === "string" && l.reason.trim() !== "");
     return { diffQty, diffType, settlementValue: value, reasonRequired, reasonOk };

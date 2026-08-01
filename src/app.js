@@ -292,6 +292,8 @@ const state = {
   reconRowQuery: "",
   reconSaving: false,
   reconOpenId: "",
+  reconWarehouseStockMap: null,   // itemKey -> qty من تقرير مخزون المستودع الموثوق (null = غير متوفر بعد)
+  reconWarehouseStockLoading: false,
   notifPermission: "default",
   seenRequestIds: new Set(),
   globalSearch: "",
@@ -501,6 +503,32 @@ async function loadReconSessions() {
     state.reconSessions = dataStore.listReconSessions ? await dataStore.listReconSessions() : [];
   } catch {
     state.reconSessions = [];
+  }
+  await loadReconWarehouseStock(state.reconWarehouseKey);
+}
+
+// يبني خريطة itemKey → كمية النظام من أحدث تقرير مخزون موثوق لهذا المستودع.
+// يبقى null إن لم يوجد تقرير بعد (لا سكريبت سحب فعلي حتى الآن) — لا تُخترَع كمية صفرية بديلة.
+async function loadReconWarehouseStock(warehouseKey) {
+  state.reconWarehouseStockMap = null;
+  if (!dataStore.getLatestWarehouseStockReport) return;
+  state.reconWarehouseStockLoading = true;
+  try {
+    const report = await dataStore.getLatestWarehouseStockReport(warehouseKey);
+    const items = report && Array.isArray(report.items) ? report.items : [];
+    if (report && items.length) {
+      const map = {};
+      items.forEach((it) => {
+        const key = it.itemKey || it.item_key;
+        if (!key) return;
+        map[key] = Number(it.qty ?? it.stockQty ?? it.stock_qty ?? 0);
+      });
+      state.reconWarehouseStockMap = map;
+    }
+  } catch {
+    state.reconWarehouseStockMap = null;
+  } finally {
+    state.reconWarehouseStockLoading = false;
   }
 }
 
@@ -7507,12 +7535,16 @@ function reconAddItem(key) {
   if (!item) return;
   if ((state.reconRows || []).some((r) => r.itemKey === key)) return;
   const unitCost = reconUnitCostFor(item);
+  const warehouseMap = state.reconWarehouseStockMap;
+  const hasWarehouseStock = warehouseMap && Object.prototype.hasOwnProperty.call(warehouseMap, item.itemKey);
   state.reconRows.push({
     itemKey: item.itemKey,
     itemNumber: item.itemCode || item.itemNumber || "",
     itemName: item.itemName,
     unitName: item.unit1Name || "كروز",
-    systemQty: Number(item.stockQty || 0),
+    // كمية النظام من تقرير مخزون المستودع الموثوق إن توفّر، وإلا مخزون النشرة العام كتقدير مؤقت.
+    systemQty: hasWarehouseStock ? warehouseMap[item.itemKey] : Number(item.stockQty || 0),
+    systemQtySource: hasWarehouseStock ? "warehouse" : "general",
     actualQty: "",
     unitCost,
     reason: ""
@@ -7768,7 +7800,7 @@ function inventoryRecon() {
     <tr class="inv-row">
       <td>${escapeHtml(row.itemName)}<div class="muted" style="font-size:0.85em">${escapeHtml(row.itemNumber || "")}</div></td>
       <td>${escapeHtml(row.unitName || "")}</td>
-      <td><input class="inv-input inv-num" data-recon-field="systemQty" data-recon-key="${escapeHtml(row.itemKey)}" value="${escapeHtml(String(row.systemQty))}" inputmode="decimal"></td>
+      <td>${escapeHtml(String(row.systemQty))}<div class="muted" style="font-size:0.78em">${row.systemQtySource === "warehouse" ? "من تقرير المستودع" : "تقدير من النشرة العامة"}</div></td>
       <td><input class="inv-input inv-num" data-recon-field="actualQty" data-recon-key="${escapeHtml(row.itemKey)}" value="${escapeHtml(String(row.actualQty))}" placeholder="—" inputmode="decimal"></td>
       <td>${diffLabel}${computed.diffType !== "none" ? ` ${Math.abs(computed.diffQty).toFixed(2)}` : ""}</td>
       <td>${computed.settlementValue.toFixed(2)}</td>
@@ -9138,9 +9170,13 @@ function render() {
 
   // ===== الجرد الشهري (route: inventoryRecon) =====
   app.querySelectorAll("[data-recon-warehouse]").forEach((btn) => {
-    btn.addEventListener("click", () => {
+    btn.addEventListener("click", async () => {
+      if (state.reconWarehouseKey === btn.dataset.reconWarehouse) return;
       state.reconWarehouseKey = btn.dataset.reconWarehouse;
       state.reconWarehouseName = btn.dataset.reconWarehouseName;
+      state.reconRows = []; // كمية النظام تعتمد على المستودع المختار — تفريغ السطور المضافة لمستودع آخر
+      render();
+      await loadReconWarehouseStock(state.reconWarehouseKey);
       render();
     });
   });

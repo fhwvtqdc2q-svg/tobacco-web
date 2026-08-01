@@ -37,10 +37,14 @@ create table if not exists inventory_recon_lines (
   unit_name        text,
   system_qty       numeric(18,3) not null default 0,
   actual_qty       numeric(18,3),
-  diff_qty         numeric(18,3) generated always as (coalesce(actual_qty, 0) - system_qty) stored,
+  diff_qty         numeric(18,3) generated always as (
+                     case when actual_qty is null then null else actual_qty - system_qty end
+                   ) stored,
   unit_cost        numeric(18,4),
   currency         text          default 'USD',
-  settlement_value numeric(18,2) generated always as ((coalesce(actual_qty, 0) - system_qty) * coalesce(unit_cost, 0)) stored,
+  settlement_value numeric(18,2) generated always as (
+                     case when actual_qty is null then null else (actual_qty - system_qty) * coalesce(unit_cost, 0) end
+                   ) stored,
   reason           text,
   created_at       timestamptz   default now(),
   updated_at       timestamptz   default now(),
@@ -81,17 +85,34 @@ create index if not exists idx_inventory_recon_audit_log_session
 
 create or replace function inventory_recon_guard_immutable()
 returns trigger as $$
+declare
+  status_rank constant jsonb := '{"draft": 0, "reviewed": 1, "approved": 2}';
+  old_rank int;
+  new_rank int;
 begin
   if OLD.status = 'approved' then
-    raise exception 'inventory_recon_sessions: session % is approved and cannot be modified', OLD.id;
+    raise exception 'inventory_recon_sessions: session % is approved and cannot be modified or deleted', OLD.id;
   end if;
+
+  if TG_OP = 'DELETE' then
+    return OLD;
+  end if;
+
+  if NEW.status is distinct from OLD.status then
+    old_rank := (status_rank ->> OLD.status)::int;
+    new_rank := (status_rank ->> NEW.status)::int;
+    if new_rank is null or new_rank <> old_rank + 1 then
+      raise exception 'inventory_recon_sessions: invalid status transition % -> % for session %', OLD.status, NEW.status, OLD.id;
+    end if;
+  end if;
+
   return NEW;
 end;
 $$ language plpgsql;
 
 drop trigger if exists trg_inventory_recon_guard_session on inventory_recon_sessions;
 create trigger trg_inventory_recon_guard_session
-  before update on inventory_recon_sessions
+  before update or delete on inventory_recon_sessions
   for each row
   execute function inventory_recon_guard_immutable();
 
@@ -136,12 +157,12 @@ create policy "authenticated can insert inventory_recon_sessions"
 
 create policy "authenticated can update inventory_recon_sessions"
   on inventory_recon_sessions for update
-  using (auth.role() = 'authenticated')
+  using (auth.role() = 'authenticated' and status <> 'approved')
   with check (auth.role() = 'authenticated');
 
 create policy "authenticated can delete inventory_recon_sessions"
   on inventory_recon_sessions for delete
-  using (auth.role() = 'authenticated');
+  using (auth.role() = 'authenticated' and status <> 'approved');
 
 create policy "authenticated can select inventory_recon_lines"
   on inventory_recon_lines for select

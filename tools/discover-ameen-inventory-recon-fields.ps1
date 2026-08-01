@@ -1,4 +1,4 @@
-# ============================================================
+﻿# ============================================================
 # discover-ameen-inventory-recon-fields.ps1  (READ-ONLY — لا يرفع أي شيء لـSupabase)
 # بيستكشف جداول وأعمدة الأمين المرشّحة لتزويد "الجرد الشهري" ببيانات حقيقية:
 # - أرقام/أسماء المستودعات (warehouse_key المستخدم بالتطبيق حالياً: jumla/markaz)
@@ -12,8 +12,7 @@ param()
 $ErrorActionPreference = "Stop"
 
 $connStr = $env:AMEEN_SQL_CONNECTION_STRING
-if (-not $connStr) { $connStr = $env:AMEEN_SQL_WRITE_CONNECTION_STRING }
-if (-not $connStr) { throw "No AMEEN SQL connection string found. شغّل tools\setup-ameen-sync-env.ps1 أولاً." }
+if (-not $connStr) { throw "No AMEEN SQL connection string found (read-only). شغّل tools\setup-ameen-sync-env.ps1 أولاً." }
 
 Add-Type -AssemblyName "System.Data"
 $conn = New-Object System.Data.SqlClient.SqlConnection($connStr); $conn.Open()
@@ -46,9 +45,22 @@ ORDER BY TABLE_NAME, COLUMN_NAME
 
 # 2) قائمة المستودعات/الفروع كما مسجّلة بالأمين — لمطابقتها يدوياً مع
 #    warehouse_key المستخدم بالتطبيق (jumla / markaz)
-$storeTableGuesses = @("st000", "sr000", "wh000", "br000", "ms000")
+#    ms000 مستبعد عمداً: غير موثوق بعد تدوير سنة 2026 (ذاكرة ameen-year-rollover-2026).
+#    لا نستخدم SELECT * — نجلب أسماء الأعمدة أولاً ونعرض أول 8 أعمدة فقط.
+$storeTableGuesses = @("st000", "sr000", "wh000", "br000")
 foreach ($t in $storeTableGuesses) {
-    Dump "lookup attempt: $t (TOP 20)" "SELECT TOP 20 * FROM $t" 20
+    try {
+        $colCmd = $conn.CreateCommand()
+        $colCmd.CommandText = "SELECT TOP 8 COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME = @t ORDER BY ORDINAL_POSITION"
+        $colCmd.Parameters.AddWithValue("@t", $t) | Out-Null
+        $colReader = $colCmd.ExecuteReader()
+        $colNames = @()
+        while ($colReader.Read()) { $colNames += $colReader.GetString(0) }
+        $colReader.Close()
+        if ($colNames.Count -eq 0) { Write-Host ""; Write-Host ("=== lookup attempt: $t ==="); Write-Host "  (table not found or no columns)"; continue }
+        $colList = ($colNames | ForEach-Object { "[$_]" }) -join ", "
+        Dump "lookup attempt: $t (TOP 10, first $($colNames.Count) cols)" "SELECT TOP 10 $colList FROM [$t]" 10
+    } catch { Write-Host ("  ERROR inspecting $t : " + $_.Exception.Message) }
 }
 
 # 3) بحث عن جدول أنواع مستندات فيه ما يشير إلى "جرد" أو "تسوية" —
