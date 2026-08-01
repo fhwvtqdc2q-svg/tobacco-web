@@ -699,7 +699,9 @@ if (/purchase[\s\S]{0,400}price:\s*Number\(item\.(lastPrice|avgPrice)/i.test(app
 const returnsSqlProposal = readFileSync("supabase/returns-table.sql", "utf8");
 for (const contract of [
   // بند 4: حارس ذري ضد تجاوز الكمية عبر قفل استشاري + FOR UPDATE ضمن نفس المعاملة
-  "pg_advisory_xact_lock(hashtext(new.original_invoice_guid))",
+  // (lock_key يغطي أيضاً المستندات بلا original_invoice_guid — راجع ameen-return
+  // بند و — عبر بديل kind::party_name::original_invoice_number)
+  "pg_advisory_xact_lock(hashtext(lock_key))",
   "returns_guard_status_transition",
   // بند 5: قفل الحقول المالية بعد approved — تصحيح فقط عبر correction_log/الحقول المتزامنة
   "returns_guard_immutable_and_stamp",

@@ -83,6 +83,9 @@ create table if not exists returns (
   settlement_amount      numeric(15,2) not null default 0,
   stock_applied          boolean       not null default false,
   stock_applied_at       timestamptz   default null,
+  -- مفاتيح الأصناف (line_key) التي طُبِّق أثر مخزونها فعلياً — أساس استئناف تطبيق
+  -- المخزون بأمان بعد فشل/انقطاع جزئي بلا إعادة تطبيق نفس الصنف مرتين (idempotency).
+  stock_applied_items    jsonb         not null default '[]',
 
   -- سبب المرتجع إلزامي بمجرد مغادرة حالة المسودة (طبقة دفاع ثانية عن التحقق
   -- بالواجهة في app.js — لا اعتماد على الواجهة وحدها).
@@ -130,6 +133,7 @@ declare
   item_qty numeric;
   already_qty numeric;
   original_qty numeric;
+  lock_key text;
 begin
   if new.status is not distinct from old.status then
     return new;
@@ -168,8 +172,13 @@ begin
   -- "المجموع القديم" وتوافقا معاً على تجاوز original_qty (سباق read-then-write
   -- كلاسيكي). هذا يعادل "SELECT ... FOR UPDATE" لكن دون الحاجة لصف قفل حقيقي
   -- بجدول آخر، لأن original_invoice_guid ثابت ومعروف قبل الالتزام.
-  if new.status = 'approved' and new.original_invoice_guid is not null then
-    perform pg_advisory_xact_lock(hashtext(new.original_invoice_guid));
+  -- لا يجوز تخطّي الحارس فقط لأن الفاتورة الأصلية بلا GUID (مستندات قديمة أو
+  -- مصادر بيانات لا تصدّر GUID فعلياً): نبني مفتاح قفل/مطابقة بديلاً من
+  -- kind + party_name + original_invoice_number حتى لا يبقى تجاوز الكمية بلا
+  -- أي حماية في هذه الحالة.
+  if new.status = 'approved' then
+    lock_key := coalesce(nullif(new.original_invoice_guid, ''), new.kind || '::' || new.party_name || '::' || new.original_invoice_number);
+    perform pg_advisory_xact_lock(hashtext(lock_key));
 
     for item in select * from jsonb_array_elements(coalesce(new.items, '[]'::jsonb))
     loop
@@ -182,8 +191,17 @@ begin
         select items
         from returns
         where id <> new.id
-          and original_invoice_guid = new.original_invoice_guid
           and status in ('approved', 'sync_pending', 'synced', 'failed')
+          and (
+            (new.original_invoice_guid is not null and original_invoice_guid = new.original_invoice_guid)
+            or (
+              new.original_invoice_guid is null
+              and original_invoice_guid is null
+              and kind = new.kind
+              and party_name = new.party_name
+              and original_invoice_number = new.original_invoice_number
+            )
+          )
       loop
         for other_item in select * from jsonb_array_elements(coalesce(other_row.items, '[]'::jsonb))
         loop
@@ -233,8 +251,10 @@ begin
   -- الصندوق، بنود الأصناف والكميات والأسعار والتكلفة، والإجمالي. لا يجوز
   -- تعديل أي منها بعد الاعتماد إطلاقاً — فقط عبر آلية correctReturnDocument
   -- (سجل تصحيحي موثّق) وليس تعديلاً حراً. حقول المزامنة (sync_*، synced_at،
-  -- ameen_document_*) وحقول أثر الاعتماد (reversed_*، settlement_*،
-  -- stock_applied*) وحقول التصحيح (correction_*) تبقى قابلة للتعديل بعد الاعتماد.
+  -- ameen_document_*) وحقول التصحيح (correction_*) تبقى قابلة للتعديل بعد
+  -- الاعتماد. حقول أثر الاعتماد (reversed_*، settlement_*) تُقفَل هي الأخرى
+  -- بمجرد تثبيتها أول مرة (draft → approved) — لا يجوز إعادة حسابها أو
+  -- تعديلها لاحقاً حتى من مسار موثوق، منعاً لازدواج/تضارب الأثر المالي.
   if old.status <> 'draft' then
     if new.kind is distinct from old.kind
       or new.party_name is distinct from old.party_name
@@ -250,6 +270,32 @@ begin
     then
       raise exception 'لا يمكن تعديل المحتوى المالي لمرتجع بعد اعتماده — استخدم إجراء تصحيحي موثّق بدلاً من ذلك';
     end if;
+
+    if old.status <> 'draft' and (
+      new.reversed_revenue is distinct from old.reversed_revenue
+      or new.reversed_cost is distinct from old.reversed_cost
+      or new.reversed_profit is distinct from old.reversed_profit
+      or new.settlement_type is distinct from old.settlement_type
+      or new.settlement_target_id is distinct from old.settlement_target_id
+      or new.settlement_amount is distinct from old.settlement_amount
+    ) then
+      raise exception 'أثر الاعتماد (الربح/التكلفة المعكوسة والتسوية) مقفل بمجرد تثبيته — لا يجوز إعادة حسابه';
+    end if;
+  end if;
+
+  -- أثر المخزون (stock_applied*) اتجاه واحد فقط: false → true. بمجرد
+  -- stock_applied = true يُقفَل تماماً (لا رجوع، ولا تعديل لاحق لقائمة
+  -- الأصناف المطبَّقة أو توقيت التطبيق). قبل ذلك يبقى قابلاً للتحديث التراكمي
+  -- (استئناف تطبيق مخزون جزئي فشل — applyReturnStockForDoc بالتطبيق).
+  if old.stock_applied then
+    if new.stock_applied is distinct from old.stock_applied
+      or new.stock_applied_at is distinct from old.stock_applied_at
+      or new.stock_applied_items is distinct from old.stock_applied_items
+    then
+      raise exception 'أثر تطبيق المخزون مقفل بمجرد اكتماله — لا يجوز تعديله';
+    end if;
+  elsif new.stock_applied is distinct from old.stock_applied and not new.stock_applied then
+    raise exception 'لا يمكن الرجوع عن اكتمال تطبيق أثر المخزون';
   end if;
 
   new.updated_at := now();
@@ -282,11 +328,22 @@ create policy returns_insert_creator
     and ameen_document_number is null
   );
 
+-- USING يُقيَّم على الصف قبل التعديل: المنشئ لا يستطيع حتى بدء تعديل إلا على
+-- صف كان لا يزال مسودة (status = 'draft') — فبمجرد أن يصبح الصف 'approved'
+-- تستبعده هذه الشرط تلقائياً من أي تعديل لاحق من غير المالك، مهما كانت القيم
+-- الجديدة. WITH CHECK يسمح للمنشئ بأن تصبح النتيجة 'draft' (تعديل ذاتي) أو
+-- 'approved' (فعل الاعتماد نفسه، المسموح مرة واحدة فقط بحكم شرط USING أعلاه).
+-- أي تعديل لاحق على صف معتمَد أصلاً (تصحيح، إعادة محاولة مزامنة/مخزون) يمر
+-- عبر returns_is_owner() حصراً، اتساقاً مع قفل الحقول المالية وأثر الاعتماد
+-- في returns_guard_immutable_and_stamp().
 create policy returns_update_client
   on returns for update
   using (
     auth.role() = 'authenticated'
-    and (created_by = auth.uid() or returns_is_owner())
+    and (
+      (created_by = auth.uid() and status = 'draft')
+      or returns_is_owner()
+    )
   )
   with check (
     auth.role() = 'authenticated'

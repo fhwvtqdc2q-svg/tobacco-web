@@ -7863,12 +7863,33 @@ async function retSubmit() {
     return;
   }
 
+  // ربط الجهة بمعرّف الأمين (GUID/كود) شرط لازم لاحتساب التسوية عند الاعتماد
+  // (retCalc.retSettlementImpact يرفض مرتجع المشتريات أو المبيعات الآجلة بلا
+  // معرّف). الزبائن: مصدر موثوق من تقرير أرصدة الأمين (latestCustomerBalanceItems).
+  // الموردون: لا يوجد مصدر GUID موثوق من الأمين لفواتير المشتريات المسحوبة حالياً
+  // (pull-purchase-invoices-from-ameen.ps1 يصدّر اسم المورد نصاً فقط)، لذا أفضل
+  // جهد فقط عبر بيانات الموردين المُدخَلة يدوياً بميزة أوامر الشراء غير المرتبطة —
+  // إن لم تُطابَق، يُترك المعرّف فارغاً وسيرفض الاعتماد لاحقاً برسالة واضحة بدل
+  // فشل صامت أو تسوية خاطئة.
+  let partyAmeenGuid = "";
+  let partyAmeenCode = "";
+  if (state.retKind === "purchase") {
+    const match = poSupplierHistory().find((s) => normalizeItemName(s.name) === normalizeItemName(state.retPartyName));
+    partyAmeenGuid = match?.guid || "";
+    partyAmeenCode = match?.code || "";
+  } else {
+    const match = findBalanceCustomerByText(state.retPartyName);
+    partyAmeenGuid = match?.customerGuid || match?.customerAccountGuid || "";
+  }
+
   state.retSaving = true;
   render();
   try {
     await dataStore.createReturnDocument({
       kind: state.retKind,
       partyName: state.retPartyName,
+      partyAmeenGuid: partyAmeenGuid || null,
+      partyAmeenCode: partyAmeenCode || null,
       originalInvoiceNumber: String(state.retOrigInvoice.number || ""),
       originalInvoiceGuid: state.retOrigInvoice.guid || null,
       originalInvoiceDate: state.retOrigInvoice.date || null,
@@ -8102,6 +8123,11 @@ function returns() {
       ` : state.retPartyName ? `<p class="muted" style="margin-top:12px">لا توجد فواتير لهذه الجهة بالتقرير المتوفر.</p>` : ""}
 
       ${state.retOrigInvoice ? `
+        <p class="muted" style="margin-top:10px">
+          ${state.retKind === "purchase"
+            ? "⚠ تكلفة السطر هنا تقريبية (آخر سعر شراء/متوسط تكلفة الصنف عموماً)، وليست تكلفة هذا السطر الفعلية بالضبط — أرقام الربح/الخسارة الناتجة عن اعتماد هذا المرتجع تقريبية أيضاً."
+            : "⚠ لا تتوفر تكلفة فعلية لسطر فاتورة المبيعات بالتقرير الحالي — ستُحتسَب تكلفة هذا المرتجع كصفر، وأثره على صافي الربح المعروض غير دقيق."}
+        </p>
         <div class="inv-table-wrap" style="margin-top:12px">
           <table class="inv-table">
             <thead><tr><th>الصنف</th><th style="width:90px">الكمية الأصلية</th><th style="width:90px">المتبقي القابل للإرجاع</th><th style="width:100px">الكمية المرتجعة</th><th style="width:90px">السعر</th><th style="width:100px">الإجمالي</th></tr></thead>

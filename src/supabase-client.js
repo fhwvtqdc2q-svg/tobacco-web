@@ -280,6 +280,9 @@
       settlementAmount: parseNumber(row.settlement_amount || 0),
       stockApplied: Boolean(row.stock_applied),
       stockAppliedAt: row.stock_applied_at || "",
+      // مفاتيح أسطر (line_key) طُبِّق أثر مخزونها فعلياً بنجاح — تمنع إعادة
+      // المحاولة (بعد فشل جزئي) من تطبيق نفس دلتا المخزون على نفس الصنف مرتين.
+      stockAppliedItems: Array.isArray(row.stock_applied_items) ? row.stock_applied_items : [],
       createdAt: row.created_at || "",
       updatedAt: row.updated_at || row.created_at || ""
     };
@@ -493,6 +496,42 @@
     const newStock = Math.max(0, roundPrice(Number(row.stock_qty || 0) + delta));
     const { error: updErr } = await client.from(approvedPricesTable).update({ stock_qty: newStock }).eq("id", row.id);
     if (updErr) throw new Error(translateDbError(updErr.message));
+  }
+
+  // تطبيق أثر المخزون فعلياً على approved_price_items.stock_qty لمستند معتمَد
+  // مسبقاً — دالة منفصلة عن approveReturnDocument عمداً كي تُستدعى وحدها عند
+  // إعادة المحاولة (انظر approveReturnDocument أدناه لسبب الفصل). كل صنف نجح
+  // تطبيقه سابقاً (موجود في alreadyAppliedItems) يُتجاوز، فلا تُضاعَف دلتا
+  // المخزون على إعادة المحاولة (نقطة الضعف التي رُصدت في مراجعة PR #37).
+  async function applyReturnStockForDoc(id, doc, alreadyAppliedItems) {
+    const items = Array.isArray(doc.items) ? doc.items : [];
+    const direction = retCalc.retInventoryDirection(doc.kind);
+    const done = new Set(Array.isArray(alreadyAppliedItems) ? alreadyAppliedItems : []);
+    const stockWarnings = [];
+    for (const item of items) {
+      const itemKey = item.lineKey || item.line_key || item.itemKey || item.item_key || item.name;
+      if (done.has(itemKey)) continue;
+      try {
+        await applyReturnStockAdjustment(item, direction);
+        done.add(itemKey);
+      } catch (err) {
+        stockWarnings.push(`${item.name || item.itemKey || item.item_key || "صنف"}: ${err?.message || err}`);
+      }
+    }
+    const stockPatch = {
+      stock_applied: done.size >= items.length,
+      stock_applied_items: Array.from(done),
+      stock_applied_at: new Date().toISOString(),
+      updated_at: new Date().toISOString()
+    };
+    if (!client) {
+      const all = readJson(RETURNS_KEY, []).map((row) => (row.id === id ? { ...row, ...stockPatch } : row));
+      writeJson(RETURNS_KEY, all);
+      return { stockWarnings };
+    }
+    const { error } = await client.from(returnsTable).update(stockPatch).eq("id", id);
+    if (error) throw new Error(translateDbError(error.message));
+    return { stockWarnings };
   }
 
   const service = {
@@ -1292,7 +1331,7 @@
       const { data, error } = await client
         .from(returnsTable)
         .select(
-          "id, kind, party_name, party_ameen_guid, party_ameen_code, original_invoice_number, original_invoice_guid, original_invoice_date, original_pay_method, treasury_name, reason, items, total, status, idempotency_key, sync_attempts, sync_error, ameen_document_guid, ameen_document_number, synced_at, approved_by, approved_at, correction_count, correction_log, created_at, updated_at"
+          "id, kind, party_name, party_ameen_guid, party_ameen_code, original_invoice_number, original_invoice_guid, original_invoice_date, original_pay_method, treasury_name, reason, items, total, status, idempotency_key, sync_attempts, sync_error, ameen_document_guid, ameen_document_number, synced_at, approved_by, approved_at, correction_count, correction_log, reversed_revenue, reversed_cost, reversed_profit, settlement_type, settlement_target_id, settlement_amount, stock_applied, stock_applied_at, stock_applied_items, created_at, updated_at"
         )
         .order("created_at", { ascending: false })
         .limit(300);
@@ -1382,12 +1421,28 @@
     // يحدد أثر التسوية (retCalc.retSettlementImpact) ويثبّته على المستند نفسه (لا يوجد
     // دفتر أرصدة زبائن/موردين قابل للكتابة محلياً بعد، لذا التسوية تُحفَظ كحقل بيانات
     // على returns نفسه: settlement_type/target_id/amount — وليست مطبَّقة فعلياً على أي
-    // رصيد خارجي؛ هذا موثّق صراحة في AI_HANDOFF.md)، ثم تحاول (أفضل جهد لكل صنف) تطبيق
-    // أثر المخزون الحقيقي على approved_price_items.stock_qty. فشل تحديد وحدة/صنف بثقة
-    // لا يوقف الاعتماد المالي (يبقى صحيحاً ومحفوظاً) لكنه يُجمَّع في stockWarnings
-    // ليعرضه app.js صراحة للمستخدم — لا كتمان صامت لفشل جزئي (بند 9 من مواصفة المهمة).
+    // رصيد خارجي؛ هذا موثّق صراحة في AI_HANDOFF.md).
+    //
+    // ترتيب مقصود (إصلاح مراجعة PR #37 — كان أثر المخزون يُطبَّق قبل تثبيت الاعتماد):
+    // 1) يُثبَّت الاعتماد (status=approved + الأثر المالي) أولاً، بتحديث شرطي
+    //    (eq("status", doc.status)) يمنع اعتماد مزدوج متزامن لنفس المستند.
+    // 2) بعد نجاح خطوة (1) فقط، يُطبَّق أثر المخزون (أفضل جهد لكل صنف) عبر
+    //    applyReturnStockForDoc. فشل تحديد وحدة/صنف بثقة لا يوقف الاعتماد المالي
+    //    (يبقى صحيحاً ومحفوظاً) لكنه يُجمَّع في stockWarnings ليعرضه app.js صراحة
+    //    للمستخدم — لا كتمان صامت لفشل جزئي.
+    // إن انقطع التنفيذ بين (1) و(2) أو فشل بعض الأصناف، تبقى stock_applied=false
+    // ويُستأنَف تطبيق المخزون فقط (دون إعادة حساب الأثر المالي أو اعتماد مزدوج)
+    // في مطلع هذه الدالة عبر مسار "إكمال معلَّق" أدناه.
     async approveReturnDocument(id, doc) {
       if (!doc) throw new Error("مستند المرتجع غير موجود.");
+
+      // مسار إكمال معلَّق: المستند معتمَد فعلاً لكن تطبيق المخزون لم يكتمل
+      // (فشل/انقطاع بعد تثبيت الاعتماد وقبل انتهاء حلقة المخزون) — لا نعيد حساب
+      // الأثر المالي ولا نمر بأي تحقق اعتماد، فقط نكمل الأصناف المتبقية.
+      if (doc.status === "approved" && !doc.stockApplied) {
+        return applyReturnStockForDoc(id, doc, doc.stockAppliedItems);
+      }
+
       // دفاع بعمق: قيد السبب موجود بالواجهة (retSetStatus) وبقاعدة البيانات
       // (returns_reason_required_after_draft) — نكرره هنا لأن المسار المحلي (بلا
       // Supabase) لا يمر بذلك القيد إطلاقاً.
@@ -1420,16 +1475,6 @@
         throw new Error(settlement.error || "تعذّر احتساب أثر التسوية لهذا المرتجع.");
       }
 
-      const direction = retCalc.retInventoryDirection(doc.kind);
-      const stockWarnings = [];
-      for (const item of items) {
-        try {
-          await applyReturnStockAdjustment(item, direction);
-        } catch (err) {
-          stockWarnings.push(`${item.name || item.itemKey || item.item_key || "صنف"}: ${err?.message || err}`);
-        }
-      }
-
       const patch = {
         status: "approved",
         reversed_revenue: reversal.revenueReversed,
@@ -1438,23 +1483,40 @@
         settlement_type: settlement.type,
         settlement_target_id: String(settlement.supplierId || settlement.customerId || settlement.treasuryId || ""),
         settlement_amount: settlement.amount,
-        stock_applied: stockWarnings.length < items.length,
-        stock_applied_at: new Date().toISOString(),
+        stock_applied: false,
+        stock_applied_items: [],
+        stock_applied_at: null,
         updated_at: new Date().toISOString()
       };
 
       if (!client) {
-        const all = readJson(RETURNS_KEY, []).map((row) => (row.id === id ? { ...row, ...patch } : row));
-        writeJson(RETURNS_KEY, all);
-        return { stockWarnings };
+        const all = readJson(RETURNS_KEY, []);
+        const row = all.find((r) => r.id === id);
+        if (!row || row.status !== doc.status) {
+          throw new Error("تغيّرت حالة المستند من جهة أخرى، أعد تحميل الصفحة قبل الاعتماد.");
+        }
+        writeJson(RETURNS_KEY, all.map((r) => (r.id === id ? { ...r, ...patch } : r)));
+        const stockResult = await applyReturnStockForDoc(id, { ...doc, items }, []);
+        return stockResult;
       }
 
       const user = await requireUser();
       patch.approved_by = user.id;
       patch.approved_at = new Date().toISOString();
-      const { error } = await client.from(returnsTable).update(patch).eq("id", id);
+      // تحديث شرطي على الحالة الحالية: إن اعتمد طرف آخر المستند بين قراءته
+      // وهذا الاستدعاء، لن يُطابَق أي صف (data فارغة) بدل الكتابة فوق اعتماد سابق.
+      const { data, error } = await client
+        .from(returnsTable)
+        .update(patch)
+        .eq("id", id)
+        .eq("status", doc.status)
+        .select("id");
       if (error) throw new Error(translateDbError(error.message));
-      return { stockWarnings };
+      if (!data || !data.length) {
+        throw new Error("تغيّرت حالة المستند من جهة أخرى، أعد تحميل الصفحة قبل الاعتماد.");
+      }
+      const stockResult = await applyReturnStockForDoc(id, { ...doc, items }, []);
+      return stockResult;
     },
 
     // إجراء تصحيحي موثّق على مرتجع بعد اعتماده — نفس نمط correctPurchaseInvoice.
