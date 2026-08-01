@@ -715,12 +715,13 @@ for (const contract of [
   }
 }
 
-// اختبارات حقيقية للمسار الفعلي approveReturnDocument في supabase-client.js (بند 10-و):
+// اختبارات حقيقية للمسار الفعلي approveReturnDocument في supabase-client.js:
 // وليس فقط دوال retCalc المعزولة — تحقّق أن الاعتماد الفعلي (أ) يرفض بلا سبب،
-// و(ب) يعكس الربح/التكلفة ويثبّت أثر التسوية على المستند، و(ج) يطبّق أثر مخزون
-// حقيقي مكتوب على approved_price_items.stock_qty بالوحدة الأصلية المحفوظة (بلا
-// تحويل قسري)، عبر sandbox يحمّل returns-calc.js + supabase-client.js معاً بوضع
-// محلي (بلا إعداد Supabase) فيُجبَر على مسار localStorage.
+// و(ب) يثبّت status=approved فقط بلا أي كتابة على reversed_*/settlement_*
+// وبلا تعديل على approved_price_items.stock_qty (تسجيلي فقط، قرار صريح
+// 2026-08-01 — انظر تعليق approveReturnDocument)، عبر sandbox يحمّل
+// returns-calc.js + supabase-client.js معاً بوضع محلي (بلا إعداد Supabase)
+// فيُجبَر على مسار localStorage.
 {
   const retCalcSource = readFileSync("src/returns-calc.js", "utf8");
   const supabaseClientSource = readFileSync("src/supabase-client.js", "utf8");
@@ -806,10 +807,6 @@ for (const contract of [
       console.error(`approveReturnDocument test failed: unexpected error on valid approval — ${approveError.message}`);
       failed = true;
     } else {
-      if (!(Array.isArray(result?.stockWarnings) && result.stockWarnings.length === 0)) {
-        console.error(`approveReturnDocument test failed: expected no stock warnings, got ${JSON.stringify(result)}`);
-        failed = true;
-      }
       const savedReturns = JSON.parse(fakeStorage.getItem("tobacco-returns") || "[]");
       const saved = savedReturns.find((r) => r.id === approvedDoc.id);
       if (!saved) {
@@ -818,16 +815,16 @@ for (const contract of [
       } else {
         const checks = [
           ["status", saved.status, "approved"],
-          ["reversed_revenue", saved.reversed_revenue, 40],
-          ["reversed_cost", saved.reversed_cost, 24],
-          ["reversed_profit", saved.reversed_profit, 16],
-          ["settlement_type", saved.settlement_type, "cash_refund"],
-          ["settlement_amount", saved.settlement_amount, 40],
-          ["stock_applied", saved.stock_applied, true]
+          ["reversed_revenue", saved.reversed_revenue, undefined],
+          ["reversed_cost", saved.reversed_cost, undefined],
+          ["reversed_profit", saved.reversed_profit, undefined],
+          ["settlement_type", saved.settlement_type, undefined],
+          ["settlement_amount", saved.settlement_amount, undefined],
+          ["stock_applied", saved.stock_applied, undefined]
         ];
         for (const [label, actual, expected] of checks) {
           if (JSON.stringify(actual) !== JSON.stringify(expected)) {
-            console.error(`approveReturnDocument persisted-effect test failed: ${label} — got ${JSON.stringify(actual)}, expected ${JSON.stringify(expected)}`);
+            console.error(`approveReturnDocument persisted-effect test failed: ${label} — got ${JSON.stringify(actual)}, expected ${JSON.stringify(expected)} (تسجيلي فقط، بلا كتابة على هذا الحقل)`);
             failed = true;
           }
         }
@@ -835,9 +832,9 @@ for (const contract of [
 
       const savedPrices = JSON.parse(fakeStorage.getItem("tobacco-approved-price-items") || "[]");
       const priceRow = savedPrices.find((r) => r.item_key === "ITEM1");
-      // 4 كرتونة × عامل تحويل 12 = 48 علبة تُضاف للمخزون (مبيعات ترجع للمخزون)
-      if (!priceRow || priceRow.stock_qty !== 148) {
-        console.error(`approveReturnDocument stock effect test failed: expected stock_qty 148, got ${priceRow && priceRow.stock_qty}`);
+      // تسجيلي فقط: الاعتماد لا يعدّل المخزون إطلاقاً — يبقى كما زُرع (100)
+      if (!priceRow || priceRow.stock_qty !== 100) {
+        console.error(`approveReturnDocument stock effect test failed: expected stock_qty to remain 100 (no auto stock mutation), got ${priceRow && priceRow.stock_qty}`);
         failed = true;
       }
     }

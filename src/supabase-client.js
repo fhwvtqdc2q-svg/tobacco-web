@@ -441,98 +441,13 @@
     return data.user;
   }
 
-  // يحدّد كمية المخزون بوحدة1 (الوحدة الأساسية المخزَّنة بـ stock_qty) المقابلة
-  // لسطر مرتجع بوحدته الحقيقية المسجَّلة (item.unit)، بمطابقة اسم الوحدة الفعلي
-  // أولاً (unit1_name/unit2_name)، وبتراجع توافقي لثنائية "unit1"/"unit2" الحرفية
-  // فقط لمستندات قديمة أُنشئت قبل هذا الإصلاح. null صراحة إن تعذّرت المطابقة
-  // بثقة — لا نخمّن الوحدة أبداً.
-  function returnItemUnit1Delta(priceRow, unitLabel, qty, direction) {
-    const sign = direction === "out" ? -1 : 1;
-    const unit2Factor = Number(priceRow.unit2_factor) > 0 ? Number(priceRow.unit2_factor) : 1;
-    const u1 = String(priceRow.unit1_name || "").trim();
-    const u2 = String(priceRow.unit2_name || "").trim();
-    const label = String(unitLabel || "").trim();
-    if (!label) return null;
-    if (u1 && label === u1) return sign * qty;
-    if (u2 && label === u2) return sign * qty * unit2Factor;
-    if (label === "unit1") return sign * qty;
-    if (label === "unit2") return sign * qty * unit2Factor;
-    return null;
-  }
-
-  // يطبّق أثر مخزون فعلي (كتابة مُثبَّتة، وليست محسوبة فقط) على approved_price_items.stock_qty
-  // لسطر مرتجع واحد. يرمي خطأً عربياً صريحاً عند أي غموض (صنف غير موجود، أو تعذّر
-  // مطابقة الوحدة بثقة) بدل تخمين النتيجة أو الفشل الصامت — الاستدعاء في
-  // approveReturnDocument يجمع هذه الأخطاء في stockWarnings بدل إيقاف الاعتماد كاملاً.
-  async function applyReturnStockAdjustment(item, direction) {
-    const itemKey = item.item_key != null ? item.item_key : item.itemKey;
-    if (!itemKey) throw new Error("لا يوجد مفتاح صنف (item_key) لمطابقة المخزون");
-    const qty = Math.max(0, parseNumber(item.qty));
-    if (qty <= 0) return;
-
-    if (!client) {
-      const all = readJson(APPROVED_PRICES_KEY, []);
-      const idx = all.findIndex((row) => String(row.item_key) === String(itemKey));
-      if (idx === -1) throw new Error("الصنف غير موجود في قائمة الأسعار المعتمدة");
-      const row = all[idx];
-      const delta = returnItemUnit1Delta(row, item.unit, qty, direction);
-      if (delta == null) throw new Error("تعذّر تحديد وحدة الصنف بثقة");
-      row.stock_qty = Math.max(0, roundPrice(Number(row.stock_qty || 0) + delta));
-      all[idx] = row;
-      writeJson(APPROVED_PRICES_KEY, all);
-      return;
-    }
-
-    const { data, error } = await client
-      .from(approvedPricesTable)
-      .select("id, item_key, stock_qty, unit1_name, unit2_name, unit2_factor")
-      .eq("item_key", itemKey)
-      .limit(1);
-    if (error) throw new Error(translateDbError(error.message));
-    const row = data?.[0];
-    if (!row) throw new Error("الصنف غير موجود في approved_price_items");
-    const delta = returnItemUnit1Delta(row, item.unit, qty, direction);
-    if (delta == null) throw new Error("تعذّر تحديد وحدة الصنف بثقة");
-    const newStock = Math.max(0, roundPrice(Number(row.stock_qty || 0) + delta));
-    const { error: updErr } = await client.from(approvedPricesTable).update({ stock_qty: newStock }).eq("id", row.id);
-    if (updErr) throw new Error(translateDbError(updErr.message));
-  }
-
-  // تطبيق أثر المخزون فعلياً على approved_price_items.stock_qty لمستند معتمَد
-  // مسبقاً — دالة منفصلة عن approveReturnDocument عمداً كي تُستدعى وحدها عند
-  // إعادة المحاولة (انظر approveReturnDocument أدناه لسبب الفصل). كل صنف نجح
-  // تطبيقه سابقاً (موجود في alreadyAppliedItems) يُتجاوز، فلا تُضاعَف دلتا
-  // المخزون على إعادة المحاولة (نقطة الضعف التي رُصدت في مراجعة PR #37).
-  async function applyReturnStockForDoc(id, doc, alreadyAppliedItems) {
-    const items = Array.isArray(doc.items) ? doc.items : [];
-    const direction = retCalc.retInventoryDirection(doc.kind);
-    const done = new Set(Array.isArray(alreadyAppliedItems) ? alreadyAppliedItems : []);
-    const stockWarnings = [];
-    for (const item of items) {
-      const itemKey = item.lineKey || item.line_key || item.itemKey || item.item_key || item.name;
-      if (done.has(itemKey)) continue;
-      try {
-        await applyReturnStockAdjustment(item, direction);
-        done.add(itemKey);
-      } catch (err) {
-        stockWarnings.push(`${item.name || item.itemKey || item.item_key || "صنف"}: ${err?.message || err}`);
-      }
-    }
-    const stockPatch = {
-      stock_applied: done.size >= items.length,
-      stock_applied_items: Array.from(done),
-      stock_applied_at: new Date().toISOString(),
-      updated_at: new Date().toISOString()
-    };
-    if (!client) {
-      const all = readJson(RETURNS_KEY, []).map((row) => (row.id === id ? { ...row, ...stockPatch } : row));
-      writeJson(RETURNS_KEY, all);
-      return { stockWarnings };
-    }
-    const { error } = await client.from(returnsTable).update(stockPatch).eq("id", id);
-    if (error) throw new Error(translateDbError(error.message));
-    return { stockWarnings };
-  }
+  // ملاحظة معمارية (2026-08-01): المرتجعات تسجيلية فقط حالياً بقرار صريح من
+  // المالك — لا تُعدَّل approved_price_items.stock_qty ولا تُحتسَب أرقام ربح/تسوية
+  // من هذا الملف إطلاقاً، لأن تكلفة السطر الفعلية ومعرّف الجهة (مورد/زبون) من
+  // الأمين غير متوفرين بثقة بعد، ولأن الكتابة السابقة كانت تتم على مرحلتين غير
+  // ذرّيتين (تعديل المخزون ثم حفظ منفصل لعلامة الإنجاز) بلا RPC/معاملة واحدة،
+  // ما يعرّض لمضاعفة الأثر عند أي انقطاع أو فشل RLS بعد نجاح المخزون. الأمين
+  // يبقى مصدر المخزون المحاسبي الحقيقي حتى تتوفر البيانات ويُبنى RPC مخصص.
 
   const service = {
     mode: client ? "supabase" : "local",
@@ -1417,31 +1332,14 @@
       if (error) throw new Error(translateDbError(error.message));
     },
 
-    // اعتماد فعلي لمستند مرتجع: يعكس الربح/التكلفة (retCalc.retInvoiceProfitReversal)،
-    // يحدد أثر التسوية (retCalc.retSettlementImpact) ويثبّته على المستند نفسه (لا يوجد
-    // دفتر أرصدة زبائن/موردين قابل للكتابة محلياً بعد، لذا التسوية تُحفَظ كحقل بيانات
-    // على returns نفسه: settlement_type/target_id/amount — وليست مطبَّقة فعلياً على أي
-    // رصيد خارجي؛ هذا موثّق صراحة في AI_HANDOFF.md).
-    //
-    // ترتيب مقصود (إصلاح مراجعة PR #37 — كان أثر المخزون يُطبَّق قبل تثبيت الاعتماد):
-    // 1) يُثبَّت الاعتماد (status=approved + الأثر المالي) أولاً، بتحديث شرطي
-    //    (eq("status", doc.status)) يمنع اعتماد مزدوج متزامن لنفس المستند.
-    // 2) بعد نجاح خطوة (1) فقط، يُطبَّق أثر المخزون (أفضل جهد لكل صنف) عبر
-    //    applyReturnStockForDoc. فشل تحديد وحدة/صنف بثقة لا يوقف الاعتماد المالي
-    //    (يبقى صحيحاً ومحفوظاً) لكنه يُجمَّع في stockWarnings ليعرضه app.js صراحة
-    //    للمستخدم — لا كتمان صامت لفشل جزئي.
-    // إن انقطع التنفيذ بين (1) و(2) أو فشل بعض الأصناف، تبقى stock_applied=false
-    // ويُستأنَف تطبيق المخزون فقط (دون إعادة حساب الأثر المالي أو اعتماد مزدوج)
-    // في مطلع هذه الدالة عبر مسار "إكمال معلَّق" أدناه.
+    // اعتماد مستند مرتجع — تسجيلي فقط بقرار صريح من المالك (2026-08-01): يثبّت
+    // status=approved فقط، بلا أي تعديل على approved_price_items.stock_qty وبلا
+    // احتساب/كتابة أثر ربح أو تسوية (reversed_*/settlement_*)، لأن تكلفة السطر
+    // الفعلية ومعرّف الجهة من الأمين غير متوفرين بثقة بعد. الأمين يبقى مصدر
+    // المخزون المحاسبي الحقيقي. عند توفر تلك البيانات مستقبلاً، يُعاد بناء
+    // الاعتماد عبر RPC/معاملة خادمية واحدة تشمل كل الأثر المالي والمخزوني معاً.
     async approveReturnDocument(id, doc) {
       if (!doc) throw new Error("مستند المرتجع غير موجود.");
-
-      // مسار إكمال معلَّق: المستند معتمَد فعلاً لكن تطبيق المخزون لم يكتمل
-      // (فشل/انقطاع بعد تثبيت الاعتماد وقبل انتهاء حلقة المخزون) — لا نعيد حساب
-      // الأثر المالي ولا نمر بأي تحقق اعتماد، فقط نكمل الأصناف المتبقية.
-      if (doc.status === "approved" && !doc.stockApplied) {
-        return applyReturnStockForDoc(id, doc, doc.stockAppliedItems);
-      }
 
       // دفاع بعمق: قيد السبب موجود بالواجهة (retSetStatus) وبقاعدة البيانات
       // (returns_reason_required_after_draft) — نكرره هنا لأن المسار المحلي (بلا
@@ -1453,39 +1351,8 @@
         throw new Error("لا يمكن الانتقال إلى حالة معتمد من الحالة الحالية.");
       }
 
-      const items = Array.isArray(doc.items) ? doc.items : [];
-      const reversal = retCalc.retInvoiceProfitReversal(
-        items.map((item) => ({
-          returnQty: item.qty,
-          unitPrice: item.price,
-          unitCost: item.unitCost != null ? item.unitCost : item.unit_cost || 0
-        }))
-      );
-
-      const kind = doc.kind === "purchase" ? "purchase" : "sales";
-      const settlement = retCalc.retSettlementImpact({
-        kind,
-        amount: doc.total,
-        supplierId: kind === "purchase" ? doc.partyAmeenGuid || doc.partyAmeenCode || null : null,
-        customerId: kind === "sales" ? doc.partyAmeenGuid || doc.partyAmeenCode || null : null,
-        originalPayMethod: doc.originalPayMethod,
-        treasuryId: doc.treasuryName || null
-      });
-      if (!settlement.ok) {
-        throw new Error(settlement.error || "تعذّر احتساب أثر التسوية لهذا المرتجع.");
-      }
-
       const patch = {
         status: "approved",
-        reversed_revenue: reversal.revenueReversed,
-        reversed_cost: reversal.costReversed,
-        reversed_profit: reversal.profitReversed,
-        settlement_type: settlement.type,
-        settlement_target_id: String(settlement.supplierId || settlement.customerId || settlement.treasuryId || ""),
-        settlement_amount: settlement.amount,
-        stock_applied: false,
-        stock_applied_items: [],
-        stock_applied_at: null,
         updated_at: new Date().toISOString()
       };
 
@@ -1496,8 +1363,7 @@
           throw new Error("تغيّرت حالة المستند من جهة أخرى، أعد تحميل الصفحة قبل الاعتماد.");
         }
         writeJson(RETURNS_KEY, all.map((r) => (r.id === id ? { ...r, ...patch } : r)));
-        const stockResult = await applyReturnStockForDoc(id, { ...doc, items }, []);
-        return stockResult;
+        return;
       }
 
       const user = await requireUser();
@@ -1515,8 +1381,6 @@
       if (!data || !data.length) {
         throw new Error("تغيّرت حالة المستند من جهة أخرى، أعد تحميل الصفحة قبل الاعتماد.");
       }
-      const stockResult = await applyReturnStockForDoc(id, { ...doc, items }, []);
-      return stockResult;
     },
 
     // إجراء تصحيحي موثّق على مرتجع بعد اعتماده — نفس نمط correctPurchaseInvoice.

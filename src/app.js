@@ -7863,21 +7863,16 @@ async function retSubmit() {
     return;
   }
 
-  // ربط الجهة بمعرّف الأمين (GUID/كود) شرط لازم لاحتساب التسوية عند الاعتماد
-  // (retCalc.retSettlementImpact يرفض مرتجع المشتريات أو المبيعات الآجلة بلا
-  // معرّف). الزبائن: مصدر موثوق من تقرير أرصدة الأمين (latestCustomerBalanceItems).
-  // الموردون: لا يوجد مصدر GUID موثوق من الأمين لفواتير المشتريات المسحوبة حالياً
-  // (pull-purchase-invoices-from-ameen.ps1 يصدّر اسم المورد نصاً فقط)، لذا أفضل
-  // جهد فقط عبر بيانات الموردين المُدخَلة يدوياً بميزة أوامر الشراء غير المرتبطة —
-  // إن لم تُطابَق، يُترك المعرّف فارغاً وسيرفض الاعتماد لاحقاً برسالة واضحة بدل
-  // فشل صامت أو تسوية خاطئة.
+  // ربط الجهة بمعرّف الأمين (GUID) للزبائن فقط — مصدر موثوق من تقرير أرصدة
+  // الأمين (findBalanceCustomerByText). لا يوجد مصدر GUID/كود موثوق للموردين من
+  // فواتير المشتريات المسحوبة حالياً (pull-purchase-invoices-from-ameen.ps1
+  // يصدّر اسم المورد نصاً فقط، بلا معرّف)، فمطابقة الاسم القديمة عبر
+  // poSupplierHistory() قد تختار حساباً خاطئاً أو لا تجد شيئاً — أُزيلت عمداً؛
+  // مرتجعات المشتريات تُحفظ بلا partyAmeenGuid حالياً (تسجيلي فقط، انظر ملاحظة
+  // approveReturnDocument بـsrc/supabase-client.js).
   let partyAmeenGuid = "";
   let partyAmeenCode = "";
-  if (state.retKind === "purchase") {
-    const match = poSupplierHistory().find((s) => normalizeItemName(s.name) === normalizeItemName(state.retPartyName));
-    partyAmeenGuid = match?.guid || "";
-    partyAmeenCode = match?.code || "";
-  } else {
+  if (state.retKind !== "purchase") {
     const match = findBalanceCustomerByText(state.retPartyName);
     partyAmeenGuid = match?.customerGuid || match?.customerAccountGuid || "";
   }
@@ -7939,16 +7934,10 @@ async function retSetStatus(id, nextStatus) {
   }
   try {
     if (nextStatus === "approved") {
-      // اعتماد فعلي: يستدعي retCalc.retLineProfitReversal/retSettlementImpact
-      // ويُثبِّت نتائجهما على المستند نفسه، ويحاول تطبيق أثر المخزون الفعلي على
-      // approved_price_items.stock_qty (أفضل جهد لكل سطر — انظر توثيق الأخطاء
-      // الجزئية في AI_HANDOFF.md إن تعذّر تحديد وحدة أي صنف بثقة).
-      const result = await dataStore.approveReturnDocument(id, doc);
-      if (result && Array.isArray(result.stockWarnings) && result.stockWarnings.length) {
-        setNotice("error", `تم الاعتماد، لكن تعذّر تحديث مخزون بعض الأصناف: ${result.stockWarnings.join("؛ ")}`);
-      } else {
-        setNotice("success", "تم اعتماد المرتجع وتسجيل أثره على الربح/التسوية/المخزون.");
-      }
+      // اعتماد تسجيلي فقط (2026-08-01): لا تعديل على المخزون ولا احتساب ربح/تسوية
+      // — انظر الملاحظة المعمارية في approveReturnDocument بـsrc/supabase-client.js.
+      await dataStore.approveReturnDocument(id, doc);
+      setNotice("success", "تم اعتماد المرتجع تسجيلياً (بلا تعديل تلقائي على المخزون أو الربح — راجع الأمين يدوياً).");
     } else {
       await dataStore.setReturnDocumentStatus(id, nextStatus);
       setNotice("success", `تم تحديث حالة المرتجع إلى: ${retCalc.RET_STATUS_LABELS[nextStatus] || nextStatus}.`);
@@ -8124,9 +8113,7 @@ function returns() {
 
       ${state.retOrigInvoice ? `
         <p class="muted" style="margin-top:10px">
-          ${state.retKind === "purchase"
-            ? "⚠ تكلفة السطر هنا تقريبية (آخر سعر شراء/متوسط تكلفة الصنف عموماً)، وليست تكلفة هذا السطر الفعلية بالضبط — أرقام الربح/الخسارة الناتجة عن اعتماد هذا المرتجع تقريبية أيضاً."
-            : "⚠ لا تتوفر تكلفة فعلية لسطر فاتورة المبيعات بالتقرير الحالي — ستُحتسَب تكلفة هذا المرتجع كصفر، وأثره على صافي الربح المعروض غير دقيق."}
+          ⚠ هذا المرتجع تسجيلي فقط: لا يُعدَّل مخزون الأصناف تلقائياً ولا يُحتسَب أثره على الربح أو التسوية عند الاعتماد — عدّل المخزون والحسابات يدوياً بالأمين حتى تتوفر تكلفة السطر الفعلية ومعرّف الجهة من الأمين.
         </p>
         <div class="inv-table-wrap" style="margin-top:12px">
           <table class="inv-table">

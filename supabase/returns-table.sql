@@ -70,11 +70,12 @@ create table if not exists returns (
   correction_count       integer       not null default 0,
   correction_log         jsonb         not null default '[]',
 
-  -- أثر الاعتماد الفعلي (تُملأ عند الانتقال draft → approved من الكود، لا يدوياً):
-  -- الربح/التكلفة/الإيراد المعكوس فعلياً لهذا المستند (retCalc.retInvoiceProfitReversal)،
-  -- ونوع/هدف/قيمة التسوية المالية (retCalc.retSettlementImpact)، وعَلَم/توقيت تطبيق
-  -- أثر المخزون فعلياً على approved_price_items.stock_qty (قد يبقى false إن تعذّر
-  -- تحديد الوحدة بثقة لأحد الأصناف — انظر AI_HANDOFF.md لتوثيق أي حالة كهذه).
+  -- محجوزة/غير مستخدمة حالياً (2026-08-01): الاعتماد الحالي تسجيلي فقط — لا يكتب
+  -- الكود إلى هذه الحقول إطلاقاً (انظر approveReturnDocument بـsrc/supabase-client.js)،
+  -- لأن تكلفة السطر الفعلية ومعرّف الجهة من الأمين غير متوفرين بثقة بعد، ولأن
+  -- الكتابة السابقة كانت على مرحلتين غير ذرّيتين تعرّض لمضاعفة أثر المخزون. الأعمدة
+  -- أُبقيت بالمخطط لتُستخدم مستقبلاً عند تنفيذ الاعتماد عبر RPC/معاملة واحدة بعد
+  -- توفر تلك البيانات من الأمين.
   reversed_revenue       numeric(15,2) not null default 0,
   reversed_cost          numeric(15,2) not null default 0,
   reversed_profit        numeric(15,2) not null default 0,
@@ -285,8 +286,9 @@ begin
 
   -- أثر المخزون (stock_applied*) اتجاه واحد فقط: false → true. بمجرد
   -- stock_applied = true يُقفَل تماماً (لا رجوع، ولا تعديل لاحق لقائمة
-  -- الأصناف المطبَّقة أو توقيت التطبيق). قبل ذلك يبقى قابلاً للتحديث التراكمي
-  -- (استئناف تطبيق مخزون جزئي فشل — applyReturnStockForDoc بالتطبيق).
+  -- الأصناف المطبَّقة أو توقيت التطبيق). هذه الحقول محجوزة/غير مكتوبة من الكود
+  -- حالياً (الاعتماد تسجيلي فقط — انظر تعليق تعريف الأعمدة أعلاه)؛ القيد يبقى
+  -- كحماية جاهزة لتطبيق مخزون مستقبلي عبر RPC/معاملة واحدة.
   if old.stock_applied then
     if new.stock_applied is distinct from old.stock_applied
       or new.stock_applied_at is distinct from old.stock_applied_at
@@ -333,9 +335,12 @@ create policy returns_insert_creator
 -- تستبعده هذه الشرط تلقائياً من أي تعديل لاحق من غير المالك، مهما كانت القيم
 -- الجديدة. WITH CHECK يسمح للمنشئ بأن تصبح النتيجة 'draft' (تعديل ذاتي) أو
 -- 'approved' (فعل الاعتماد نفسه، المسموح مرة واحدة فقط بحكم شرط USING أعلاه).
--- أي تعديل لاحق على صف معتمَد أصلاً (تصحيح، إعادة محاولة مزامنة/مخزون) يمر
--- عبر returns_is_owner() حصراً، اتساقاً مع قفل الحقول المالية وأثر الاعتماد
--- في returns_guard_immutable_and_stamp().
+-- أي تعديل لاحق على صف معتمَد أصلاً (تصحيح، مزامنة) يمر عبر returns_is_owner()
+-- حصراً، اتساقاً مع قفل الحقول المالية وأثر الاعتماد في
+-- returns_guard_immutable_and_stamp(). ملاحظة (2026-08-01): الاعتماد الحالي
+-- كتابة واحدة فقط (draft → approved) بلا أي تحديث تال لتطبيق مخزون — إزالة
+-- التطبيق ثنائي المرحلة (applyReturnStockForDoc القديمة) من الكود يحلّ إشكال
+-- فشل المنشئ غير المالك بتحديث لاحق بعد أن يكون المخزون قد تغيّر.
 create policy returns_update_client
   on returns for update
   using (
