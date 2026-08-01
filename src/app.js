@@ -1750,21 +1750,10 @@ function isMazaya100g(item) {
 // دمج أصناف متشابهة في النشرة بسطر واحد (طلب الإدارة) — أضف الاسم القانوني هنا لدمج أي صنف يبدأ به
 const BULLETIN_MERGE_NAMES = ["ماستر طويل ورق", "ماستر قصير أزرق", "اليغانس طويل فضي"];
 
-// مفتاح مقارنة السعر — مطابق حرفياً لـ`mergePriceKey` في مولّد النشرات
-// (scripts/generate-price-lists.mjs) كي يقرّر الطرفان على المجموعة نفسها.
-function bulletinMergePriceKey(value) {
-  const n = Number(value || 0);
-  // فوق هذا الحدّ تفقد الفاصلة العائمة دقة القرش، فنقارن النص الخام بدل رقم
-  // قد يوحّد سعرين مختلفين. أسعار العمل الحقيقية أصغر منه بمراحل.
-  if (!Number.isFinite(n) || Math.abs(n) > 1e12) return `raw:${String(value)}`;
-  return String(Math.round(Math.round(n * 1000) / 1000 * 100));
-}
-
 function mergeBulletinNamedGroups(items, mode) {
-  // القرار لكل وضع على حدة تماماً كالمولّد: الجملة تقارن سعر الكرتونة،
-  // والمفرق يقارن سعر المفرق. صنف غير مسعّر في هذا الوضع لا يشارك في القرار.
-  const activeMode = (mode || state.priceMode) === "mufrak" ? "mufrak" : "jumla";
-  const priceOf = (item) => (activeMode === "mufrak" ? itemRetailPrice(item) : itemUnit2Price(item));
+  // القائمة إدارية وصريحة: الاسم الأساسي وما يبدأ به aliases لصنف واحد حتى لو
+  // بقيت لهما أسعار قديمة مختلفة. نعتمد بيانات الاسم الأساسي ونحفظ مفاتيح كل
+  // aliases كي يؤدي تعديل السطر المدمج إلى توحيد أسعارها في الحفظ التالي.
   const result = [...items];
   BULLETIN_MERGE_NAMES.forEach((display) => {
     const baseN = normalizeItemName(display);
@@ -1774,24 +1763,17 @@ function mergeBulletinNamedGroups(items, mode) {
         const n = normalizeItemName(item.name || item.itemName || "");
       return n === baseN || n.startsWith(baseN + " ");
     });
-    // القرار — ومفاتيح المصدر معاً — على المسعّرين في هذا الوضع فقط.
-    // منح سعر السطر المدمج لصنف غير مسعّر يبدأ بالاسم نفسه قد يكتب سعراً على
-    // **منتج آخر**؛ وخسارة تحديث alias غير مسعّر أهون بكثير من تسعير خاطئ.
-    const entries = named.filter(({ item }) => priceOf(item) > 0);
-    if (entries.length < 2) return;
-    const keys = new Set(entries.map(({ item }) => bulletinMergePriceKey(priceOf(item))));
-    // غموض الأسعار يوقف الدمج بدل إنتاج اسمين متطابقين بسعرين مختلفين.
-    if (keys.size > 1) return;
-    const exact = entries.find(({ item }) => normalizeItemName(item.name || item.itemName || "") === baseN);
-    const rep = exact || entries[0];
-    const anchor = Math.min(...entries.map(({ index }) => index));
+    if (!named.length) return;
+    const exact = named.find(({ item }) => normalizeItemName(item.name || item.itemName || "") === baseN);
+    const rep = exact || named[0];
+    const anchor = Math.min(...named.map(({ index }) => index));
     result[anchor] = {
       ...rep.item,
       name: display,
       itemName: display,
-      sourceKeys: entries.map(({ item }) => item.key).filter(Boolean)
+      sourceKeys: named.map(({ item }) => item.key).filter(Boolean)
     };
-    const dropped = entries.map(({ index }) => index).filter((index) => index !== anchor);
+    const dropped = named.map(({ index }) => index).filter((index) => index !== anchor);
     dropped.sort((a, b) => b - a).forEach((index) => result.splice(index, 1));
   });
   return result.sort(
