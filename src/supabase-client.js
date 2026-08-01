@@ -87,6 +87,8 @@
   const purchaseInvoicesTable = config.purchaseInvoicesTable || "purchase_invoices";
   const itemSnapshotTable = config.itemSnapshotTable || "ameen_item_snapshot";
   const purchaseInvoiceReportsTable = config.purchaseInvoiceReportsTable || "ameen_purchase_invoice_reports";
+  const reconSessionsTable = config.reconSessionsTable || "inventory_recon_sessions";
+  const reconLinesTable = config.reconLinesTable || "inventory_recon_lines";
   const client =
     hasConfig && hasLibrary
       ? window.supabase.createClient(config.url, config.publishableKey, {
@@ -1229,6 +1231,183 @@
 
       if (error) throw new Error(translateDbError(error.message));
       return data?.[0] || localReport;
+    },
+
+    // ============================================================
+    // الجرد الشهري (تسوية المخزون) — تسجيلي فقط. اعتماد الجلسة يقفل
+    // السجل (status='approved') ولا يغيّر أي مخزون أو حساب في الأمين
+    // أو Supabase. انظر tools/push-inventory-reconciliation-to-ameen.ps1
+    // (stub مقفل بـ exit 1) وsupabase/inventory-reconciliation-table.sql.
+    // ============================================================
+
+    async listReconSessions() {
+      if (!client) return [];
+      const session = await getSupabaseSession();
+      if (!session) return [];
+      try {
+        const { data, error } = await client
+          .from(reconSessionsTable)
+          .select("id, session_date, session_month, warehouse_key, warehouse_name, status, idempotency_key, notes, created_by, created_at, updated_at, reviewed_at, reviewed_by, approved_at, approved_by")
+          .order("session_date", { ascending: false })
+          .limit(50);
+        if (error) return [];
+        return data || [];
+      } catch {
+        return [];
+      }
+    },
+
+    async getReconSession(sessionId) {
+      if (!client || !sessionId) return null;
+      const session = await getSupabaseSession();
+      if (!session) return null;
+      const { data: sessionRow, error: sessionError } = await client
+        .from(reconSessionsTable)
+        .select("id, session_date, session_month, warehouse_key, warehouse_name, status, idempotency_key, notes, created_by, created_at, updated_at, reviewed_at, reviewed_by, approved_at, approved_by")
+        .eq("id", sessionId)
+        .maybeSingle();
+      if (sessionError) throw new Error(translateDbError(sessionError.message));
+      if (!sessionRow) return null;
+
+      const { data: lines, error: linesError } = await client
+        .from(reconLinesTable)
+        .select("id, session_id, item_key, item_number, item_name, unit_name, system_qty, actual_qty, diff_qty, unit_cost, currency, settlement_value, reason, created_at, updated_at")
+        .eq("session_id", sessionId)
+        .order("item_name", { ascending: true });
+      if (linesError) throw new Error(translateDbError(linesError.message));
+
+      return { ...sessionRow, lines: lines || [] };
+    },
+
+    async createReconSession(input) {
+      if (!client) throw new Error("إنشاء جلسة جرد يتطلب اتصالاً بـ Supabase.");
+      const user = await requireUser();
+      const payload = {
+        session_date: input.sessionDate,
+        session_month: input.sessionMonth,
+        warehouse_key: cleanText(input.warehouseKey, 60),
+        warehouse_name: cleanText(input.warehouseName, 120),
+        idempotency_key: cleanText(input.idempotencyKey, 200),
+        status: "draft",
+        created_by: input.createdBy || user.id
+      };
+      if (!payload.warehouse_key || !payload.idempotency_key) {
+        throw new Error("لا يمكن إنشاء جلسة جرد بدون مستودع.");
+      }
+
+      const { data, error } = await client
+        .from(reconSessionsTable)
+        .insert(payload)
+        .select("id, session_date, session_month, warehouse_key, warehouse_name, status, idempotency_key, notes, created_by, created_at, updated_at, reviewed_at, reviewed_by, approved_at, approved_by")
+        .limit(1);
+
+      if (error) {
+        if (error.code === "23505") {
+          const { data: existing, error: fetchError } = await client
+            .from(reconSessionsTable)
+            .select("id, session_date, session_month, warehouse_key, warehouse_name, status, idempotency_key, notes, created_by, created_at, updated_at, reviewed_at, reviewed_by, approved_at, approved_by")
+            .eq("idempotency_key", payload.idempotency_key)
+            .maybeSingle();
+          if (fetchError) throw new Error(translateDbError(fetchError.message));
+          if (existing) return existing;
+        }
+        throw new Error(translateDbError(error.message));
+      }
+      return data?.[0] || null;
+    },
+
+    async saveReconLines(sessionId, lines) {
+      if (!client) throw new Error("حفظ سطور الجرد يتطلب اتصالاً بـ Supabase.");
+      if (!sessionId) throw new Error("لا يمكن حفظ سطور جرد بدون جلسة.");
+      await requireUser();
+
+      const { data: sessionRow, error: sessionError } = await client
+        .from(reconSessionsTable)
+        .select("status")
+        .eq("id", sessionId)
+        .maybeSingle();
+      if (sessionError) throw new Error(translateDbError(sessionError.message));
+      if (!sessionRow || sessionRow.status !== "draft") {
+        throw new Error("لا يمكن تعديل سطور جلسة غير مسودة.");
+      }
+
+      const rows = (Array.isArray(lines) ? lines : []).map((line) => ({
+        session_id: sessionId,
+        item_key: line.itemKey,
+        item_number: line.itemNumber || null,
+        item_name: line.itemName,
+        unit_name: line.unitName || null,
+        system_qty: line.systemQty || 0,
+        actual_qty: line.actualQty === "" || line.actualQty === undefined ? null : line.actualQty,
+        unit_cost: line.unitCost || null,
+        currency: line.currency || "USD",
+        reason: line.reason || null,
+        updated_at: new Date().toISOString()
+      }));
+      if (!rows.length) return [];
+
+      const { data, error } = await client
+        .from(reconLinesTable)
+        .upsert(rows, { onConflict: "session_id,item_key" })
+        .select("id, session_id, item_key, item_number, item_name, unit_name, system_qty, actual_qty, diff_qty, unit_cost, currency, settlement_value, reason, created_at, updated_at");
+
+      if (error) throw new Error(translateDbError(error.message));
+      return data || [];
+    },
+
+    // نفس نمط setReturnDocumentStatus (returns feature): تحديث مشروط بالحالة
+    // الحالية (.eq status expectedStatus) للكشف عن حجب RLS الصامت — إن لم يتغيّر
+    // صف واحد بالضبط نعتبرها فشلاً صريحاً بدل نجاح وهمي. الاعتماد لا يمس أي
+    // مخزون أو حساب في الأمين أو Supabase، فقط يقفل الحالة ويختم من/متى.
+    async setReconSessionStatus(sessionId, nextStatus, expectedStatus, actorFields = {}) {
+      if (!client) throw new Error("تحديث حالة جلسة الجرد يتطلب اتصالاً بـ Supabase.");
+      const canTransition = window.invRecCalc && typeof window.invRecCalc.canTransitionStatus === "function"
+        ? window.invRecCalc.canTransitionStatus(expectedStatus, nextStatus)
+        : true;
+      if (!canTransition) {
+        throw new Error("لا يمكن الانتقال إلى هذه الحالة من الحالة الحالية.");
+      }
+      const user = await requireUser();
+      const patch = { status: nextStatus, updated_at: new Date().toISOString() };
+      if (nextStatus === "reviewed") {
+        patch.reviewed_at = new Date().toISOString();
+        patch.reviewed_by = actorFields.reviewedBy || user.id;
+      } else if (nextStatus === "approved") {
+        patch.approved_at = new Date().toISOString();
+        patch.approved_by = actorFields.approvedBy || user.id;
+      }
+
+      const { data, error } = await client
+        .from(reconSessionsTable)
+        .update(patch)
+        .eq("id", sessionId)
+        .eq("status", expectedStatus)
+        .select("id");
+
+      if (error) throw new Error(translateDbError(error.message));
+      if (!data || data.length !== 1) {
+        throw new Error("تعذّر تحديث حالة جلسة الجرد (لم يتغيّر أي صف) — أعد تحميل الصفحة وتحقّق من صلاحيتك على هذه الجلسة.");
+      }
+    },
+
+    // مخزون النظام حسب المستودع — لا يوجد سكريبت سحب فعلي بعد لمصدر
+    // ameen_warehouse_stock (انظر tools/discover-ameen-inventory-recon-fields.ps1)،
+    // لذا تُرجع الدالة null إلى أن يُبنى ذلك السكريبت — ولا تُخترَع كمية صفرية بديلة.
+    async getLatestWarehouseStockReport(warehouseKey) {
+      if (!client) return null;
+      const session = await getSupabaseSession();
+      if (!session) return null;
+      const { data, error } = await client
+        .from(inventoryReportsTable)
+        .select("summary, items, created_at")
+        .eq("source", "ameen_warehouse_stock")
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      if (error) return null;
+      if (!data) return null;
+      if (warehouseKey && data.summary && data.summary.warehouseKey && data.summary.warehouseKey !== warehouseKey) return null;
+      return data;
     }
   };
 

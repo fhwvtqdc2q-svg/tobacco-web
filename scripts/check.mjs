@@ -642,6 +642,174 @@ if (!/with check \(\s*ameen_purchase_invoice_reports_is_sync_writer\(\)\s*and\s*
   failed = true;
 }
 
+// اختبارات دوال الجرد الشهري المعزولة (src/inventory-recon-calc.js) — نفس نمط poCalc أعلاه.
+{
+  const invRecCalcSource = readFileSync("src/inventory-recon-calc.js", "utf8");
+  const sandbox = { window: {}, console };
+  vm.createContext(sandbox);
+  vm.runInContext(invRecCalcSource, sandbox, { filename: "inventory-recon-calc.js" });
+  const invRecCalc = sandbox.window.invRecCalc;
+  if (!invRecCalc) {
+    console.error("src/inventory-recon-calc.js did not expose window.invRecCalc.");
+    failed = true;
+  } else {
+    const assertEqual = (label, actual, expected) => {
+      const a = JSON.stringify(actual);
+      const e = JSON.stringify(expected);
+      if (a !== e) {
+        console.error(`invRecCalc test failed: ${label} — got ${a}, expected ${e}`);
+        failed = true;
+      }
+    };
+
+    assertEqual("diffOf increase", invRecCalc.diffOf(10, 12), { diffQty: 2, diffType: "increase" });
+    assertEqual("diffOf decrease", invRecCalc.diffOf(10, 7), { diffQty: -3, diffType: "decrease" });
+    assertEqual("diffOf match", invRecCalc.diffOf(10, 10), { diffQty: 0, diffType: "none" });
+    assertEqual("diffOf empty actual", invRecCalc.diffOf(10, ""), { diffQty: 0, diffType: "none" });
+    assertEqual("diffOf missing actual", invRecCalc.diffOf(10, undefined), { diffQty: 0, diffType: "none" });
+
+    assertEqual("settlementValue increase", invRecCalc.settlementValue(2, 5), 10);
+    assertEqual("settlementValue decrease", invRecCalc.settlementValue(-3, 5), -15);
+
+    assertEqual(
+      "lineComputed reason required and missing",
+      invRecCalc.lineComputed({ systemQty: 10, actualQty: 7, unitCost: 5, reason: "" }),
+      { diffQty: -3, diffType: "decrease", settlementValue: -15, reasonRequired: true, reasonOk: false }
+    );
+    assertEqual(
+      "lineComputed reason required and provided",
+      invRecCalc.lineComputed({ systemQty: 10, actualQty: 7, unitCost: 5, reason: "تلف" }),
+      { diffQty: -3, diffType: "decrease", settlementValue: -15, reasonRequired: true, reasonOk: true }
+    );
+    assertEqual(
+      "lineComputed matched line needs no reason",
+      invRecCalc.lineComputed({ systemQty: 10, actualQty: 10, unitCost: 5, reason: "" }),
+      { diffQty: 0, diffType: "none", settlementValue: 0, reasonRequired: false, reasonOk: true }
+    );
+
+    assertEqual(
+      "sessionSummary aggregates gain/loss/net",
+      invRecCalc.sessionSummary([
+        { systemQty: 10, actualQty: 12, unitCost: 5, reason: "زيادة" },
+        { systemQty: 10, actualQty: 7, unitCost: 5, reason: "نقص" },
+        { systemQty: 10, actualQty: 10, unitCost: 5 }
+      ]),
+      { totalLines: 3, matchedCount: 1, increaseCount: 1, decreaseCount: 1, gainValue: 10, lossValue: 15, netValue: -5 }
+    );
+
+    assertEqual(
+      "validateForReview flags missing reasons only",
+      invRecCalc.validateForReview([
+        { systemQty: 10, actualQty: 7, unitCost: 5, reason: "" },
+        { systemQty: 10, actualQty: 10, unitCost: 5, reason: "" }
+      ]),
+      { ok: false, missingReasonCount: 1 }
+    );
+
+    assertEqual("canTransitionStatus draft->reviewed", invRecCalc.canTransitionStatus("draft", "reviewed"), true);
+    assertEqual("canTransitionStatus reviewed->approved", invRecCalc.canTransitionStatus("reviewed", "approved"), true);
+    assertEqual("canTransitionStatus draft->approved skip forbidden", invRecCalc.canTransitionStatus("draft", "approved"), false);
+    assertEqual("canTransitionStatus approved is terminal", invRecCalc.canTransitionStatus("approved", "reviewed"), false);
+    assertEqual("canTransitionStatus unknown status rejected", invRecCalc.canTransitionStatus("draft", "synced"), false);
+
+    assertEqual("normalizeSearchText hamza/taa marbuta", invRecCalc.normalizeSearchText("أحمد الشركة"), "احمد الشركه");
+    assertEqual(
+      "itemMatches tolerant of hamza variants",
+      invRecCalc.itemMatches({ itemName: "دخان أبو زياد" }, "ابو زياد"),
+      true
+    );
+
+    assertEqual(
+      "buildIdempotencyKey composes warehouse/month/nonce",
+      invRecCalc.buildIdempotencyKey("jumla", "2026-08", "n1"),
+      "jumla|2026-08|n1"
+    );
+  }
+}
+
+// عقد ربط واجهة الجرد الشهري بملف invRecCalc ومصدر Supabase الجديد.
+for (const contract of [
+  "window.invRecCalc.itemMatches",
+  "window.invRecCalc.lineComputed",
+  "window.invRecCalc.sessionSummary",
+  "window.invRecCalc.canTransitionStatus",
+  "window.invRecCalc.buildIdempotencyKey",
+  "dataStore.createReconSession(",
+  "dataStore.saveReconLines(",
+  "dataStore.setReconSessionStatus("
+]) {
+  if (!appJs.includes(contract)) {
+    console.error(`Inventory reconciliation UI/data-layer contract is missing: ${contract}`);
+    failed = true;
+  }
+}
+
+// اختبار حارس RLS الصامت في setReconSessionStatus (src/supabase-client.js): التحديث
+// مشروط بـ.eq("status", expectedStatus) — إن حجبت RLS الصف (0 نتيجة) يجب رمي خطأ
+// صريح بدل اعتبارها نجاحاً وهمياً. نبني عميل Supabase وهمياً بدل الاتصال الحقيقي.
+{
+  const supabaseClientSource = readFileSync("src/supabase-client.js", "utf8");
+
+  function makeMockClient(updateResult) {
+    return {
+      auth: {
+        getSession: async () => ({ data: { session: { user: { id: "u1", email: "owner@ozk.test" } } }, error: null }),
+        getUser: async () => ({ data: { user: { id: "u1", email: "owner@ozk.test" } }, error: null })
+      },
+      from() {
+        const builder = {
+          update() { return builder; },
+          eq() { return builder; },
+          select: async () => updateResult
+        };
+        return builder;
+      }
+    };
+  }
+
+  async function runSetReconSessionStatus(updateResult) {
+    const sandbox = {
+      window: {
+        appConfig: { supabase: { url: "https://x.test", publishableKey: "key" } },
+        supabase: { createClient: () => makeMockClient(updateResult) },
+        invRecCalc: sandbox_invRecCalc
+      },
+      localStorage: { getItem: () => null, setItem: () => {}, removeItem: () => {} },
+      console
+    };
+    vm.createContext(sandbox);
+    vm.runInContext(supabaseClientSource, sandbox, { filename: "supabase-client.js" });
+    return sandbox.window.tobaccoData.setReconSessionStatus("s1", "reviewed", "draft");
+  }
+
+  const invRecCalcSourceForGuard = readFileSync("src/inventory-recon-calc.js", "utf8");
+  const guardSandbox = { window: {}, console };
+  vm.createContext(guardSandbox);
+  vm.runInContext(invRecCalcSourceForGuard, guardSandbox, { filename: "inventory-recon-calc.js" });
+  const sandbox_invRecCalc = guardSandbox.window.invRecCalc;
+
+  let succeeded = false;
+  try {
+    await runSetReconSessionStatus({ data: [{ id: "s1" }], error: null });
+    succeeded = true;
+  } catch (err) {
+    console.error(`setReconSessionStatus should succeed when the guarded row matches: ${err.message}`);
+    failed = true;
+  }
+  if (!succeeded) failed = true;
+
+  let blocked = false;
+  try {
+    await runSetReconSessionStatus({ data: [], error: null });
+  } catch {
+    blocked = true;
+  }
+  if (!blocked) {
+    console.error("setReconSessionStatus must throw when the status-guarded update matches zero rows (silent RLS block) instead of succeeding silently.");
+    failed = true;
+  }
+}
+
 if (failed) {
   process.exit(1);
 }
