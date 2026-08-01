@@ -547,6 +547,382 @@ if (!Array.isArray(mergeNames) || mergeNames.some((name) => typeof name !== "str
   }
 }
 
+// اختبارات حقيقية لدوال returns-calc.js (retCalc): منع تجاوز الكمية الأصلية عبر
+// المرتجعات التراكمية، عكس الربح/التكلفة بنسبة الكمية المرتجعة، أثر التسوية
+// (ذمم زبون/مورد أو استرداد نقدي من نفس الصندوق)، وحارس انتقالات الحالة.
+{
+  const retCalcSource = readFileSync("src/returns-calc.js", "utf8");
+  const sandbox = { window: {}, console };
+  vm.createContext(sandbox);
+  vm.runInContext(retCalcSource, sandbox, { filename: "returns-calc.js" });
+  const retCalc = sandbox.window.retCalc;
+  if (!retCalc) {
+    console.error("src/returns-calc.js did not expose window.retCalc.");
+    failed = true;
+  } else {
+    const assertEqual = (label, actual, expected) => {
+      const a = JSON.stringify(actual);
+      const e = JSON.stringify(expected);
+      if (a !== e) {
+        console.error(`retCalc test failed: ${label} — got ${a}, expected ${e}`);
+        failed = true;
+      }
+    };
+
+    // منع تجاوز الكمية الأصلية بعد خصم مرتجعات سابقة معتمدة لنفس السطر
+    assertEqual(
+      "retAlreadyReturnedQty sums only non-draft/cancelled prior returns",
+      retCalc.retAlreadyReturnedQty(
+        [{ itemKey: "a", qty: 3, status: "approved" }, { itemKey: "a", qty: 2, status: "draft" }, { itemKey: "b", qty: 5, status: "synced" }],
+        "a"
+      ),
+      3
+    );
+    assertEqual(
+      "retRemainingQty never negative",
+      retCalc.retRemainingQty(5, [{ itemKey: "a", qty: 5, status: "approved" }, { itemKey: "a", qty: 2, status: "approved" }], "a"),
+      0
+    );
+    assertEqual(
+      "retValidateReturnQty rejects exceeding remaining",
+      retCalc.retValidateReturnQty({ qty: 4, originalQty: 5, priorReturns: [{ itemKey: "a", qty: 2, status: "approved" }], itemKey: "a" }).ok,
+      false
+    );
+    assertEqual(
+      "retValidateReturnQty accepts exactly the remaining amount",
+      retCalc.retValidateReturnQty({ qty: 3, originalQty: 5, priorReturns: [{ itemKey: "a", qty: 2, status: "approved" }], itemKey: "a" }).ok,
+      true
+    );
+    assertEqual(
+      "retValidateReturnQty rejects zero/negative qty",
+      retCalc.retValidateReturnQty({ qty: 0, originalQty: 5, priorReturns: [], itemKey: "a" }).ok,
+      false
+    );
+
+    // احتساب سطر/إجمالي المرتجع
+    assertEqual("retLineComputed without itemKey", retCalc.retLineComputed({ qty: "5", price: "2" }), { qty: 0, price: 0, lineTotal: 0 });
+    assertEqual("retLineComputed with itemKey", retCalc.retLineComputed({ itemKey: "a", qty: "5", price: "2" }), { qty: 5, price: 2, lineTotal: 10 });
+    assertEqual(
+      "retTotals sums only rows with itemKey",
+      retCalc.retTotals([{ itemKey: "a", qty: "2", price: "3" }, { qty: "9", price: "9" }, { itemKey: "b", qty: "1", price: "1.5" }]),
+      { grand: 7.5 }
+    );
+
+    // عكس الربح بنسبة الكمية المرتجعة وبنفس أساس السعر/التكلفة الأصلي
+    assertEqual(
+      "retLineProfitReversal computes revenue/cost/profit reversed",
+      retCalc.retLineProfitReversal({ returnQty: 4, unitPrice: 10, unitCost: 6 }),
+      { returnQty: 4, revenueReversed: 40, costReversed: 24, profitReversed: 16 }
+    );
+
+    // أثر التسوية: مشتريات دوماً تنقص ذمم المورد؛ مبيعات آجلة تنقص ذمم الزبون؛
+    // مبيعات نقدية تتطلب صندوق الاسترداد الأصلي إلزامياً
+    assertEqual(
+      "retSettlementImpact purchase requires supplierId",
+      retCalc.retSettlementImpact({ kind: "purchase", amount: 50 }).ok,
+      false
+    );
+    assertEqual(
+      "retSettlementImpact purchase reduces supplier balance",
+      retCalc.retSettlementImpact({ kind: "purchase", amount: 50, supplierId: "s1" }).type,
+      "supplier_credit"
+    );
+    assertEqual(
+      "retSettlementImpact sales credit requires customerId",
+      retCalc.retSettlementImpact({ kind: "sales", amount: 50, originalPayMethod: "credit" }).ok,
+      false
+    );
+    assertEqual(
+      "retSettlementImpact sales cash requires original treasury",
+      retCalc.retSettlementImpact({ kind: "sales", amount: 50, originalPayMethod: "cash" }).ok,
+      false
+    );
+    assertEqual(
+      "retSettlementImpact sales cash refunds from original treasury",
+      retCalc.retSettlementImpact({ kind: "sales", amount: 50, originalPayMethod: "cash", treasuryId: "t1" }).type,
+      "cash_refund"
+    );
+
+    // اتجاه أثر المخزون: مبيعات تعيد للمخزون، مشتريات تُخرج منه
+    assertEqual("retInventoryDirection sales returns stock in", retCalc.retInventoryDirection("sales_wholesale"), "in");
+    assertEqual("retInventoryDirection purchase returns stock out", retCalc.retInventoryDirection("purchase"), "out");
+
+    // حارس انتقالات حالة المرتجع: نفس رتبة poCanTransitionStatus
+    assertEqual("retCanTransitionStatus draft->approved", retCalc.retCanTransitionStatus("draft", "approved"), true);
+    assertEqual("retCanTransitionStatus draft->synced skip forbidden", retCalc.retCanTransitionStatus("draft", "synced"), false);
+    assertEqual("retCanTransitionStatus synced is terminal", retCalc.retCanTransitionStatus("synced", "approved"), false);
+    assertEqual("retCanTransitionStatus never back to draft", retCalc.retCanTransitionStatus("approved", "draft"), false);
+    assertEqual("retCanTransitionStatus sync_pending<->failed both ways", retCalc.retCanTransitionStatus("sync_pending", "failed"), true);
+
+    // تنقّل السابق/التالي بين المستندات
+    assertEqual("retClampNavIndex moves to next", retCalc.retClampNavIndex(5, 0, 1), 1);
+    assertEqual("retClampNavIndex stops at oldest", retCalc.retClampNavIndex(5, 4, 1), 4);
+    assertEqual("retClampNavIndex empty list stays at 0", retCalc.retClampNavIndex(0, 0, 1), 0);
+  }
+}
+
+// عقود بند 10 (مراجعة المالك على PR #37، إصلاحات 1-4): سعر سطر مرتجع المشتريات
+// من سطر الفاتورة الأصلي نفسه لا المتوسط، الوحدة الأصلية محفوظة بلا تحويل قسري
+// لـ unit2، هوية السطر عبر GUID الفاتورة + مفتاح السطر لا رقم الفاتورة، وسقف
+// الكمية التراكمي يطابق originalInvoiceGuid أولاً. هذه فحوص شكل كود حقيقية على
+// src/app.js (وليست دوال معزولة) لأن retSelectOrigInvoice/retPriorReturnsForItem
+// تعتمدان على state/DOM ولا يمكن تشغيلهما بمعزل داخل vm.
+for (const contract of [
+  // 1) سعر مرتجع المشتريات من bi.Price الخام لهذا السطر بالذات، وليس lastPrice/avgPrice
+  "price: Number(item.price || 0)",
+  "unitCost: Number(item.lastPrice ?? item.avgPrice ?? 0)",
+  // 2) الوحدة الأصلية تُحفَظ كما وردت بالسطر — لا افتراض unit2 دائماً
+  "unit: item.unit || \"\",",
+  "const useUnit1 = basis === \"unit1\";",
+  "const unit = useUnit1 ? (line.unit1 || \"\") : (line.unit2 || line.unit1 || \"\");",
+  // 3) هوية السطر: GUID الفاتورة + مفتاح المادة + رقم السطر (لا رقم الفاتورة وحده)
+  "function retLineKey(invoiceGuid, matKey, index) {",
+  "lineKey: retLineKey(invoice.guid, matKey, idx)",
+  // 4) سقف الكمية التراكمي يطابق originalInvoiceGuid أولاً، ورقم الفاتورة تراجعاً فقط
+  "if (invGuid) return r.originalInvoiceGuid === invGuid;",
+  // 6) السبب إلزامي بالواجهة قبل الاعتماد (مكرر بقاعدة البيانات وبـ supabase-client.js)
+  "if (nextStatus === \"approved\" && !String(doc.reason || \"\").trim())"
+]) {
+  if (!appJs.includes(contract)) {
+    console.error(`Returns bug-fix contract is missing from src/app.js: ${contract}`);
+    failed = true;
+  }
+}
+
+// نفس بند 1: يجب ألا يُعاد أبداً افتراض lastPrice/avgPrice كسعر سطر مرتجع المشتريات
+if (/purchase[\s\S]{0,400}price:\s*Number\(item\.(lastPrice|avgPrice)/i.test(appJs)) {
+  console.error("src/app.js must never price a purchase-return line from lastPrice/avgPrice — only the original invoice line's own price.");
+  failed = true;
+}
+
+// عقود بند 4/5/6 على مستوى قاعدة البيانات (مقترح supabase/returns-table.sql — لم يُطبَّق بعد)
+const returnsSqlProposal = readFileSync("supabase/returns-table.sql", "utf8");
+for (const contract of [
+  // بند 4: حارس ذري ضد تجاوز الكمية عبر قفل استشاري + FOR UPDATE ضمن نفس المعاملة
+  // (lock_key يغطي أيضاً المستندات بلا original_invoice_guid — راجع ameen-return
+  // بند و — عبر بديل kind::party_name::original_invoice_number)
+  "pg_advisory_xact_lock(hashtext(lock_key))",
+  "returns_guard_status_transition",
+  // بند 5: قفل الحقول المالية بعد approved — تصحيح فقط عبر correction_log/الحقول المتزامنة
+  "returns_guard_immutable_and_stamp",
+  // بند 6: السبب إلزامي بقاعدة البيانات أيضاً، وليس فقط بالواجهة
+  "constraint returns_reason_required_after_draft",
+  "check (status = 'draft' or coalesce(trim(reason), '') <> '')"
+]) {
+  if (!returnsSqlProposal.includes(contract)) {
+    console.error(`Returns SQL proposal contract is missing from supabase/returns-table.sql: ${contract}`);
+    failed = true;
+  }
+}
+
+// اختبارات حقيقية للمسار الفعلي approveReturnDocument في supabase-client.js:
+// وليس فقط دوال retCalc المعزولة — تحقّق أن الاعتماد الفعلي (أ) يرفض بلا سبب،
+// و(ب) يثبّت status=approved فقط بلا أي كتابة على reversed_*/settlement_*
+// وبلا تعديل على approved_price_items.stock_qty (تسجيلي فقط، قرار صريح
+// 2026-08-01 — انظر تعليق approveReturnDocument)، عبر sandbox يحمّل
+// returns-calc.js + supabase-client.js معاً بوضع محلي (بلا إعداد Supabase)
+// فيُجبَر على مسار localStorage.
+{
+  const retCalcSource = readFileSync("src/returns-calc.js", "utf8");
+  const supabaseClientSource = readFileSync("src/supabase-client.js", "utf8");
+
+  function makeFakeStorage() {
+    let store = {};
+    return {
+      getItem: (k) => (Object.prototype.hasOwnProperty.call(store, k) ? store[k] : null),
+      setItem: (k, v) => { store[k] = String(v); },
+      removeItem: (k) => { delete store[k]; },
+      clear: () => { store = {}; }
+    };
+  }
+
+  const fakeStorage = makeFakeStorage();
+  const sandbox = {
+    window: {
+      appConfig: {},
+      crypto: { randomUUID: () => "test-uuid-" + Math.random().toString(16).slice(2) }
+    },
+    localStorage: fakeStorage,
+    console
+  };
+  vm.createContext(sandbox);
+  vm.runInContext(retCalcSource, sandbox, { filename: "returns-calc.js" });
+  sandbox.retCalc = sandbox.window.retCalc;
+  vm.runInContext(supabaseClientSource, sandbox, { filename: "supabase-client.js" });
+  const testDataStore = sandbox.window.tobaccoData;
+
+  if (!testDataStore || typeof testDataStore.approveReturnDocument !== "function") {
+    console.error("src/supabase-client.js did not expose window.tobaccoData.approveReturnDocument for testing.");
+    failed = true;
+  } else {
+    fakeStorage.setItem("tobacco-approved-price-items", JSON.stringify([
+      { item_key: "ITEM1", stock_qty: 100, unit1_name: "علبة", unit2_name: "كرتونة", unit2_factor: 12 }
+    ]));
+
+    const draftDoc = {
+      id: "local-test-return-1",
+      status: "draft",
+      kind: "sales_wholesale",
+      reason: "",
+      originalPayMethod: "cash",
+      treasuryName: "الصندوق الرئيسي",
+      partyAmeenGuid: "cust-guid-1",
+      total: 40,
+      items: [
+        {
+          item_key: "ITEM1",
+          itemKey: "ITEM1",
+          name: "صنف تجريبي",
+          unit: "كرتونة",
+          original_qty: 10,
+          qty: 4,
+          price: 10,
+          unit_cost: 6
+        }
+      ]
+    };
+    fakeStorage.setItem("tobacco-returns", JSON.stringify([draftDoc]));
+
+    let rejectedWithoutReason = false;
+    try {
+      await testDataStore.approveReturnDocument(draftDoc.id, draftDoc);
+    } catch (err) {
+      rejectedWithoutReason = /سبب/.test(String(err && err.message));
+    }
+    if (!rejectedWithoutReason) {
+      console.error("approveReturnDocument test failed: must reject approval when doc.reason is empty.");
+      failed = true;
+    }
+
+    const approvedDoc = { ...draftDoc, reason: "بضاعة تالفة" };
+    fakeStorage.setItem("tobacco-returns", JSON.stringify([approvedDoc]));
+    let result = null;
+    let approveError = null;
+    try {
+      result = await testDataStore.approveReturnDocument(approvedDoc.id, approvedDoc);
+    } catch (err) {
+      approveError = err;
+    }
+    if (approveError) {
+      console.error(`approveReturnDocument test failed: unexpected error on valid approval — ${approveError.message}`);
+      failed = true;
+    } else {
+      const savedReturns = JSON.parse(fakeStorage.getItem("tobacco-returns") || "[]");
+      const saved = savedReturns.find((r) => r.id === approvedDoc.id);
+      if (!saved) {
+        console.error("approveReturnDocument test failed: returned document not found after approval.");
+        failed = true;
+      } else {
+        const checks = [
+          ["status", saved.status, "approved"],
+          ["reversed_revenue", saved.reversed_revenue, undefined],
+          ["reversed_cost", saved.reversed_cost, undefined],
+          ["reversed_profit", saved.reversed_profit, undefined],
+          ["settlement_type", saved.settlement_type, undefined],
+          ["settlement_amount", saved.settlement_amount, undefined],
+          ["stock_applied", saved.stock_applied, undefined]
+        ];
+        for (const [label, actual, expected] of checks) {
+          if (JSON.stringify(actual) !== JSON.stringify(expected)) {
+            console.error(`approveReturnDocument persisted-effect test failed: ${label} — got ${JSON.stringify(actual)}, expected ${JSON.stringify(expected)} (تسجيلي فقط، بلا كتابة على هذا الحقل)`);
+            failed = true;
+          }
+        }
+      }
+
+      const savedPrices = JSON.parse(fakeStorage.getItem("tobacco-approved-price-items") || "[]");
+      const priceRow = savedPrices.find((r) => r.item_key === "ITEM1");
+      // تسجيلي فقط: الاعتماد لا يعدّل المخزون إطلاقاً — يبقى كما زُرع (100)
+      if (!priceRow || priceRow.stock_qty !== 100) {
+        console.error(`approveReturnDocument stock effect test failed: expected stock_qty to remain 100 (no auto stock mutation), got ${priceRow && priceRow.stock_qty}`);
+        failed = true;
+      }
+    }
+  }
+}
+
+// اختبار انحدار: setReturnDocumentStatus يجب ألا يُظهر "نجاحاً" وهمياً حين يرفض
+// RLS التحديث بصمت (0 صف متأثر، بلا error من Postgres) — نفس نمط approveReturnDocument
+// (eq("status", expectedStatus) + select("id") + تحقّق صف واحد بالضبط). يبني sandbox
+// بمسار Supabase الحقيقي (appConfig.supabase + window.supabase.createClient وهمي)
+// كي يُجبَر client على عدم كونه null، بخلاف اختبار approveReturnDocument أعلاه الذي
+// يبقى بمسار localStorage المحلي.
+{
+  const retCalcSource = readFileSync("src/returns-calc.js", "utf8");
+  const supabaseClientSource = readFileSync("src/supabase-client.js", "utf8");
+
+  function makeFakeStorage() {
+    let store = {};
+    return {
+      getItem: (k) => (Object.prototype.hasOwnProperty.call(store, k) ? store[k] : null),
+      setItem: (k, v) => { store[k] = String(v); },
+      removeItem: (k) => { delete store[k]; },
+      clear: () => { store = {}; }
+    };
+  }
+
+  function makeFakeSupabaseClient(updateResult) {
+    const fakeUser = { id: "test-user-1", email: "tester@ozk.local" };
+    const queryBuilder = {
+      eq() { return this; },
+      select: async () => updateResult
+    };
+    return {
+      auth: {
+        getSession: async () => ({ data: { session: { user: fakeUser } }, error: null }),
+        getUser: async () => ({ data: { user: fakeUser }, error: null })
+      },
+      from() {
+        return { update: () => queryBuilder };
+      }
+    };
+  }
+
+  async function runSetStatusScenario(updateResult) {
+    const fakeStorage = makeFakeStorage();
+    const sandbox = {
+      window: {
+        appConfig: { supabase: { url: "https://test.example.supabase.co", publishableKey: "test-key" } },
+        supabase: { createClient: () => makeFakeSupabaseClient(updateResult) },
+        crypto: { randomUUID: () => "test-uuid-" + Math.random().toString(16).slice(2) }
+      },
+      localStorage: fakeStorage,
+      console
+    };
+    vm.createContext(sandbox);
+    vm.runInContext(retCalcSource, sandbox, { filename: "returns-calc.js" });
+    sandbox.retCalc = sandbox.window.retCalc;
+    vm.runInContext(supabaseClientSource, sandbox, { filename: "supabase-client.js" });
+    const testDataStore = sandbox.window.tobaccoData;
+    if (!testDataStore || typeof testDataStore.setReturnDocumentStatus !== "function") {
+      throw new Error("src/supabase-client.js did not expose window.tobaccoData.setReturnDocumentStatus for testing.");
+    }
+    return testDataStore.setReturnDocumentStatus("remote-test-return-1", "sync_pending", "approved");
+  }
+
+  let rlsRejectionThrew = false;
+  try {
+    await runSetStatusScenario({ data: [], error: null });
+  } catch (err) {
+    rlsRejectionThrew = true;
+  }
+  if (!rlsRejectionThrew) {
+    console.error("setReturnDocumentStatus regression test failed: must throw (not silently succeed) when the update matches zero rows (RLS-blocked update simulated with { data: [], error: null }).");
+    failed = true;
+  }
+
+  let normalUpdateThrew = null;
+  try {
+    await runSetStatusScenario({ data: [{ id: "remote-test-return-1" }], error: null });
+  } catch (err) {
+    normalUpdateThrew = err;
+  }
+  if (normalUpdateThrew) {
+    console.error(`setReturnDocumentStatus regression test failed: unexpected error on a normal single-row update — ${normalUpdateThrew.message}`);
+    failed = true;
+  }
+}
+
 // عقد ربط واجهة فواتير المشتريات بملف poCalc ومصدر Supabase الجديد — يمنع رجوع
 // الواجهة لاستدعاء أسماء دوال قديمة أُزيلت من supabase-client.js.
 for (const contract of [
@@ -567,6 +943,24 @@ for (const contract of [
 if (appJs.includes("dataStore.updatePurchaseInvoiceStatus")) {
   console.error("src/app.js must not call the removed dataStore.updatePurchaseInvoiceStatus method.");
   failed = true;
+}
+
+// عقد ربط واجهة المرتجعات بملف retCalc ومصدر Supabase الجديد
+for (const contract of [
+  "retCalc.retValidateReturnQty",
+  "retCalc.retTotals",
+  "retCalc.retCanTransitionStatus",
+  "retCalc.retClampNavIndex",
+  "dataStore.listReturnDocuments",
+  "dataStore.createReturnDocument",
+  "dataStore.setReturnDocumentStatus",
+  "dataStore.approveReturnDocument",
+  "dataStore.deleteReturnDocument"
+]) {
+  if (!appJs.includes(contract)) {
+    console.error(`Returns UI/data-layer contract is missing: ${contract}`);
+    failed = true;
+  }
 }
 
 // عقود SQL فواتير المشتريات: حذف المسودة يقتصر على مالكها، وapproved_by/

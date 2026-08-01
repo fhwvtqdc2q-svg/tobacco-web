@@ -5,6 +5,7 @@
   const CUSTOMER_LIMITS_KEY = "tobacco-customer-credit-limits";
   const APPROVED_PRICES_KEY = "tobacco-approved-price-items";
   const PURCHASE_INVOICES_KEY = "tobacco-purchase-invoices";
+  const RETURNS_KEY = "tobacco-returns";
 
   const defaultRequests = [
     {
@@ -87,6 +88,7 @@
   const purchaseInvoicesTable = config.purchaseInvoicesTable || "purchase_invoices";
   const itemSnapshotTable = config.itemSnapshotTable || "ameen_item_snapshot";
   const purchaseInvoiceReportsTable = config.purchaseInvoiceReportsTable || "ameen_purchase_invoice_reports";
+  const returnsTable = config.returnsTable || "returns";
   const client =
     hasConfig && hasLibrary
       ? window.supabase.createClient(config.url, config.publishableKey, {
@@ -208,6 +210,79 @@
       correctionLog: Array.isArray(row.correction_log) ? row.correction_log : [],
       total,
       notes: row.notes || "",
+      createdAt: row.created_at || "",
+      updatedAt: row.updated_at || row.created_at || ""
+    };
+  }
+
+  // مستندات المرتجعات (مبيعات جملة/مركز، مشتريات) — نفس نمط فواتير المشتريات أعلاه.
+  const RET_KIND_VALUES = ["sales_wholesale", "sales_retail", "purchase"];
+  const RET_STATUS_VALUES = ["draft", "approved", "sync_pending", "synced", "failed"];
+  const RET_PAY_METHOD_VALUES = ["cash", "credit"];
+
+  function normalizeReturnItems(items) {
+    return (Array.isArray(items) ? items : [])
+      .map((item) => ({
+        item_key: item.item_key == null ? null : String(item.item_key),
+        // مفتاح سطر ثابت/فريد (GUID الفاتورة + مفتاح الصنف + رقم السطر) — أساس
+        // مطابقة سقف الكمية المرتجعة، وليس item_key وحده (قد يتكرر بأكثر من سطر).
+        line_key: item.line_key == null ? null : String(item.line_key),
+        name: cleanText(item.name, 240),
+        // الوحدة الأصلية المسجَّلة فعلياً بهذا السطر كما وردت من app.js — نص حر
+        // (اسم الوحدة الحقيقي: كروز/كرتونة/شرحة/طرد...)، وليس تحويلاً قسرياً
+        // لثنائية "unit1"/"unit2". لا نُسقط أي قيمة حقيقية هنا.
+        unit: cleanText(item.unit, 60),
+        original_qty: Math.max(0, parseNumber(item.original_qty)),
+        qty: Math.max(0, parseNumber(item.qty)),
+        price: Math.max(0, parseNumber(item.price)),
+        unit_cost: Math.max(0, parseNumber(item.unit_cost || 0))
+      }))
+      .filter((item) => item.name && item.qty > 0);
+  }
+
+  function normalizeDbReturn(row) {
+    const shortId = String(row.id || Date.now()).slice(0, 8).toUpperCase();
+    const items = normalizeReturnItems(row.items);
+    const kindPrefix = row.kind === "purchase" ? "RETP" : row.kind === "sales_retail" ? "RETR" : "RETW";
+    return {
+      id: row.id,
+      publicId: `${kindPrefix}-${shortId}`,
+      kind: RET_KIND_VALUES.includes(row.kind) ? row.kind : "sales_wholesale",
+      partyName: row.party_name || "",
+      partyAmeenGuid: row.party_ameen_guid || "",
+      partyAmeenCode: row.party_ameen_code || "",
+      originalInvoiceNumber: row.original_invoice_number || "",
+      originalInvoiceGuid: row.original_invoice_guid || "",
+      originalInvoiceDate: row.original_invoice_date || "",
+      originalPayMethod: RET_PAY_METHOD_VALUES.includes(row.original_pay_method) ? row.original_pay_method : "credit",
+      treasuryName: row.treasury_name || "",
+      reason: row.reason || "",
+      items,
+      total: parseNumber(row.total || 0),
+      status: RET_STATUS_VALUES.includes(row.status) ? row.status : "draft",
+      idempotencyKey: row.idempotency_key || "",
+      syncAttempts: Number(row.sync_attempts || 0),
+      syncError: row.sync_error || "",
+      ameenDocumentGuid: row.ameen_document_guid || "",
+      ameenDocumentNumber: row.ameen_document_number || "",
+      syncedAt: row.synced_at || "",
+      approvedBy: row.approved_by || "",
+      approvedAt: row.approved_at || "",
+      correctionCount: Number(row.correction_count || 0),
+      correctionLog: Array.isArray(row.correction_log) ? row.correction_log : [],
+      // أثر عكس الربح/التكلفة والتسوية والمخزون بعد الاعتماد — قيم محفوظة فعلياً
+      // على المستند نفسه (وليست محسوبة ومهملة فقط)، انظر approveReturnDocument.
+      reversedRevenue: parseNumber(row.reversed_revenue || 0),
+      reversedCost: parseNumber(row.reversed_cost || 0),
+      reversedProfit: parseNumber(row.reversed_profit || 0),
+      settlementType: row.settlement_type || "",
+      settlementTargetId: row.settlement_target_id || "",
+      settlementAmount: parseNumber(row.settlement_amount || 0),
+      stockApplied: Boolean(row.stock_applied),
+      stockAppliedAt: row.stock_applied_at || "",
+      // مفاتيح أسطر (line_key) طُبِّق أثر مخزونها فعلياً بنجاح — تمنع إعادة
+      // المحاولة (بعد فشل جزئي) من تطبيق نفس دلتا المخزون على نفس الصنف مرتين.
+      stockAppliedItems: Array.isArray(row.stock_applied_items) ? row.stock_applied_items : [],
       createdAt: row.created_at || "",
       updatedAt: row.updated_at || row.created_at || ""
     };
@@ -365,6 +440,14 @@
     if (!data.user) throw new Error(missingSessionMessage());
     return data.user;
   }
+
+  // ملاحظة معمارية (2026-08-01): المرتجعات تسجيلية فقط حالياً بقرار صريح من
+  // المالك — لا تُعدَّل approved_price_items.stock_qty ولا تُحتسَب أرقام ربح/تسوية
+  // من هذا الملف إطلاقاً، لأن تكلفة السطر الفعلية ومعرّف الجهة (مورد/زبون) من
+  // الأمين غير متوفرين بثقة بعد، ولأن الكتابة السابقة كانت تتم على مرحلتين غير
+  // ذرّيتين (تعديل المخزون ثم حفظ منفصل لعلامة الإنجاز) بلا RPC/معاملة واحدة،
+  // ما يعرّض لمضاعفة الأثر عند أي انقطاع أو فشل RLS بعد نجاح المخزون. الأمين
+  // يبقى مصدر المخزون المحاسبي الحقيقي حتى تتوفر البيانات ويُبنى RPC مخصص.
 
   const service = {
     mode: client ? "supabase" : "local",
@@ -1149,6 +1232,224 @@
       }
       await requireUser();
       const { error } = await client.from(purchaseInvoicesTable).delete().eq("id", id);
+      if (error) throw new Error(translateDbError(error.message));
+    },
+
+    // مستندات المرتجعات (مبيعات جملة/مركز، مشتريات) — جدول returns، غير مُطبَّق بعد
+    // على قاعدة الإنتاج (supabase/returns-table.sql مرجعي فقط)، لذا 42P01 متوقع حالياً.
+    async listReturnDocuments() {
+      if (!client) {
+        return readJson(RETURNS_KEY, []).map(normalizeDbReturn);
+      }
+      const session = await getSupabaseSession();
+      if (!session) return [];
+      const { data, error } = await client
+        .from(returnsTable)
+        .select(
+          "id, kind, party_name, party_ameen_guid, party_ameen_code, original_invoice_number, original_invoice_guid, original_invoice_date, original_pay_method, treasury_name, reason, items, total, status, idempotency_key, sync_attempts, sync_error, ameen_document_guid, ameen_document_number, synced_at, approved_by, approved_at, correction_count, correction_log, reversed_revenue, reversed_cost, reversed_profit, settlement_type, settlement_target_id, settlement_amount, stock_applied, stock_applied_at, stock_applied_items, created_at, updated_at"
+        )
+        .order("created_at", { ascending: false })
+        .limit(300);
+      if (error) {
+        if (error.code === "42P01") return []; // الجدول لم يُطبَّق بعد على قاعدة الإنتاج
+        throw new Error(translateDbError(error.message));
+      }
+      return (data || []).map(normalizeDbReturn);
+    },
+
+    async createReturnDocument(input) {
+      const items = normalizeReturnItems(input.items);
+      const total = roundPrice(items.reduce((sum, item) => sum + item.qty * item.price, 0));
+      const record = {
+        kind: RET_KIND_VALUES.includes(input.kind) ? input.kind : "sales_wholesale",
+        party_name: cleanText(input.partyName, 240),
+        party_ameen_guid: input.partyAmeenGuid ? String(input.partyAmeenGuid) : null,
+        party_ameen_code: input.partyAmeenCode ? cleanText(input.partyAmeenCode, 60) : null,
+        original_invoice_number: cleanText(input.originalInvoiceNumber, 60),
+        original_invoice_guid: input.originalInvoiceGuid ? String(input.originalInvoiceGuid) : null,
+        original_invoice_date: input.originalInvoiceDate || null,
+        original_pay_method: RET_PAY_METHOD_VALUES.includes(input.originalPayMethod) ? input.originalPayMethod : "credit",
+        treasury_name: input.treasuryName ? cleanText(input.treasuryName, 120) : null,
+        reason: cleanText(input.reason, 500),
+        items,
+        idempotency_key: window.crypto?.randomUUID ? window.crypto.randomUUID() : `${Date.now()}-${Math.random().toString(16).slice(2)}`,
+        total,
+        status: "draft"
+      };
+      if (!record.party_name) throw new Error("اختر الزبون أو المورد أولاً.");
+      if (!record.original_invoice_number) throw new Error("اختر الفاتورة الأصلية أولاً.");
+      if (!record.items.length) throw new Error("أضف صنفاً واحداً على الأقل مع كمية مرتجعة.");
+      if (record.original_pay_method === "cash" && !record.treasury_name) {
+        throw new Error("أدخل صندوق الاسترداد (نفس صندوق الفاتورة الأصلية) لأن الفاتورة نقدية.");
+      }
+
+      if (!client) {
+        const all = readJson(RETURNS_KEY, []);
+        const local = {
+          id: `local-${Date.now()}`,
+          ...record,
+          correction_count: 0,
+          correction_log: [],
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString()
+        };
+        writeJson(RETURNS_KEY, [local, ...all].slice(0, 300));
+        return normalizeDbReturn(local);
+      }
+
+      const user = await requireUser();
+      const { data, error } = await client
+        .from(returnsTable)
+        .insert({ ...record, created_by: user.id })
+        .select(
+          "id, kind, party_name, party_ameen_guid, party_ameen_code, original_invoice_number, original_invoice_guid, original_invoice_date, original_pay_method, treasury_name, reason, items, total, status, created_at, updated_at"
+        )
+        .limit(1);
+      if (error) {
+        if (error.code === "42P01") throw new Error("جدول returns غير موجود بعد. طبّق supabase/returns-table.sql في Supabase أولاً.");
+        throw new Error(translateDbError(error.message));
+      }
+      return data?.[0] ? normalizeDbReturn(data[0]) : normalizeDbReturn(record);
+    },
+
+    // expectedStatus: الحالة الحالية المتوقعة قبل التحديث (نفس نمط approveReturnDocument) —
+    // تُمرَّر في شرط eq("status", ...) ويُتحقَّق أن صفاً واحداً بالضبط تأثّر، وإلا يُرمى خطأ
+    // بدل عرض "نجاح" وهمي حين يرفض RLS التحديث بصمت (0 صف متأثر بلا error من Postgres).
+    async setReturnDocumentStatus(id, nextStatus, expectedStatus, extra = {}) {
+      if (!RET_STATUS_VALUES.includes(nextStatus)) throw new Error("حالة مرتجع غير معروفة.");
+      // اعتماد ("approved") له مسار مخصص (approveReturnDocument) يعكس الربح/التكلفة
+      // ويطبّق أثر التسوية والمخزون فعلياً — هذه الدالة العامة لا يجوز أن تُستخدَم
+      // لتمرير حالة "approved" لأنها ستتخطى ذلك المسار وتترك المستند بلا أثر حقيقي.
+      if (nextStatus === "approved") {
+        throw new Error("استخدم approveReturnDocument للاعتماد الفعلي، وليس setReturnDocumentStatus.");
+      }
+      const patch = { status: nextStatus, updated_at: new Date().toISOString() };
+      if (extra.syncError !== undefined) patch.sync_error = extra.syncError;
+      if (!client) {
+        const all = readJson(RETURNS_KEY, []);
+        const row = all.find((r) => r.id === id);
+        if (!row || row.status !== expectedStatus) {
+          throw new Error("تغيّرت حالة المستند من جهة أخرى، أعد تحميل الصفحة قبل المتابعة.");
+        }
+        writeJson(RETURNS_KEY, all.map((r) => (r.id === id ? { ...r, ...patch } : r)));
+        return;
+      }
+      await requireUser();
+      const { data, error } = await client
+        .from(returnsTable)
+        .update(patch)
+        .eq("id", id)
+        .eq("status", expectedStatus)
+        .select("id");
+      if (error) throw new Error(translateDbError(error.message));
+      if (!data || data.length !== 1) {
+        throw new Error("تعذّر تحديث حالة المستند (لم يتغيّر أي صف) — أعد تحميل الصفحة وتحقّق من صلاحيتك على هذا المستند.");
+      }
+    },
+
+    // اعتماد مستند مرتجع — تسجيلي فقط بقرار صريح من المالك (2026-08-01): يثبّت
+    // status=approved فقط، بلا أي تعديل على approved_price_items.stock_qty وبلا
+    // احتساب/كتابة أثر ربح أو تسوية (reversed_*/settlement_*)، لأن تكلفة السطر
+    // الفعلية ومعرّف الجهة من الأمين غير متوفرين بثقة بعد. الأمين يبقى مصدر
+    // المخزون المحاسبي الحقيقي. عند توفر تلك البيانات مستقبلاً، يُعاد بناء
+    // الاعتماد عبر RPC/معاملة خادمية واحدة تشمل كل الأثر المالي والمخزوني معاً.
+    async approveReturnDocument(id, doc) {
+      if (!doc) throw new Error("مستند المرتجع غير موجود.");
+
+      // دفاع بعمق: قيد السبب موجود بالواجهة (retSetStatus) وبقاعدة البيانات
+      // (returns_reason_required_after_draft) — نكرره هنا لأن المسار المحلي (بلا
+      // Supabase) لا يمر بذلك القيد إطلاقاً.
+      if (!String(doc.reason || "").trim()) {
+        throw new Error("لا يمكن اعتماد مرتجع بلا سبب مكتوب.");
+      }
+      if (!retCalc.retCanTransitionStatus(doc.status, "approved")) {
+        throw new Error("لا يمكن الانتقال إلى حالة معتمد من الحالة الحالية.");
+      }
+
+      const patch = {
+        status: "approved",
+        updated_at: new Date().toISOString()
+      };
+
+      if (!client) {
+        const all = readJson(RETURNS_KEY, []);
+        const row = all.find((r) => r.id === id);
+        if (!row || row.status !== doc.status) {
+          throw new Error("تغيّرت حالة المستند من جهة أخرى، أعد تحميل الصفحة قبل الاعتماد.");
+        }
+        writeJson(RETURNS_KEY, all.map((r) => (r.id === id ? { ...r, ...patch } : r)));
+        return;
+      }
+
+      const user = await requireUser();
+      patch.approved_by = user.id;
+      patch.approved_at = new Date().toISOString();
+      // تحديث شرطي على الحالة الحالية: إن اعتمد طرف آخر المستند بين قراءته
+      // وهذا الاستدعاء، لن يُطابَق أي صف (data فارغة) بدل الكتابة فوق اعتماد سابق.
+      const { data, error } = await client
+        .from(returnsTable)
+        .update(patch)
+        .eq("id", id)
+        .eq("status", doc.status)
+        .select("id");
+      if (error) throw new Error(translateDbError(error.message));
+      if (!data || !data.length) {
+        throw new Error("تغيّرت حالة المستند من جهة أخرى، أعد تحميل الصفحة قبل الاعتماد.");
+      }
+    },
+
+    // إجراء تصحيحي موثّق على مرتجع بعد اعتماده — نفس نمط correctPurchaseInvoice.
+    // لا يعدّل الحقول المالية المقفلة مباشرة (تلك محمية بقيد قاعدة البيانات
+    // returns_guard_immutable_and_stamp)؛ الاستخدام المقصود هو تسجيل ملاحظة/تصحيح
+    // موثّق (وربما تعديل حقول غير مالية مسموحة) لا تعديل حر لمحتوى المرتجع المعتمد.
+    async correctReturnDocument(id, note, patch = {}) {
+      const cleanNote = cleanText(note, 500);
+      if (!cleanNote) throw new Error("اكتب سبب الإجراء التصحيحي.");
+      if (!client) {
+        const all = readJson(RETURNS_KEY, []).map((row) => {
+          if (row.id !== id) return row;
+          const log = Array.isArray(row.correction_log) ? row.correction_log : [];
+          return {
+            ...row,
+            ...patch,
+            correction_count: Number(row.correction_count || 0) + 1,
+            correction_log: [...log, { note: cleanNote, at: new Date().toISOString() }],
+            updated_at: new Date().toISOString()
+          };
+        });
+        writeJson(RETURNS_KEY, all);
+        return;
+      }
+      const user = await requireUser();
+      const { data: current, error: readErr } = await client
+        .from(returnsTable)
+        .select("correction_count, correction_log")
+        .eq("id", id)
+        .limit(1);
+      if (readErr) throw new Error(translateDbError(readErr.message));
+      const row = current?.[0] || {};
+      const log = Array.isArray(row.correction_log) ? row.correction_log : [];
+      const entry = { note: cleanNote, at: new Date().toISOString(), by: user.id };
+      const { error } = await client
+        .from(returnsTable)
+        .update({
+          ...patch,
+          correction_count: Number(row.correction_count || 0) + 1,
+          correction_log: [...log, entry],
+          updated_at: new Date().toISOString()
+        })
+        .eq("id", id);
+      if (error) throw new Error(translateDbError(error.message));
+    },
+
+    async deleteReturnDocument(id) {
+      if (!client) {
+        const all = readJson(RETURNS_KEY, []).filter((row) => row.id !== id);
+        writeJson(RETURNS_KEY, all);
+        return;
+      }
+      await requireUser();
+      const { error } = await client.from(returnsTable).delete().eq("id", id);
       if (error) throw new Error(translateDbError(error.message));
     },
 
