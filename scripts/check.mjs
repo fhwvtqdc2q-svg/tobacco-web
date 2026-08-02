@@ -785,7 +785,7 @@ for (const contract of [
     "created_by لا يمكن تعديله بعد الإنشاء",
     "اعتماد الجلسة محصور بحساب المالك",
     "بلا كمية فعلية أو سبب أو تكلفة معروفة لفرق غير صفري",
-    "security definer set search_path = public",
+    "security definer set search_path = ''",
     "created_by = auth.uid()"
   ]) {
     if (!invReconSql.includes(contract)) {
@@ -827,9 +827,19 @@ for (const contract of [
       failed = true;
     }
   }
-  if (/s\.status\s*<>\s*'approved'/.test(invReconSql.split("inventory_recon_lines_write")[1] || "")) {
+  if (/s\.status\s*<>\s*'approved'/.test(invReconSql.split("inventory_recon_lines_insert")[1] || "")) {
     console.error("inventory_recon_lines_write policy must gate on status = 'draft', not <> 'approved' — lines must lock as soon as a session leaves draft.");
     failed = true;
+  }
+  if (/create policy "inventory_recon_lines_write"[\s\S]{0,100}for all/.test(invReconSql)) {
+    console.error("inventory_recon_lines write access must not use FOR ALL — permissive RLS would OR it into SELECT and expose raw cost columns to draft creators.");
+    failed = true;
+  }
+  for (const policy of ["inventory_recon_lines_insert", "inventory_recon_lines_update", "inventory_recon_lines_delete"]) {
+    if (!invReconSql.includes(`create policy "${policy}"`)) {
+      console.error(`inventory reconciliation must define separate ${policy} RLS policy instead of a FOR ALL policy.`);
+      failed = true;
+    }
   }
 }
 
@@ -940,7 +950,7 @@ for (const contract of [
 {
   const invReconSql = readFileSync("supabase/inventory-reconciliation-table.sql", "utf8");
   for (const contract of [
-    "using (inventory_recon_is_owner())",
+    "using ((select inventory_recon_is_owner()))",
     "create or replace function inventory_recon_lines_for_session(p_session_id uuid)",
     "revoke execute on function inventory_recon_lines_for_session(uuid) from public",
     "revoke execute on function inventory_recon_lines_for_session(uuid) from anon",
@@ -976,7 +986,7 @@ for (const contract of [
   // NULL دائماً) وinventory_recon_lines (فشل تكرار idempotency) بسبب RLS owner-only.
   for (const contract of [
     'create policy "inventory_recon_audit_log_select"',
-    "using (inventory_recon_is_owner())"
+    "using ((select inventory_recon_is_owner()))"
   ]) {
     if (!invReconSql.includes(contract)) {
       console.error(`inventory-reconciliation-table.sql SQL contract (round 6) is missing: ${contract}`);
@@ -987,8 +997,63 @@ for (const contract of [
     console.error("inventory_recon_audit_log_select must no longer be using(true) — audit rows carry full before/after_data including unit_cost/currency, must be owner-only.");
     failed = true;
   }
+
+  // مستشار أداء PostgreSQL: مراجع FK المتكررة تحتاج فهارس، واستدعاءات
+  // auth.uid()/owner داخل سياسات RLS يجب أن تكون initplans ثابتة لا أن تُعاد
+  // لكل سطر عند كبر بيانات الجرد.
+  for (const indexName of [
+    "idx_inventory_recon_sessions_source_report",
+    "idx_inventory_recon_sessions_reviewed_by",
+    "idx_inventory_recon_sessions_approved_by"
+  ]) {
+    if (!invReconSql.includes(`create index if not exists ${indexName}`)) {
+      console.error(`inventory reconciliation performance index is missing: ${indexName}`);
+      failed = true;
+    }
+  }
+  const rlsBlock = (invReconSql.split('create policy "inventory_recon_sessions_insert"')[1] || "").split("-- ============================================================\n-- GRANT")[0] || "";
+  if (/(?<!select\s)auth\.uid\(\)/.test(rlsBlock)
+      || /(?<!select\s)inventory_recon_is_owner\(\)/.test(rlsBlock)) {
+    console.error("inventory reconciliation RLS policies must wrap auth.uid() and inventory_recon_is_owner() in SELECT initplans to avoid per-row re-evaluation.");
+    failed = true;
+  }
   if (!/create or replace function inventory_recon_create_session_with_lines[\s\S]{0,400}security definer/.test(invReconSql)) {
     console.error("inventory_recon_create_session_with_lines must be SECURITY DEFINER — as SECURITY INVOKER, a non-owner caller cannot read item_costs or inventory_recon_lines under owner-only RLS, permanently losing cost data and breaking idempotency retries.");
+    failed = true;
+  }
+
+  // اختبار قاعدة PostgreSQL الحقيقي كشف أن الوصول المباشر إلى حقل session_id
+  // داخل NEW/OLD في trigger مشترك يفشل عند تشغيله على جدول الجلسات لأن record
+  // لا يملك ذلك الحقل، حتى لو كان فرع CASE الخاص بالسطور غير مختار. يجب تحويل
+  // NEW/OLD إلى JSONB ثم استخراج id/session_id بأمان حسب TG_TABLE_NAME.
+  const auditTriggerBlock = (invReconSql.split("create or replace function private.inventory_recon_write_audit_log()")[1] || "").slice(0, 2200);
+  if (!/v_row\s*:=\s*coalesce\(v_after,\s*v_before\)/.test(auditTriggerBlock)
+      || !/\(v_row\s*->>\s*'session_id'\)::uuid/.test(auditTriggerBlock)
+      || /\b(?:NEW|OLD)\.session_id\b/i.test(auditTriggerBlock)) {
+    console.error("inventory_recon_write_audit_log must read dynamic trigger records through JSONB; direct NEW/OLD.session_id crashes the sessions trigger at runtime.");
+    failed = true;
+  }
+  if (!/security definer set search_path = ''/.test(auditTriggerBlock)
+      || !/insert into public\.inventory_recon_audit_log/.test(auditTriggerBlock)) {
+    console.error("private inventory reconciliation audit trigger must use an empty search_path and a fully-qualified public.inventory_recon_audit_log target.");
+    failed = true;
+  }
+
+  // استدعاء RPC الرئيسي (search_path='') يشغّل triggers السطور ضمن السياق
+  // نفسه؛ لذلك أي اسم جدول غير مؤهل داخل حراس الـtrigger يفشل فعلياً برسالة
+  // relation does not exist. كل حارس يثبت search_path فارغاً ويؤهل public.*.
+  const sessionGuardBlock = (invReconSql.split("create or replace function inventory_recon_guard_immutable()")[1] || "").slice(0, 3800);
+  const linesGuardBlock = (invReconSql.split("create or replace function inventory_recon_guard_lines_immutable()")[1] || "").slice(0, 1400);
+  if (!/from public\.inventory_recon_lines/.test(sessionGuardBlock)
+      || !/public\.inventory_recon_is_owner\(\)/.test(sessionGuardBlock)
+      || !/language plpgsql set search_path = ''/.test(sessionGuardBlock)) {
+    console.error("inventory_recon_guard_immutable must use an empty search_path and fully-qualified reconciliation objects.");
+    failed = true;
+  }
+  if (!/from public\.inventory_recon_sessions/.test(linesGuardBlock)
+      || !/language plpgsql set search_path = ''/.test(linesGuardBlock)
+      || !/TG_OP\s*=\s*'DELETE'\s+and\s+session_status\s+is\s+null/.test(linesGuardBlock)) {
+    console.error("inventory_recon_guard_lines_immutable must qualify public.inventory_recon_sessions; it runs inside the empty-search-path create-session RPC.");
     failed = true;
   }
 
@@ -1012,6 +1077,11 @@ for (const contract of [
   }
   if (!/auth\.uid\(\) is null/.test(createSessionBlock)) {
     console.error("inventory_recon_create_session_with_lines must explicitly reject auth.uid() is null before creating a session.");
+    failed = true;
+  }
+  if (!/trim_scale\(nullif\(line\s*->>\s*'actual_qty',\s*''\)::numeric\)::text/.test(createSessionBlock)
+      || !/trim_scale\(actual_qty\)::text/.test(createSessionBlock)) {
+    console.error("inventory reconciliation idempotency digests must canonicalize numeric scale; otherwise input 8 mismatches stored numeric(18,3) text 8.000 on an identical retry.");
     failed = true;
   }
   if (/[^.]\bfrom inventory_recon_lines\b|[^.]\bfrom inventory_recon_sessions\b|[^.]\bfrom inventory_reports\b|[^.]\bfrom item_costs\b|[^.]\binsert into inventory_recon_lines\b|[^.]\binsert into inventory_recon_sessions\b/.test(createSessionBlock)) {

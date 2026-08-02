@@ -105,6 +105,15 @@ create index if not exists idx_inventory_recon_sessions_date
 create index if not exists idx_inventory_recon_sessions_month_warehouse
   on inventory_recon_sessions (session_month, warehouse_key);
 
+create index if not exists idx_inventory_recon_sessions_source_report
+  on inventory_recon_sessions (source_report_id);
+
+create index if not exists idx_inventory_recon_sessions_reviewed_by
+  on inventory_recon_sessions (reviewed_by);
+
+create index if not exists idx_inventory_recon_sessions_approved_by
+  on inventory_recon_sessions (approved_by);
+
 create index if not exists idx_inventory_recon_lines_session
   on inventory_recon_lines (session_id);
 
@@ -167,16 +176,16 @@ begin
       NEW.reviewed_by := auth.uid();
       NEW.reviewed_at := now();
     elsif OLD.status = 'reviewed' and NEW.status = 'approved' then
-      if not inventory_recon_is_owner() then
+      if not public.inventory_recon_is_owner() then
         raise exception 'inventory_recon_sessions: اعتماد الجلسة محصور بحساب المالك';
       end if;
 
-      if not exists (select 1 from inventory_recon_lines where session_id = OLD.id) then
+      if not exists (select 1 from public.inventory_recon_lines where session_id = OLD.id) then
         raise exception 'inventory_recon_sessions: لا يمكن اعتماد جلسة بلا أي سطر';
       end if;
 
       select count(*) into incomplete_count
-      from inventory_recon_lines
+      from public.inventory_recon_lines
       where session_id = OLD.id
         and diff_qty is distinct from 0
         and (actual_qty is null or reason is null or trim(reason) = '' or unit_cost is null);
@@ -198,7 +207,7 @@ begin
 
   return NEW;
 end;
-$$ language plpgsql;
+$$ language plpgsql set search_path = '';
 
 drop trigger if exists trg_inventory_recon_guard_session on inventory_recon_sessions;
 create trigger trg_inventory_recon_guard_session
@@ -212,8 +221,15 @@ declare
   session_status text;
 begin
   select status into session_status
-  from inventory_recon_sessions
+  from public.inventory_recon_sessions
   where id = coalesce(NEW.session_id, OLD.session_id);
+
+  -- عند ON DELETE CASCADE تكون الجلسة الأم قد اختفت قبل تشغيل trigger حذف
+  -- السطر، فيرجع الاستعلام NULL. هذا هو مسار الحذف المتسلسل المشروع الوحيد؛
+  -- أما UPDATE/INSERT أو حذف مباشر لسطر فتبقى الجلسة موجودة ويُطبق قفل draft.
+  if TG_OP = 'DELETE' and session_status is null then
+    return OLD;
+  end if;
 
   if session_status is distinct from 'draft' then
     raise exception 'inventory_recon_lines: parent session % is not a draft (status=%) — its lines are locked', coalesce(NEW.session_id, OLD.session_id), session_status;
@@ -221,7 +237,7 @@ begin
 
   return coalesce(NEW, OLD);
 end;
-$$ language plpgsql;
+$$ language plpgsql set search_path = '';
 
 drop trigger if exists trg_inventory_recon_guard_lines on inventory_recon_lines;
 create trigger trg_inventory_recon_guard_lines
@@ -246,20 +262,32 @@ create schema if not exists private;
 
 create or replace function private.inventory_recon_write_audit_log()
 returns trigger as $$
+declare
+  v_before jsonb;
+  v_after jsonb;
+  v_row jsonb;
 begin
-  insert into inventory_recon_audit_log(session_id, line_id, actor, action, before_data, after_data)
+  -- NEW/OLD من نوع record ديناميكي؛ لا يجوز الوصول مباشرة إلى حقل session_id
+  -- لأن trigger الجلسات لا يملك هذا الحقل أصلاً، وPostgreSQL يرفع خطأ حتى لو
+  -- كان فرع CASE الآخر هو المختار. نحول السجل إلى JSONB أولاً ثم نقرأ المفاتيح
+  -- الموجودة فعلياً حسب الجدول، فيعمل trigger نفسه للجلسات والسطور معاً.
+  v_before := case when TG_OP = 'INSERT' then null else to_jsonb(OLD) end;
+  v_after := case when TG_OP = 'DELETE' then null else to_jsonb(NEW) end;
+  v_row := coalesce(v_after, v_before);
+
+  insert into public.inventory_recon_audit_log(session_id, line_id, actor, action, before_data, after_data)
   values (
-    case when TG_TABLE_NAME = 'inventory_recon_sessions' then coalesce(NEW.id, OLD.id)
-         else coalesce(NEW.session_id, OLD.session_id) end,
-    case when TG_TABLE_NAME = 'inventory_recon_lines' then coalesce(NEW.id, OLD.id) else null end,
+    case when TG_TABLE_NAME = 'inventory_recon_sessions' then (v_row ->> 'id')::uuid
+         else (v_row ->> 'session_id')::uuid end,
+    case when TG_TABLE_NAME = 'inventory_recon_lines' then (v_row ->> 'id')::uuid else null end,
     auth.uid()::text,
     TG_OP,
-    case when TG_OP = 'INSERT' then null else to_jsonb(OLD) end,
-    case when TG_OP = 'DELETE' then null else to_jsonb(NEW) end
+    v_before,
+    v_after
   );
   return coalesce(NEW, OLD);
 end;
-$$ language plpgsql security definer set search_path = public;
+$$ language plpgsql security definer set search_path = '';
 
 -- SECURITY DEFINER تعمل بصلاحيات مالكها بغض النظر عن EXECUTE — لا يحتاجها
 -- العميل عبر RPC مباشر (يُستدعى فقط من الـtriggers)، فنسحب الصلاحية الافتراضية
@@ -303,7 +331,7 @@ drop policy if exists "inventory_recon_sessions_insert" on inventory_recon_sessi
 create policy "inventory_recon_sessions_insert"
   on inventory_recon_sessions for insert
   to authenticated
-  with check (created_by = auth.uid());
+  with check (created_by = (select auth.uid()));
 
 drop policy if exists "inventory_recon_sessions_update" on inventory_recon_sessions;
 create policy "inventory_recon_sessions_update"
@@ -311,11 +339,11 @@ create policy "inventory_recon_sessions_update"
   to authenticated
   using (
     status <> 'approved'
-    and (created_by = auth.uid() or inventory_recon_is_owner())
+    and (created_by = (select auth.uid()) or (select inventory_recon_is_owner()))
   )
   with check (
-    inventory_recon_is_owner()
-    or (created_by = auth.uid() and status in ('draft', 'reviewed'))
+    (select inventory_recon_is_owner())
+    or (created_by = (select auth.uid()) and status in ('draft', 'reviewed'))
   );
 
 drop policy if exists "inventory_recon_sessions_delete" on inventory_recon_sessions;
@@ -325,8 +353,8 @@ create policy "inventory_recon_sessions_delete"
   using (
     status <> 'approved'
     and (
-      (status = 'draft' and created_by = auth.uid())
-      or inventory_recon_is_owner()
+      (status = 'draft' and created_by = (select auth.uid()))
+      or (select inventory_recon_is_owner())
     )
   );
 
@@ -340,18 +368,36 @@ drop policy if exists "inventory_recon_lines_select" on inventory_recon_lines;
 create policy "inventory_recon_lines_select"
   on inventory_recon_lines for select
   to authenticated
-  using (inventory_recon_is_owner());
+  using ((select inventory_recon_is_owner()));
 
+-- لا تستخدم FOR ALL هنا: سياسات RLS permissive تُجمع بـOR، وFOR ALL يضيف
+-- ضمنياً سياسة SELECT تسمح لمنشئ المسودة بقراءة unit_cost/currency الخام
+-- متجاوزاً inventory_recon_lines_select المقنَّعة أعلاه. نفصل عمليات الكتابة
+-- الثلاث كي تبقى القراءة المباشرة للمالك فقط.
 drop policy if exists "inventory_recon_lines_write" on inventory_recon_lines;
-create policy "inventory_recon_lines_write"
-  on inventory_recon_lines for all
+drop policy if exists "inventory_recon_lines_insert" on inventory_recon_lines;
+create policy "inventory_recon_lines_insert"
+  on inventory_recon_lines for insert
+  to authenticated
+  with check (
+    exists (
+      select 1 from inventory_recon_sessions s
+      where s.id = inventory_recon_lines.session_id
+        and s.status = 'draft'
+        and (s.created_by = (select auth.uid()) or (select inventory_recon_is_owner()))
+    )
+  );
+
+drop policy if exists "inventory_recon_lines_update" on inventory_recon_lines;
+create policy "inventory_recon_lines_update"
+  on inventory_recon_lines for update
   to authenticated
   using (
     exists (
       select 1 from inventory_recon_sessions s
       where s.id = inventory_recon_lines.session_id
         and s.status = 'draft'
-        and (s.created_by = auth.uid() or inventory_recon_is_owner())
+        and (s.created_by = (select auth.uid()) or (select inventory_recon_is_owner()))
     )
   )
   with check (
@@ -359,7 +405,20 @@ create policy "inventory_recon_lines_write"
       select 1 from inventory_recon_sessions s
       where s.id = inventory_recon_lines.session_id
         and s.status = 'draft'
-        and (s.created_by = auth.uid() or inventory_recon_is_owner())
+        and (s.created_by = (select auth.uid()) or (select inventory_recon_is_owner()))
+    )
+  );
+
+drop policy if exists "inventory_recon_lines_delete" on inventory_recon_lines;
+create policy "inventory_recon_lines_delete"
+  on inventory_recon_lines for delete
+  to authenticated
+  using (
+    exists (
+      select 1 from inventory_recon_sessions s
+      where s.id = inventory_recon_lines.session_id
+        and s.status = 'draft'
+        and (s.created_by = (select auth.uid()) or (select inventory_recon_is_owner()))
     )
   );
 
@@ -371,7 +430,7 @@ drop policy if exists "inventory_recon_audit_log_select" on inventory_recon_audi
 create policy "inventory_recon_audit_log_select"
   on inventory_recon_audit_log for select
   to authenticated
-  using (inventory_recon_is_owner());
+  using ((select inventory_recon_is_owner()));
 
 -- ملاحظة: لا توجد policy إدخال/تعديل/حذف لـinventory_recon_audit_log —
 -- الكتابة الوحيدة المسموحة تمر عبر inventory_recon_write_audit_log()
@@ -563,7 +622,7 @@ begin
   -- فعلياً) يُستخدم لبناء بصمة idempotency ولمقارنة أي تكرار لاحقاً بنفس المفتاح.
   select md5(string_agg(
            coalesce(line ->> 'item_key', '') || '|' ||
-           coalesce(line ->> 'actual_qty', '') || '|' ||
+           coalesce(trim_scale(nullif(line ->> 'actual_qty', '')::numeric)::text, '') || '|' ||
            coalesce(line ->> 'reason', ''),
            E'\n' order by line ->> 'item_key'
          ))
@@ -622,7 +681,7 @@ begin
 
     select md5(string_agg(
              coalesce(item_key, '') || '|' ||
-             coalesce(actual_qty::text, '') || '|' ||
+             coalesce(trim_scale(actual_qty)::text, '') || '|' ||
              coalesce(reason, ''),
              E'\n' order by item_key
            ))
