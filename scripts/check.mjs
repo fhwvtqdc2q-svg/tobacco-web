@@ -140,13 +140,16 @@ for (const contract of ["const merged = new Map();", "counts.set(price", "findLa
   }
 }
 
-// أصناف الدمج الإداري يجب أن تظهر مرة واحدة في كل نشرة حتى لو كانت aliases
-// القديمة تحمل أسعاراً مختلفة قبل أن يوحّدها الحفظ التالي من الموقع.
+// أصناف الدمج الإداري يجب ألا تظهر أكثر من سطر واحد في كل نشرة حتى لو كانت
+// aliases القديمة تحمل أسعاراً مختلفة قبل أن يوحّدها الحفظ التالي من الموقع.
+// غياب السطر تماماً (صفر) حالة مشروعة: يعني عدم توفر أي alias مؤهل بسعر صالح
+// في هذا الوضع حالياً (مثلاً نفاد كرتونة كاملة من الجملة) وليس خللاً بالدمج —
+// الخلل الذي يحرسه هذا الفحص هو تكرار السطر (٢+) لا غيابه.
 for (const [label, bulletin] of [["USD", usdBulletin], ["SYP", sypBulletin]]) {
   for (const name of ["ماستر طويل ورق", "ماستر قصير أزرق"]) {
     const count = bulletin.split(name).length - 1;
-    if (count !== 1) {
-      console.error(`${label} bulletin must contain one merged row for ${name}; found ${count}.`);
+    if (count > 1) {
+      console.error(`${label} bulletin must contain at most one merged row for ${name}; found ${count}.`);
       failed = true;
     }
   }
