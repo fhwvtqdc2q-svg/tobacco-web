@@ -443,8 +443,20 @@ create policy "inventory_recon_audit_log_select"
 -- RLS مفعّلة وصحيحة — فتفشل استدعاءات supabase-js بخطأ لا علاقة له بالسياسات.
 -- ============================================================
 
-grant select, insert, update, delete on inventory_recon_sessions to authenticated;
-grant select, insert, update, delete on inventory_recon_lines to authenticated;
+-- تشديد (مراجعة PR-38-review-2): authenticated كان يملك insert/update/delete
+-- مباشرة على الجدولين رغم أن كل الكتابة الموثوقة تمر أصلاً عبر RPC بـSECURITY
+-- DEFINER (تعمل بصلاحيات مالكها بغض النظر عن GRANT الممنوح للمستدعي). هذا
+-- كان يسمح لأي عميل authenticated بتجاوز inventory_recon_create_session_with_lines
+-- كلياً عبر INSERT/UPDATE مباشر على inventory_recon_lines وتلقين system_qty/
+-- unit_cost/currency مفبركة بنفسه، أو تجاوز inventory_recon_set_status لتغيير
+-- status/reviewed_by/approved_by مباشرة. RLS تُقيّد الصفوف (المُلكية/الحالة)
+-- لا الأعمدة، فبقيت هذه الثغرة رغم صحة السياسات. الآن: SELECT فقط، وكل كتابة
+-- تمر حصراً عبر RPC (inventory_recon_create_session_with_lines وinventory_recon_set_status
+-- أدناه)، اللتين لا تحتاجان GRANT على الجدول لأنهما SECURITY DEFINER.
+revoke insert, update, delete on inventory_recon_sessions from authenticated;
+revoke insert, update, delete on inventory_recon_lines from authenticated;
+grant select on inventory_recon_sessions to authenticated;
+grant select on inventory_recon_lines to authenticated;
 grant select on inventory_recon_audit_log to authenticated;
 
 -- ============================================================
@@ -775,3 +787,55 @@ $$;
 revoke execute on function inventory_recon_create_session_with_lines(date, date, text, text, text, text, uuid, jsonb) from public;
 revoke execute on function inventory_recon_create_session_with_lines(date, date, text, text, text, text, uuid, jsonb) from anon;
 grant execute on function inventory_recon_create_session_with_lines(date, date, text, text, text, text, uuid, jsonb) to authenticated;
+
+-- ============================================================
+-- inventory_recon_set_status: المسار الوحيد المسموح لتغيير حالة الجلسة
+-- (draft→reviewed→approved) بعد إغلاق GRANT المباشر أعلاه. النقل الفعلي
+-- للحالة والختم (reviewed_by/approved_by/الأوقات) يبقى بيد
+-- inventory_recon_guard_immutable() (BEFORE UPDATE trigger أعلاه) الذي
+-- يفرضهما على أي انتقال ملحوظ بصرف النظر عن أعمدة SET المذكورة صراحة —
+-- هذه الدالة تتحقق فقط من المصادقة وحداثة expected_status قبل محاولة
+-- التحديث الذري، وتترك رفض نقل الحالة غير الصحيح أو اعتماد غير المالك
+-- للـtrigger (طبقة دفاع ثانية، لا تكرار للمنطق).
+-- ============================================================
+
+create or replace function inventory_recon_set_status(
+  p_session_id uuid,
+  p_next_status text,
+  p_expected_status text
+)
+returns public.inventory_recon_sessions
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  v_uid uuid := auth.uid();
+  v_session public.inventory_recon_sessions;
+begin
+  if v_uid is null then
+    raise exception 'inventory_recon_set_status: يتطلب مستخدماً مصادقاً عليه';
+  end if;
+
+  if p_next_status not in ('reviewed', 'approved') then
+    raise exception 'inventory_recon_set_status: حالة غير مسموحة %', p_next_status;
+  end if;
+
+  update public.inventory_recon_sessions
+  set status = p_next_status,
+      updated_at = now()
+  where id = p_session_id
+    and status = p_expected_status
+  returning * into v_session;
+
+  if v_session.id is null then
+    raise exception 'inventory_recon_set_status: تعذّر تحديث حالة الجلسة (لم يتغيّر أي صف) — أعد تحميل الصفحة وتحقّق من صلاحيتك على هذه الجلسة';
+  end if;
+
+  return v_session;
+end;
+$$;
+
+revoke execute on function inventory_recon_set_status(uuid, text, text) from public;
+revoke execute on function inventory_recon_set_status(uuid, text, text) from anon;
+grant execute on function inventory_recon_set_status(uuid, text, text) to authenticated;

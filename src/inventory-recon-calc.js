@@ -123,6 +123,27 @@
     return `${warehouseKey}|${sessionMonth}|${nonce}`;
   }
 
+  // بصمة محتوى المسودة قبل الحفظ — تُستعمل لإعادة استخدام نفس idempotency
+  // key عند إعادة المحاولة (فشل شبكة، فقدان الرد، إعادة تحميل الصفحة) طالما
+  // المحتوى لم يتغيّر، ومنع تكرار الجلسة على خادم Supabase؛ أي تغيير فعلي
+  // بالمحتوى (صنف، كمية، سبب، ملاحظة...) يُنتج بصمة مختلفة فيُولَّد مفتاح جديد.
+  function buildDraftFingerprint({ warehouseKey, sessionDate, sessionMonth, notes, rows }) {
+    const normalizedRows = (Array.isArray(rows) ? rows : [])
+      .map((r) => ({
+        itemKey: String(r?.itemKey ?? r?.item_key ?? ""),
+        actualQty: r?.actualQty === undefined || r?.actualQty === null ? "" : String(r.actualQty).trim(),
+        reason: r?.reason === undefined || r?.reason === null ? "" : String(r.reason).trim()
+      }))
+      .sort((a, b) => a.itemKey.localeCompare(b.itemKey));
+    return JSON.stringify({
+      warehouseKey: warehouseKey || "",
+      sessionDate: sessionDate || "",
+      sessionMonth: sessionMonth || "",
+      notes: (notes || "").trim(),
+      rows: normalizedRows
+    });
+  }
+
   root.invRecCalc = {
     toEnglishDigits,
     toNumber,
@@ -136,6 +157,7 @@
     canTransitionStatus,
     normalizeSearchText,
     itemMatches,
-    buildIdempotencyKey
+    buildIdempotencyKey,
+    buildDraftFingerprint
   };
 })(window);

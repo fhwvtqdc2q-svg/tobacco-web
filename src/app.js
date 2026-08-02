@@ -3,6 +3,7 @@ const roadmapItems = window.roadmapItems;
 const monitoringCards = window.monitoringCards;
 const remoteServices = window.remoteServices;
 const dataStore = window.tobaccoData;
+const RECON_PENDING_SAVE_KEY = "ozk_recon_pending_save";
 
 function safeErrorMessage(error) {
   const msg = String(error?.message ?? "");
@@ -7619,16 +7620,37 @@ async function reconSaveDraft() {
   render();
   try {
     const month = state.reconSessionMonth || todayIsoDate().slice(0, 7) + "-01";
-    const nonce = Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+    const sessionDate = state.reconSessionDate || todayIsoDate();
+    // نفس idempotency key يُعاد استعماله عبر إعادة المحاولة (فشل الشبكة، فقدان
+    // الرد، إعادة تحميل الصفحة) طالما محتوى المسودة (بصمة JSON) لم يتغيّر —
+    // يمنع تكرار الجلسة على الخادم؛ يُولَّد مفتاح جديد فقط عند تغيّر فعلي
+    // بالمحتوى، ويُحذف المفتاح المحفوظ محلياً فقط بعد نجاح الحفظ فعلياً.
+    const fingerprint = window.invRecCalc.buildDraftFingerprint({
+      warehouseKey: state.reconWarehouseKey,
+      sessionDate,
+      sessionMonth: month,
+      notes: state.reconNotes,
+      rows: state.reconRows
+    });
+    const pending = readJson(RECON_PENDING_SAVE_KEY, null);
+    let idempotencyKey;
+    if (pending && pending.fingerprint === fingerprint && pending.idempotencyKey) {
+      idempotencyKey = pending.idempotencyKey;
+    } else {
+      const nonce = Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+      idempotencyKey = window.invRecCalc.buildIdempotencyKey(state.reconWarehouseKey, month, nonce);
+      writeJson(RECON_PENDING_SAVE_KEY, { fingerprint, idempotencyKey });
+    }
     await dataStore.createReconSessionWithLines({
       warehouseKey: state.reconWarehouseKey,
       warehouseName: state.reconWarehouseName,
-      sessionDate: state.reconSessionDate || todayIsoDate(),
+      sessionDate,
       sessionMonth: month,
       notes: state.reconNotes,
-      idempotencyKey: window.invRecCalc.buildIdempotencyKey(state.reconWarehouseKey, month, nonce),
+      idempotencyKey,
       sourceReportId: state.reconWarehouseStockReportId
     }, state.reconRows);
+    localStorage.removeItem(RECON_PENDING_SAVE_KEY);
     toast("تم حفظ مسودة الجرد.");
     reconResetForm();
     await loadReconSessions();

@@ -1324,10 +1324,12 @@
       return data || null;
     },
 
-    // نفس نمط setReturnDocumentStatus (returns feature): تحديث مشروط بالحالة
-    // الحالية (.eq status expectedStatus) للكشف عن حجب RLS الصامت — إن لم يتغيّر
-    // صف واحد بالضبط نعتبرها فشلاً صريحاً بدل نجاح وهمي. الاعتماد لا يمس أي
-    // مخزون أو حساب في الأمين أو Supabase، فقط يقفل الحالة ويختم من/متى.
+    // كل الكتابة على inventory_recon_sessions مقفلة عن authenticated (SELECT
+    // فقط)؛ التحديث الوحيد المسموح يمر عبر RPC بـSECURITY DEFINER
+    // (inventory_recon_set_status) الذي يتحقق من auth.uid() ويحدّث بشرط
+    // status=expectedStatus ذرياً، بينما trigger inventory_recon_guard_immutable
+    // يفرض صحة الانتقال وحصر الاعتماد بالمالك ويختم reviewed_by/approved_by
+    // من الخادم حصراً — لا حاجة لإرسال أي من ذلك من العميل.
     async setReconSessionStatus(sessionId, nextStatus, expectedStatus) {
       if (!client) throw new Error("تحديث حالة جلسة الجرد يتطلب اتصالاً بـ Supabase.");
       const canTransition = window.invRecCalc && typeof window.invRecCalc.canTransitionStatus === "function"
@@ -1336,27 +1338,15 @@
       if (!canTransition) {
         throw new Error("لا يمكن الانتقال إلى هذه الحالة من الحالة الحالية.");
       }
-      const user = await requireUser();
-      const patch = { status: nextStatus, updated_at: new Date().toISOString() };
-      if (nextStatus === "reviewed") {
-        patch.reviewed_at = new Date().toISOString();
-        patch.reviewed_by = user.id;
-      } else if (nextStatus === "approved") {
-        patch.approved_at = new Date().toISOString();
-        patch.approved_by = user.id;
-      }
+      await requireUser();
 
-      const { data, error } = await client
-        .from(reconSessionsTable)
-        .update(patch)
-        .eq("id", sessionId)
-        .eq("status", expectedStatus)
-        .select("id");
+      const { error } = await client.rpc("inventory_recon_set_status", {
+        p_session_id: sessionId,
+        p_next_status: nextStatus,
+        p_expected_status: expectedStatus
+      });
 
       if (error) throw new Error(translateDbError(error.message));
-      if (!data || data.length !== 1) {
-        throw new Error("تعذّر تحديث حالة جلسة الجرد (لم يتغيّر أي صف) — أعد تحميل الصفحة وتحقّق من صلاحيتك على هذه الجلسة.");
-      }
     },
 
     // مخزون النظام حسب المستودع — لا يوجد سكريبت سحب فعلي بعد لمصدر

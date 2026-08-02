@@ -819,8 +819,6 @@ for (const contract of [
   for (const contract of [
     "لا يمكن اعتماد جلسة بلا أي سطر",
     "s.status = 'draft'",
-    "grant select, insert, update, delete on inventory_recon_sessions to authenticated",
-    "grant select, insert, update, delete on inventory_recon_lines to authenticated",
     "revoke execute on function private.inventory_recon_write_audit_log() from public",
     "create or replace function inventory_recon_create_session_with_lines",
     "raise exception 'inventory_recon: لا يمكن إنشاء جلسة جرد بلا سطور'"
@@ -1093,34 +1091,43 @@ for (const contract of [
   }
 }
 
-// اختبار حارس RLS الصامت في setReconSessionStatus (src/supabase-client.js): التحديث
-// مشروط بـ.eq("status", expectedStatus) — إن حجبت RLS الصف (0 نتيجة) يجب رمي خطأ
-// صريح بدل اعتبارها نجاحاً وهمياً. نبني عميل Supabase وهمياً بدل الاتصال الحقيقي.
+// اختبار setReconSessionStatus (src/supabase-client.js): بعد سحب GRANT المباشر
+// من authenticated (مراجعة PR-38-review-2)، يجب أن يستدعي RPC
+// inventory_recon_set_status حصراً، لا .from(reconSessionsTable).update(...).
+// نتأكد من نجاح الاستدعاء الصحيح، ورمي خطأ صريح عندما ترجع RPC خطأً (مثلاً
+// الحالة تغيّرت فعلاً — expected_status لم يعد مطابقاً).
 {
   const supabaseClientSource = readFileSync("src/supabase-client.js", "utf8");
 
-  function makeMockClient(updateResult) {
+  if (/\.from\(reconSessionsTable\)\s*\n\s*\.update\(/.test(supabaseClientSource)) {
+    console.error("setReconSessionStatus must not write directly via .from(reconSessionsTable).update(...) — authenticated no longer holds UPDATE grant on inventory_recon_sessions; it must call the inventory_recon_set_status RPC.");
+    failed = true;
+  }
+  if (!/client\.rpc\(\s*["']inventory_recon_set_status["']/.test(supabaseClientSource)) {
+    console.error("setReconSessionStatus must call the inventory_recon_set_status RPC.");
+    failed = true;
+  }
+
+  function makeMockClient(rpcResult) {
+    let lastRpcCall = null;
     return {
       auth: {
         getSession: async () => ({ data: { session: { user: { id: "u1", email: "owner@ozk.test" } } }, error: null }),
         getUser: async () => ({ data: { user: { id: "u1", email: "owner@ozk.test" } }, error: null })
       },
-      from() {
-        const builder = {
-          update() { return builder; },
-          eq() { return builder; },
-          select: async () => updateResult
-        };
-        return builder;
+      rpc(name, params) {
+        lastRpcCall = { name, params };
+        return Promise.resolve(rpcResult).then((r) => { r.__lastRpcCall = lastRpcCall; return r; });
       }
     };
   }
 
-  async function runSetReconSessionStatus(updateResult) {
+  async function runSetReconSessionStatus(rpcResult) {
+    let capturedClient;
     const sandbox = {
       window: {
         appConfig: { supabase: { url: "https://x.test", publishableKey: "key" } },
-        supabase: { createClient: () => makeMockClient(updateResult) },
+        supabase: { createClient: () => (capturedClient = makeMockClient(rpcResult)) },
         invRecCalc: sandbox_invRecCalc
       },
       localStorage: { getItem: () => null, setItem: () => {}, removeItem: () => {} },
@@ -1128,7 +1135,8 @@ for (const contract of [
     };
     vm.createContext(sandbox);
     vm.runInContext(supabaseClientSource, sandbox, { filename: "supabase-client.js" });
-    return sandbox.window.tobaccoData.setReconSessionStatus("s1", "reviewed", "draft");
+    await sandbox.window.tobaccoData.setReconSessionStatus("s1", "reviewed", "draft");
+    return capturedClient;
   }
 
   const invRecCalcSourceForGuard = readFileSync("src/inventory-recon-calc.js", "utf8");
@@ -1139,22 +1147,124 @@ for (const contract of [
 
   let succeeded = false;
   try {
-    await runSetReconSessionStatus({ data: [{ id: "s1" }], error: null });
+    await runSetReconSessionStatus({ data: { id: "s1", status: "reviewed" }, error: null });
     succeeded = true;
   } catch (err) {
-    console.error(`setReconSessionStatus should succeed when the guarded row matches: ${err.message}`);
+    console.error(`setReconSessionStatus should succeed when the RPC reports success: ${err.message}`);
     failed = true;
   }
   if (!succeeded) failed = true;
 
   let blocked = false;
   try {
-    await runSetReconSessionStatus({ data: [], error: null });
+    await runSetReconSessionStatus({
+      data: null,
+      error: { message: "inventory_recon_set_status: تعذّر تحديث حالة الجلسة" }
+    });
   } catch {
     blocked = true;
   }
   if (!blocked) {
-    console.error("setReconSessionStatus must throw when the status-guarded update matches zero rows (silent RLS block) instead of succeeding silently.");
+    console.error("setReconSessionStatus must throw when the inventory_recon_set_status RPC returns an error (stale expected_status / silent RLS block) instead of succeeding silently.");
+    failed = true;
+  }
+}
+
+// اختبار GRANT الضيق الجديد (مراجعة PR-38-review-2): authenticated يملك SELECT
+// فقط على الجدولين، وكل كتابة يجب أن تمر عبر RPC بـSECURITY DEFINER.
+{
+  const invReconSql = readFileSync("supabase/inventory-reconciliation-table.sql", "utf8");
+
+  if (/grant\s+select\s*,\s*insert\s*,\s*update\s*,\s*delete\s+on\s+inventory_recon_sessions\s+to\s+authenticated/.test(invReconSql)
+      || /grant\s+select\s*,\s*insert\s*,\s*update\s*,\s*delete\s+on\s+inventory_recon_lines\s+to\s+authenticated/.test(invReconSql)) {
+    console.error("inventory-reconciliation-table.sql must not grant insert/update/delete on inventory_recon_sessions/inventory_recon_lines to authenticated directly — every mutation must go through a SECURITY DEFINER RPC.");
+    failed = true;
+  }
+  const grantContracts = [
+    "revoke insert, update, delete on inventory_recon_sessions from authenticated",
+    "revoke insert, update, delete on inventory_recon_lines from authenticated",
+    "grant select on inventory_recon_sessions to authenticated",
+    "grant select on inventory_recon_lines to authenticated"
+  ];
+  for (const contract of grantContracts) {
+    if (!invReconSql.includes(contract)) {
+      console.error(`inventory-reconciliation-table.sql GRANT-narrowing contract is missing: ${contract}`);
+      failed = true;
+    }
+  }
+
+  const setStatusBlock = (invReconSql.split("create or replace function inventory_recon_set_status")[1] || "").slice(0, 2500);
+  if (!setStatusBlock) {
+    console.error("supabase/inventory-reconciliation-table.sql is missing inventory_recon_set_status RPC.");
+    failed = true;
+  } else {
+    if (!/security definer\s*\nset search_path = ''/.test(setStatusBlock)) {
+      console.error("inventory_recon_set_status must use SECURITY DEFINER with SET search_path = '' (empty).");
+      failed = true;
+    }
+    if (!/:=\s*auth\.uid\(\)/.test(setStatusBlock) || !/v_uid is null/.test(setStatusBlock)) {
+      console.error("inventory_recon_set_status must capture auth.uid() and explicitly reject a null caller.");
+      failed = true;
+    }
+    if (!/where id = p_session_id\s*\n\s*and status = p_expected_status/.test(setStatusBlock)) {
+      console.error("inventory_recon_set_status must condition its UPDATE on status = p_expected_status (atomic staleness guard), matching the previous client-side .eq(\"status\", expectedStatus) semantics.");
+      failed = true;
+    }
+    if (/p_reviewed_by|p_approved_by|p_next_status\s*=\s*'approved'/.test(setStatusBlock)) {
+      console.error("inventory_recon_set_status must not accept reviewed_by/approved_by from the caller or special-case 'approved' itself — that authorization and stamping must stay inside the inventory_recon_guard_immutable trigger.");
+      failed = true;
+    }
+  }
+  if (!/revoke execute on function inventory_recon_set_status\(uuid, text, text\) from public/.test(invReconSql)
+      || !/revoke execute on function inventory_recon_set_status\(uuid, text, text\) from anon/.test(invReconSql)
+      || !/grant execute on function inventory_recon_set_status\(uuid, text, text\) to authenticated/.test(invReconSql)) {
+    console.error("inventory_recon_set_status must be revoked from public/anon and granted only to authenticated.");
+    failed = true;
+  }
+}
+
+// اختبار بصمة محتوى المسودة (buildDraftFingerprint) وإعادة استعمال idempotency
+// key عبر reconSaveDraft عند إعادة المحاولة بنفس المحتوى.
+{
+  const invRecCalcSource = readFileSync("src/inventory-recon-calc.js", "utf8");
+  const sandbox = { window: {}, console };
+  vm.createContext(sandbox);
+  vm.runInContext(invRecCalcSource, sandbox, { filename: "inventory-recon-calc.js" });
+  const invRecCalc = sandbox.window.invRecCalc;
+
+  const draftA = {
+    warehouseKey: "jumla",
+    sessionDate: "2026-08-01",
+    sessionMonth: "2026-08-01",
+    notes: "ملاحظة",
+    rows: [{ itemKey: "k1", actualQty: "10", reason: "تلف" }]
+  };
+  const fpA1 = invRecCalc.buildDraftFingerprint(draftA);
+  const fpA2 = invRecCalc.buildDraftFingerprint(JSON.parse(JSON.stringify(draftA)));
+  if (fpA1 !== fpA2) {
+    console.error("buildDraftFingerprint must be stable for identical draft content across separate calls (needed to reuse the same idempotency key on retry).");
+    failed = true;
+  }
+
+  const draftB = { ...draftA, rows: [{ itemKey: "k1", actualQty: "11", reason: "تلف" }] };
+  const fpB = invRecCalc.buildDraftFingerprint(draftB);
+  if (fpA1 === fpB) {
+    console.error("buildDraftFingerprint must change when the actual draft content changes (actualQty here), otherwise a real content change would wrongly reuse a stale idempotency key.");
+    failed = true;
+  }
+
+  const appJs = readFileSync("src/app.js", "utf8");
+  const reconSaveDraftBody = (appJs.split("async function reconSaveDraft() {")[1] || "").split("\nasync function reconSetStatus")[0];
+  if (!/buildDraftFingerprint/.test(reconSaveDraftBody)) {
+    console.error("reconSaveDraft() must build a content fingerprint via window.invRecCalc.buildDraftFingerprint(...) to support idempotency-key reuse across retries/reloads.");
+    failed = true;
+  }
+  if (!/pending\.fingerprint === fingerprint/.test(reconSaveDraftBody)) {
+    console.error("reconSaveDraft() must reuse the previously persisted idempotency key only when the stored fingerprint matches the current draft content.");
+    failed = true;
+  }
+  if (!/localStorage\.removeItem\(RECON_PENDING_SAVE_KEY\)/.test(reconSaveDraftBody)) {
+    console.error("reconSaveDraft() must clear the persisted pending idempotency key only after the save RPC call succeeds.");
     failed = true;
   }
 }
