@@ -459,13 +459,14 @@ create policy "inventory_recon_audit_log_select"
 -- لا الأعمدة، فبقيت هذه الثغرة رغم صحة السياسات. الآن: SELECT فقط، وكل كتابة
 -- تمر حصراً عبر RPC (inventory_recon_create_session_with_lines وinventory_recon_set_status
 -- أدناه)، اللتين لا تحتاجان GRANT على الجدول لأنهما SECURITY DEFINER.
-revoke insert, update, delete on inventory_recon_sessions from authenticated;
-revoke insert, update, delete on inventory_recon_lines from authenticated;
--- سجل التدقيق يُكتب حصراً من دالة الـtrigger ذات SECURITY DEFINER. نسحب
--- صلاحيات الكتابة صراحةً من عميلَي Data API أيضاً، حتى لا تعتمد الحماية على
--- غياب سياسات INSERT/UPDATE/DELETE وحده أو على تغيّر default privileges لاحقاً.
-revoke insert, update, delete, truncate, references, trigger
-  on inventory_recon_audit_log from anon, authenticated;
+-- نبدأ من لا صلاحيات على الجداول الثلاثة لكلا دورَي Data API، ثم نعيد منح
+-- القراءة فقط للمستخدم المسجّل. هذا يمنع default privileges قديمة في المشروع
+-- من منح anon أو authenticated كتابة مباشرة تتجاوز واجهات RPC الموثوقة.
+revoke all privileges on table
+  inventory_recon_sessions,
+  inventory_recon_lines,
+  inventory_recon_audit_log
+from anon, authenticated;
 grant select on inventory_recon_sessions to authenticated;
 grant select on inventory_recon_lines to authenticated;
 grant select on inventory_recon_audit_log to authenticated;

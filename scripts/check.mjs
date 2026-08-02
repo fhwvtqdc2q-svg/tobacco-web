@@ -1181,9 +1181,11 @@ for (const contract of [
     failed = true;
   }
   const grantContracts = [
-    "revoke insert, update, delete on inventory_recon_sessions from authenticated",
-    "revoke insert, update, delete on inventory_recon_lines from authenticated",
-    "on inventory_recon_audit_log from anon, authenticated",
+    "revoke all privileges on table",
+    "inventory_recon_sessions,",
+    "inventory_recon_lines,",
+    "inventory_recon_audit_log",
+    "from anon, authenticated",
     "grant select on inventory_recon_sessions to authenticated",
     "grant select on inventory_recon_lines to authenticated"
   ];
