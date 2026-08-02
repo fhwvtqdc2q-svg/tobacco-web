@@ -461,6 +461,11 @@ create policy "inventory_recon_audit_log_select"
 -- أدناه)، اللتين لا تحتاجان GRANT على الجدول لأنهما SECURITY DEFINER.
 revoke insert, update, delete on inventory_recon_sessions from authenticated;
 revoke insert, update, delete on inventory_recon_lines from authenticated;
+-- سجل التدقيق يُكتب حصراً من دالة الـtrigger ذات SECURITY DEFINER. نسحب
+-- صلاحيات الكتابة صراحةً من عميلَي Data API أيضاً، حتى لا تعتمد الحماية على
+-- غياب سياسات INSERT/UPDATE/DELETE وحده أو على تغيّر default privileges لاحقاً.
+revoke insert, update, delete, truncate, references, trigger
+  on inventory_recon_audit_log from anon, authenticated;
 grant select on inventory_recon_sessions to authenticated;
 grant select on inventory_recon_lines to authenticated;
 grant select on inventory_recon_audit_log to authenticated;
