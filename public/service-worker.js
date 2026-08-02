@@ -10,6 +10,7 @@ const ASSETS = [
   "src/supabase-client.js",
   "src/styles.css",
   "src/purchase-invoice-calc.js",
+  "src/inventory-recon-calc.js",
   "public/manifest.webmanifest",
   "public/icons/app-icon.png",
   "public/icons/ozk-logo.png",

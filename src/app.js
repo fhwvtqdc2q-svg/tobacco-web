@@ -3,6 +3,14 @@ const roadmapItems = window.roadmapItems;
 const monitoringCards = window.monitoringCards;
 const remoteServices = window.remoteServices;
 const dataStore = window.tobaccoData;
+const RECON_PENDING_SAVE_KEY_PREFIX = "ozk_recon_pending_save";
+
+// مفتاح localStorage منفصل لكل مستخدم — جهازان يستعملان نفس المتصفح (أو
+// نفس المستخدم بعد تسجيل خروج/دخول بحساب آخر) يجب ألا يتشاركا idempotency
+// key بصمة أحدهما، وإلا أعاد أحدهما استعمال مفتاح الآخر بالخطأ.
+function reconPendingSaveKey(userId) {
+  return `${RECON_PENDING_SAVE_KEY_PREFIX}:${userId || "anon"}`;
+}
 
 function safeErrorMessage(error) {
   const msg = String(error?.message ?? "");
@@ -177,7 +185,7 @@ function syncFreshnessLabel(value) {
   return `قبل ${Math.round(minutes / 60)} ساعة`;
 }
 
-const allowedRoutes = new Set(["overview", "login", "requests", "ameen", "balances", "pricing", "remote", "monitoring", "payments", "purchases", "sales"]);
+const allowedRoutes = new Set(["overview", "login", "requests", "ameen", "balances", "pricing", "remote", "monitoring", "payments", "purchases", "sales", "inventoryRecon"]);
 
 const customerPriceContacts = [
   { label: "هاتف المبيعات", value: "0985000771" },
@@ -281,6 +289,20 @@ const state = {
   poAmeenSupplierName: "", // المورد المختار حالياً للتصفح
   poAmeenNavIndex: 0,      // فهرس الفاتورة الحالية ضمن فواتير المورد المختار (0 = الأحدث)
   poAmeenItemQuery: "",    // بحث داخل بنود الفاتورة الحالية برقم/اسم المادة
+  // ===== الجرد الشهري (route: inventoryRecon) — تسجيلي فقط: لا يغيّر مخزوناً أو حساباً =====
+  reconSessions: [],
+  reconWarehouseKey: "jumla",
+  reconWarehouseName: "المستودع الرئيسي (جملة)",
+  reconSessionDate: "",
+  reconSessionMonth: "",
+  reconNotes: "",
+  reconRows: [],
+  reconRowQuery: "",
+  reconSaving: false,
+  reconOpenId: "",
+  reconWarehouseStockMap: null,   // itemKey -> qty من تقرير مخزون المستودع الموثوق (null = غير متوفر بعد)
+  reconWarehouseStockItems: null, // مصفوفة أصناف المستودع نفسه (name/number/unit/qty) — null = لا تقرير، [] = تقرير فارغ
+  reconWarehouseStockLoading: false,
   notifPermission: "default",
   seenRequestIds: new Set(),
   globalSearch: "",
@@ -402,6 +424,7 @@ async function boot() {
   await loadApprovedPriceItems();
   await loadCustomerProfiles();
   await loadPurchaseInvoices();
+  await loadReconSessions();
   state.seenRequestIds = new Set(state.requests.map((r) => r.id));
   state.notifPermission = notifSupported() ? Notification.permission : "denied";
   state.loading = false;
@@ -477,6 +500,64 @@ async function loadPurchaseInvoices() {
   } catch {
     state.poItemSnapshots = [];
     state.poItemSnapshotsAt = "";
+  }
+}
+
+async function loadReconSessions() {
+  try {
+    if (dataStore.isConfigured() && !state.session) {
+      state.reconSessions = [];
+      return;
+    }
+    state.reconSessions = dataStore.listReconSessions ? await dataStore.listReconSessions() : [];
+  } catch {
+    state.reconSessions = [];
+  }
+  await loadReconWarehouseStock(state.reconWarehouseKey);
+}
+
+// يبني قائمة أصناف المستودع نفسه (وخريطة itemKey → كمية) من أحدث تقرير مخزون موثوق.
+// يبقيان null إن لم يوجد تقرير بعد (لا سكريبت سحب فعلي حتى الآن) — لا تُخترَع كمية صفرية
+// بديلة، ولا يُرجع الجرد إلى مخزون النشرة العام (قد يشمل أصنافاً غير موجودة بهذا المستودع
+// أصلاً أو بكمية مختلفة عن المستودع المختار).
+async function loadReconWarehouseStock(warehouseKey) {
+  state.reconWarehouseStockMap = null;
+  state.reconWarehouseStockItems = null;
+  state.reconWarehouseStockReportId = null;
+  if (!dataStore.getLatestWarehouseStockReport) return;
+  state.reconWarehouseStockLoading = true;
+  try {
+    const report = await dataStore.getLatestWarehouseStockReport(warehouseKey);
+    const items = report && Array.isArray(report.items) ? report.items : [];
+    if (report && items.length) {
+      const map = {};
+      const list = [];
+      items.forEach((it) => {
+        const key = it.itemKey || it.item_key;
+        if (!key) return;
+        const qty = Number(it.qty ?? it.stockQty ?? it.stock_qty ?? 0);
+        map[key] = qty;
+        list.push({
+          itemKey: key,
+          itemName: it.itemName || it.item_name || key,
+          itemNumber: it.itemNumber || it.item_number || it.itemCode || it.item_code || "",
+          unitName: it.unitName || it.unit_name || it.unit1Name || "",
+          qty
+        });
+      });
+      state.reconWarehouseStockMap = map;
+      state.reconWarehouseStockItems = list;
+      state.reconWarehouseStockReportId = report.id || null;
+    } else if (report) {
+      state.reconWarehouseStockItems = []; // تقرير موجود لكن بلا أصناف — لا يوجد ما يُضاف
+      state.reconWarehouseStockReportId = report.id || null;
+    }
+  } catch {
+    state.reconWarehouseStockMap = null;
+    state.reconWarehouseStockItems = null;
+    state.reconWarehouseStockReportId = null;
+  } finally {
+    state.reconWarehouseStockLoading = false;
   }
 }
 
@@ -2645,6 +2726,7 @@ function shell(content) {
           ${state.session ? navButton("invoice", "📄 الفواتير") : ""}
           ${state.session ? navButton("sales", "🧮 فاتورة مبيعات") : ""}
           ${state.session ? navButton("purchases", "🧾 فواتير مشتريات") : ""}
+          ${state.session ? navButton("inventoryRecon", "📋 الجرد الشهري") : ""}
           ${state.session ? navButton("staff", "👥 الموظفون") : ""}
           ${state.session ? navButton("ai", "🤖 المساعد الذكي") : ""}
         </nav>
@@ -2712,6 +2794,7 @@ function pageTitle() {
     invoice: "الفواتير بالدولار",
     sales: "فاتورة مبيعات",
     purchases: "فواتير المشتريات",
+    inventoryRecon: "الجرد الشهري",
     dashboard: "التقارير",
     staff: "إدارة الموظفين",
     search: `نتائج: ${escapeHtml(state.globalSearch)}`
@@ -7443,6 +7526,473 @@ function poAmeenPanelHtml() {
   `;
 }
 
+// ===== الجرد الشهري (route: inventoryRecon) =====
+// تسجيلي فقط: اعتماد الجلسة يقفلها (status) ولا يكتب أي مخزون أو قيد فعلي
+// بالأمين أو Supabase — انظر tools/push-inventory-reconciliation-to-ameen.ps1 (stub مقفل).
+
+function reconUnitCostFor(item) {
+  const row = itemCostFor({ name: item?.itemName, key: item?.itemKey });
+  return Number(row?.avg_cost || 0);
+}
+
+function reconSearchItems(query, limit = 8) {
+  const raw = String(query || "").trim();
+  if (!raw) return [];
+  // الأصناف تُقتَرح حصراً من تقرير مخزون المستودع المختار — لا رجوع لمخزون النشرة العام،
+  // كي لا يُضاف صنف بكمية أو من مستودع لا ينتمي إليه فعلاً.
+  const list = Array.isArray(state.reconWarehouseStockItems) ? state.reconWarehouseStockItems : [];
+  const already = new Set((state.reconRows || []).map((r) => r.itemKey));
+  return list
+    .filter((item) => item.itemKey && !already.has(item.itemKey) && window.invRecCalc.itemMatches({ itemName: item.itemName, itemNumber: item.itemNumber }, raw))
+    .slice(0, limit);
+}
+
+function reconSuggestionsHtml(query) {
+  const matches = reconSearchItems(query, 8);
+  if (!matches.length) return "";
+  return matches
+    .map((item) => {
+      const code = String(item.itemCode || item.itemNumber || "");
+      const numHtml = code
+        ? `<span class="sales-suggest-num" dir="ltr">${escapeHtml(code)}</span>`
+        : `<span class="sales-suggest-num muted">—</span>`;
+      return `<button type="button" class="sales-suggest-item" data-recon-pick="${escapeHtml(item.itemKey)}">${numHtml}<span class="sales-suggest-name">${escapeHtml(item.itemName)}</span></button>`;
+    })
+    .join("");
+}
+
+function reconAddItem(key) {
+  const list = Array.isArray(state.reconWarehouseStockItems) ? state.reconWarehouseStockItems : [];
+  const item = list.find((it) => it.itemKey === key);
+  if (!item) return; // لا وجود لهذا الصنف بتقرير مخزون المستودع المختار
+  if ((state.reconRows || []).some((r) => r.itemKey === key)) return;
+  const unitCost = reconUnitCostFor(item);
+  state.reconRows.push({
+    itemKey: item.itemKey,
+    itemNumber: item.itemNumber || "",
+    itemName: item.itemName,
+    unitName: item.unitName || "كروز",
+    systemQty: item.qty, // من تقرير مخزون المستودع الموثوق حصراً
+    systemQtySource: "warehouse",
+    actualQty: "",
+    unitCost,
+    reason: ""
+  });
+  state.reconRowQuery = "";
+  render();
+}
+
+function reconRemoveRow(key) {
+  state.reconRows = (state.reconRows || []).filter((r) => r.itemKey !== key);
+  render();
+}
+
+function reconRowComputed(row) {
+  return window.invRecCalc.lineComputed(row);
+}
+
+function reconSummary() {
+  return window.invRecCalc.sessionSummary(state.reconRows);
+}
+
+function reconCurrentStatus() {
+  const open = (state.reconSessions || []).find((s) => s.id === state.reconOpenId);
+  return open ? open.status : "draft";
+}
+
+function reconResetForm() {
+  state.reconSessionDate = "";
+  state.reconSessionMonth = "";
+  state.reconNotes = "";
+  state.reconRows = [];
+  state.reconRowQuery = "";
+  state.reconOpenId = "";
+}
+
+async function reconSaveDraft() {
+  if (!Array.isArray(state.reconWarehouseStockItems) || !state.reconWarehouseStockItems.length) {
+    toast("لا يتوفر تقرير مخزون موثوق لهذا المستودع بعد — لا يمكن حفظ الجرد.");
+    return;
+  }
+  if (!state.reconWarehouseStockReportId) {
+    toast("تعذّر تحديد تقرير مخزون المستودع الموثوق — أعد تحميل الصفحة وحاول من جديد.");
+    return;
+  }
+  if (!state.reconRows.length) {
+    toast("أضف صنفاً واحداً على الأقل قبل الحفظ.");
+    return;
+  }
+  if (state.reconSaving) return;
+  state.reconSaving = true;
+  render();
+  try {
+    const month = state.reconSessionMonth || todayIsoDate().slice(0, 7) + "-01";
+    const sessionDate = state.reconSessionDate || todayIsoDate();
+    const userId = state.session?.id || "";
+    const pendingKey = reconPendingSaveKey(userId);
+    // نفس idempotency key يُعاد استعماله عبر إعادة المحاولة (فشل الشبكة، فقدان
+    // الرد، إعادة تحميل الصفحة) طالما محتوى المسودة (بصمة JSON، بما فيها
+    // المستخدم وتقرير المخزون المصدر) لم يتغيّر — يمنع تكرار الجلسة على
+    // الخادم؛ يُولَّد مفتاح جديد فقط عند تغيّر فعلي بالمحتوى، ويُحذف المفتاح
+    // المحفوظ محلياً فقط بعد نجاح الحفظ فعلياً.
+    const fingerprint = window.invRecCalc.buildDraftFingerprint({
+      userId,
+      sourceReportId: state.reconWarehouseStockReportId,
+      warehouseKey: state.reconWarehouseKey,
+      sessionDate,
+      sessionMonth: month,
+      notes: state.reconNotes,
+      rows: state.reconRows
+    });
+    const pending = readJson(pendingKey, null);
+    let idempotencyKey;
+    if (pending && pending.fingerprint === fingerprint && pending.idempotencyKey) {
+      idempotencyKey = pending.idempotencyKey;
+    } else {
+      const nonce = Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+      idempotencyKey = window.invRecCalc.buildIdempotencyKey(state.reconWarehouseKey, month, nonce);
+      writeJson(pendingKey, { fingerprint, idempotencyKey });
+    }
+    await dataStore.createReconSessionWithLines({
+      warehouseKey: state.reconWarehouseKey,
+      warehouseName: state.reconWarehouseName,
+      sessionDate,
+      sessionMonth: month,
+      notes: state.reconNotes,
+      idempotencyKey,
+      sourceReportId: state.reconWarehouseStockReportId
+    }, state.reconRows);
+    localStorage.removeItem(pendingKey);
+    toast("تم حفظ مسودة الجرد.");
+    reconResetForm();
+    await loadReconSessions();
+  } catch (err) {
+    toast("تعذّر حفظ الجرد: " + (err?.message || "خطأ غير معروف"));
+  } finally {
+    state.reconSaving = false;
+    render();
+  }
+}
+
+async function reconSetStatus(session, nextStatus) {
+  if (!window.invRecCalc.canTransitionStatus(session.status, nextStatus)) return;
+  if (nextStatus !== "draft") {
+    const check = window.invRecCalc.validateForReview(session.lines || []);
+    if (!check.ok) {
+      toast(`أكمل سبب الفرق لعدد ${check.missingReasonCount} صنف قبل المتابعة.`);
+      return;
+    }
+  }
+  state.reconSaving = true;
+  render();
+  try {
+    await dataStore.setReconSessionStatus(session.id, nextStatus, session.status);
+    toast(nextStatus === "approved" ? "تم اعتماد الجرد (تسجيلي فقط، بلا أثر على المخزون)." : "تم تحديث حالة الجرد.");
+    await loadReconSessions();
+  } catch (err) {
+    toast("تعذّر تحديث الحالة: " + (err?.message || "خطأ غير معروف"));
+  } finally {
+    state.reconSaving = false;
+    render();
+  }
+}
+
+async function reconDeleteDraft(session) {
+  if (!session || session.status !== "draft") return;
+  if (!confirm("حذف مسودة الجرد هذا نهائياً؟ لا يمكن التراجع.")) return;
+  state.reconSaving = true;
+  render();
+  try {
+    await dataStore.deleteReconDraft(session.id);
+    if (state.reconOpenId === session.id) state.reconOpenId = "";
+    toast("تم حذف مسودة الجرد.");
+    await loadReconSessions();
+  } catch (err) {
+    toast("تعذّر حذف المسودة: " + (err?.message || "خطأ غير معروف"));
+  } finally {
+    state.reconSaving = false;
+    render();
+  }
+}
+
+function reconStatusLabel(status) {
+  if (status === "approved") return "معتمد";
+  if (status === "reviewed") return "قيد المراجعة";
+  return "مسودة";
+}
+
+const RECON_SOURCE_REPORT_MAX_AGE_DAYS = 3;
+
+// عمر تقرير المخزون المصدر بالأيام بين وقته ووقت جلسة الجرد نفسها — لا بـ"الآن"،
+// لأن فتح جلسة قديمة لاحقاً للاطلاع لا يجب أن يظهر دائماً كـ"تقرير قديم" حتى لو
+// كان فعلاً حديثاً وقت إنشائها.
+function reconSourceReportAgeDays(session) {
+  const reportAt = session?.source_report_date || session?.sourceReportDate;
+  if (!reportAt) return null;
+  const sessionAt = session?.session_date || session?.sessionDate;
+  const reportMs = new Date(reportAt).getTime();
+  const sessionMs = sessionAt ? new Date(sessionAt).getTime() : Date.now();
+  if (!Number.isFinite(reportMs) || !Number.isFinite(sessionMs)) return null;
+  return Math.max(0, Math.round((sessionMs - reportMs) / 86400000));
+}
+
+function reconSourceReportLabel(session) {
+  const reportAt = session?.source_report_date || session?.sourceReportDate;
+  if (!reportAt) return "غير معروف";
+  return formatDateTime(reportAt) || String(reportAt);
+}
+
+async function reconToggleSession(id) {
+  if (state.reconOpenId === id) {
+    state.reconOpenId = "";
+    render();
+    return;
+  }
+  state.reconOpenId = id;
+  render();
+  const idx = state.reconSessions.findIndex((s) => s.id === id);
+  if (idx === -1 || state.reconSessions[idx].lines) return;
+  try {
+    const full = await dataStore.getReconSession(id);
+    if (full) state.reconSessions[idx] = full;
+  } catch {
+    // best-effort فقط — البطاقة تبقى مفتوحة بدون سطور إن فشل الجلب
+  }
+  render();
+}
+
+function reconSessionCard(session) {
+  const open = state.reconOpenId === session.id;
+  const summary = window.invRecCalc.sessionSummary(session.lines || []);
+  const linesRows = (session.lines || []).map((line) => {
+    const computed = window.invRecCalc.lineComputed(line);
+    const diffLabel = computed.diffType === "increase" ? "زيادة" : computed.diffType === "decrease" ? "نقص" : "مطابق";
+    return `
+      <tr>
+        <td>${escapeHtml(line.item_name || line.itemName || "")}</td>
+        <td>${escapeHtml(String(line.system_qty ?? line.systemQty ?? 0))}</td>
+        <td>${escapeHtml(String(line.actual_qty ?? line.actualQty ?? "—"))}</td>
+        <td>${diffLabel}</td>
+        <td>${computed.settlementValue.toFixed(2)}</td>
+        <td>${escapeHtml(line.reason || "—")}</td>
+      </tr>`;
+  }).join("");
+
+  return `
+    <div class="po-card">
+      <div class="po-card-head" data-action="recon-toggle" data-recon-id="${escapeHtml(session.id)}">
+        <div>
+          <strong>${escapeHtml(session.warehouse_name || session.warehouseName || "")}</strong>
+          <span class="muted"> — ${escapeHtml(session.session_date || session.sessionDate || "")}</span>
+        </div>
+        <span class="badge">${reconStatusLabel(session.status)}</span>
+      </div>
+      ${open ? `
+        <div class="po-card-body">
+          <p class="muted">صافي فرق التسوية: ${summary.netValue.toFixed(2)} $ (زيادة ${summary.increaseCount} · نقص ${summary.decreaseCount} · مطابق ${summary.matchedCount})</p>
+          <p class="muted">تقرير المخزون المصدر: ${escapeHtml(reconSourceReportLabel(session))}${reconSourceReportAgeDays(session) !== null ? ` (منذ ${reconSourceReportAgeDays(session)} يوم)` : ""}</p>
+          ${reconSourceReportAgeDays(session) !== null && reconSourceReportAgeDays(session) > RECON_SOURCE_REPORT_MAX_AGE_DAYS ? `<p class="sales-info-warn">⚠ تقرير المخزون المصدر قديم (${reconSourceReportAgeDays(session)} يوم) — راجع الكميات قبل الاعتماد.</p>` : ""}
+          <div class="inv-table-wrap">
+            <table class="inv-table">
+              <thead><tr><th>الصنف</th><th>النظام</th><th>الفعلي</th><th>الفرق</th><th>القيمة $</th><th>السبب</th></tr></thead>
+              <tbody>${linesRows || '<tr><td colspan="6" class="muted">لا سطور</td></tr>'}</tbody>
+            </table>
+          </div>
+          <div class="inv-actions">
+            ${session.status === "draft" ? `<button class="button secondary" data-action="recon-status" data-recon-id="${escapeHtml(session.id)}" data-recon-next="reviewed" ${state.reconSaving ? "disabled" : ""}>وضع قيد المراجعة</button>` : ""}
+            ${session.status === "reviewed" ? `<button class="button primary" data-action="recon-status" data-recon-id="${escapeHtml(session.id)}" data-recon-next="approved" ${state.reconSaving ? "disabled" : ""}>اعتماد (تسجيلي فقط)</button>` : ""}
+            <button class="button secondary" data-action="recon-pdf" data-recon-id="${escapeHtml(session.id)}">🖨 تصدير PDF</button>
+            ${session.status === "draft" ? `<button class="button danger" data-action="recon-delete" data-recon-id="${escapeHtml(session.id)}" ${state.reconSaving ? "disabled" : ""}>🗑 حذف المسودة</button>` : ""}
+          </div>
+        </div>
+      ` : ""}
+    </div>`;
+}
+
+function reconSessionPdfMarkup(session) {
+  const summary = window.invRecCalc.sessionSummary(session.lines || []);
+  const warehouseName = session.warehouse_name || session.warehouseName || "";
+  const sessionDate = session.session_date || session.sessionDate || "";
+  const sessionMonth = session.session_month || session.sessionMonth || "";
+  const stmtNo = docNumber("INV-REC");
+
+  const rows = (session.lines || []).map((line) => {
+    const computed = window.invRecCalc.lineComputed(line);
+    const diffLabel = computed.diffType === "increase" ? "زيادة" : computed.diffType === "decrease" ? "نقص" : "مطابق";
+    const diffClass = computed.diffType === "increase" ? "cred" : computed.diffType === "decrease" ? "deb" : "";
+    return `
+      <tr>
+        <td>${escapeHtml(line.item_name || line.itemName || "")}</td>
+        <td>${escapeHtml(line.unit_name || line.unitName || "—")}</td>
+        <td>${escapeHtml(String(line.system_qty ?? line.systemQty ?? 0))}</td>
+        <td>${escapeHtml(String(line.actual_qty ?? line.actualQty ?? "—"))}</td>
+        <td class="${diffClass}">${diffLabel}${computed.diffType !== "none" ? ` ${Math.abs(computed.diffQty).toFixed(2)}` : ""}</td>
+        <td>${computed.settlementValue.toFixed(2)}</td>
+        <td>${escapeHtml(line.reason || "—")}</td>
+      </tr>`;
+  }).join("");
+
+  const header = `
+    <div class="rhead">
+      <div style="display:flex;align-items:center;gap:10px">
+        <img src="public/icons/ozk-logo.png" class="rlogo" alt="OZK" onerror="this.style.display='none'">
+        <div class="brand">OZK TOBACCO<small>مركز أبو زياد — لتجارة الدخان</small></div>
+      </div>
+      <div class="rtitle"><h2>تقرير الجرد الشهري</h2><span>رقم: ${escapeHtml(stmtNo)} · ${escapeHtml(todayIsoDate())}</span></div>
+    </div>`;
+
+  const sourceReportAgeDays = reconSourceReportAgeDays(session);
+  const sourceReportStale = sourceReportAgeDays !== null && sourceReportAgeDays > RECON_SOURCE_REPORT_MAX_AGE_DAYS;
+
+  const balbox = `
+    <div class="balbox"><div><div class="nm">${escapeHtml(warehouseName)}</div>
+      <div class="muted">تاريخ الجرد: ${escapeHtml(sessionDate)}${sessionMonth ? ` — شهر: ${escapeHtml(String(sessionMonth).slice(0, 7))}` : ""} — الحالة: ${escapeHtml(reconStatusLabel(session.status))}</div>
+      <div class="muted">تقرير المخزون المصدر: ${escapeHtml(reconSourceReportLabel(session))}${sourceReportAgeDays !== null ? ` (منذ ${sourceReportAgeDays} يوم)` : ""}</div>
+      ${sourceReportStale ? `<div class="sales-info-warn">⚠ تقرير المخزون المصدر قديم (${sourceReportAgeDays} يوم) — راجع الكميات قبل الاعتماد.</div>` : ""}
+      </div>
+      <div style="text-align:left"><div class="muted">صافي فرق التسوية</div><div class="big">${escapeHtml(summary.netValue.toFixed(2))} $</div></div></div>`;
+
+  const cards = `
+    <div class="cards">
+      <div class="rcard"><div class="v green">${summary.increaseCount}</div><div class="l">زيادة</div></div>
+      <div class="rcard"><div class="v red">${summary.decreaseCount}</div><div class="l">نقص</div></div>
+      <div class="rcard"><div class="v gold">${summary.matchedCount}</div><div class="l">مطابق</div></div>
+    </div>`;
+
+  const footer = `
+    <div class="rfoot">
+      <span>هذا التقرير تسجيلي فقط — لا يغيّر مخزوناً أو حساباً في الأمين أو Supabase</span>
+      <span dir="ltr">0985000771 — 0984000662</span>
+    </div>`;
+
+  return `${REPORT_STYLE}<div class="ozk-rpt">
+    ${header}
+    ${balbox}
+    ${cards}
+    <div class="sec">سطور الجرد (${session.lines?.length || 0})</div>
+    <table>
+      <thead><tr><th>الصنف</th><th>الوحدة</th><th>النظام</th><th>الفعلي</th><th>الفرق</th><th>القيمة $</th><th>السبب</th></tr></thead>
+      <tbody>${rows || '<tr><td colspan="7" class="muted">لا سطور</td></tr>'}</tbody>
+    </table>
+    ${session.notes ? `<p class="muted">ملاحظات: ${escapeHtml(session.notes)}</p>` : ""}
+    ${footer}
+  </div>`;
+}
+
+async function saveReconSessionPdf(session) {
+  if (!session) return;
+  const warehouseName = session.warehouse_name || session.warehouseName || "مستودع";
+  const sessionDate = session.session_date || session.sessionDate || todayIsoDate();
+  const safe = String(warehouseName).replace(/[^\p{L}\p{N}]+/gu, "_").slice(0, 40);
+  await exportReportPdf(reconSessionPdfMarkup(session), `جرد-${safe}-${sessionDate}.pdf`);
+  setNotice("success", "تم تجهيز تقرير الجرد PDF.");
+  render();
+}
+
+function inventoryRecon() {
+  if (!state.session) {
+    return shell(`
+      <section class="panel">
+        <h2>الجرد الشهري</h2>
+        <p class="muted">سجّل الدخول أولاً للوصول إلى الجرد الشهري.</p>
+      </section>
+    `);
+  }
+
+  const summary = reconSummary();
+  const hasWarehouseStock = Array.isArray(state.reconWarehouseStockItems) && state.reconWarehouseStockItems.length > 0;
+  const rowsHtml = (state.reconRows || []).map((row) => {
+    const computed = reconRowComputed(row);
+    const diffLabel = computed.diffType === "increase" ? "زيادة" : computed.diffType === "decrease" ? "نقص" : "—";
+    return `
+    <tr class="inv-row">
+      <td>${escapeHtml(row.itemName)}<div class="muted" style="font-size:0.85em">${escapeHtml(row.itemNumber || "")}</div></td>
+      <td>${escapeHtml(row.unitName || "")}</td>
+      <td>${escapeHtml(String(row.systemQty))}<div class="muted" style="font-size:0.78em">من تقرير المستودع</div></td>
+      <td><input class="inv-input inv-num" data-recon-field="actualQty" data-recon-key="${escapeHtml(row.itemKey)}" value="${escapeHtml(String(row.actualQty))}" placeholder="—" inputmode="decimal"></td>
+      <td>${diffLabel}${computed.diffType !== "none" ? ` ${Math.abs(computed.diffQty).toFixed(2)}` : ""}</td>
+      <td>${computed.settlementValue.toFixed(2)}</td>
+      <td><input class="inv-input" data-recon-field="reason" data-recon-key="${escapeHtml(row.itemKey)}" value="${escapeHtml(row.reason || "")}" placeholder="${computed.reasonRequired ? "سبب الفرق (مطلوب)" : "—"}"></td>
+      <td><button class="inv-remove" data-recon-remove="${escapeHtml(row.itemKey)}" title="حذف">✕</button></td>
+    </tr>`;
+  }).join("");
+
+  const savedList = state.reconSessions.length
+    ? state.reconSessions.map(reconSessionCard).join("")
+    : '<p class="muted">لا توجد جلسات جرد مسجلة بعد.</p>';
+
+  return shell(`
+    <section class="notice-panel warning" style="margin-bottom:16px">
+      <span>🗒 الجرد الشهري هنا للتسجيل والمراجعة فقط — اعتماد الجلسة يقفلها ولا يغيّر مخزوناً أو حساباً في الأمين أو Supabase إلى أن تُفعَّل المزامنة رسمياً.</span>
+    </section>
+
+    <section class="panel wide inv-panel">
+      <h2 style="margin:0">تسجيل جرد جديد</h2>
+      <div class="inv-header-fields">
+        <label class="inv-label">
+          المستودع
+          <div class="inv-actions" style="margin-top:4px">
+            <button type="button" class="button ${state.reconWarehouseKey === "jumla" ? "primary" : "secondary"} compact-button" data-recon-warehouse="jumla" data-recon-warehouse-name="المستودع الرئيسي (جملة)">جملة</button>
+            <button type="button" class="button ${state.reconWarehouseKey === "markaz" ? "primary" : "secondary"} compact-button" data-recon-warehouse="markaz" data-recon-warehouse-name="مركز البيع">مركز</button>
+          </div>
+        </label>
+        <label class="inv-label">
+          تاريخ الجرد
+          <input class="inv-input-main" id="recon-date" type="date" value="${escapeHtml(state.reconSessionDate || todayIsoDate())}">
+        </label>
+        <label class="inv-label">
+          شهر الجرد
+          <input class="inv-input-main" id="recon-month" type="month" value="${escapeHtml((state.reconSessionMonth || todayIsoDate().slice(0, 7) + "-01").slice(0, 7))}">
+        </label>
+      </div>
+
+      <label class="inv-label">
+        ملاحظات (اختياري)
+        <input class="inv-input-main" id="recon-notes" value="${escapeHtml(state.reconNotes)}" placeholder="ملاحظات عامة عن الجرد…" maxlength="500">
+      </label>
+
+      ${hasWarehouseStock ? "" : `<section class="notice-panel warning" style="margin:8px 0">
+        <span>⚠ لا يتوفر تقرير مخزون موثوق لهذا المستودع بعد — تعذّر بناء قائمة الأصناف. لا يمكن إضافة أصناف أو حفظ الجرد حتى توفّر التقرير.</span>
+      </section>`}
+
+      <label class="inv-label po-suggest-wrap">
+        إضافة صنف للجرد
+        <input class="inv-input-main" id="recon-item-query" value="${escapeHtml(state.reconRowQuery)}" placeholder="ابحث بالاسم أو الكود…" autocomplete="off" ${hasWarehouseStock ? "" : "disabled"}>
+        <div class="sales-suggest-box" data-recon-suggest></div>
+      </label>
+
+      <div class="inv-table-wrap">
+        <table class="inv-table">
+          <thead>
+            <tr>
+              <th>الصنف</th><th style="width:70px">الوحدة</th><th style="width:90px">النظام</th>
+              <th style="width:90px">الفعلي</th><th style="width:90px">الفرق</th><th style="width:90px">القيمة $</th>
+              <th>السبب</th><th style="width:32px"></th>
+            </tr>
+          </thead>
+          <tbody id="recon-body">${rowsHtml || '<tr><td colspan="8" class="muted">أضف صنفاً من الحقل أعلاه.</td></tr>'}</tbody>
+        </table>
+      </div>
+
+      <p class="muted" style="margin-top:8px">
+        صافي فرق التسوية: ${summary.netValue.toFixed(2)} $ (زيادة ${summary.increaseCount} · نقص ${summary.decreaseCount} · مطابق ${summary.matchedCount})
+      </p>
+
+      <div class="inv-actions">
+        <button class="button primary" data-action="recon-save" ${state.reconSaving || !hasWarehouseStock ? "disabled" : ""}>${state.reconSaving ? "جاري الحفظ…" : "💾 حفظ كمسودة"}</button>
+        <button class="button secondary" data-action="recon-reset" ${state.reconSaving ? "disabled" : ""}>مسح</button>
+      </div>
+    </section>
+
+    <section class="panel wide" style="margin-top:16px">
+      <div class="panel-title-row">
+        <h2 style="margin:0">جلسات الجرد المسجلة (${state.reconSessions.length})</h2>
+      </div>
+      <div class="po-list">${savedList}</div>
+    </section>
+  `);
+}
+
 function purchases() {
   if (!state.session) {
     return shell(`
@@ -8400,6 +8950,7 @@ function render() {
     invoice,
     sales: salesInvoice,
     purchases,
+    inventoryRecon,
     dashboard: reportsPage,
     staff: staffPage,
     search: searchPage,
@@ -8727,6 +9278,98 @@ function render() {
   });
   app.querySelectorAll("[data-po-copy]").forEach((btn) => {
     btn.addEventListener("click", () => copyPurchaseInvoiceText(btn.dataset.poCopy));
+  });
+
+  // ===== الجرد الشهري (route: inventoryRecon) =====
+  app.querySelectorAll("[data-recon-warehouse]").forEach((btn) => {
+    btn.addEventListener("click", async () => {
+      if (state.reconWarehouseKey === btn.dataset.reconWarehouse) return;
+      state.reconWarehouseKey = btn.dataset.reconWarehouse;
+      state.reconWarehouseName = btn.dataset.reconWarehouseName;
+      state.reconRows = []; // كمية النظام تعتمد على المستودع المختار — تفريغ السطور المضافة لمستودع آخر
+      render();
+      await loadReconWarehouseStock(state.reconWarehouseKey);
+      render();
+    });
+  });
+  app.querySelector("#recon-date")?.addEventListener("change", (e) => {
+    state.reconSessionDate = e.currentTarget.value;
+  });
+  app.querySelector("#recon-month")?.addEventListener("change", (e) => {
+    state.reconSessionMonth = e.currentTarget.value ? `${e.currentTarget.value}-01` : "";
+  });
+  app.querySelector("#recon-notes")?.addEventListener("input", (e) => {
+    state.reconNotes = e.currentTarget.value;
+  });
+  app.querySelector("#recon-item-query")?.addEventListener("input", (e) => {
+    state.reconRowQuery = e.currentTarget.value;
+    const box = app.querySelector("[data-recon-suggest]");
+    if (box) {
+      const html = reconSuggestionsHtml(e.currentTarget.value);
+      box.innerHTML = html;
+      if (html) positionSalesSuggest(e.currentTarget, box);
+    }
+  });
+  app.querySelector("#recon-item-query")?.addEventListener("blur", () => {
+    setTimeout(() => {
+      const box = app.querySelector("[data-recon-suggest]");
+      if (box) box.innerHTML = "";
+    }, 180);
+  });
+  app.querySelector("[data-recon-suggest]")?.addEventListener("mousedown", (e) => {
+    const pick = e.target.closest("[data-recon-pick]");
+    if (!pick) return;
+    e.preventDefault();
+    reconAddItem(pick.dataset.reconPick);
+  });
+  app.querySelector("#recon-body")?.addEventListener("input", (e) => {
+    const field = e.target.dataset.reconField;
+    const key = e.target.dataset.reconKey;
+    if (!field || !key) return;
+    const row = (state.reconRows || []).find((r) => r.itemKey === key);
+    if (!row) return;
+    row[field] = e.target.value;
+    if (field !== "reason") {
+      const computedCell = e.target.closest("tr")?.querySelectorAll("td")[4];
+      const valueCell = e.target.closest("tr")?.querySelectorAll("td")[5];
+      const computed = reconRowComputed(row);
+      if (computedCell) {
+        const diffLabel = computed.diffType === "increase" ? "زيادة" : computed.diffType === "decrease" ? "نقص" : "—";
+        computedCell.textContent = `${diffLabel}${computed.diffType !== "none" ? ` ${Math.abs(computed.diffQty).toFixed(2)}` : ""}`;
+      }
+      if (valueCell) valueCell.textContent = computed.settlementValue.toFixed(2);
+    }
+  });
+  app.querySelector("#recon-body")?.addEventListener("click", (e) => {
+    const btn = e.target.closest("[data-recon-remove]");
+    if (!btn) return;
+    reconRemoveRow(btn.dataset.reconRemove);
+  });
+  app.querySelector("[data-action='recon-save']")?.addEventListener("click", reconSaveDraft);
+  app.querySelector("[data-action='recon-reset']")?.addEventListener("click", () => {
+    reconResetForm();
+    render();
+  });
+  app.querySelectorAll("[data-action='recon-toggle']").forEach((el) => {
+    el.addEventListener("click", () => reconToggleSession(el.dataset.reconId));
+  });
+  app.querySelectorAll("[data-action='recon-status']").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const session = (state.reconSessions || []).find((s) => s.id === btn.dataset.reconId);
+      if (session) reconSetStatus(session, btn.dataset.reconNext);
+    });
+  });
+  app.querySelectorAll("[data-action='recon-delete']").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const session = (state.reconSessions || []).find((s) => s.id === btn.dataset.reconId);
+      if (session) reconDeleteDraft(session);
+    });
+  });
+  app.querySelectorAll("[data-action='recon-pdf']").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const session = (state.reconSessions || []).find((s) => s.id === btn.dataset.reconId);
+      if (session) saveReconSessionPdf(session);
+    });
   });
 
   // ===== فاتورة مبيعات (route: sales) =====
