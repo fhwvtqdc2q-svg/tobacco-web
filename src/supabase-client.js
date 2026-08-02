@@ -1349,6 +1349,20 @@
       if (error) throw new Error(translateDbError(error.message));
     },
 
+    // حذف مسودة جرد — يمر حصراً عبر inventory_recon_delete_draft (SECURITY
+    // DEFINER) الذي يقفل الصف ويتحقق من status='draft' والملكية قبل الحذف؛
+    // مسموح فقط بحذف draft، وreviewed/approved تُرفض من داخل الدالة نفسها.
+    async deleteReconDraft(sessionId) {
+      if (!client) throw new Error("حذف مسودة الجرد يتطلب اتصالاً بـ Supabase.");
+      await requireUser();
+
+      const { error } = await client.rpc("inventory_recon_delete_draft", {
+        p_session_id: sessionId
+      });
+
+      if (error) throw new Error(translateDbError(error.message));
+    },
+
     // مخزون النظام حسب المستودع — لا يوجد سكريبت سحب فعلي بعد لمصدر
     // ameen_warehouse_stock (انظر tools/discover-ameen-inventory-recon-fields.ps1)،
     // لذا تُرجع الدالة null إلى أن يُبنى ذلك السكريبت — ولا تُخترَع كمية صفرية بديلة.

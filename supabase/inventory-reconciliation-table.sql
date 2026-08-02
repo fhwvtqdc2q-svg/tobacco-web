@@ -173,6 +173,12 @@ begin
     end if;
 
     if OLD.status = 'draft' and NEW.status = 'reviewed' then
+      -- دفاع مستقل عن inventory_recon_set_status: التحقق مكرَّر عمداً هنا
+      -- لأن هذه الدالة SECURITY DEFINER وتعمل بصلاحيات مالكها بغض النظر عن
+      -- المستدعي، فيجب ألا تعتمد وحدها على أن الـRPC هو المسار الوحيد.
+      if not (OLD.created_by = auth.uid() or public.inventory_recon_is_owner()) then
+        raise exception 'inventory_recon_sessions: مراجعة الجلسة محصورة بمنشئ المسودة أو المالك';
+      end if;
       NEW.reviewed_by := auth.uid();
       NEW.reviewed_at := now();
     elsif OLD.status = 'reviewed' and NEW.status = 'approved' then
@@ -790,13 +796,11 @@ grant execute on function inventory_recon_create_session_with_lines(date, date, 
 
 -- ============================================================
 -- inventory_recon_set_status: المسار الوحيد المسموح لتغيير حالة الجلسة
--- (draft→reviewed→approved) بعد إغلاق GRANT المباشر أعلاه. النقل الفعلي
--- للحالة والختم (reviewed_by/approved_by/الأوقات) يبقى بيد
--- inventory_recon_guard_immutable() (BEFORE UPDATE trigger أعلاه) الذي
--- يفرضهما على أي انتقال ملحوظ بصرف النظر عن أعمدة SET المذكورة صراحة —
--- هذه الدالة تتحقق فقط من المصادقة وحداثة expected_status قبل محاولة
--- التحديث الذري، وتترك رفض نقل الحالة غير الصحيح أو اعتماد غير المالك
--- للـtrigger (طبقة دفاع ثانية، لا تكرار للمنطق).
+-- (draft→reviewed→approved) بعد إغلاق GRANT المباشر أعلاه. الدالة تقفل صف
+-- الجلسة (SELECT ... FOR UPDATE) وتتحقق بنفسها من الملكية/الحالة الحالية
+-- قبل أي تحديث — لا تعتمد فقط على inventory_recon_guard_immutable()
+-- (BEFORE UPDATE trigger أعلاه) رغم أنه يكرر نفس التحقق كدفاع مستقل ثانٍ،
+-- لأن الدالة SECURITY DEFINER وتتجاوز RLS بالكامل بصرف النظر عن الاستدعاء.
 -- ============================================================
 
 create or replace function inventory_recon_set_status(
@@ -811,6 +815,7 @@ set search_path = ''
 as $$
 declare
   v_uid uuid := auth.uid();
+  v_is_owner boolean;
   v_session public.inventory_recon_sessions;
 begin
   if v_uid is null then
@@ -821,16 +826,42 @@ begin
     raise exception 'inventory_recon_set_status: حالة غير مسموحة %', p_next_status;
   end if;
 
+  v_is_owner := public.inventory_recon_is_owner();
+
+  select * into v_session
+  from public.inventory_recon_sessions
+  where id = p_session_id
+  for update;
+
+  if v_session.id is null then
+    raise exception 'inventory_recon_set_status: الجلسة غير موجودة';
+  end if;
+
+  if v_session.status <> p_expected_status then
+    raise exception 'inventory_recon_set_status: حالة الجلسة الحالية % لا تطابق المتوقع % — أعد تحميل الصفحة', v_session.status, p_expected_status;
+  end if;
+
+  if p_next_status = 'reviewed' then
+    if v_session.status <> 'draft' then
+      raise exception 'inventory_recon_set_status: الانتقال إلى reviewed مسموح فقط من draft';
+    end if;
+    if not (v_session.created_by = v_uid or v_is_owner) then
+      raise exception 'inventory_recon_set_status: مراجعة الجلسة محصورة بمنشئ المسودة أو المالك';
+    end if;
+  elsif p_next_status = 'approved' then
+    if v_session.status <> 'reviewed' then
+      raise exception 'inventory_recon_set_status: الانتقال إلى approved مسموح فقط من reviewed';
+    end if;
+    if not v_is_owner then
+      raise exception 'inventory_recon_set_status: اعتماد الجلسة محصور بحساب المالك';
+    end if;
+  end if;
+
   update public.inventory_recon_sessions
   set status = p_next_status,
       updated_at = now()
   where id = p_session_id
-    and status = p_expected_status
   returning * into v_session;
-
-  if v_session.id is null then
-    raise exception 'inventory_recon_set_status: تعذّر تحديث حالة الجلسة (لم يتغيّر أي صف) — أعد تحميل الصفحة وتحقّق من صلاحيتك على هذه الجلسة';
-  end if;
 
   return v_session;
 end;
@@ -839,3 +870,54 @@ $$;
 revoke execute on function inventory_recon_set_status(uuid, text, text) from public;
 revoke execute on function inventory_recon_set_status(uuid, text, text) from anon;
 grant execute on function inventory_recon_set_status(uuid, text, text) to authenticated;
+
+-- ============================================================
+-- inventory_recon_delete_draft: المسار الوحيد المسموح لحذف جلسة —
+-- مسودة (draft) فقط، لمنشئها أو المالك. حذف الجلسة يُسقط سطورها تلقائياً
+-- (on delete cascade في inventory_recon_lines)، وtrg_inventory_recon_audit_*
+-- (AFTER DELETE، مُعرَّف أعلاه) يكتب سجل تدقيق للجلسة ولكل سطر محذوف تلقائياً
+-- قبل أن يُطبَّق هذا الحذف — سجل التدقيق بلا FK فيبقى بعد اختفاء الصفوف
+-- الأصلية (انظر تعليق إنشاء inventory_recon_audit_log أعلاه). reviewed/
+-- approved لا تُحذف أبداً — trg_inventory_recon_guard_session (BEFORE DELETE)
+-- يرفض حذف أي جلسة status='approved' كدفاع مستقل، وهذه الدالة ترفض أي حالة
+-- غير draft قبل حتى محاولة الحذف.
+-- ============================================================
+
+create or replace function inventory_recon_delete_draft(p_session_id uuid)
+returns void
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  v_uid uuid := auth.uid();
+  v_session public.inventory_recon_sessions;
+begin
+  if v_uid is null then
+    raise exception 'inventory_recon_delete_draft: يتطلب مستخدماً مصادقاً عليه';
+  end if;
+
+  select * into v_session
+  from public.inventory_recon_sessions
+  where id = p_session_id
+  for update;
+
+  if v_session.id is null then
+    raise exception 'inventory_recon_delete_draft: الجلسة غير موجودة';
+  end if;
+
+  if v_session.status <> 'draft' then
+    raise exception 'inventory_recon_delete_draft: لا يمكن حذف جلسة بحالة % — الحذف مسموح فقط للمسودات', v_session.status;
+  end if;
+
+  if not (v_session.created_by = v_uid or public.inventory_recon_is_owner()) then
+    raise exception 'inventory_recon_delete_draft: حذف المسودة محصور بمنشئها أو المالك';
+  end if;
+
+  delete from public.inventory_recon_sessions where id = p_session_id;
+end;
+$$;
+
+revoke execute on function inventory_recon_delete_draft(uuid) from public;
+revoke execute on function inventory_recon_delete_draft(uuid) from anon;
+grant execute on function inventory_recon_delete_draft(uuid) to authenticated;

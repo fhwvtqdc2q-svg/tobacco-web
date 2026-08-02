@@ -126,16 +126,25 @@
   // بصمة محتوى المسودة قبل الحفظ — تُستعمل لإعادة استخدام نفس idempotency
   // key عند إعادة المحاولة (فشل شبكة، فقدان الرد، إعادة تحميل الصفحة) طالما
   // المحتوى لم يتغيّر، ومنع تكرار الجلسة على خادم Supabase؛ أي تغيير فعلي
-  // بالمحتوى (صنف، كمية، سبب، ملاحظة...) يُنتج بصمة مختلفة فيُولَّد مفتاح جديد.
-  function buildDraftFingerprint({ warehouseKey, sessionDate, sessionMonth, notes, rows }) {
+  // بالمحتوى (صنف، كمية، سبب، ملاحظة، مستخدم، تقرير مصدر...) يُنتج بصمة
+  // مختلفة فيُولَّد مفتاح جديد. userId/sourceReportId مضمَّنان عمداً كي لا
+  // يُعاد استعمال بصمة مستخدم آخر أو تقرير مخزون آخر بالخطأ. actualQty
+  // يُطبَّع رقمياً (toNumber/round2) كي لا تُنتج "8" و"8.000" بصمتين مختلفتين.
+  function buildDraftFingerprint({ userId, sourceReportId, warehouseKey, sessionDate, sessionMonth, notes, rows }) {
     const normalizedRows = (Array.isArray(rows) ? rows : [])
-      .map((r) => ({
-        itemKey: String(r?.itemKey ?? r?.item_key ?? ""),
-        actualQty: r?.actualQty === undefined || r?.actualQty === null ? "" : String(r.actualQty).trim(),
-        reason: r?.reason === undefined || r?.reason === null ? "" : String(r.reason).trim()
-      }))
+      .map((r) => {
+        const rawQty = r?.actualQty === undefined ? r?.actual_qty : r.actualQty;
+        const hasQty = rawQty !== undefined && rawQty !== null && String(rawQty).trim() !== "";
+        return {
+          itemKey: String(r?.itemKey ?? r?.item_key ?? ""),
+          actualQty: hasQty ? round2(toNumber(rawQty)) : "",
+          reason: r?.reason === undefined || r?.reason === null ? "" : String(r.reason).trim()
+        };
+      })
       .sort((a, b) => a.itemKey.localeCompare(b.itemKey));
     return JSON.stringify({
+      userId: userId || "",
+      sourceReportId: sourceReportId || "",
       warehouseKey: warehouseKey || "",
       sessionDate: sessionDate || "",
       sessionMonth: sessionMonth || "",

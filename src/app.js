@@ -3,7 +3,14 @@ const roadmapItems = window.roadmapItems;
 const monitoringCards = window.monitoringCards;
 const remoteServices = window.remoteServices;
 const dataStore = window.tobaccoData;
-const RECON_PENDING_SAVE_KEY = "ozk_recon_pending_save";
+const RECON_PENDING_SAVE_KEY_PREFIX = "ozk_recon_pending_save";
+
+// مفتاح localStorage منفصل لكل مستخدم — جهازان يستعملان نفس المتصفح (أو
+// نفس المستخدم بعد تسجيل خروج/دخول بحساب آخر) يجب ألا يتشاركا idempotency
+// key بصمة أحدهما، وإلا أعاد أحدهما استعمال مفتاح الآخر بالخطأ.
+function reconPendingSaveKey(userId) {
+  return `${RECON_PENDING_SAVE_KEY_PREFIX}:${userId || "anon"}`;
+}
 
 function safeErrorMessage(error) {
   const msg = String(error?.message ?? "");
@@ -7621,25 +7628,30 @@ async function reconSaveDraft() {
   try {
     const month = state.reconSessionMonth || todayIsoDate().slice(0, 7) + "-01";
     const sessionDate = state.reconSessionDate || todayIsoDate();
+    const userId = state.session?.id || "";
+    const pendingKey = reconPendingSaveKey(userId);
     // نفس idempotency key يُعاد استعماله عبر إعادة المحاولة (فشل الشبكة، فقدان
-    // الرد، إعادة تحميل الصفحة) طالما محتوى المسودة (بصمة JSON) لم يتغيّر —
-    // يمنع تكرار الجلسة على الخادم؛ يُولَّد مفتاح جديد فقط عند تغيّر فعلي
-    // بالمحتوى، ويُحذف المفتاح المحفوظ محلياً فقط بعد نجاح الحفظ فعلياً.
+    // الرد، إعادة تحميل الصفحة) طالما محتوى المسودة (بصمة JSON، بما فيها
+    // المستخدم وتقرير المخزون المصدر) لم يتغيّر — يمنع تكرار الجلسة على
+    // الخادم؛ يُولَّد مفتاح جديد فقط عند تغيّر فعلي بالمحتوى، ويُحذف المفتاح
+    // المحفوظ محلياً فقط بعد نجاح الحفظ فعلياً.
     const fingerprint = window.invRecCalc.buildDraftFingerprint({
+      userId,
+      sourceReportId: state.reconWarehouseStockReportId,
       warehouseKey: state.reconWarehouseKey,
       sessionDate,
       sessionMonth: month,
       notes: state.reconNotes,
       rows: state.reconRows
     });
-    const pending = readJson(RECON_PENDING_SAVE_KEY, null);
+    const pending = readJson(pendingKey, null);
     let idempotencyKey;
     if (pending && pending.fingerprint === fingerprint && pending.idempotencyKey) {
       idempotencyKey = pending.idempotencyKey;
     } else {
       const nonce = Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
       idempotencyKey = window.invRecCalc.buildIdempotencyKey(state.reconWarehouseKey, month, nonce);
-      writeJson(RECON_PENDING_SAVE_KEY, { fingerprint, idempotencyKey });
+      writeJson(pendingKey, { fingerprint, idempotencyKey });
     }
     await dataStore.createReconSessionWithLines({
       warehouseKey: state.reconWarehouseKey,
@@ -7650,7 +7662,7 @@ async function reconSaveDraft() {
       idempotencyKey,
       sourceReportId: state.reconWarehouseStockReportId
     }, state.reconRows);
-    localStorage.removeItem(RECON_PENDING_SAVE_KEY);
+    localStorage.removeItem(pendingKey);
     toast("تم حفظ مسودة الجرد.");
     reconResetForm();
     await loadReconSessions();
@@ -7679,6 +7691,24 @@ async function reconSetStatus(session, nextStatus) {
     await loadReconSessions();
   } catch (err) {
     toast("تعذّر تحديث الحالة: " + (err?.message || "خطأ غير معروف"));
+  } finally {
+    state.reconSaving = false;
+    render();
+  }
+}
+
+async function reconDeleteDraft(session) {
+  if (!session || session.status !== "draft") return;
+  if (!confirm("حذف مسودة الجرد هذا نهائياً؟ لا يمكن التراجع.")) return;
+  state.reconSaving = true;
+  render();
+  try {
+    await dataStore.deleteReconDraft(session.id);
+    if (state.reconOpenId === session.id) state.reconOpenId = "";
+    toast("تم حذف مسودة الجرد.");
+    await loadReconSessions();
+  } catch (err) {
+    toast("تعذّر حذف المسودة: " + (err?.message || "خطأ غير معروف"));
   } finally {
     state.reconSaving = false;
     render();
@@ -7772,6 +7802,7 @@ function reconSessionCard(session) {
             ${session.status === "draft" ? `<button class="button secondary" data-action="recon-status" data-recon-id="${escapeHtml(session.id)}" data-recon-next="reviewed" ${state.reconSaving ? "disabled" : ""}>وضع قيد المراجعة</button>` : ""}
             ${session.status === "reviewed" ? `<button class="button primary" data-action="recon-status" data-recon-id="${escapeHtml(session.id)}" data-recon-next="approved" ${state.reconSaving ? "disabled" : ""}>اعتماد (تسجيلي فقط)</button>` : ""}
             <button class="button secondary" data-action="recon-pdf" data-recon-id="${escapeHtml(session.id)}">🖨 تصدير PDF</button>
+            ${session.status === "draft" ? `<button class="button danger" data-action="recon-delete" data-recon-id="${escapeHtml(session.id)}" ${state.reconSaving ? "disabled" : ""}>🗑 حذف المسودة</button>` : ""}
           </div>
         </div>
       ` : ""}
@@ -9326,6 +9357,12 @@ function render() {
     btn.addEventListener("click", () => {
       const session = (state.reconSessions || []).find((s) => s.id === btn.dataset.reconId);
       if (session) reconSetStatus(session, btn.dataset.reconNext);
+    });
+  });
+  app.querySelectorAll("[data-action='recon-delete']").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const session = (state.reconSessions || []).find((s) => s.id === btn.dataset.reconId);
+      if (session) reconDeleteDraft(session);
     });
   });
   app.querySelectorAll("[data-action='recon-pdf']").forEach((btn) => {

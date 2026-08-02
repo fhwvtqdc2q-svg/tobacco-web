@@ -1206,12 +1206,44 @@ for (const contract of [
       console.error("inventory_recon_set_status must capture auth.uid() and explicitly reject a null caller.");
       failed = true;
     }
-    if (!/where id = p_session_id\s*\n\s*and status = p_expected_status/.test(setStatusBlock)) {
-      console.error("inventory_recon_set_status must condition its UPDATE on status = p_expected_status (atomic staleness guard), matching the previous client-side .eq(\"status\", expectedStatus) semantics.");
+    // القفل يتم عبر FOR UPDATE قبل قراءة الصف، ثم تحقق صريح من p_expected_status
+    // يرمي استثناءً عند أي تعارض (بديل أكثر وضوحاً من شرط WHERE صامت يرجع صف
+    // فارغ)، ويقفل صلاحية الانتقال (draft→reviewed للمنشئ/المالك،
+    // reviewed→approved للمالك فقط) داخل الدالة نفسها كخط دفاع أول — مكرَّرة
+    // باستقلالية داخل inventory_recon_guard_immutable (SEE trigger block below)
+    // لأن الدالة SECURITY DEFINER ولا يجوز الاعتماد على RLS وحدها.
+    if (!/for update/.test(setStatusBlock)) {
+      console.error("inventory_recon_set_status must lock the session row with FOR UPDATE before checking status/ownership.");
       failed = true;
     }
-    if (/p_reviewed_by|p_approved_by|p_next_status\s*=\s*'approved'/.test(setStatusBlock)) {
-      console.error("inventory_recon_set_status must not accept reviewed_by/approved_by from the caller or special-case 'approved' itself — that authorization and stamping must stay inside the inventory_recon_guard_immutable trigger.");
+    if (!/v_session\.status\s*<>\s*p_expected_status/.test(setStatusBlock)) {
+      console.error("inventory_recon_set_status must explicitly verify the locked row's status against p_expected_status and reject any other transition.");
+      failed = true;
+    }
+    if (!/v_session\.created_by\s*=\s*v_uid\s+or\s+v_is_owner/.test(setStatusBlock)) {
+      console.error("inventory_recon_set_status must allow draft→reviewed only for the draft's creator or the owner.");
+      failed = true;
+    }
+    if (!/not\s+v_is_owner/.test(setStatusBlock)) {
+      console.error("inventory_recon_set_status must allow reviewed→approved only for the owner.");
+      failed = true;
+    }
+  }
+
+  // نفس فحوصات التفويض يجب أن تتكرر باستقلالية داخل inventory_recon_guard_immutable
+  // (التريغر) — دفاع مستقل لأن الدالة أعلاه SECURITY DEFINER ولا يجوز
+  // الاعتماد على RLS وحدها لمنع تجاوز الصلاحيات.
+  const guardImmutableBlock = (invReconSql.split("create or replace function inventory_recon_guard_immutable()")[1] || "").slice(0, 4000);
+  if (!guardImmutableBlock) {
+    console.error("supabase/inventory-reconciliation-table.sql is missing inventory_recon_guard_immutable().");
+    failed = true;
+  } else {
+    if (!/OLD\.created_by\s*=\s*auth\.uid\(\)\s+or\s+public\.inventory_recon_is_owner\(\)/.test(guardImmutableBlock)) {
+      console.error("inventory_recon_guard_immutable must independently check draft→reviewed authorization (creator or owner) — it must not rely on inventory_recon_set_status alone.");
+      failed = true;
+    }
+    if (!/not public\.inventory_recon_is_owner\(\)/.test(guardImmutableBlock)) {
+      console.error("inventory_recon_guard_immutable must independently check reviewed→approved authorization (owner only) — it must not rely on inventory_recon_set_status alone.");
       failed = true;
     }
   }
@@ -1233,6 +1265,8 @@ for (const contract of [
   const invRecCalc = sandbox.window.invRecCalc;
 
   const draftA = {
+    userId: "user-1",
+    sourceReportId: "report-1",
     warehouseKey: "jumla",
     sessionDate: "2026-08-01",
     sessionMonth: "2026-08-01",
@@ -1253,18 +1287,223 @@ for (const contract of [
     failed = true;
   }
 
+  // بصمتان بنفس محتوى السطور لكن بمستخدمين مختلفين يجب ألا تتطابقا — وإلا
+  // أعاد مستخدم استعمال idempotency key محفوظ لمستخدم آخر على نفس الجهاز.
+  const draftDifferentUser = { ...draftA, userId: "user-2" };
+  const fpDifferentUser = invRecCalc.buildDraftFingerprint(draftDifferentUser);
+  if (fpA1 === fpDifferentUser) {
+    console.error("buildDraftFingerprint must differ across different userId values with otherwise-identical content.");
+    failed = true;
+  }
+
+  // نفس المنطق لتقرير المخزون المصدر: تقريران مختلفان بنفس محتوى السطور يجب
+  // أن يُنتجا بصمتين مختلفتين.
+  const draftDifferentReport = { ...draftA, sourceReportId: "report-2" };
+  const fpDifferentReport = invRecCalc.buildDraftFingerprint(draftDifferentReport);
+  if (fpA1 === fpDifferentReport) {
+    console.error("buildDraftFingerprint must differ across different sourceReportId values with otherwise-identical content.");
+    failed = true;
+  }
+
+  // تطبيع الأرقام: "8" و"8.000" يجب أن ينتجا نفس البصمة.
+  const draftNumericA = { ...draftA, rows: [{ itemKey: "k1", actualQty: "8", reason: "تلف" }] };
+  const draftNumericB = { ...draftA, rows: [{ itemKey: "k1", actualQty: "8.000", reason: "تلف" }] };
+  if (invRecCalc.buildDraftFingerprint(draftNumericA) !== invRecCalc.buildDraftFingerprint(draftNumericB)) {
+    console.error("buildDraftFingerprint must normalize numeric actualQty so \"8\" and \"8.000\" produce the same fingerprint.");
+    failed = true;
+  }
+
   const appJs = readFileSync("src/app.js", "utf8");
   const reconSaveDraftBody = (appJs.split("async function reconSaveDraft() {")[1] || "").split("\nasync function reconSetStatus")[0];
   if (!/buildDraftFingerprint/.test(reconSaveDraftBody)) {
     console.error("reconSaveDraft() must build a content fingerprint via window.invRecCalc.buildDraftFingerprint(...) to support idempotency-key reuse across retries/reloads.");
     failed = true;
   }
+  if (!/userId,\s*\n\s*sourceReportId:/.test(reconSaveDraftBody)) {
+    console.error("reconSaveDraft() must pass userId and sourceReportId into buildDraftFingerprint(...).");
+    failed = true;
+  }
   if (!/pending\.fingerprint === fingerprint/.test(reconSaveDraftBody)) {
     console.error("reconSaveDraft() must reuse the previously persisted idempotency key only when the stored fingerprint matches the current draft content.");
     failed = true;
   }
-  if (!/localStorage\.removeItem\(RECON_PENDING_SAVE_KEY\)/.test(reconSaveDraftBody)) {
+  if (!/localStorage\.removeItem\(pendingKey\)/.test(reconSaveDraftBody)) {
     console.error("reconSaveDraft() must clear the persisted pending idempotency key only after the save RPC call succeeds.");
+    failed = true;
+  }
+
+  if (!/function reconPendingSaveKey\(userId\) \{\s*\n\s*return `\$\{RECON_PENDING_SAVE_KEY_PREFIX\}:\$\{userId \|\| "anon"\}`;/.test(appJs)) {
+    console.error("reconPendingSaveKey(userId) must namespace the localStorage idempotency key per user (RECON_PENDING_SAVE_KEY_PREFIX:<userId|anon>) so two users on the same device/browser never share a pending idempotency key.");
+    failed = true;
+  }
+  if (!/const pendingKey = reconPendingSaveKey\(userId\);/.test(reconSaveDraftBody)) {
+    console.error("reconSaveDraft() must derive its localStorage key via reconPendingSaveKey(userId), not a single device-wide constant.");
+    failed = true;
+  }
+}
+
+// اختبارات سلوكية لصلاحيات inventory_recon_set_status وinventory_recon_delete_draft
+// — نحاكي منطق التفويض المكتوب بـPL/pgSQL بمحاكاة JS مطابقة للشروط الفعلية
+// بالملف SQL (قفل الصف FOR UPDATE، قراءة created_by/status، ثم المقارنة)، لأن
+// الدوال الحقيقية SECURITY DEFINER لا يمكن تنفيذها هنا بلا اتصال Postgres حي.
+{
+  const invReconSql = readFileSync("supabase/inventory-reconciliation-table.sql", "utf8");
+  const OWNER_EMAIL = "owner@ozk.test";
+
+  // محاكاة inventory_recon_set_status: draft→reviewed مسموح فقط لمنشئ
+  // المسودة أو المالك؛ reviewed→approved مسموح فقط للمالك.
+  function simulateSetStatus({ callerUid, callerEmail, session, nextStatus, expectedStatus }) {
+    if (!callerUid) throw new Error("auth.uid() is null");
+    if (session.status !== expectedStatus) throw new Error("stale expected_status");
+    const isOwner = callerEmail === OWNER_EMAIL;
+    if (nextStatus === "reviewed") {
+      if (session.status !== "draft") throw new Error("invalid transition");
+      if (!isOwner && callerUid !== session.created_by) throw new Error("not authorized: only the draft creator or the owner may review it");
+      return { ...session, status: "reviewed" };
+    }
+    if (nextStatus === "approved") {
+      if (session.status !== "reviewed") throw new Error("invalid transition");
+      if (!isOwner) throw new Error("not authorized: only the owner may approve");
+      return { ...session, status: "approved" };
+    }
+    throw new Error("invalid transition");
+  }
+
+  const draftSession = { id: "s1", status: "draft", created_by: "creator-uid" };
+
+  let blockedOtherUserReview = false;
+  try {
+    simulateSetStatus({ callerUid: "other-uid", callerEmail: "other@ozk.test", session: draftSession, nextStatus: "reviewed", expectedStatus: "draft" });
+  } catch {
+    blockedOtherUserReview = true;
+  }
+  if (!blockedOtherUserReview) {
+    console.error("Behavioral: a user who is neither the draft's creator nor the owner must not be able to move a draft session to reviewed.");
+    failed = true;
+  }
+
+  let creatorReviewed = null;
+  try {
+    creatorReviewed = simulateSetStatus({ callerUid: "creator-uid", callerEmail: "creator@ozk.test", session: draftSession, nextStatus: "reviewed", expectedStatus: "draft" });
+  } catch (err) {
+    console.error(`Behavioral: the draft's own creator must be able to move it to reviewed: ${err.message}`);
+    failed = true;
+  }
+  if (creatorReviewed?.status !== "reviewed") failed = true;
+
+  const reviewedSession = { id: "s1", status: "reviewed", created_by: "creator-uid" };
+  let ownerApproved = null;
+  try {
+    ownerApproved = simulateSetStatus({ callerUid: "owner-uid", callerEmail: OWNER_EMAIL, session: reviewedSession, nextStatus: "approved", expectedStatus: "reviewed" });
+  } catch (err) {
+    console.error(`Behavioral: the owner must be able to approve a reviewed session: ${err.message}`);
+    failed = true;
+  }
+  if (ownerApproved?.status !== "approved") failed = true;
+
+  let blockedNonOwnerApprove = false;
+  try {
+    simulateSetStatus({ callerUid: "creator-uid", callerEmail: "creator@ozk.test", session: reviewedSession, nextStatus: "approved", expectedStatus: "reviewed" });
+  } catch {
+    blockedNonOwnerApprove = true;
+  }
+  if (!blockedNonOwnerApprove) {
+    console.error("Behavioral: a non-owner (even the draft's own creator) must not be able to approve a reviewed session.");
+    failed = true;
+  }
+
+  // محاكاة inventory_recon_delete_draft: حذف مسموح فقط لـstatus='draft' ولمنشئ
+  // المسودة أو المالك.
+  function simulateDeleteDraft({ callerUid, callerEmail, session }) {
+    if (!callerUid) throw new Error("auth.uid() is null");
+    if (session.status !== "draft") throw new Error("only draft sessions may be deleted");
+    const isOwner = callerEmail === OWNER_EMAIL;
+    if (!isOwner && callerUid !== session.created_by) throw new Error("not authorized: only the draft creator or the owner may delete it");
+    return true;
+  }
+
+  let creatorDeleted = false;
+  try {
+    creatorDeleted = simulateDeleteDraft({ callerUid: "creator-uid", callerEmail: "creator@ozk.test", session: draftSession });
+  } catch (err) {
+    console.error(`Behavioral: the draft's own creator must be able to delete their own draft: ${err.message}`);
+    failed = true;
+  }
+  if (!creatorDeleted) failed = true;
+
+  let blockedOtherUserDelete = false;
+  try {
+    simulateDeleteDraft({ callerUid: "other-uid", callerEmail: "other@ozk.test", session: draftSession });
+  } catch {
+    blockedOtherUserDelete = true;
+  }
+  if (!blockedOtherUserDelete) {
+    console.error("Behavioral: a user who is neither the draft's creator nor the owner must not be able to delete someone else's draft.");
+    failed = true;
+  }
+
+  let blockedReviewedDelete = false;
+  try {
+    simulateDeleteDraft({ callerUid: "owner-uid", callerEmail: OWNER_EMAIL, session: reviewedSession });
+  } catch {
+    blockedReviewedDelete = true;
+  }
+  if (!blockedReviewedDelete) {
+    console.error("Behavioral: a reviewed session must never be deletable, even by the owner.");
+    failed = true;
+  }
+
+  const approvedSession = { id: "s1", status: "approved", created_by: "creator-uid" };
+  let blockedApprovedDelete = false;
+  try {
+    simulateDeleteDraft({ callerUid: "owner-uid", callerEmail: OWNER_EMAIL, session: approvedSession });
+  } catch {
+    blockedApprovedDelete = true;
+  }
+  if (!blockedApprovedDelete) {
+    console.error("Behavioral: an approved session must never be deletable, even by the owner.");
+    failed = true;
+  }
+
+  // نتأكد أن الملف SQL فعلاً ينفّذ نفس شروط التفويض التي حاكيناها أعلاه — لا
+  // تعتمد على RLS وحدها بما أن الدوال SECURITY DEFINER.
+  const deleteDraftBlock = (invReconSql.split("create or replace function inventory_recon_delete_draft")[1] || "").slice(0, 2500);
+  if (!deleteDraftBlock) {
+    console.error("supabase/inventory-reconciliation-table.sql is missing inventory_recon_delete_draft RPC.");
+    failed = true;
+  } else {
+    if (!/for update/.test(deleteDraftBlock)) {
+      console.error("inventory_recon_delete_draft must lock the session row with FOR UPDATE before deleting.");
+      failed = true;
+    }
+    if (!/status\s*<>\s*'draft'|status\s*!=\s*'draft'/.test(deleteDraftBlock) && !/if\s+v_status\s*<>\s*'draft'/i.test(deleteDraftBlock)) {
+      console.error("inventory_recon_delete_draft must reject deletion unless the session status is 'draft'.");
+      failed = true;
+    }
+    if (!/security definer\s*\nset search_path = ''/.test(deleteDraftBlock)) {
+      console.error("inventory_recon_delete_draft must use SECURITY DEFINER with SET search_path = '' (empty).");
+      failed = true;
+    }
+  }
+  if (!/revoke execute on function inventory_recon_delete_draft\(uuid\) from public/.test(invReconSql)
+      || !/revoke execute on function inventory_recon_delete_draft\(uuid\) from anon/.test(invReconSql)
+      || !/grant execute on function inventory_recon_delete_draft\(uuid\) to authenticated/.test(invReconSql)) {
+    console.error("inventory_recon_delete_draft must be revoked from public/anon and granted only to authenticated.");
+    failed = true;
+  }
+
+  const supabaseClientSourceForDelete = readFileSync("src/supabase-client.js", "utf8");
+  if (!/client\.rpc\(\s*["']inventory_recon_delete_draft["']/.test(supabaseClientSourceForDelete)) {
+    console.error("src/supabase-client.js must expose a deleteReconDraft(...) wrapper calling the inventory_recon_delete_draft RPC.");
+    failed = true;
+  }
+
+  if (!/data-action="recon-delete"/.test(appJs)) {
+    console.error("src/app.js must render a delete button (data-action=\"recon-delete\") for draft sessions.");
+    failed = true;
+  }
+  if (!/async function reconDeleteDraft\(session\) \{[\s\S]{0,200}confirm\(/.test(appJs)) {
+    console.error("reconDeleteDraft() must ask for user confirmation via confirm(...) before deleting.");
     failed = true;
   }
 }
