@@ -23,6 +23,7 @@ const required = [
   "public/downloads/price-list-wazari-syp-14050.html",
   "public/downloads/price-list-wazari-syp-14050.pdf",
   "public/downloads/price-list-wazari-syp-14050-light.pdf",
+  "supabase/telegram-notifications.sql",
   "AI_WORK_SYNC.md",
   "AI_HANDOFF.md",
   "AI_ACTIVE_TASK.json"
@@ -58,6 +59,21 @@ const priceGenerator = readFileSync("scripts/generate-price-lists.mjs", "utf8");
 const usdBulletin = readFileSync("public/downloads/price-list-usd.html", "utf8");
 const sypBulletin = readFileSync("public/downloads/price-list-syp-14050.html", "utf8");
 const ameenSyncAgent = readFileSync("tools/ameen-sync-agent.ps1", "utf8");
+const telegramNotificationsSql = readFileSync("supabase/telegram-notifications.sql", "utf8");
+
+const priceChangeDetailsBlock = telegramNotificationsSql.slice(
+  telegramNotificationsSql.lastIndexOf("تفاصيل تغييرات الأسعار"),
+  telegramNotificationsSql.lastIndexOf("تفاصيل تغييرات الأسعار") + 1200
+);
+if (!priceChangeDetailsBlock.includes("'$ ' || to_char(r.old_price, 'FM999,999,999,990.00')")
+    || !priceChangeDetailsBlock.includes("'$ ' || to_char(r.new_price, 'FM999,999,999,990.00')")) {
+  console.error("Telegram price-change details must format old and new list prices as USD with two decimals.");
+  failed = true;
+}
+if (priceChangeDetailsBlock.includes("' ل.س'")) {
+  console.error("Telegram price-change details must not label USD list prices as SYP.");
+  failed = true;
+}
 const ameenPriceApply = readFileSync("tools/apply-approved-prices-to-ameen.ps1", "utf8");
 const ameenPriceVerify = readFileSync("tools/verify-prices.ps1", "utf8");
 for (const contract of ["كابتن بلاك كوين ازرق", "كابتن بلاك كور ازرق جديد", "كابتن بلاك كوين اسود", "كابتن بلاك كور اسود جديد"]) {

@@ -2,6 +2,14 @@
 
 يقرأه Claude وCodex قبل كل مهمة. أحدث سجل يكون في الأعلى. لا تحذف السجلات السابقة.
 
+## 2026-08-04 - Codex - تصحيح عملة وتنسيق تغييرات الأسعار في Telegram
+
+- Status: completed, production SQL applied and verified
+- Branch: `codex/fix-telegram-price-usd-format`
+- Files: `supabase/telegram-notifications.sql`, `scripts/check.mjs`
+- Result: صارت أسعار تغييرات اللائحة في التنبيه الفوري والتقرير المسائي تُعرض بالدولار بصيغة واضحة ذات منزلتين، مثل `$ 1,234.50`، وأزيلت تسمية `ل.س` الخاطئة. طُبّق تحديث محمي على دالتي `tg_notify_price_changes` و`send_evening_report` في Supabase، وتحقق الاستعلام الحي من القالب الجديد وغياب القالب القديم. نجح `npm.cmd run check` و`git diff --check`.
+- Handoff UTC: 2026-08-04T19:40:00Z
+
 ## 2026-08-01 - Codex - إصلاح دمج أصناف ماستر في نشرتي الدولار والسوري
 
 - Status: completed

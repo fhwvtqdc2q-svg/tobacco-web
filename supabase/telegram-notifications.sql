@@ -212,9 +212,9 @@ begin
       msg := '💰 تعديل سعر: ' || r.item_name;
       if r.old_price is distinct from r.new_price then
         msg := msg || chr(10) || 'السعر: '
-            || coalesce(to_char(r.old_price, 'FM999,999,999,990.##'), '—')
+            || coalesce('$ ' || to_char(r.old_price, 'FM999,999,999,990.00'), '—')
             || ' ← '
-            || coalesce(to_char(r.new_price, 'FM999,999,999,990.##'), '—');
+            || coalesce('$ ' || to_char(r.new_price, 'FM999,999,999,990.00'), '—');
       end if;
       perform public.notify_telegram('price_change', msg, 'price:' || r.item_key, 10);
     end loop;
@@ -819,9 +819,9 @@ begin
       msg := '💰 تعديل سعر: ' || r.item_name;
       if r.old_price is distinct from r.new_price then
         msg := msg || chr(10) || 'السعر: '
-            || coalesce(to_char(r.old_price, 'FM999,999,999,990.##'), '—')
+            || coalesce('$ ' || to_char(r.old_price, 'FM999,999,999,990.00'), '—')
             || ' ← '
-            || coalesce(to_char(r.new_price, 'FM999,999,999,990.##'), '—');
+            || coalesce('$ ' || to_char(r.new_price, 'FM999,999,999,990.00'), '—');
       end if;
       perform public.notify_telegram('price_change', msg, 'price:' || r.item_key, 10);
     end loop;
@@ -1060,8 +1060,8 @@ begin
       chunk_lines := '💰 تفاصيل تغييرات الأسعار (' || chunk_no || ') — ' || today || chr(10) || chr(10);
     end if;
     chunk_lines := chunk_lines || '• ' || coalesce(r.item_name, 'غير معروف')
-        || ': ' || coalesce(to_char(r.old_price, 'FM999,999,999,990.##'), '—') || ' $'
-        || ' ← ' || coalesce(to_char(r.new_price, 'FM999,999,999,990.##'), '—') || ' $'
+        || ': ' || coalesce('$ ' || to_char(r.old_price, 'FM999,999,999,990.00'), '—')
+        || ' ← ' || coalesce('$ ' || to_char(r.new_price, 'FM999,999,999,990.00'), '—')
         || chr(10);
     line_no := line_no + 1;
     if line_no >= 20 then
