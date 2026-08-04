@@ -137,6 +137,43 @@ as $$
 $$;
 
 -- ============================================================
+-- مراجعة Codex على PR #40: source='ameen_warehouse_stock' وحده لا يكفي —
+-- أي موظف مسجَّل يملك صلاحية INSERT على inventory_reports (نفس الجدول
+-- المشترك مع تقارير أخرى) يستطيع نظرياً إدراج صف بنفس المصدر وبيانات
+-- مصطنعة. الثقة الحقيقية الوحيدة: created_by المخزَّن فعلياً بالسطر
+-- يطابق حساب المزامنة الموثوق (TOBACCO_SYNC_EMAIL) — يُتحقَّق هنا عبر
+-- auth.users مباشرة (SECURITY DEFINER)، وليس عبر أي قيمة يرسلها العميل.
+-- نفس نمط ameen_purchase_invoice_reports_is_sync_writer() في
+-- ameen-purchase-invoice-reports.sql.
+--
+-- ⚠️ قبل تطبيق هذا الملف فعلياً: استبدل البريد أدناه ببريد حساب المزامنة
+-- الحقيقي (قيمة متغير البيئة TOBACCO_SYNC_EMAIL على جهاز LOQ — لا تُقرأ
+-- ولا تُحفظ في المستودع أبداً). القيمة الحالية 'REPLACE_WITH_SYNC_ACCOUNT_EMAIL'
+-- عمداً غير صالحة كي لا تعمل الدالة بالخطأ قبل تعديلها يدوياً.
+-- ============================================================
+
+create or replace function inventory_recon_warehouse_stock_report_is_trusted(p_created_by uuid)
+returns boolean
+language sql
+stable
+security definer
+set search_path = ''
+as $$
+  select p_created_by is not null
+    and exists (
+      select 1
+      from auth.users u
+      where u.id = p_created_by
+        and coalesce(u.email, '') = 'REPLACE_WITH_SYNC_ACCOUNT_EMAIL'
+    );
+$$;
+
+comment on function inventory_recon_warehouse_stock_report_is_trusted(uuid) is 'يتحقق أن created_by المخزَّن فعلياً بصف inventory_reports يطابق حساب المزامنة الموثوق (TOBACCO_SYNC_EMAIL) عبر auth.users — بلا اعتماد على أي قيمة يرسلها العميل. يجب استبدال البريد الثابت داخل الدالة قبل تطبيق هذا الملف.';
+
+revoke all on function inventory_recon_warehouse_stock_report_is_trusted(uuid) from public;
+grant execute on function inventory_recon_warehouse_stock_report_is_trusted(uuid) to authenticated;
+
+-- ============================================================
 -- حارس الثبات + الختم: يمنع أي تعديل بعد status='approved'، يقفل
 -- created_by ضد الانتحال، يختم reviewed_by/approved_by من الخادم حصراً
 -- عند الانتقال الفعلي فقط، ويمنع الاعتماد قبل اكتمال كل سطر (كمية فعلية
@@ -595,6 +632,10 @@ declare
   v_report_summary jsonb;
   v_report_items jsonb;
   v_report_date timestamptz;
+  v_report_created_by uuid;
+  v_report_created_at timestamptz;
+  v_report_generated_at timestamptz;
+  v_report_freshness_at timestamptz;
   v_missing_keys text;
   v_new_digest text;
   v_existing_digest text;
@@ -624,14 +665,31 @@ begin
     raise exception 'inventory_recon: يجب اختيار تقرير مخزون مستودع موثوق قبل إنشاء الجلسة';
   end if;
 
-  select report_date::timestamptz, summary, items
-    into v_report_date, v_report_summary, v_report_items
+  select report_date::timestamptz, summary, items, created_by, created_at
+    into v_report_date, v_report_summary, v_report_items, v_report_created_by, v_report_created_at
   from public.inventory_reports
   where id = p_source_report_id
     and source = 'ameen_warehouse_stock';
 
   if not found then
     raise exception 'inventory_recon: تقرير مخزون المستودع (%) غير موجود أو ليس من مصدر موثوق', p_source_report_id;
+  end if;
+
+  -- مراجعة Codex على PR #40: source='ameen_warehouse_stock' وحده لا يكفي —
+  -- يجب التحقق أن الصف فعلاً أنشأه حساب المزامنة الموثوق (created_by
+  -- المخزَّن بالصف نفسه، وليس أي قيمة يرسلها العميل).
+  if not inventory_recon_warehouse_stock_report_is_trusted(v_report_created_by) then
+    raise exception 'inventory_recon: تقرير مخزون المستودع (%) ليس من حساب المزامنة الموثوق', p_source_report_id;
+  end if;
+
+  -- مراجعة Codex على PR #40: فحص حداثة التقرير يجب أن يُطبَّق داخل RPC على
+  -- الخادم أيضاً (فحص الواجهة إضافي فقط ويمكن تجاوزه من طلب مباشر).
+  -- نعتمد summary.generated_at إن وُجد (وقت السحب الفعلي من الأمين)، وإلا
+  -- created_at كبديل، ونرفض أي تقرير أقدم من 24 ساعة.
+  v_report_generated_at := nullif(v_report_summary ->> 'generated_at', '')::timestamptz;
+  v_report_freshness_at := coalesce(v_report_generated_at, v_report_created_at);
+  if v_report_freshness_at is null or v_report_freshness_at < now() - interval '24 hours' then
+    raise exception 'inventory_recon: تقرير مخزون المستودع (%) أقدم من 24 ساعة — اسحب تقريراً جديداً قبل إنشاء الجلسة', p_source_report_id;
   end if;
 
   if coalesce(v_report_summary ->> 'warehouseKey', '') <> p_warehouse_key then

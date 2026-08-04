@@ -1071,7 +1071,7 @@ for (const contract of [
     failed = true;
   }
 
-  const createSessionBlock = (invReconSql.split("create or replace function inventory_recon_create_session_with_lines")[1] || "").slice(0, 6000);
+  const createSessionBlock = (invReconSql.split("create or replace function inventory_recon_create_session_with_lines")[1] || "").slice(0, 8000);
   if (!/security definer\s*\nset search_path = ''/.test(createSessionBlock)) {
     console.error("inventory_recon_create_session_with_lines must use SET search_path = '' (empty), not a named schema — Supabase best practice for SECURITY DEFINER functions to prevent search_path hijacking.");
     failed = true;
@@ -1598,6 +1598,39 @@ for (const contract of [
       console.error(`${pushToAmeenPath} must remain a locked/disabled stub (exit 1) — inventory reconciliation must never write back to Ameen.`);
       failed = true;
     }
+  }
+
+  // (e) مراجعة Codex على PR #40، مانع 1: source='ameen_warehouse_stock' وحده
+  // لا يكفي — يجب التحقق من created_by المخزَّن فعلياً بالصف، عبر auth.users،
+  // وليس عبر أي قيمة يرسلها العميل.
+  const invReconSqlForTrust = readFileSync("supabase/inventory-reconciliation-table.sql", "utf8");
+  if (!/create or replace function inventory_recon_warehouse_stock_report_is_trusted\(p_created_by uuid\)/.test(invReconSqlForTrust)) {
+    console.error("inventory-reconciliation-table.sql is missing inventory_recon_warehouse_stock_report_is_trusted(uuid) — the source report's created_by must be verified against the trusted sync account, not trusted from source= alone.");
+    failed = true;
+  }
+  if (!/from auth\.users[\s\S]{0,120}where u\.id = p_created_by/.test(invReconSqlForTrust)) {
+    console.error("inventory_recon_warehouse_stock_report_is_trusted() must resolve the trusted account via auth.users keyed by the report's stored created_by uuid.");
+    failed = true;
+  }
+  const createSessionBodyForTrust = (invReconSqlForTrust.split("create or replace function inventory_recon_create_session_with_lines")[1] || "").slice(0, 6000);
+  if (!/into v_report_date, v_report_summary, v_report_items, v_report_created_by, v_report_created_at/.test(createSessionBodyForTrust)) {
+    console.error("inventory_recon_create_session_with_lines must select created_by/created_at from inventory_reports, not just report_date/summary/items.");
+    failed = true;
+  }
+  if (!/if not inventory_recon_warehouse_stock_report_is_trusted\(v_report_created_by\) then/.test(createSessionBodyForTrust)) {
+    console.error("inventory_recon_create_session_with_lines must reject any source report whose created_by is not the trusted sync account — source='ameen_warehouse_stock' alone is spoofable by any authenticated employee.");
+    failed = true;
+  }
+
+  // (f) مراجعة Codex على PR #40، مانع 2: فحص حداثة التقرير (24 ساعة) يجب أن
+  // يُطبَّق داخل RPC على الخادم — فحص الواجهة إضافي فقط وليس كافياً وحده.
+  if (!/v_report_freshness_at\s*:=\s*coalesce\(v_report_generated_at, v_report_created_at\)/.test(createSessionBodyForTrust)) {
+    console.error("inventory_recon_create_session_with_lines must derive report freshness server-side from summary.generated_at or created_at — not trust a client-sent freshness flag.");
+    failed = true;
+  }
+  if (!/v_report_freshness_at is null or v_report_freshness_at < now\(\) - interval '24 hours'/.test(createSessionBodyForTrust)) {
+    console.error("inventory_recon_create_session_with_lines must reject a source report older than 24 hours server-side, inside the RPC.");
+    failed = true;
   }
 }
 
