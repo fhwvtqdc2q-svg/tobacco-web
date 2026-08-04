@@ -2,6 +2,14 @@
 
 يقرأه Claude وCodex قبل كل مهمة. أحدث سجل يكون في الأعلى. لا تحذف السجلات السابقة.
 
+## 2026-08-04 - Codex - إبقاء تقرير الربح اليومي متاحاً لبوت Telegram
+
+- Status: completed and verified live
+- Branch: `codex/fix-daily-profit-retention`
+- Files: `tools/push-daily-profit.ps1`, `scripts/check.mjs`
+- Result: كان تقرير الربح يُرفع بنجاح ثم يُحذف فوراً لأن تنظيف السجلات اعتمد ساعة Windows المتقدمة بضع ثوانٍ عن Supabase. صار السكربت يطلب السجل المُدرج من Supabase، وينظف فقط ما يسبقه وفق `created_at` الصادر من الخادم، ثم يتحقق من بقاء `id` الجديد. بعد تشغيل المهمة بقي تقرير 2026-08-04 في `public.inventory_reports` وصنّفه فحص البوت كتقرير اليوم، مع `missing_cost_lines=0`. نجح parser في Windows PowerShell 5.1 و`npm.cmd run check` و`git diff --check`.
+- Handoff UTC: 2026-08-04T19:57:00Z
+
 ## 2026-08-01 - Codex - إصلاح دمج أصناف ماستر في نشرتي الدولار والسوري
 
 - Status: completed

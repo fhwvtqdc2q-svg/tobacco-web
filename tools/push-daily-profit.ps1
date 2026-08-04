@@ -203,18 +203,34 @@ try {
         items = @()
     } | ConvertTo-Json -Depth 8 -Compress
 
-    Invoke-RestMethod -Method Post -Uri "$supabaseUrl/rest/v1/inventory_reports" `
-        -Headers $headers -ContentType "application/json; charset=utf-8" `
-        -Body ([Text.Encoding]::UTF8.GetBytes($payload)) -TimeoutSec 30 | Out-Null
+    $insertHeaders = $headers.Clone()
+    $insertHeaders["Prefer"] = "return=representation"
+    $insertedRows = @(Invoke-RestMethod -Method Post -Uri "$supabaseUrl/rest/v1/inventory_reports" `
+        -Headers $insertHeaders -ContentType "application/json; charset=utf-8" `
+        -Body ([Text.Encoding]::UTF8.GetBytes($payload)) -TimeoutSec 30)
+    $insertedReport = $insertedRows | Select-Object -First 1
+    if (-not $insertedReport.id -or -not $insertedReport.created_at) {
+        throw "تم الرفع لكن Supabase لم يُرجع معرّف التقرير ووقته للتحقق."
+    }
 
     # أبقِ أحدث نسخة فقط لليوم: نرفع أولاً ثم نحذف النسخ الأقدم، فلا توجد
-    # لحظة يصبح فيها الأمر بلا تقرير أثناء المزامنة.
-    $currentCreatedAt = (Get-Date).ToUniversalTime().AddSeconds(-2).ToString("yyyy-MM-ddTHH:mm:ssZ")
+    # لحظة يصبح فيها الأمر بلا تقرير أثناء المزامنة. نعتمد وقت السجل الذي
+    # أعاده خادم Supabase نفسه، لا ساعة Windows التي قد تتقدم بضع ثوانٍ
+    # فتحذف السجل الجديد فوراً.
+    $insertedCreatedAt = [Uri]::EscapeDataString([string]$insertedReport.created_at)
     Invoke-RestMethod -Method Delete `
-        -Uri "$supabaseUrl/rest/v1/inventory_reports?source=eq.ameen_daily_profit&report_date=eq.$reportDate&created_at=lt.$currentCreatedAt" `
+        -Uri "$supabaseUrl/rest/v1/inventory_reports?source=eq.ameen_daily_profit&report_date=eq.$reportDate&created_at=lt.$insertedCreatedAt" `
         -Headers $headers -TimeoutSec 30 | Out-Null
 
-    Write-Log "تم رفع تقرير الربح اليومي بنجاح."
+    $insertedId = [Uri]::EscapeDataString([string]$insertedReport.id)
+    $verifiedRows = @(Invoke-RestMethod -Method Get `
+        -Uri "$supabaseUrl/rest/v1/inventory_reports?id=eq.$insertedId&select=id&limit=1" `
+        -Headers $headers -TimeoutSec 30)
+    if ($verifiedRows.Count -ne 1) {
+        throw "فشل التحقق من بقاء تقرير الربح اليومي بعد التنظيف."
+    }
+
+    Write-Log "تم رفع تقرير الربح اليومي والتحقق من بقائه بنجاح."
     exit 0
 } catch {
     Write-Log ("خطأ: " + $_.Exception.Message)

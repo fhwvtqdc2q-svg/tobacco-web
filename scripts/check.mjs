@@ -58,6 +58,17 @@ const priceGenerator = readFileSync("scripts/generate-price-lists.mjs", "utf8");
 const usdBulletin = readFileSync("public/downloads/price-list-usd.html", "utf8");
 const sypBulletin = readFileSync("public/downloads/price-list-syp-14050.html", "utf8");
 const ameenSyncAgent = readFileSync("tools/ameen-sync-agent.ps1", "utf8");
+const dailyProfitPush = readFileSync("tools/push-daily-profit.ps1", "utf8");
+if (!/Prefer["'\]]*\s*=\s*["']return=representation["']/.test(dailyProfitPush)
+    || !/insertedReport\.created_at/.test(dailyProfitPush)
+    || !/id=eq\.\$insertedId&select=id&limit=1/.test(dailyProfitPush)) {
+  console.error("Daily-profit sync must retain and verify the exact row timestamped by Supabase.");
+  failed = true;
+}
+if (/ToUniversalTime\(\)\.AddSeconds\(-2\)/.test(dailyProfitPush)) {
+  console.error("Daily-profit cleanup must not use the Windows clock to decide which Supabase row is newest.");
+  failed = true;
+}
 const ameenPriceApply = readFileSync("tools/apply-approved-prices-to-ameen.ps1", "utf8");
 const ameenPriceVerify = readFileSync("tools/verify-prices.ps1", "utf8");
 for (const contract of ["كابتن بلاك كوين ازرق", "كابتن بلاك كور ازرق جديد", "كابتن بلاك كوين اسود", "كابتن بلاك كور اسود جديد"]) {
