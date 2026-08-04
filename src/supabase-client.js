@@ -1363,9 +1363,8 @@
       if (error) throw new Error(translateDbError(error.message));
     },
 
-    // مخزون النظام حسب المستودع — لا يوجد سكريبت سحب فعلي بعد لمصدر
-    // ameen_warehouse_stock (انظر tools/discover-ameen-inventory-recon-fields.ps1)،
-    // لذا تُرجع الدالة null إلى أن يُبنى ذلك السكريبت — ولا تُخترَع كمية صفرية بديلة.
+    // مخزون النظام حسب المستودع — يُرفع بواسطة tools/push-ameen-warehouse-stock.ps1
+    // (مصدر ameen_warehouse_stock)، تقرير مستقل لكل مستودع حقيقي بالأمين.
     async getLatestWarehouseStockReport(warehouseKey) {
       if (!client) return null;
       const session = await getSupabaseSession();
@@ -1382,6 +1381,30 @@
       if (error || !data) return null;
       if (!warehouseKey) return data[0] || null;
       return data.find((row) => row.summary && row.summary.warehouseKey === warehouseKey) || null;
+    },
+
+    // قائمة المستودعات الحقيقية المتاحة للجرد — مبنية من أحدث تقارير
+    // ameen_warehouse_stock فعلياً، وليست ثابتة بالكود؛ لا تُخترَع أي قيمة
+    // "جملة"/"مركز عام" هنا. المفتاح الموثوق هو GUID المستودع بالأمين.
+    async listReconWarehouses() {
+      if (!client) return [];
+      const session = await getSupabaseSession();
+      if (!session) return [];
+      const { data, error } = await client
+        .from(inventoryReportsTable)
+        .select("summary, created_at")
+        .eq("source", "ameen_warehouse_stock")
+        .order("created_at", { ascending: false })
+        .limit(50);
+      if (error || !data) return [];
+      const byKey = new Map();
+      for (const row of data) {
+        const key = row.summary && row.summary.warehouseKey;
+        const name = row.summary && row.summary.warehouseName;
+        if (!key || !name || byKey.has(key)) continue;
+        byKey.set(key, { warehouseKey: key, warehouseName: name, createdAt: row.created_at });
+      }
+      return Array.from(byKey.values()).sort((a, b) => a.warehouseName.localeCompare(b.warehouseName, "ar"));
     }
   };
 
