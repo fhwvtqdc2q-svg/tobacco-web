@@ -291,8 +291,12 @@ const state = {
   poAmeenItemQuery: "",    // بحث داخل بنود الفاتورة الحالية برقم/اسم المادة
   // ===== الجرد الشهري (route: inventoryRecon) — تسجيلي فقط: لا يغيّر مخزوناً أو حساباً =====
   reconSessions: [],
-  reconWarehouseKey: "jumla",
-  reconWarehouseName: "المستودع الرئيسي (جملة)",
+  // لا مستودع افتراضي ثابت — يُختار من قائمة مستودعات الأمين الحقيقية فقط
+  // (state.reconWarehouses)، بمفتاح GUID. لا يوجد "جملة"/"مركز" مخترَع.
+  reconWarehouseKey: "",
+  reconWarehouseName: "",
+  reconWarehouses: [],            // [{warehouseKey, warehouseName, createdAt}] من listReconWarehouses()
+  reconWarehousesLoading: false,
   reconSessionDate: "",
   reconSessionMonth: "",
   reconNotes: "",
@@ -303,6 +307,7 @@ const state = {
   reconWarehouseStockMap: null,   // itemKey -> qty من تقرير مخزون المستودع الموثوق (null = غير متوفر بعد)
   reconWarehouseStockItems: null, // مصفوفة أصناف المستودع نفسه (name/number/unit/qty) — null = لا تقرير، [] = تقرير فارغ
   reconWarehouseStockLoading: false,
+  reconWarehouseStockGeneratedAt: null, // وقت توليد التقرير (summary.generated_at) — لكشف التقادم
   notifPermission: "default",
   seenRequestIds: new Set(),
   globalSearch: "",
@@ -513,7 +518,27 @@ async function loadReconSessions() {
   } catch {
     state.reconSessions = [];
   }
+  await loadReconWarehouses();
   await loadReconWarehouseStock(state.reconWarehouseKey);
+}
+
+// قائمة المستودعات الحقيقية (GUID + اسم) من آخر تقارير ameen_warehouse_stock —
+// لا خيار "الكل" هنا عمداً؛ الجرد الفعلي يجب أن يبقى بمستودع فعلي واحد كل مرة.
+async function loadReconWarehouses() {
+  state.reconWarehousesLoading = true;
+  try {
+    state.reconWarehouses = dataStore.listReconWarehouses ? await dataStore.listReconWarehouses() : [];
+  } catch {
+    state.reconWarehouses = [];
+  } finally {
+    state.reconWarehousesLoading = false;
+  }
+  const stillValid = state.reconWarehouses.some((w) => w.warehouseKey === state.reconWarehouseKey);
+  if (!stillValid) {
+    const first = state.reconWarehouses[0];
+    state.reconWarehouseKey = first ? first.warehouseKey : "";
+    state.reconWarehouseName = first ? first.warehouseName : "";
+  }
 }
 
 // يبني قائمة أصناف المستودع نفسه (وخريطة itemKey → كمية) من أحدث تقرير مخزون موثوق.
@@ -524,11 +549,16 @@ async function loadReconWarehouseStock(warehouseKey) {
   state.reconWarehouseStockMap = null;
   state.reconWarehouseStockItems = null;
   state.reconWarehouseStockReportId = null;
-  if (!dataStore.getLatestWarehouseStockReport) return;
+  state.reconWarehouseStockGeneratedAt = null;
+  if (!warehouseKey || !dataStore.getLatestWarehouseStockReport) return;
   state.reconWarehouseStockLoading = true;
   try {
     const report = await dataStore.getLatestWarehouseStockReport(warehouseKey);
     const items = report && Array.isArray(report.items) ? report.items : [];
+    if (report) {
+      state.reconWarehouseStockGeneratedAt =
+        (report.summary && report.summary.generated_at) || report.created_at || null;
+    }
     if (report && items.length) {
       const map = {};
       const list = [];
@@ -7618,6 +7648,13 @@ async function reconSaveDraft() {
     toast("تعذّر تحديد تقرير مخزون المستودع الموثوق — أعد تحميل الصفحة وحاول من جديد.");
     return;
   }
+  {
+    const minutes = minutesSince(state.reconWarehouseStockGeneratedAt);
+    if (minutes !== null && minutes > 24 * 60) {
+      toast("تقرير مخزون هذا المستودع قديم — شغّل رفع مخزون المستودعات من الأمين قبل الحفظ.");
+      return;
+    }
+  }
   if (!state.reconRows.length) {
     toast("أضف صنفاً واحداً على الأقل قبل الحفظ.");
     return;
@@ -7901,6 +7938,14 @@ function inventoryRecon() {
 
   const summary = reconSummary();
   const hasWarehouseStock = Array.isArray(state.reconWarehouseStockItems) && state.reconWarehouseStockItems.length > 0;
+  const RECON_STALE_MINUTES = 24 * 60; // تقرير مخزون أقدم من يوم يُعتبر غير موثوق لجرد اليوم
+  const reconStockMinutes = minutesSince(state.reconWarehouseStockGeneratedAt);
+  const isWarehouseStockStale = reconStockMinutes !== null && reconStockMinutes > RECON_STALE_MINUTES;
+  const warehouseButtonsHtml = state.reconWarehouses.length
+    ? state.reconWarehouses.map((w) => `
+      <button type="button" class="button ${state.reconWarehouseKey === w.warehouseKey ? "primary" : "secondary"} compact-button" data-recon-warehouse="${escapeHtml(w.warehouseKey)}" data-recon-warehouse-name="${escapeHtml(w.warehouseName)}">${escapeHtml(w.warehouseName)}</button>
+    `).join("")
+    : `<span class="muted">${state.reconWarehousesLoading ? "جارٍ تحميل قائمة المستودعات…" : "لا توجد مستودعات متاحة بعد — شغّل رفع مخزون المستودعات من الأمين أولاً."}</span>`;
   const rowsHtml = (state.reconRows || []).map((row) => {
     const computed = reconRowComputed(row);
     const diffLabel = computed.diffType === "increase" ? "زيادة" : computed.diffType === "decrease" ? "نقص" : "—";
@@ -7932,8 +7977,7 @@ function inventoryRecon() {
         <label class="inv-label">
           المستودع
           <div class="inv-actions" style="margin-top:4px">
-            <button type="button" class="button ${state.reconWarehouseKey === "jumla" ? "primary" : "secondary"} compact-button" data-recon-warehouse="jumla" data-recon-warehouse-name="المستودع الرئيسي (جملة)">جملة</button>
-            <button type="button" class="button ${state.reconWarehouseKey === "markaz" ? "primary" : "secondary"} compact-button" data-recon-warehouse="markaz" data-recon-warehouse-name="مركز البيع">مركز</button>
+            ${warehouseButtonsHtml}
           </div>
         </label>
         <label class="inv-label">
@@ -7954,6 +7998,9 @@ function inventoryRecon() {
       ${hasWarehouseStock ? "" : `<section class="notice-panel warning" style="margin:8px 0">
         <span>⚠ لا يتوفر تقرير مخزون موثوق لهذا المستودع بعد — تعذّر بناء قائمة الأصناف. لا يمكن إضافة أصناف أو حفظ الجرد حتى توفّر التقرير.</span>
       </section>`}
+      ${hasWarehouseStock && isWarehouseStockStale ? `<section class="notice-panel warning" style="margin:8px 0">
+        <span>⚠ تقرير مخزون هذا المستودع قديم (${syncFreshnessLabel(state.reconWarehouseStockGeneratedAt)}) — قد لا يعكس الوضع الحالي. شغّل رفع مخزون المستودعات من الأمين قبل الحفظ.</span>
+      </section>` : ""}
 
       <label class="inv-label po-suggest-wrap">
         إضافة صنف للجرد
@@ -7979,7 +8026,7 @@ function inventoryRecon() {
       </p>
 
       <div class="inv-actions">
-        <button class="button primary" data-action="recon-save" ${state.reconSaving || !hasWarehouseStock ? "disabled" : ""}>${state.reconSaving ? "جاري الحفظ…" : "💾 حفظ كمسودة"}</button>
+        <button class="button primary" data-action="recon-save" ${state.reconSaving || !hasWarehouseStock || isWarehouseStockStale ? "disabled" : ""}>${state.reconSaving ? "جاري الحفظ…" : "💾 حفظ كمسودة"}</button>
         <button class="button secondary" data-action="recon-reset" ${state.reconSaving ? "disabled" : ""}>مسح</button>
       </div>
     </section>

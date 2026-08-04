@@ -1511,6 +1511,96 @@ for (const contract of [
   }
 }
 
+// ── الجرد الشهري: مستودعات ديناميكية من الأمين (لا "جملة"/"مركز" ثابتة) ────────
+{
+  const appJsForWarehouses = readFileSync("src/app.js", "utf8");
+
+  // (a) امنع رجوع خياري "جملة"/"مركز" الثابتين داخل منطقة اختيار مستودع الجرد
+  // تحديداً — لا نمنع النص بكامل الملف لأن "jumla" تُستخدم بمعنى مختلف تماماً
+  // بميزات أخرى (وضع البيع jumla/mufrak، وسلسلة فواتير المبيعات بالأمين).
+  const warehouseUiMatch = appJsForWarehouses.match(
+    /const warehouseButtonsHtml[\s\S]{0,700}/
+  );
+  if (!warehouseUiMatch) {
+    console.error("Could not locate the recon warehouse-buttons render block in src/app.js.");
+    failed = true;
+  } else {
+    const warehouseUiRegion = warehouseUiMatch[0];
+    if (/["'`](جملة|مركز|jumla|markaz)["'`]/i.test(warehouseUiRegion)) {
+      console.error("Recon warehouse selector must not contain hardcoded جملة/مركز (jumla/markaz) options — warehouses must come from state.reconWarehouses only.");
+      failed = true;
+    }
+    if (!/state\.reconWarehouses\.map/.test(warehouseUiRegion)) {
+      console.error("Recon warehouse selector must render from state.reconWarehouses (dynamic list), not a static list.");
+      failed = true;
+    }
+  }
+
+  // (b) المفتاح الموثوق لاختيار المستودع هو GUID، وليس اسماً مخترَعاً
+  if (!/data-recon-warehouse="\$\{escapeHtml\(w\.warehouseKey\)\}"/.test(appJsForWarehouses)) {
+    console.error("Recon warehouse buttons must key off w.warehouseKey (Ameen st000 GUID), not an invented sale-type label.");
+    failed = true;
+  }
+  if (!/async function loadReconWarehouses\(\)/.test(appJsForWarehouses)
+      || !/dataStore\.listReconWarehouses/.test(appJsForWarehouses)) {
+    console.error("src/app.js must load real warehouses via dataStore.listReconWarehouses() (Ameen-derived), not a hardcoded array.");
+    failed = true;
+  }
+
+  const supabaseClientForWarehouses = readFileSync("src/supabase-client.js", "utf8");
+  if (!/async listReconWarehouses\(\)/.test(supabaseClientForWarehouses)
+      || !/\.eq\("source", "ameen_warehouse_stock"\)/.test(supabaseClientForWarehouses)) {
+    console.error("supabase-client.js listReconWarehouses() must derive warehouses from ameen_warehouse_stock reports, not a static list.");
+    failed = true;
+  }
+  if (!/warehouseKey:\s*key,\s*warehouseName:\s*name/.test(supabaseClientForWarehouses.replace(/\s+/g, " "))) {
+    console.error("listReconWarehouses() must expose {warehouseKey, warehouseName} pairs sourced from each report's summary (GUID + display name).");
+    failed = true;
+  }
+
+  // (c) تقرير مستقل لكل مستودع فعلي — لا دمج كل المستودعات بتقرير واحد
+  const warehouseStockScript = readFileSync("tools/push-ameen-warehouse-stock.ps1", "utf8");
+  if (!/foreach\s*\(\$s in \$stores\)\s*\{[\s\S]{0,600}inventory_reports/.test(warehouseStockScript)) {
+    console.error("push-ameen-warehouse-stock.ps1 must POST one inventory_reports row per warehouse inside its foreach($s in $stores) loop.");
+    failed = true;
+  }
+  if (!/warehouseKey\s*=\s*\$s\.guid/.test(warehouseStockScript)
+      || !/warehouseName\s*=\s*\$s\.name/.test(warehouseStockScript)) {
+    console.error("push-ameen-warehouse-stock.ps1 must tag each report's summary with warehouseKey (GUID) and warehouseName.");
+    failed = true;
+  }
+  const warehouseStockCodeLines = warehouseStockScript
+    .split("\n")
+    .filter((line) => !/^\s*#/.test(line))
+    .join("\n");
+  if (/["'](جملة|مركز عام|jumla|markaz)["']/i.test(warehouseStockCodeLines)) {
+    console.error("push-ameen-warehouse-stock.ps1 must not invent a جملة/مركز warehouse — only real dbo.st000 rows.");
+    failed = true;
+  }
+
+  // (d) قراءة فقط من الأمين — بلا أي تعديل على المخزون أو الأسعار أو الحسابات
+  const sqlBlockMatch = warehouseStockScript.match(/\$sql = @'([\s\S]*?)'@/);
+  const ameenSqlBody = sqlBlockMatch ? sqlBlockMatch[1] : warehouseStockScript;
+  if (/\b(insert\s+into|update\s+dbo|delete\s+from|merge\s+into|exec\s)/i.test(ameenSqlBody)) {
+    console.error("push-ameen-warehouse-stock.ps1's Ameen SQL must be strictly read-only (SELECT only) — no INSERT/UPDATE/DELETE/MERGE/EXEC.");
+    failed = true;
+  }
+  if (!/^\s*with per_store as/i.test(ameenSqlBody.trim()) && !/^\s*select/i.test(ameenSqlBody.trim())) {
+    console.error("push-ameen-warehouse-stock.ps1's Ameen SQL must start with a read-only SELECT/CTE.");
+    failed = true;
+  }
+
+  // ملف push-inventory-reconciliation-to-ameen.ps1 يجب أن يبقى مقفلاً — لا كتابة فعلية على الأمين
+  const pushToAmeenPath = "tools/push-inventory-reconciliation-to-ameen.ps1";
+  if (existsSync(pushToAmeenPath)) {
+    const pushToAmeenScript = readFileSync(pushToAmeenPath, "utf8");
+    if (!/exit\s+1/.test(pushToAmeenScript)) {
+      console.error(`${pushToAmeenPath} must remain a locked/disabled stub (exit 1) — inventory reconciliation must never write back to Ameen.`);
+      failed = true;
+    }
+  }
+}
+
 if (failed) {
   process.exit(1);
 }
