@@ -8,6 +8,7 @@ const ASSETS = [
   "src/app.js",
   "src/config.js",
   "src/supabase-client.js",
+  "src/journal-entries.js",
   "src/styles.css",
   "src/purchase-invoice-calc.js",
   "src/inventory-recon-calc.js",
