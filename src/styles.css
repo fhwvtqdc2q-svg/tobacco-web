@@ -3018,6 +3018,68 @@ code {
   font-family: monospace;
 }
 
+/* ===== سند القيد (Journal Entries) — Responsive Grid ===== */
+.journal-line-form {
+  display: grid;
+  gap: 8px;
+  border: 1px solid var(--line);
+  padding: 12px;
+  border-radius: 6px;
+  margin-bottom: 12px;
+}
+
+@media (max-width: 1024px) {
+  .journal-line-form > div:first-child {
+    display: grid !important;
+    grid-template-columns: 1fr 1fr !important;
+    gap: 8px;
+  }
+}
+
+@media (max-width: 640px) {
+  .journal-line-form > div:first-child {
+    display: grid !important;
+    grid-template-columns: 1fr !important;
+    gap: 8px;
+  }
+}
+
+.journal-line-account,
+.journal-line-currency,
+.journal-line-amount,
+.journal-line-side,
+.journal-line-note,
+.journal-date,
+.journal-ref-number,
+.journal-op-type,
+.journal-ex-rate,
+.journal-desc,
+.journal-notes {
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  background: var(--surface);
+  color: var(--ink);
+  border-radius: 6px;
+  font-family: inherit;
+  font-size: 0.95rem;
+}
+
+.journal-line-account:focus,
+.journal-line-currency:focus,
+.journal-line-amount:focus,
+.journal-line-side:focus,
+.journal-line-note:focus,
+.journal-date:focus,
+.journal-ref-number:focus,
+.journal-op-type:focus,
+.journal-ex-rate:focus,
+.journal-desc:focus,
+.journal-notes:focus {
+  outline: none;
+  border-color: var(--primary);
+  box-shadow: 0 0 0 2px rgba(215, 168, 63, 0.15);
+}
+
 .sales-info-profit strong {
   color: var(--primary);
 }

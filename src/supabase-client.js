@@ -1442,6 +1442,133 @@
         .limit(1);
       if (error) throw new Error(translateDbError(error.message));
       return (data && data[0]) || null;
+    },
+
+    // ============================================================
+    // سند القيد (Journal Entries) — مسودات محاسبية داخلية فقط
+    // ممنوع منعاً باتاً الكتابة إلى الأمين (ce000/en000)
+    // ============================================================
+
+    async listJournalEntries() {
+      if (!client) return [];
+      const session = await getSupabaseSession();
+      if (!session) return [];
+      const { data, error } = await client
+        .from("journal_entry_headers")
+        .select(`
+          id,
+          created_by,
+          date,
+          reference_number,
+          operation_type,
+          description,
+          notes,
+          exchange_rate,
+          created_at,
+          updated_at,
+          lines:journal_entry_lines(
+            id,
+            entry_id,
+            line_number,
+            account,
+            currency,
+            amount,
+            side,
+            value_in_usd,
+            line_note
+          )
+        `)
+        .order("created_at", { ascending: false })
+        .limit(100);
+      if (error?.code === "42P01") {
+        throw new Error("جدول سندات القيد غير موجود بعد. راجع ملف SQL قبل تطبيقه على Supabase.");
+      }
+      if (error) throw new Error(translateDbError(error.message));
+      return data || [];
+    },
+
+    async getJournalEntry(headerId) {
+      if (!client || !headerId) return null;
+      const session = await getSupabaseSession();
+      if (!session) return null;
+      const { data, error } = await client
+        .from("journal_entry_headers")
+        .select("id, created_by, date, reference_number, operation_type, description, notes, exchange_rate, created_at, updated_at")
+        .eq("id", headerId)
+        .maybeSingle();
+      if (error?.code === "42P01") {
+        throw new Error("جدول سندات القيد غير موجود بعد. راجع ملف SQL قبل تطبيقه على Supabase.");
+      }
+      if (error) throw new Error(translateDbError(error.message));
+      if (!data) return null;
+
+      const { data: lines, error: linesError } = await client
+        .from("journal_entry_lines")
+        .select("id, entry_id, line_number, account, currency, amount, side, value_in_usd, line_note")
+        .eq("entry_id", headerId)
+        .order("line_number", { ascending: true });
+      if (linesError) throw new Error(translateDbError(linesError.message));
+
+      return { ...data, lines: lines || [] };
+    },
+
+    async saveJournalEntry(entryData) {
+      if (!client) throw new Error("عملية الحفظ تتطلب اتصالاً بـ Supabase.");
+      await requireUser();
+
+      const normalized = {
+        id: entryData.id || null,
+        date: entryData.date,
+        referenceNumber: entryData.referenceNumber ?? entryData.reference_number ?? null,
+        operationType: entryData.operationType ?? entryData.operation_type ?? "general",
+        description: entryData.description,
+        notes: entryData.notes,
+        exchangeRate: parseNumber(entryData.exchangeRate ?? entryData.exchange_rate ?? 0),
+        lines: (entryData.lines || []).map((line) => ({
+          account: line.account,
+          currency: line.currency,
+          amount: parseNumber(line.amount),
+          side: line.side,
+          valueInUsd: parseNumber(line.valueInUsd ?? line.value_in_usd ?? 0),
+          lineNote: line.lineNote ?? line.line_note ?? ""
+        }))
+      };
+
+      const linesJson = normalized.lines.map((line) => ({
+        account: cleanText(line.account, 120),
+        currency: ["USD", "SYP"].includes(line.currency) ? line.currency : "USD",
+        amount: line.amount,
+        side: ["debit", "credit"].includes(line.side) ? line.side : "debit",
+        value_in_usd: line.valueInUsd,
+        line_note: cleanText(line.lineNote, 300)
+      }));
+
+      const { data, error } = await client.rpc("save_journal_entry", {
+        p_id: normalized.id,
+        p_date: normalized.date || new Date().toISOString().slice(0, 10),
+        p_reference_number: normalized.referenceNumber,
+        p_operation_type: normalized.operationType,
+        p_description: cleanText(normalized.description, 500),
+        p_notes: cleanText(normalized.notes, 1000),
+        p_exchange_rate: normalized.exchangeRate,
+        p_lines: linesJson
+      });
+
+      if (error) throw new Error(translateDbError(error.message));
+      if (!data || !data.success) throw new Error(data?.error || "فشل حفظ السند.");
+
+      return { id: data.id };
+    },
+
+    async deleteJournalEntry(headerId) {
+      if (!client || !headerId) throw new Error("معرّف السند مفقود.");
+      await requireUser();
+      // حذف الأسطر تلقائياً عبر CASCADE من الرأس
+      const { error } = await client
+        .from("journal_entry_headers")
+        .delete()
+        .eq("id", headerId);
+      if (error) throw new Error(translateDbError(error.message));
     }
   };
 
