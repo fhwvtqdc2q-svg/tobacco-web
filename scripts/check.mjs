@@ -60,6 +60,65 @@ const sypBulletin = readFileSync("public/downloads/price-list-syp-14050.html", "
 const ameenSyncAgent = readFileSync("tools/ameen-sync-agent.ps1", "utf8");
 const ameenPriceApply = readFileSync("tools/apply-approved-prices-to-ameen.ps1", "utf8");
 const ameenPriceVerify = readFileSync("tools/verify-prices.ps1", "utf8");
+const customerInvoicesPush = readFileSync("tools/push-customer-invoices.ps1", "utf8");
+const purchaseInvoicesPull = readFileSync("tools/pull-purchase-invoices-from-ameen.ps1", "utf8");
+const purchaseInvoicesTask = readFileSync("tools/register-purchase-invoices-pull-task.ps1", "utf8");
+const customerInvoicesVerify = readFileSync("tools/verify-customer-invoice-sync.ps1", "utf8");
+
+// فواتير المبيعات والمشتريات لها مسارات قائمة يقرأها التطبيق فعلياً. منع إعادة
+// إدخال سكربتات snapshot جزئية أو جدول مبيعات ثالث غير مستخدم.
+for (const obsolete of [
+  "tools/sync-sales-invoices-enhanced.ps1",
+  "tools/sync-purchase-invoices-enhanced.ps1"
+]) {
+  if (existsSync(obsolete)) {
+    console.error(`Obsolete invoice sync script must not be restored: ${obsolete}`);
+    failed = true;
+  }
+}
+for (const contract of [
+  'source      = "ameen_customer_invoices"',
+  'rest/v1/inventory_reports',
+  'bt.BillType IN (1, 3)'
+]) {
+  if (!customerInvoicesPush.includes(contract)) {
+    console.error(`Customer-invoice synchronization contract is missing: ${contract}`);
+    failed = true;
+  }
+}
+for (const contract of [
+  'rest/v1/ameen_purchase_invoice_reports',
+  '91377a56-ebfc-48c0-b79e-72063e1d7e3a',
+  'c9aca8fe-f50e-46eb-91ac-29ee32acbb3e'
+]) {
+  if (!purchaseInvoicesPull.includes(contract)) {
+    console.error(`Purchase-invoice synchronization contract is missing: ${contract}`);
+    failed = true;
+  }
+}
+for (const contract of [
+  '"TOBACCO Purchase Invoices Pull"',
+  'pull-purchase-invoices-from-ameen.ps1',
+  '-MultipleInstances IgnoreNew',
+  '-PeriodDays $PeriodDays'
+]) {
+  if (!purchaseInvoicesTask.includes(contract)) {
+    console.error(`Purchase-invoice scheduled-task contract is missing: ${contract}`);
+    failed = true;
+  }
+}
+for (const contract of [
+  "missingInSupabase",
+  "extraInSupabase",
+  "duplicateGuidsInReport",
+  "source=eq.ameen_customer_invoices",
+  "exit 2"
+]) {
+  if (!customerInvoicesVerify.includes(contract)) {
+    console.error(`Customer-invoice reconciliation contract is missing: ${contract}`);
+    failed = true;
+  }
+}
 for (const contract of ["كابتن بلاك كوين ازرق", "كابتن بلاك كور ازرق جديد", "كابتن بلاك كوين اسود", "كابتن بلاك كور اسود جديد"]) {
   for (const [label, source] of [
     ["site normalization", app],
