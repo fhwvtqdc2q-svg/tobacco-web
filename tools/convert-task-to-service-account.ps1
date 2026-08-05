@@ -189,18 +189,20 @@ $bstr = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($password)
 try {
   $plain = [Runtime.InteropServices.Marshal]::PtrToStringBSTR($bstr)
   if (-not $plain) { throw "لم تُدخل كلمة مرور." }
-  Set-ScheduledTask -TaskName $TaskName -User $machineUser -Password $plain | Out-Null
+
+  # طبّق الحساب ونوع الدخول وRunLevel في عملية واحدة. كان الإصدار السابق
+  # يحفظ بيانات الاعتماد أولاً، ثم يستدعي Set-ScheduledTask مرة ثانية لتعديل
+  # RunLevel من دون تمرير كلمة المرور؛ فيفشل الاستدعاء الثاني بـ0x8007052e
+  # رغم أن كلمة المرور الصحيحة حُفظت بالفعل.
+  $task = Get-ScheduledTask -TaskName $TaskName -ErrorAction Stop
+  $task.Principal.UserId = $machineUser
+  $task.Principal.LogonType = "Password"
+  $task.Principal.RunLevel = $RunLevel
+  $task | Set-ScheduledTask -User $machineUser -Password $plain -ErrorAction Stop | Out-Null
 } finally {
   [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($bstr)
   $plain = $null
   [GC]::Collect()
-}
-
-# Set-ScheduledTask لا يضبط RunLevel — نعدّله على التعريف مباشرة.
-$task = Get-ScheduledTask -TaskName $TaskName
-if ("$($task.Principal.RunLevel)" -ne $RunLevel) {
-  $task.Principal.RunLevel = $RunLevel
-  $task | Set-ScheduledTask | Out-Null
 }
 
 $task = Get-ScheduledTask -TaskName $TaskName
@@ -213,6 +215,9 @@ Write-Host "الحالة بعد التحويل:" -ForegroundColor Cyan
 
 if ("$($task.Principal.LogonType)" -ne "Password") {
   throw "التحويل لم ينجح: LogonType = $($task.Principal.LogonType) وليس Password."
+}
+if ("$($task.Principal.RunLevel)" -ne $RunLevel) {
+  throw "التحويل لم ينجح: RunLevel = $($task.Principal.RunLevel) وليس $RunLevel."
 }
 
 Write-Host ""
