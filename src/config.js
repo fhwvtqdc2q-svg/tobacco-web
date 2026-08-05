@@ -1,8 +1,8 @@
 window.appConfig = {
   name: "OZK TOBACCO",
   supportEmail: "ozk.kh@outlook.com",
-  centerNumber: "", // أدخل رقم المركز هنا
-  privateNumber: "", // أدخل الرقم الخاص هنا
+  centerNumber: "0994092038",
+  privateNumber: "0985000771",
   tagline: "",
   description:
     "لوحة ويب عربية لإدارة طلبات العملاء، متابعة العمل عن بعد، مراقبة الحالة، وتجهيز الدفع الإلكتروني عند اختيار مزود مناسب.",

@@ -1,182 +1,71 @@
-# إرشادات استخدام سكريبتات المزامنة المحسّنة
+# مزامنة فواتير الأمين — المسارات المعتمدة
 
-## السكريبتات الجديدة
+## النتيجة المختصرة
 
-### 1. `sync-purchase-invoices-enhanced.ps1`
-سكريبت محسّن لمزامنة فواتير المشتريات من الأمين إلى Supabase.
+لا يُنشأ جدول `ameen_sales_invoice_reports` ولا Migration جديد للمبيعات. المشروع يملك مسارين فعليين مستخدمين بالفعل:
 
-**المميزات الجديدة:**
-- تتبع آخر فاتورة تم مزامنتها بنجاح
-- استئناف من حيث توقفت عند الخطأ
-- إعادة محاولة تلقائية (exponential backoff)
-- معالجة أخطاء شاملة
+- `tools/push-customer-invoices.ps1`: يرفع فواتير المبيعات والمرتجعات ذات اسم الزبون إلى `inventory_reports` بالمصدر `ameen_customer_invoices`. هذا هو المصدر الذي يقرأه الموقع.
+- `tools/push-sales-line-items.ps1`: يرفع أسطر حركة المبيعات إلى `sales_line_items` لاستخدام تقارير Telegram.
 
-**الاستخدام:**
-```powershell
-# مزامنة آخر 60 يوم (الافتراضي)
-.\tools\sync-purchase-invoices-enhanced.ps1
+فواتير المشتريات تستخدم المسار المستقل المحمي:
 
-# مزامنة آخر 120 يوم
-.\tools\sync-purchase-invoices-enhanced.ps1 -PeriodDays 120
+- `tools/pull-purchase-invoices-from-ameen.ps1`
+- `tools/register-purchase-invoices-pull-task.ps1`
+- `supabase/ameen-purchase-invoice-reports.sql`
 
-# تخطي آخر نجاح محفوظ والبدء من قديم
-.\tools\sync-purchase-invoices-enhanced.ps1 -SkipLastSuccessCheck
+## لماذا أزيلت السكربتات المسماة enhanced؟
 
-# مع ملف متغيرات بيئة مخصص
-.\tools\sync-purchase-invoices-enhanced.ps1 -EnvFile "C:\path\.env"
-```
+حُذفت الملفات التالية لأنها لم تكن بديلاً آمناً أو متوافقاً مع التطبيق:
 
-**السجلات:**
-- السجل الرئيسي: `tools/logs/purchase-invoices-sync.log`
-- آخر نجاح: `tools/logs/purchase-sync-last-success.txt` (ملف يحتوي على التاريخ)
+- `tools/sync-sales-invoices-enhanced.ps1`
+- `tools/sync-purchase-invoices-enhanced.ps1`
 
-### 2. `sync-sales-invoices-enhanced.ps1`
-سكريبت محسّن لمزامنة فواتير المبيعات من الأمين إلى Supabase.
+كانت نسخة المبيعات تحتوي GUIDs وهمية، وتكتب إلى جدول غير موجود ولا يقرأه التطبيق. وكان السكربتان يضيّقان التقرير التالي إلى ما بعد «آخر نجاح»، مع أن واجهة الموقع تعتمد تقرير snapshot كامل للفترة؛ وهذا كان سيُسقط التاريخ الأقدم من أحدث تقرير.
 
-**المميزات:**
-- نفس مميزات سكريبت المشتريات
-- مجموعة حسب الزبون بدلاً من المورد
-- دعم مرتجعات المبيعات
-
-**الاستخدام:**
-```powershell
-# مزامنة آخر 60 يوم
-.\tools\sync-sales-invoices-enhanced.ps1
-
-# مزامنة آخر 90 يوم
-.\tools\sync-sales-invoices-enhanced.ps1 -PeriodDays 90
-```
-
-**السجلات:**
-- السجل الرئيسي: `tools/logs/sales-invoices-sync.log`
-- آخر نجاح: `tools/logs/sales-sync-last-success.txt`
-
-## المعلومات المطلوبة لتشغيل السكريبتات
-
-يجب أن تكون متغيرات البيئة التالية معرّفة على نظام Windows:
+## التحقق الآمن
 
 ```powershell
-# الاتصال بقاعدة الأمين (للقراءة فقط)
-[System.Environment]::SetEnvironmentVariable("AMEEN_SQL_CONNECTION_STRING", 
-    "Server=OZK-TOBACCO;Database=AmnDb002;User Id=tobacco_sync_reader;Password=...", 
-    "User")
+# قراءة من الأمين فقط، بلا رفع
+.\tools\push-sales-line-items.ps1 -DryRun -Days 7
 
-# إعدادات Supabase
-[System.Environment]::SetEnvironmentVariable("TOBACCO_SUPABASE_URL", 
-    "https://dyxbirfpxeocqffnfdeb.supabase.co", 
-    "User")
-    
-[System.Environment]::SetEnvironmentVariable("TOBACCO_SUPABASE_PUBLIC_KEY", 
-    "sb_publishable_RkM_QDWxk8Yekqz9KBKXBw_Yl14zhSH", 
-    "User")
+# اكتشاف بنية فواتير الزبائن، بلا رفع
+.\tools\push-customer-invoices.ps1 -Discover -PeriodDays 60
 
-# حساب المزامنة (يجب أن يكون موثوقاً ويملك صلاحيات الكتابة على الجداول)
-[System.Environment]::SetEnvironmentVariable("TOBACCO_SYNC_EMAIL", 
-    "sync@example.com", 
-    "User")
-    
-[System.Environment]::SetEnvironmentVariable("TOBACCO_SYNC_PASSWORD", 
-    "secure-password", 
-    "User")
+# مطابقة GUIDs بين Ameen وأحدث تقرير Supabase، بلا كتابة
+.\tools\verify-customer-invoice-sync.ps1 `
+  -FromDate '2026-07-30' `
+  -ToDateExclusive '2026-08-05'
+
+# فحص المشروع
+npm.cmd run check
+git diff --check
 ```
 
-أو استخدم ملف `.env`:
-```
-AMEEN_SQL_CONNECTION_STRING=Server=OZK-TOBACCO;Database=AmnDb002;User Id=tobacco_sync_reader;Password=...
-TOBACCO_SUPABASE_URL=https://dyxbirfpxeocqffnfdeb.supabase.co
-TOBACCO_SUPABASE_PUBLIC_KEY=sb_publishable_...
-TOBACCO_SYNC_EMAIL=sync@example.com
-TOBACCO_SYNC_PASSWORD=secure-password
+## التشغيل المجدول
+
+المهمة المعتمدة لفواتير الزبائن هي:
+
+```text
+TOBACCO Customer Invoices Push
 ```
 
-## استكشاف الأخطاء
+يجب التحقق من `LastTaskResult = 0` وحداثة `LastRunTime` بدلاً من إنشاء مهمة ثانية لنفس البيانات.
 
-### الخطأ: "AMEEN_SQL_CONNECTION_STRING غير موجود"
-**الحل:** تأكد من أن متغير البيئة معرّف في Windows:
+مزامنة المشتريات تقرأ Ameen فقط وتكتب تقرير العرض إلى Supabase. لا يجوز الخلط بينها وبين `sync-purchase-invoices-to-ameen.ps1`؛ الأخير مسار كتابة محاسبية مختلف ومقفل ولا يدخل في هذه المهمة.
+
+تسجيل مهمة المشتريات يتطلب نافذة Administrator، ثم تحويلها إلى حساب `OZKSync` كي تستمر دون تسجيل دخول:
+
 ```powershell
-$env:AMEEN_SQL_CONNECTION_STRING = "..."
+.\tools\register-purchase-invoices-pull-task.ps1 -IntervalMinutes 15 -PeriodDays 60
+.\tools\convert-task-to-service-account.ps1 -TaskName "TOBACCO Purchase Invoices Pull" -User "OZKSync" -GrantFilesystemAccess
+Start-ScheduledTask -TaskName "TOBACCO Purchase Invoices Pull"
 ```
 
-### الخطأ: "فشل الاتصال بـ Supabase"
-**المحتملة:**
-1. مفتاح API غير صحيح
-2. بيانات الدخول (البريد/كلمة المرور) غير صحيحة
-3. انقطاع الإنترنت
+لا تُنفّذ الخطوة الثانية إلا من جلسة Administrator؛ تطلب كلمة مرور `OZKSync` تفاعلياً ولا تحفظها في المستودع.
 
-**الحل:** تحقق من السجل في `tools/logs/`
+## حدود الأمان
 
-### السكريبت يقول "لا توجد فواتير جديدة"
-**الأسباب المحتملة:**
-1. جميع الفواتير تم مزامنتها بالفعل
-2. لا توجد فواتير جديدة في الفترة المحددة
-3. الفواتير لم تُرسَّل بعد من الأمين
-
-**الحل:** جرب مع `-PeriodDays 180` لفترة أطول
-
-## تسجيل المهام في Windows Task Scheduler
-
-### لمزامنة المشتريات كل ساعة:
-```powershell
-$action = New-ScheduledTaskAction -Execute "powershell.exe" `
-    -Argument "-NoProfile -WindowStyle Hidden -File C:\path\tools\sync-purchase-invoices-enhanced.ps1"
-
-$trigger = New-ScheduledTaskTrigger -RepetitionInterval (New-TimeSpan -Hours 1) -At (Get-Date)
-
-$settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries `
-    -StartWhenAvailable -RunOnlyIfNetworkAvailable
-
-Register-ScheduledTask -TaskName "Tobacco-Sync-Purchases" `
-    -Action $action -Trigger $trigger -Settings $settings `
-    -RunLevel Highest -User "SYSTEM"
-```
-
-### لمزامنة المبيعات كل ساعة:
-```powershell
-$action = New-ScheduledTaskAction -Execute "powershell.exe" `
-    -Argument "-NoProfile -WindowStyle Hidden -File C:\path\tools\sync-sales-invoices-enhanced.ps1"
-
-$trigger = New-ScheduledTaskTrigger -RepetitionInterval (New-TimeSpan -Hours 1) -At (Get-Date)
-
-Register-ScheduledTask -TaskName "Tobacco-Sync-Sales" `
-    -Action $action -Trigger $trigger -Settings $settings `
-    -RunLevel Highest -User "SYSTEM"
-```
-
-## حل مشكلة "توقف المزامنة بعد 30/07/2026"
-
-### الخطوات:
-
-1. **التحقق من آخر نجاح محفوظ:**
-```powershell
-Get-Content "C:\path\tools\logs\purchase-sync-last-success.txt"
-Get-Content "C:\path\tools\logs\sales-sync-last-success.txt"
-```
-
-2. **فحص السجلات:**
-```powershell
-Get-Content "C:\path\tools\logs\purchase-invoices-sync.log" | Select-Object -Last 50
-```
-
-3. **محاولة مزامنة يدوية لمدة 4 أشهر:**
-```powershell
-.\sync-purchase-invoices-enhanced.ps1 -PeriodDays 120
-.\sync-sales-invoices-enhanced.ps1 -PeriodDays 120
-```
-
-4. **إذا فشلت المحاولة:**
-- تحقق من بيانات اعتماد Supabase
-- تحقق من اتصال الأمين SQL
-- تحقق من وجود ملخص الحقوق (RLS) على Supabase
-
-## النقاط المهمة
-
-1. **التطبيق يدوي أولاً:** جرب المزامنة يدوياً قبل تسجيلها كمهمة مجدولة
-2. **السجلات:** دائماً افحص السجلات للتفاصيل الكاملة للخطأ
-3. **البيانات آمنة:** السكريبتات تقرأ فقط من الأمين، لا تعديل
-4. **التكرار:** السكريبتات تتحقق من GUID الفاتورة لمنع التكرار
-
-## الملفات المرتبطة
-
-- `src/app.js`: دوال العرض لفواتير المشتريات والمبيعات
-- `supabase/ameen-purchase-invoice-reports.sql`: Schema الجدول
-- `supabase/telegram-notifications.sql`: إرسال تنبيهات عند المزامنة
+- لا تُعرض connection strings أو كلمات المرور أو JWT في السجلات.
+- لا تُخزن بيانات الفواتير الحساسة في ملفات عامة.
+- لا يُطبّق SQL أو تسجيل مهمة جديدة على الإنتاج قبل مراجعة مستقلة للملفات الفعلية.
+- لا يُستخدم `service_role` في المتصفح.
