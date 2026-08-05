@@ -1646,6 +1646,33 @@ for (const contract of [
     console.error("inventory_recon_create_session_with_lines must reject a source report older than 24 hours server-side, inside the RPC.");
     failed = true;
   }
+
+  // (g) مراجعة Codex على PR #40، commit 84b74de، مانع P1: source_report_id
+  // يجب أن يشير بالمفتاح الأجنبي إلى ameen_warehouse_stock_reports (مصدر RPC
+  // الفعلي) وليس إلى inventory_reports القديم — وإلا يفشل حفظ كل جلسة جرد
+  // جديدة بخطأ foreign-key-violation لأن معرّف التقرير الجديد لن يوجد أصلاً
+  // بالجدول القديم. كما يجب أن تتوفر migration آمنة لإعادة التطبيق (idempotent)
+  // على قاعدة سبق تطبيقها بالصيغة القديمة، بلا اعتماد على تطابق UUID مصادفةً.
+  if (/references inventory_reports\(id\)/.test(invReconSqlForTrust)) {
+    console.error("inventory-reconciliation-table.sql must not reference inventory_reports(id) anywhere for source_report_id — the RPC now sources warehouse-stock reports from ameen_warehouse_stock_reports.");
+    failed = true;
+  }
+  if (!/source_report_id\s+uuid\s+references ameen_warehouse_stock_reports\(id\) on delete set null/.test(invReconSqlForTrust)) {
+    console.error("inventory_recon_sessions.source_report_id must reference ameen_warehouse_stock_reports(id) on delete set null.");
+    failed = true;
+  }
+  if (!/for fk_name in[\s\S]{0,600}alter table inventory_recon_sessions drop constraint %I/.test(invReconSqlForTrust)) {
+    console.error("inventory-reconciliation-table.sql must include an idempotent migration that dynamically drops any pre-existing foreign key on source_report_id (by looking it up in information_schema, not a hardcoded constraint name) before adding the new one — needed for databases where this table was already created against the old inventory_reports table.");
+    failed = true;
+  }
+  if (!/update inventory_recon_sessions\s+set source_report_id = null\s+where source_report_id is not null\s+and not exists \(\s*select 1 from ameen_warehouse_stock_reports r where r\.id = inventory_recon_sessions\.source_report_id\s*\)/.test(invReconSqlForTrust)) {
+    console.error("inventory-reconciliation-table.sql must defensively null out any source_report_id that no longer exists in ameen_warehouse_stock_reports before attaching the new foreign key — must not rely on a coincidental UUID match with the old inventory_reports table.");
+    failed = true;
+  }
+  if (!/add constraint inventory_recon_sessions_source_report_id_fkey\s*\n\s*foreign key \(source_report_id\) references ameen_warehouse_stock_reports\(id\) on delete set null/.test(invReconSqlForTrust)) {
+    console.error("inventory-reconciliation-table.sql must add an explicit named foreign key constraint on source_report_id referencing ameen_warehouse_stock_reports(id).");
+    failed = true;
+  }
 }
 
 if (failed) {
