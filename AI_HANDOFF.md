@@ -2,6 +2,13 @@
 
 يقرأه Claude وCodex قبل كل مهمة. أحدث سجل يكون في الأعلى. لا تحذف السجلات السابقة.
 
+## 2026-08-05 - Codex - ترتيب فواتير ومرتجعات ودفعات الزبون في ثلاثة أعمدة وإخفاء معلومات التواصل
+
+- Status: completed
+- Branch: task branch pending for: ترتيب فواتير ومرتجعات ودفعات الزبون في ثلاثة أعمدة وإخفاء معلومات التواصل
+- Files: 'src/app.js','src/styles.css','public/service-worker.js'
+- Result: دُمج PR #45 بعد تحديثه من main؛ Copilot راجع 3/3 ملفات بلا ملاحظات؛ npm.cmd run check وgit diff --check ناجحان.
+- Handoff UTC: 2026-08-05T20:18:06Z
 ## 2026-08-04 - Claude - الجرد الشهري: مستودعات ديناميكية من الأمين بدل "جملة"/"مركز" ثابتين (مسودة، بانتظار مراجعة Codex)
 
 - Status: pushed, awaiting Codex review (Draft PR — لم يُدمج)
