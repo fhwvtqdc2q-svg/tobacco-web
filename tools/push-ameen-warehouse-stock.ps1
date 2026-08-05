@@ -113,6 +113,22 @@ while ($rd.Read()) {
 }
 $rd.Close(); $cn.Close()
 
+# مواد حقيقية مختلفة قد تتطابق بعد Normalize-ItemName (تختلف بعلامات ترقيم فقط،
+# مثال بطاقتي 273/274). itemKey يُستخدم كمفتاح فريد بالواجهة وبقيد
+# unique(session_id, item_key) بالجرد الفعلي، فتصادم مفتاحين يُخفي أحد الصنفين أو
+# يمنع حفظ الجرد — نميّز كل مجموعة متصادمة بإضافة بادئة من itemGuid (فريد دوماً).
+foreach ($storeGuid in @($byStore.Keys)) {
+  $groups = $byStore[$storeGuid].items | Group-Object -Property itemKey
+  foreach ($g in $groups) {
+    if ($g.Count -le 1) { continue }
+    foreach ($it in $g.Group) {
+      $guidSuffix = ($it.itemGuid -replace '[^0-9a-fA-F]', '')
+      if ($guidSuffix.Length -gt 8) { $guidSuffix = $guidSuffix.Substring(0, 8) }
+      $it.itemKey = "$($it.itemKey)_$guidSuffix"
+    }
+  }
+}
+
 $stores = @($byStore.Values)
 if ($stores.Count -eq 0) { throw "لم تُقرأ أي مستودعات — أوقفت الرفع." }
 

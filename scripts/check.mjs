@@ -1578,6 +1578,20 @@ for (const contract of [
     failed = true;
   }
 
+  // (c2) مراجعة Codex على PR #40: مادتان مختلفتان بالأمين قد تتطابقان بعد
+  // Normalize-ItemName (فرق علامات ترقيم فقط) فتنتجان itemKey واحداً — الواجهة تُخفي
+  // إحداهما (تصفية "already" على itemKey)، وقيد unique(session_id, item_key) بالجرد
+  // الفعلي يمنع حفظ كليهما بجلسة واحدة. يجب تمييز أي مجموعة متصادمة بمفتاح فريد
+  // مشتق من itemGuid (لا يتصادم أبداً) قبل الرفع.
+  if (!/Group-Object\s+-Property\s+itemKey/.test(warehouseStockScript)) {
+    console.error("push-ameen-warehouse-stock.ps1 must detect itemKey collisions per store (Group-Object -Property itemKey) before uploading.");
+    failed = true;
+  }
+  if (!/\$it\.itemKey\s*=\s*"\$\(\$it\.itemKey\)_\$guidSuffix"/.test(warehouseStockScript)) {
+    console.error("push-ameen-warehouse-stock.ps1 must namespace colliding itemKey values with a suffix derived from itemGuid.");
+    failed = true;
+  }
+
   // (d) قراءة فقط من الأمين — بلا أي تعديل على المخزون أو الأسعار أو الحسابات
   const sqlBlockMatch = warehouseStockScript.match(/\$sql = @'([\s\S]*?)'@/);
   const ameenSqlBody = sqlBlockMatch ? sqlBlockMatch[1] : warehouseStockScript;
