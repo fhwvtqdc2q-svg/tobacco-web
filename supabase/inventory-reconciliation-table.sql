@@ -6,6 +6,10 @@
 -- "تسجيلي فقط" (registration-only): اعتماد جلسة الجرد يقفل السجل فقط
 -- (status='approved') ولا يغيّر أي مخزون أو حساب في الأمين أو Supabase.
 -- انظر tools/push-inventory-reconciliation-to-ameen.ps1 (stub مقفل).
+--
+-- ⚠️ ترتيب التطبيق: هذا الملف يعتمد الآن على وجود جدول
+-- ameen_warehouse_stock_reports (مفتاح أجنبي source_report_id أدناه) —
+-- يجب تطبيق supabase/ameen-warehouse-stock-reports.sql أولاً، ثم هذا الملف.
 -- ============================================================
 
 create table if not exists inventory_recon_sessions (
@@ -16,7 +20,7 @@ create table if not exists inventory_recon_sessions (
   warehouse_name text          not null,
   status         text          not null default 'draft' check (status in ('draft', 'reviewed', 'approved')),
   idempotency_key text         not null,
-  source_report_id   uuid      references inventory_reports(id) on delete set null,
+  source_report_id   uuid      references ameen_warehouse_stock_reports(id) on delete set null,
   source_report_date timestamptz,
   notes          text,
   created_by     uuid          references auth.users(id) on delete set null,
@@ -33,9 +37,58 @@ comment on table inventory_recon_sessions is 'جلسات الجرد الشهري
 comment on column inventory_recon_sessions.created_by is 'مالك المسودة — يُختم تلقائياً من auth.uid() عند الإنشاء ولا يمكن تعديله لاحقاً';
 comment on column inventory_recon_sessions.reviewed_by is 'من راجع الجلسة (draft → reviewed) — يُختم من الخادم فقط';
 comment on column inventory_recon_sessions.approved_by is 'من اعتمد الجلسة (reviewed → approved) — يُختم من الخادم فقط، وحصراً لحساب المالك';
-comment on column inventory_recon_sessions.source_report_id is 'تقرير مخزون المستودع الموثوق (inventory_reports.source=ameen_warehouse_stock) الذي استُخرجت منه كمية النظام وهوية الأصناف داخل RPC — بلا اعتماد على أي قيمة يرسلها المتصفح مباشرة. on delete set null لأن أرشفة/حذف تقرير قديم يجب ألا يكسر جلسة جرد تاريخية';
-comment on column inventory_recon_sessions.source_report_date is 'تاريخ/وقت التقرير المصدر وقت إنشاء الجلسة — يُحفظ منفصلاً كي يبقى معروفاً حتى لو حُذف صف inventory_reports لاحقاً (source_report_id يصبح NULL بـon delete set null)';
+comment on column inventory_recon_sessions.source_report_id is 'تقرير مخزون المستودع الموثوق من الجدول المستقل ameen_warehouse_stock_reports الذي استُخرجت منه كمية النظام وهوية الأصناف داخل RPC — بلا اعتماد على أي قيمة يرسلها المتصفح مباشرة. on delete set null لأن أرشفة/حذف تقرير قديم يجب ألا يكسر جلسة جرد تاريخية';
+comment on column inventory_recon_sessions.source_report_date is 'تاريخ/وقت التقرير المصدر وقت إنشاء الجلسة — يُحفظ منفصلاً كي يبقى معروفاً حتى لو حُذف صف ameen_warehouse_stock_reports لاحقاً (source_report_id يصبح NULL بـon delete set null)';
 comment on constraint inventory_recon_sessions_created_by_idempotency_key_key on inventory_recon_sessions is 'التفرد على (created_by, idempotency_key) لا على idempotency_key وحده — كان تفرداً عاماً يسمح نظرياً بأن يستلم مستخدم جلسة مستخدم آخر عند تصادم نصي للمفتاح';
+
+-- ============================================================
+-- مراجعة Codex على PR #40، commit 84b74de: بعد نقل تقرير المخزون إلى الجدول
+-- المستقل ameen_warehouse_stock_reports، بقي هذا العمود بالإنتاج (إن كان
+-- الجدول قد أُنشئ سابقاً بالصيغة القديمة) يشير بمفتاح أجنبي إلى
+-- inventory_reports(id) — وهذا يفشل أي إدراج جلسة جديدة لأن RPC الآن يقرأ
+-- p_source_report_id من ameen_warehouse_stock_reports، لا من inventory_reports،
+-- فلن يتطابق مع الـFK القديم إلا مصادفة (لو تشابه UUID بين الجدولين، احتمال
+-- شبه معدوم لكنه غير آمن منطقياً بحال حدث). الترحيل التالي آمن لإعادة
+-- التطبيق (idempotent) على قاعدة جديدة أو قديمة على حد سواء:
+--   1) يصفّر source_report_id لأي جلسة قديمة تشير إلى صف لم يعد موجوداً
+--      بالجدول الجديد (تاريخي فقط — source_report_date يبقى محفوظاً كما هو،
+--      ولا يُحذف أي سطر جرد ولا تُفقد أي بيانات جلسة).
+--   2) يسقط الـFK القديم (أياً كان اسمه الفعلي بقاعدة الإنتاج) ثم يضيف FK
+--      جديداً صريحاً يشير إلى ameen_warehouse_stock_reports(id).
+-- لا يعتمد على اسم قيد معيّن: يبحث في information_schema عن أي FK فعلي على
+-- هذا العمود ويسقطه ديناميكياً قبل إضافة القيد الجديد.
+-- ============================================================
+
+do $$
+declare
+  fk_name text;
+begin
+  update inventory_recon_sessions
+  set source_report_id = null
+  where source_report_id is not null
+    and not exists (
+      select 1 from ameen_warehouse_stock_reports r where r.id = inventory_recon_sessions.source_report_id
+    );
+
+  for fk_name in
+    select tc.constraint_name
+    from information_schema.table_constraints tc
+    join information_schema.key_column_usage kcu
+      on kcu.constraint_name = tc.constraint_name
+     and kcu.table_schema = tc.table_schema
+    where tc.table_schema = 'public'
+      and tc.table_name = 'inventory_recon_sessions'
+      and tc.constraint_type = 'FOREIGN KEY'
+      and kcu.column_name = 'source_report_id'
+  loop
+    execute format('alter table inventory_recon_sessions drop constraint %I', fk_name);
+  end loop;
+
+  alter table inventory_recon_sessions
+    add constraint inventory_recon_sessions_source_report_id_fkey
+    foreign key (source_report_id) references ameen_warehouse_stock_reports(id) on delete set null;
+end;
+$$;
 
 create table if not exists inventory_recon_lines (
   id               uuid          default gen_random_uuid() primary key,
@@ -135,6 +188,32 @@ set search_path = public
 as $$
   select coalesce(auth.jwt() ->> 'email', '') in ('ozk.kh@outlook.com', 'ozkkhalouf@gmail.com');
 $$;
+
+-- ============================================================
+-- مراجعة Codex على PR #40: source='ameen_warehouse_stock' وحده لا يكفي —
+-- أي موظف مسجَّل يملك صلاحية INSERT على inventory_reports (الجدول
+-- المشترك مع تقارير أخرى كثيرة) كان يستطيع نظرياً إدراج صف بنفس المصدر
+-- وبيانات مصطنعة. الجولة الثانية من المراجعة (بعد نقل هذا التقرير إلى
+-- جدول ameen_warehouse_stock_reports المستقل بسياسة INSERT محصورة —
+-- supabase/ameen-warehouse-stock-reports.sql): هذه الدالة تبقى كطبقة
+-- دفاع مضاعفة تتحقق من created_by بالـUUID الثابت نفسه المستخدم في سياسة
+-- ameen_warehouse_stock_reports. لا يوجد placeholder أو اعتماد على البريد.
+-- ============================================================
+
+create or replace function inventory_recon_warehouse_stock_report_is_trusted(p_created_by uuid)
+returns boolean
+language sql
+stable
+security invoker
+set search_path = ''
+as $$
+  select p_created_by = '9724dbe4-ecb0-49f7-a6b4-12f7f73c68f3'::uuid;
+$$;
+
+comment on function inventory_recon_warehouse_stock_report_is_trusted(uuid) is 'دفاع مضاعف: يتحقق أن created_by المخزَّن بصف ameen_warehouse_stock_reports يطابق UUID حساب المزامنة الموثوق نفسه المستخدم في سياسة INSERT.';
+
+revoke all on function inventory_recon_warehouse_stock_report_is_trusted(uuid) from public;
+grant execute on function inventory_recon_warehouse_stock_report_is_trusted(uuid) to authenticated;
 
 -- ============================================================
 -- حارس الثبات + الختم: يمنع أي تعديل بعد status='approved'، يقفل
@@ -595,6 +674,10 @@ declare
   v_report_summary jsonb;
   v_report_items jsonb;
   v_report_date timestamptz;
+  v_report_created_by uuid;
+  v_report_created_at timestamptz;
+  v_report_generated_at timestamptz;
+  v_report_freshness_at timestamptz;
   v_missing_keys text;
   v_new_digest text;
   v_existing_digest text;
@@ -624,14 +707,37 @@ begin
     raise exception 'inventory_recon: يجب اختيار تقرير مخزون مستودع موثوق قبل إنشاء الجلسة';
   end if;
 
-  select report_date::timestamptz, summary, items
-    into v_report_date, v_report_summary, v_report_items
-  from public.inventory_reports
-  where id = p_source_report_id
-    and source = 'ameen_warehouse_stock';
+  -- مراجعة Codex على PR #40 (الجولة الثانية): source='ameen_warehouse_stock'
+  -- وحده لم يكن كافياً على مستوى INSERT بجدول inventory_reports المشترك —
+  -- التقرير أصبح يُقرأ الآن من ameen_warehouse_stock_reports المستقل
+  -- (supabase/ameen-warehouse-stock-reports.sql)، الذي تحصر سياسة INSERT
+  -- الخاصة به الكتابة بحساب المزامنة الموثوق فقط، فـcreated_by هنا موثوق
+  -- بنيوياً بمجرد وجود الصف — لا اعتماد على source كقيمة وحيدة للثقة.
+  select report_date::timestamptz, summary, items, created_by, created_at
+    into v_report_date, v_report_summary, v_report_items, v_report_created_by, v_report_created_at
+  from public.ameen_warehouse_stock_reports
+  where id = p_source_report_id;
 
   if not found then
-    raise exception 'inventory_recon: تقرير مخزون المستودع (%) غير موجود أو ليس من مصدر موثوق', p_source_report_id;
+    raise exception 'inventory_recon: تقرير مخزون المستودع (%) غير موجود', p_source_report_id;
+  end if;
+
+  -- دفاع مضاعف: حتى لو أُنشئ الصف فعلاً بجدول ameen_warehouse_stock_reports،
+  -- نتحقق مجدداً أن created_by يطابق حساب المزامنة الموثوق عبر auth.users —
+  -- يحمي من أي خطأ مستقبلي بسياسة INSERT الخاصة بذلك الجدول بلا اعتماد
+  -- كامل على RLS طبقة واحدة فقط.
+  if not public.inventory_recon_warehouse_stock_report_is_trusted(v_report_created_by) then
+    raise exception 'inventory_recon: تقرير مخزون المستودع (%) ليس من حساب المزامنة الموثوق', p_source_report_id;
+  end if;
+
+  -- مراجعة Codex على PR #40: فحص حداثة التقرير يجب أن يُطبَّق داخل RPC على
+  -- الخادم أيضاً (فحص الواجهة إضافي فقط ويمكن تجاوزه من طلب مباشر).
+  -- نعتمد summary.generated_at إن وُجد (وقت السحب الفعلي من الأمين)، وإلا
+  -- created_at كبديل، ونرفض أي تقرير أقدم من 24 ساعة.
+  v_report_generated_at := nullif(v_report_summary ->> 'generated_at', '')::timestamptz;
+  v_report_freshness_at := coalesce(v_report_generated_at, v_report_created_at);
+  if v_report_freshness_at is null or v_report_freshness_at < now() - interval '24 hours' then
+    raise exception 'inventory_recon: تقرير مخزون المستودع (%) أقدم من 24 ساعة — اسحب تقريراً جديداً قبل إنشاء الجلسة', p_source_report_id;
   end if;
 
   if coalesce(v_report_summary ->> 'warehouseKey', '') <> p_warehouse_key then

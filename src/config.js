@@ -28,6 +28,8 @@ window.appConfig = {
     publishableKey: "sb_publishable_RkM_QDWxk8Yekqz9KBKXBw_Yl14zhSH",
     requestsTable: "customer_requests",
     inventoryReportsTable: "inventory_reports",
+    warehouseStockReportsTable: "ameen_warehouse_stock_reports",
+    warehouseTransferReportsTable: "ameen_warehouse_transfer_reports",
     creditLimitsTable: "customer_credit_limits",
     approvedPricesTable: "approved_price_items",
     purchaseInvoicesTable: "purchase_invoices"

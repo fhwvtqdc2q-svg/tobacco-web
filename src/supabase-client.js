@@ -78,6 +78,8 @@
   const hasLibrary = Boolean(window.supabase?.createClient);
   const tableName = config.requestsTable || "customer_requests";
   const inventoryReportsTable = config.inventoryReportsTable || "inventory_reports";
+  const warehouseStockReportsTable = config.warehouseStockReportsTable || "ameen_warehouse_stock_reports";
+  const warehouseTransferReportsTable = config.warehouseTransferReportsTable || "ameen_warehouse_transfer_reports";
   const creditLimitsTable = config.creditLimitsTable || "customer_credit_limits";
   const approvedPricesTable = config.approvedPricesTable || "approved_price_items";
   const paymentRecordsTable = config.paymentRecordsTable || "payment_records";
@@ -1363,9 +1365,10 @@
       if (error) throw new Error(translateDbError(error.message));
     },
 
-    // مخزون النظام حسب المستودع — لا يوجد سكريبت سحب فعلي بعد لمصدر
-    // ameen_warehouse_stock (انظر tools/discover-ameen-inventory-recon-fields.ps1)،
-    // لذا تُرجع الدالة null إلى أن يُبنى ذلك السكريبت — ولا تُخترَع كمية صفرية بديلة.
+    // مخزون النظام حسب المستودع — يُرفع بواسطة tools/push-ameen-warehouse-stock.ps1
+    // إلى جدول ameen_warehouse_stock_reports المستقل (مراجعة Codex على PR #40،
+    // الجولة الثانية — كتابة محصورة بحساب المزامنة الموثوق عبر RLS)،
+    // تقرير مستقل لكل مستودع حقيقي بالأمين.
     async getLatestWarehouseStockReport(warehouseKey) {
       if (!client) return null;
       const session = await getSupabaseSession();
@@ -1374,14 +1377,71 @@
       // بما أن warehouse_key مخزّن داخل summary (JSON) لا كعمود مفهرس مستقل،
       // لا يمكن تصفيته بـ.eq() على مستوى الاستعلام مباشرة.
       const { data, error } = await client
-        .from(inventoryReportsTable)
+        .from(warehouseStockReportsTable)
         .select("id, summary, items, created_at")
-        .eq("source", "ameen_warehouse_stock")
         .order("created_at", { ascending: false })
         .limit(20);
       if (error || !data) return null;
       if (!warehouseKey) return data[0] || null;
       return data.find((row) => row.summary && row.summary.warehouseKey === warehouseKey) || null;
+    },
+
+    // يجلب كل التقارير الحديثة بطلب شبكة واحد ثم يحتفظ بأحدث تقرير لكل GUID.
+    // مخصص لصفحة المستودعات كي لا تنفذ طلباً منفصلاً لكل مستودع على الموبايل.
+    async listLatestWarehouseStockReports() {
+      if (!client) return [];
+      const session = await getSupabaseSession();
+      if (!session) return [];
+      const { data, error } = await client
+        .from(warehouseStockReportsTable)
+        .select("id, summary, items, created_at")
+        .order("created_at", { ascending: false })
+        .limit(100);
+      if (error) throw new Error(translateDbError(error.message));
+      const latestByWarehouse = new Map();
+      for (const report of data || []) {
+        const key = report.summary && report.summary.warehouseKey;
+        if (key && !latestByWarehouse.has(key)) latestByWarehouse.set(key, report);
+      }
+      return Array.from(latestByWarehouse.values());
+    },
+
+    // قائمة المستودعات الحقيقية المتاحة للجرد — مبنية من أحدث تقارير
+    // ameen_warehouse_stock فعلياً، وليست ثابتة بالكود؛ لا تُخترَع أي قيمة
+    // "جملة"/"مركز عام" هنا. المفتاح الموثوق هو GUID المستودع بالأمين.
+    async listReconWarehouses() {
+      if (!client) return [];
+      const session = await getSupabaseSession();
+      if (!session) return [];
+      const { data, error } = await client
+        .from(warehouseStockReportsTable)
+        .select("summary, created_at")
+        .order("created_at", { ascending: false })
+        .limit(50);
+      if (error || !data) return [];
+      const byKey = new Map();
+      for (const row of data) {
+        const key = row.summary && row.summary.warehouseKey;
+        const name = row.summary && row.summary.warehouseName;
+        if (!key || !name || byKey.has(key)) continue;
+        byKey.set(key, { warehouseKey: key, warehouseName: name, createdAt: row.created_at });
+      }
+      return Array.from(byKey.values()).sort((a, b) => a.warehouseName.localeCompare(b.warehouseName, "ar"));
+    },
+
+    // أحدث تقرير مناقلات مستودعات موثوق. يحتوي كل عنصر على مستودع المصدر
+    // والوجهة والبنود بعد تحقق سكربت القراءة من توازن طرفي المناقلة.
+    async getLatestWarehouseTransferReport() {
+      if (!client) return null;
+      const session = await getSupabaseSession();
+      if (!session) return null;
+      const { data, error } = await client
+        .from(warehouseTransferReportsTable)
+        .select("id, report_date, summary, items, created_at")
+        .order("created_at", { ascending: false })
+        .limit(1);
+      if (error) throw new Error(translateDbError(error.message));
+      return (data && data[0]) || null;
     }
   };
 

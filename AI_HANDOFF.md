@@ -2,6 +2,23 @@
 
 يقرأه Claude وCodex قبل كل مهمة. أحدث سجل يكون في الأعلى. لا تحذف السجلات السابقة.
 
+## 2026-08-04 - Claude - الجرد الشهري: مستودعات ديناميكية من الأمين بدل "جملة"/"مركز" ثابتين (مسودة، بانتظار مراجعة Codex)
+
+- Status: pushed, awaiting Codex review (Draft PR — لم يُدمج)
+- Branch/Worktree: `fix/ameen-warehouse-stock-dynamic` (`.claude/worktrees/warehouse-stock-dynamic`)
+- Files: `tools/push-ameen-warehouse-stock.ps1` (جديد)، `src/supabase-client.js`، `src/app.js`، `scripts/check.mjs`، `public/service-worker.js` (v455→v456)
+- المشكلة: لا يوجد مستودع مخصص لـ"جملة" أو "مركز" في الأمين — واجهة الجرد كانت تعرض خيارين ثابتين مخترَعين لا يطابقان أي مستودع حقيقي، ولا يجوز ربط المستودع بنوع البيع.
+- الحل:
+  1. سكريبت جديد `push-ameen-warehouse-stock.ps1` يقرأ `dbo.st000`/`bi000`/`bu000`/`bt000` (SELECT فقط، نفس منطق `bIsInput`/`bIsOutput` بـ`ameen-stock-query.sql`) ويرفع تقريراً مستقلاً لكل مستودع فعلي إلى `inventory_reports` بمصدر `ameen_warehouse_stock`، بمفتاح `summary.warehouseKey` = GUID الأمين و`summary.warehouseName` = الاسم للعرض فقط. يدعم `-WhatIf` (يطبع أسماء المستودعات وعدد الأصناف والمجموع فقط، بلا كتابة ولا أسرار).
+  2. `supabase-client.js`: أُضيف `listReconWarehouses()` (يبني قائمة المستودعات من أحدث تقارير `ameen_warehouse_stock`) و`getLatestWarehouseStockReport(warehouseKey)`.
+  3. `app.js`: حُذف تماماً أي خيار "جملة"/"مركز" ثابت بالجرد؛ `state.reconWarehouses` أصبحت ديناميكية عبر `loadReconWarehouses()`، وزر اختيار المستودع بالواجهة (`data-recon-warehouse`) يُبنى فقط من `state.reconWarehouses` بمفتاح GUID، مع حالة فارغة واضحة إن لم تتوفر تقارير بعد. أُضيف تحذير حداثة التقرير (عتبة 24 ساعة) ومنع الحفظ إن كان التقرير غير موثوق.
+  4. `scripts/check.mjs`: 4 اختبارات جديدة (a) تمنع رجوع "جملة"/"مركز" الثابتين بمنطقة اختيار مستودع الجرد تحديداً (بلا مساس بالاستخدامات الأخرى غير المرتبطة للكلمة jumla بوضع البيع أو سلسلة فواتير المبيعات)، (b) تثبت الاعتماد على `warehouseKey` (GUID)، (c) تثبت رفع تقرير مستقل لكل مستودع (حلقة `foreach ($s in $stores)`)، (d) تثبت عدم وجود أي `INSERT`/`UPDATE`/`DELETE`/`MERGE`/`EXEC` بمنطق SQL الخاص بالأمين + تثبت أن `push-inventory-reconciliation-to-ameen.ps1` ما زال سكريبتاً مقفلاً (`exit 1`).
+- التحقق: `npm run check` ✅ ("Project check passed.")، `git diff --check` ✅ (بلا مشاكل مسافات).
+- تشغيل فعلي: نُفِّذ Dry Run أولاً (بلا كتابة) ثم التشغيل الفعلي — رُفعت 5 تقارير مستقلة إلى `inventory_reports` (المصدر `ameen_warehouse_stock`) للمستودعات الخمسة الحقيقية: مركز، دوما الأساسي، دوما الاحتياطي، مستودع المشترك، حرستا (419 صنف لكل مستودع). تحقّقتُ من الفصل الحقيقي بين المستودعات عبر استعلام SQL مباشر على Supabase (Supabase MCP، بلا استخدام psql أو أسرار): نفس الصنف رقم 1 له كميات مختلفة فعلاً بكل مستودع (مثال: 0 بحرستا، 100 بدوما الأساسي، 48 بمركز) — يثبت أن الحساب لكل مستودع مستقل وليس مكرّراً.
+- لم يُختبَر: التصفّح الفعلي لصفحة الجرد بالمتصفح (يتطلب تسجيل دخول بحساب موظف حقيقي — لم أُدخل بيانات اعتماد نيابة عن المستخدم وفق سياسة الأمان). يُنصَح بفحص بصري سريع لصفحة "الجرد الشهري" واختيار مستودعين مختلفين والتأكد من تغيّر الكميات المعروضة.
+- لم يُلمس: أي جدول أو رصيد أو سعر بالأمين (قراءة SELECT فقط)، و`push-inventory-reconciliation-to-ameen.ps1` ما زال مقفلاً كما هو (`exit 1`) ولم يُفعَّل.
+- Handoff UTC: 2026-08-04T21:05:00Z
+
 ## 2026-08-01 - Codex - إصلاح دمج أصناف ماستر في نشرتي الدولار والسوري
 
 - Status: completed
