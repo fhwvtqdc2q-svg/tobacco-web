@@ -177,6 +177,8 @@ try {
         $c.CommandText = @"
 SELECT TOP 15 $numSel AS bill_number, u.Date AS bill_date,
        LTRIM(RTRIM(COALESCE(u.Cust_Name,''))) AS supplier,
+       CAST(st.GUID AS varchar(40)) AS warehouse_guid,
+       LTRIM(RTRIM(COALESCE(st.Name,''))) AS warehouse_name,
        $itemNumSel AS item_number,
        LTRIM(RTRIM(COALESCE(m.Name,''))) AS material,
        bi.Qty AS qty, bi.Unity AS unity, $unitSel AS unit_name,
@@ -185,6 +187,7 @@ SELECT TOP 15 $numSel AS bill_number, u.Date AS bill_date,
 FROM bu000 u
 JOIN bi000 bi ON bi.ParentGUID = u.GUID
 JOIN mt000 m  ON m.GUID = bi.MatGUID
+LEFT JOIN st000 st ON st.GUID = COALESCE(bi.StoreGUID, u.StoreGUID)
 $currencyJoin
 WHERE u.[$typeCol] IN (@purchaseType, @purchaseReturnType) AND u.Date >= @fromDate $postedFilter
 ORDER BY u.Date DESC
@@ -199,7 +202,7 @@ ORDER BY u.Date DESC
             $retTag = if ([string]$rd["type_guid"] -eq $PURCHASE_RETURN_TYPE_GUID) { " [مرتجع مشتريات]" } else { "" }
             Write-Host ("  [{0}] {1} | {2} | {3} — {4} | كمية {5} وحدة {6}({7}) × سعر {8} (تكلفة {9}) = {10} | عملة {11}{12}" -f `
                 $rd["bill_number"], ([datetime]$rd["bill_date"]).ToString("yyyy-MM-dd"), `
-                $rd["supplier"], $rd["item_number"], $rd["material"], $rd["qty"], $rd["unity"], $rd["unit_name"], $rd["price"], $rd["unit_cost"], $rd["line_total"], $rd["currency_iso"], $retTag)
+                (([string]$rd["supplier"]) + " — مستودع: " + ([string]$rd["warehouse_name"])), $rd["item_number"], $rd["material"], $rd["qty"], $rd["unity"], $rd["unit_name"], $rd["price"], $rd["unit_cost"], $rd["line_total"], $rd["currency_iso"], $retTag)
         }
         $rd.Close(); $conn.Close()
         Write-Host "الاكتشاف انتهى — $n سطر عيّنة. إذا الأسماء/القيم تبيّن صح، شغّل السكربت بدون -Discover."
@@ -217,6 +220,8 @@ SELECT CAST(u.GUID AS varchar(40)) AS bill_guid,
        $numSel AS bill_number,
        u.Date AS bill_date,
        LTRIM(RTRIM(COALESCE(u.Cust_Name,''))) AS supplier,
+       CAST(st.GUID AS varchar(40)) AS warehouse_guid,
+       LTRIM(RTRIM(COALESCE(st.Name,''))) AS warehouse_name,
        CAST(COALESCE(u.Total,0) AS decimal(18,3)) AS bill_total,
        u.[$typeCol] AS type_guid,
        $itemNumSel AS item_number,
@@ -233,6 +238,7 @@ SELECT CAST(u.GUID AS varchar(40)) AS bill_guid,
 FROM bu000 u
 JOIN bi000 bi ON bi.ParentGUID = u.GUID
 JOIN mt000 m  ON m.GUID = bi.MatGUID
+LEFT JOIN st000 st ON st.GUID = COALESCE(bi.StoreGUID, u.StoreGUID)
 $currencyJoin
 WHERE u.[$typeCol] IN (@purchaseType, @purchaseReturnType)
   AND u.Date >= @fromDate
@@ -271,9 +277,13 @@ ORDER BY u.Date DESC, u.GUID
                 payMethod  = $payMethod
                 paidAmount = $paidAmount
                 isReturn   = ([string]$r["type_guid"] -eq $PURCHASE_RETURN_TYPE_GUID)
+                warehouses = @{}
                 items      = New-Object System.Collections.Generic.List[object]
             }
         }
+        $warehouseGuid = if ($r["warehouse_guid"] -is [DBNull]) { "" } else { ([string]$r["warehouse_guid"]).ToLowerInvariant() }
+        $warehouseName = if ($r["warehouse_name"] -is [DBNull]) { "" } else { [string]$r["warehouse_name"] }
+        if ($warehouseGuid -and $warehouseName) { $bills[$g].warehouses[$warehouseGuid] = $warehouseName }
         $itemNum = [string]$r["item_number"]
         $matGuid = [string]$r["mat_guid"]
         $unitCost = [double]$r["unit_cost"]
@@ -338,6 +348,9 @@ ORDER BY u.Date DESC, u.GUID
             payMethod  = $b.payMethod
             paidAmount = $b.paidAmount
             isReturn   = $b.isReturn
+            warehouseGuid = if ($b.warehouses.Count -eq 1) { [string]@($b.warehouses.Keys)[0] } else { "" }
+            warehouseName = if ($b.warehouses.Count -eq 1) { [string]$b.warehouses[@($b.warehouses.Keys)[0]] } elseif ($b.warehouses.Count -gt 1) { "متعدد" } else { "غير محدد" }
+            warehouseCount = $b.warehouses.Count
             items      = $itemsOut.ToArray()
         })
     }

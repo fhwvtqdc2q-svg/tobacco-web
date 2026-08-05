@@ -79,6 +79,7 @@
   const tableName = config.requestsTable || "customer_requests";
   const inventoryReportsTable = config.inventoryReportsTable || "inventory_reports";
   const warehouseStockReportsTable = config.warehouseStockReportsTable || "ameen_warehouse_stock_reports";
+  const warehouseTransferReportsTable = config.warehouseTransferReportsTable || "ameen_warehouse_transfer_reports";
   const creditLimitsTable = config.creditLimitsTable || "customer_credit_limits";
   const approvedPricesTable = config.approvedPricesTable || "approved_price_items";
   const paymentRecordsTable = config.paymentRecordsTable || "payment_records";
@@ -1406,6 +1407,21 @@
         byKey.set(key, { warehouseKey: key, warehouseName: name, createdAt: row.created_at });
       }
       return Array.from(byKey.values()).sort((a, b) => a.warehouseName.localeCompare(b.warehouseName, "ar"));
+    },
+
+    // أحدث تقرير مناقلات مستودعات موثوق. يحتوي كل عنصر على مستودع المصدر
+    // والوجهة والبنود بعد تحقق سكربت القراءة من توازن طرفي المناقلة.
+    async getLatestWarehouseTransferReport() {
+      if (!client) return null;
+      const session = await getSupabaseSession();
+      if (!session) return null;
+      const { data, error } = await client
+        .from(warehouseTransferReportsTable)
+        .select("id, report_date, summary, items, created_at")
+        .order("created_at", { ascending: false })
+        .limit(1);
+      if (error) throw new Error(translateDbError(error.message));
+      return (data && data[0]) || null;
     }
   };
 

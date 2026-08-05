@@ -1734,6 +1734,88 @@ for (const contract of [
   }
 }
 
+// ── المستودعات والمناقلات وفواتير الشراء حسب المستودع ──────────────────────
+{
+  const transferScript = readFileSync("tools/push-ameen-warehouse-transfers.ps1", "utf8");
+  const requiredTransferTypes = [
+    "ad2521dc-0981-4751-8542-fb52cad97b05",
+    "6caa0de4-faa9-4027-ad83-4562c8f81211",
+    "43b6cb6a-fd40-473f-8846-4b1064f5318a",
+    "881cb610-3763-4976-9d7f-2f563da2b299"
+  ];
+  for (const guid of requiredTransferTypes) {
+    if (!transferScript.toLowerCase().includes(guid)) {
+      console.error(`Warehouse transfer sync is missing confirmed Ameen TypeGUID ${guid}.`);
+      failed = true;
+    }
+  }
+  const transferSql = transferScript.match(/\$sql = @'([\s\S]*?)'@/)?.[1] || "";
+  if (!/^\s*select/i.test(transferSql) || /\b(insert\s+into|update\s+dbo|delete\s+from|merge\s+into|exec\s)/i.test(transferSql)) {
+    console.error("Warehouse transfer Ameen query must remain SELECT-only.");
+    failed = true;
+  }
+  for (const contract of [
+    '$key = "$family|$date|$number"',
+    "[math]::Abs($outQty - $inQty)",
+    "فشل تحقق المناقلات؛ لن يُرفع تقرير ناقص أو غير متوازن",
+    "rest/v1/ameen_warehouse_transfer_reports"
+  ]) {
+    if (!transferScript.includes(contract)) {
+      console.error(`Warehouse transfer sync contract is missing: ${contract}`);
+      failed = true;
+    }
+  }
+
+  if (!/LEFT JOIN st000 st ON st\.GUID = COALESCE\(bi\.StoreGUID, u\.StoreGUID\)/.test(purchaseInvoicesPull)) {
+    console.error("Purchase invoice pull must resolve the real warehouse from st000 using the line/header StoreGUID.");
+    failed = true;
+  }
+  for (const contract of ["warehouseGuid", "warehouseName", "warehouseCount"]) {
+    if (!purchaseInvoicesPull.includes(contract)) {
+      console.error(`Purchase invoice output is missing ${contract}.`);
+      failed = true;
+    }
+  }
+
+  const transferSqlMigration = readFileSync("supabase/ameen-warehouse-transfer-reports.sql", "utf8");
+  for (const contract of [
+    "alter table public.ameen_warehouse_transfer_reports enable row level security",
+    "revoke all on table public.ameen_warehouse_transfer_reports from public, anon, authenticated",
+    "grant select, insert, delete on table public.ameen_warehouse_transfer_reports to authenticated",
+    "public.ameen_warehouse_transfer_reports_is_sync_writer()",
+    "and created_by = auth.uid()",
+    "sync writer can delete old ameen warehouse transfers"
+  ]) {
+    if (!transferSqlMigration.includes(contract)) {
+      console.error(`Warehouse transfer SQL contract is missing: ${contract}`);
+      failed = true;
+    }
+  }
+
+  const clientSource = readFileSync("src/supabase-client.js", "utf8");
+  for (const contract of [
+    "warehouseTransferReportsTable",
+    "async getLatestWarehouseTransferReport()",
+    ".from(warehouseTransferReportsTable)"
+  ]) {
+    if (!clientSource.includes(contract)) {
+      console.error(`Warehouse transfer client contract is missing: ${contract}`);
+      failed = true;
+    }
+  }
+  for (const contract of [
+    'navButton("warehouses", "🏭 المستودعات والمناقلات")',
+    "function warehouses()",
+    "data-warehouse-pick",
+    "invoice.warehouseName"
+  ]) {
+    if (!appJs.includes(contract)) {
+      console.error(`Warehouse UI contract is missing: ${contract}`);
+      failed = true;
+    }
+  }
+}
+
 if (failed) {
   process.exit(1);
 }

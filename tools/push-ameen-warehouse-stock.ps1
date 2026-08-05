@@ -15,13 +15,23 @@
 #   .\tools\push-ameen-warehouse-stock.ps1 -WhatIf
 # التشغيل الفعلي:
 #   .\tools\push-ameen-warehouse-stock.ps1
-param([switch]$WhatIf)
+param(
+  [switch]$WhatIf,
+  [string]$EnvFile = ""
+)
 $ErrorActionPreference = "Stop"
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
 
+if ($EnvFile -and (Test-Path -LiteralPath $EnvFile -PathType Leaf)) {
+  Get-Content -LiteralPath $EnvFile | Where-Object { $_ -match '^\s*[^#].+=.+' } | ForEach-Object {
+    $parts = $_ -split '=', 2
+    [Environment]::SetEnvironmentVariable($parts[0].Trim(), $parts[1].Trim(), "Process")
+  }
+}
+
 function Get-EnvVar($name) {
-  $v = [Environment]::GetEnvironmentVariable($name, "User")
-  if (-not $v) { $v = [Environment]::GetEnvironmentVariable($name, "Process") }
+  $v = [Environment]::GetEnvironmentVariable($name, "Process")
+  if (-not $v) { $v = [Environment]::GetEnvironmentVariable($name, "User") }
   if (-not $v) { throw "متغير البيئة ناقص: $name" }
   return $v
 }
@@ -177,5 +187,11 @@ foreach ($s in $stores) {
 
   Write-Host "رُفع تقرير مستودع: $($s.name) ($($s.items.Count) صنف)." -ForegroundColor Green
 }
+
+$cutoff = (Get-Date).ToUniversalTime().AddDays(-2).ToString("yyyy-MM-ddTHH:mm:ssZ")
+try {
+  Invoke-RestMethod -Method Delete -Uri "$url/rest/v1/ameen_warehouse_stock_reports?created_at=lt.$cutoff" `
+    -Headers $hdr | Out-Null
+} catch { Write-Warning "تعذّر تنظيف تقارير المخزون القديمة: $($_.Exception.Message)" }
 
 Write-Host "تم رفع $($stores.Count) تقرير مستودع مستقل إلى ameen_warehouse_stock_reports." -ForegroundColor Green

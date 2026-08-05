@@ -185,7 +185,7 @@ function syncFreshnessLabel(value) {
   return `قبل ${Math.round(minutes / 60)} ساعة`;
 }
 
-const allowedRoutes = new Set(["overview", "login", "requests", "ameen", "balances", "pricing", "remote", "monitoring", "payments", "purchases", "sales", "inventoryRecon", "staff", "search", "ai", "dashboard"]);
+const allowedRoutes = new Set(["overview", "login", "requests", "ameen", "balances", "pricing", "remote", "monitoring", "payments", "purchases", "sales", "warehouses", "inventoryRecon", "staff", "search", "ai", "dashboard"]);
 
 const customerPriceContacts = [
   { label: "هاتف المبيعات", value: "0985000771" },
@@ -308,6 +308,13 @@ const state = {
   reconWarehouseStockItems: null, // مصفوفة أصناف المستودع نفسه (name/number/unit/qty) — null = لا تقرير، [] = تقرير فارغ
   reconWarehouseStockLoading: false,
   reconWarehouseStockGeneratedAt: null, // وقت توليد التقرير (summary.generated_at) — لكشف التقادم
+  // ===== المستودعات والمناقلات (عرض قراءة فقط من Ameen) =====
+  warehouseReports: {},
+  warehouseSelectedKey: "",
+  warehouseSearch: "",
+  warehouseShowZero: false,
+  warehouseTransferReport: null,
+  warehouseLoading: false,
   notifPermission: "default",
   seenRequestIds: new Set(),
   globalSearch: "",
@@ -430,6 +437,7 @@ async function boot() {
   await loadCustomerProfiles();
   await loadPurchaseInvoices();
   await loadReconSessions();
+  await loadWarehouseDashboard();
   state.seenRequestIds = new Set(state.requests.map((r) => r.id));
   state.notifPermission = notifSupported() ? Notification.permission : "denied";
   state.loading = false;
@@ -589,6 +597,38 @@ async function loadReconWarehouseStock(warehouseKey) {
   } finally {
     state.reconWarehouseStockLoading = false;
   }
+}
+
+async function loadWarehouseDashboard() {
+  if (!state.session) {
+    state.warehouseReports = {};
+    state.warehouseTransferReport = null;
+    return;
+  }
+  state.warehouseLoading = true;
+  try {
+    if (!state.reconWarehouses.length) await loadReconWarehouses();
+    const entries = await Promise.all(state.reconWarehouses.map(async (warehouse) => {
+      const report = await dataStore.getLatestWarehouseStockReport(warehouse.warehouseKey);
+      return [warehouse.warehouseKey, report];
+    }));
+    state.warehouseReports = Object.fromEntries(entries.filter(([, report]) => report));
+    if (!state.reconWarehouses.some((w) => w.warehouseKey === state.warehouseSelectedKey)) {
+      state.warehouseSelectedKey = state.reconWarehouses[0]?.warehouseKey || "";
+    }
+  } catch (error) {
+    state.warehouseReports = {};
+    setNotice("error", safeErrorMessage(error));
+  }
+  try {
+    state.warehouseTransferReport = dataStore.getLatestWarehouseTransferReport
+      ? await dataStore.getLatestWarehouseTransferReport()
+      : null;
+  } catch {
+    // يسمح بعرض المخزون حتى قبل تطبيق جدول المناقلات الجديد أو عند تعذره.
+    state.warehouseTransferReport = null;
+  }
+  state.warehouseLoading = false;
 }
 
 async function loadDailyMovement(date) {
@@ -2755,6 +2795,7 @@ function shell(content) {
           ${navButton("pricing", "نشرة الأسعار")}
           ${state.session ? navButton("sales", "🧮 فاتورة مبيعات") : ""}
           ${state.session ? navButton("purchases", "🧾 فواتير مشتريات") : ""}
+          ${state.session ? navButton("warehouses", "🏭 المستودعات والمناقلات") : ""}
           ${state.session ? navButton("inventoryRecon", "📋 الجرد الشهري") : ""}
           ${state.session ? navButton("staff", "👥 الموظفون") : ""}
           ${state.session ? navButton("ai", "🤖 المساعد الذكي") : ""}
@@ -2822,6 +2863,7 @@ function pageTitle() {
     ai: "المساعد الذكي",
     sales: "فاتورة مبيعات",
     purchases: "فواتير المشتريات",
+    warehouses: "المستودعات والمناقلات",
     inventoryRecon: "الجرد الشهري",
     dashboard: "التقارير",
     staff: "إدارة الموظفين",
@@ -7499,6 +7541,7 @@ function poAmeenPanelHtml() {
           الإجمالي: ${Number(invoice.total || 0).toFixed(2)} ${currencySym}
           · ${invoice.payMethod === "cash" ? "نقدي" : invoice.payMethod === "credit" ? "آجل" : "طريقة الدفع غير محددة"}
           · الدفعة المسجلة: ${invoice.paidAmount != null ? Number(invoice.paidAmount).toFixed(2) : "—"} ${currencySym}
+          · المستودع: <strong>${escapeHtml(invoice.warehouseName || "غير محدد")}</strong>
           ${invoice.isReturn ? "· <strong>مرتجع مشتريات</strong>" : ""}
         </p>
 
@@ -7531,6 +7574,125 @@ function poAmeenPanelHtml() {
         : `<p class="muted" style="margin-top:12px">اختر مورداً من الاقتراحات لعرض فواتيره.</p>`}
     </section>
   `;
+}
+
+function warehouses() {
+  if (!state.session) {
+    return shell(`<section class="panel"><h2>المستودعات والمناقلات</h2><p class="muted">سجّل الدخول أولاً.</p></section>`);
+  }
+  const warehousesList = state.reconWarehouses || [];
+  const selected = warehousesList.find((w) => w.warehouseKey === state.warehouseSelectedKey) || warehousesList[0];
+  const report = selected ? state.warehouseReports[selected.warehouseKey] : null;
+  const rawItems = report && Array.isArray(report.items) ? report.items : [];
+  const query = normalizeItemName(state.warehouseSearch);
+  const visibleItems = rawItems
+    .map((item) => ({
+      itemKey: item.itemKey || item.item_key || "",
+      itemName: item.itemName || item.item_name || "",
+      itemNumber: item.itemNumber || item.item_number || "",
+      unitName: item.unitName || item.unit_name || "",
+      qty: Number(item.qty ?? 0)
+    }))
+    .filter((item) => state.warehouseShowZero || Math.abs(item.qty) > 0.0001)
+    .filter((item) => !query || normalizeItemName(`${item.itemNumber} ${item.itemName}`).includes(query))
+    .sort((a, b) => b.qty - a.qty || a.itemName.localeCompare(b.itemName, "ar"));
+
+  const warehouseCards = warehousesList.map((warehouse) => {
+    const warehouseReport = state.warehouseReports[warehouse.warehouseKey];
+    const items = warehouseReport && Array.isArray(warehouseReport.items) ? warehouseReport.items : [];
+    const stocked = items.filter((item) => Math.abs(Number(item.qty ?? 0)) > 0.0001).length;
+    const active = warehouse.warehouseKey === selected?.warehouseKey ? "primary" : "secondary";
+    return `<button class="button ${active}" type="button" data-warehouse-pick="${escapeHtml(warehouse.warehouseKey)}">
+      ${escapeHtml(warehouse.warehouseName)} <small>(${stocked} صنف متوفر)</small>
+    </button>`;
+  }).join("");
+
+  const stockRows = visibleItems.map((item) => `<tr>
+    <td>${escapeHtml(item.itemNumber || "—")}</td>
+    <td>${escapeHtml(item.itemName)}</td>
+    <td>${escapeHtml(item.unitName || "—")}</td>
+    <td class="inv-num"><strong>${escapeHtml(item.qty.toFixed(3).replace(/\.000$/, ""))}</strong></td>
+  </tr>`).join("") || `<tr><td colspan="4" class="muted">لا توجد أصناف مطابقة للبحث.</td></tr>`;
+
+  const transfers = state.warehouseTransferReport && Array.isArray(state.warehouseTransferReport.items)
+    ? state.warehouseTransferReport.items
+    : [];
+  const relatedTransfers = selected
+    ? transfers.filter((transfer) => {
+      const selectedKey = String(selected.warehouseKey).toLowerCase();
+      return String(transfer.sourceWarehouseGuid || "").toLowerCase() === selectedKey
+        || String(transfer.destinationWarehouseGuid || "").toLowerCase() === selectedKey;
+    })
+    : transfers;
+  const transferCards = relatedTransfers.slice(0, 100).map((transfer) => {
+    const itemRows = (transfer.items || []).map((item) => `<tr>
+      <td>${escapeHtml(item.itemNumber || "—")}</td><td>${escapeHtml(item.itemName || "")}</td>
+      <td>${escapeHtml(item.unitName || "—")}</td><td class="inv-num">${escapeHtml(String(item.qty ?? 0))}</td>
+    </tr>`).join("");
+    return `<details class="acc-group">
+      <summary class="acc-summary">
+        <span class="acc-title">${escapeHtml(transfer.date || "")} · #${escapeHtml(transfer.number || "—")} · من ${escapeHtml(transfer.sourceWarehouseName || "؟")} إلى ${escapeHtml(transfer.destinationWarehouseName || "؟")}</span>
+        <span class="acc-count">${escapeHtml(String(transfer.itemCount ?? (transfer.items || []).length))}</span>
+      </summary>
+      <div class="acc-body"><div class="inv-table-wrap"><table class="inv-table">
+        <thead><tr><th>الكود</th><th>الصنف</th><th>الوحدة</th><th>الكمية</th></tr></thead>
+        <tbody>${itemRows}</tbody>
+      </table></div></div>
+    </details>`;
+  }).join("") || `<p class="muted">لا يوجد تقرير مناقلات لهذا المستودع بعد.</p>`;
+
+  const purchaseGroups = state.poAmeenReport && Array.isArray(state.poAmeenReport.items) ? state.poAmeenReport.items : [];
+  const warehousePurchases = selected ? purchaseGroups.flatMap((supplier) =>
+    (supplier.invoices || []).map((invoice) => ({ ...invoice, supplierName: supplier.name || "" })))
+    .filter((invoice) => String(invoice.warehouseGuid || "").toLowerCase() === String(selected.warehouseKey).toLowerCase())
+    .sort((a, b) => String(b.date || "").localeCompare(String(a.date || ""))) : [];
+  const purchaseCards = warehousePurchases.slice(0, 100).map((invoice) => `<details class="acc-group">
+    <summary class="acc-summary">
+      <span class="acc-title">${escapeHtml(invoice.date || "")} · #${escapeHtml(invoice.number || "—")} · ${escapeHtml(invoice.supplierName)}${invoice.isReturn ? " · مرتجع" : ""}</span>
+      <span class="acc-count">${escapeHtml(String((invoice.items || []).length))}</span>
+    </summary>
+    <div class="acc-body">
+      <p class="muted">المستودع: ${escapeHtml(invoice.warehouseName || selected?.warehouseName || "غير محدد")} · الإجمالي: ${escapeHtml(String(invoice.total ?? 0))} ${escapeHtml(invoice.currency || "")}</p>
+      <div class="inv-table-wrap"><table class="inv-table"><thead><tr><th>الكود</th><th>الصنف</th><th>الوحدة</th><th>الكمية</th></tr></thead>
+      <tbody>${(invoice.items || []).map((item) => `<tr><td>${escapeHtml(item.itemNumber || "—")}</td><td>${escapeHtml(item.itemName || "")}</td><td>${escapeHtml(item.unit || "—")}</td><td class="inv-num">${escapeHtml(String(item.qty ?? 0))}</td></tr>`).join("")}</tbody>
+      </table></div>
+    </div>
+  </details>`).join("") || `<p class="muted">${state.poAmeenReport ? "لا توجد فواتير شراء لهذا المستودع ضمن الفترة المتزامنة." : "بيانات فواتير الشراء محمية وتظهر فقط للحساب المخوّل بعد مزامنة التقرير."}</p>`;
+
+  return shell(`
+    <section class="panel wide">
+      <div class="panel-title-row">
+        <div><h2 style="margin:0">المخزون حسب المستودع</h2><p class="muted" style="margin:4px 0 0">قراءة مباشرة متزامنة من Ameen؛ لا يمكن تعديل الكميات من هذه الصفحة.</p></div>
+        <button class="button secondary" type="button" data-action="warehouse-refresh" ${state.warehouseLoading ? "disabled" : ""}>${state.warehouseLoading ? "جاري التحديث…" : "↻ تحديث"}</button>
+      </div>
+      <div class="inv-actions" style="margin-top:12px">${warehouseCards || '<span class="muted">لا توجد تقارير مستودعات بعد.</span>'}</div>
+      ${selected ? `
+        <div class="inv-header-fields" style="margin-top:14px">
+          <label class="inv-label">بحث ضمن ${escapeHtml(selected.warehouseName)}
+            <input id="warehouse-search" class="inv-input-main" value="${escapeHtml(state.warehouseSearch)}" placeholder="اسم الصنف أو الكود" autocomplete="off">
+          </label>
+          <label class="inv-label" style="justify-content:flex-end"><span><input id="warehouse-show-zero" type="checkbox" ${state.warehouseShowZero ? "checked" : ""}> إظهار الأصناف ذات الرصيد صفر</span></label>
+        </div>
+        <p class="muted">آخر مزامنة: ${escapeHtml(formatDateTime((report?.summary && report.summary.generated_at) || report?.created_at))} · المعروض ${visibleItems.length} من ${rawItems.length}</p>
+        <div class="inv-table-wrap"><table class="inv-table">
+          <thead><tr><th>الكود</th><th>الصنف</th><th>الوحدة</th><th>الرصيد</th></tr></thead>
+          <tbody>${stockRows}</tbody>
+        </table></div>
+      ` : ""}
+    </section>
+    <section class="panel wide" style="margin-top:16px">
+      <div class="panel-title-row"><h2 style="margin:0">المشتريات الداخلة إلى ${escapeHtml(selected?.warehouseName || "المستودع")}</h2>
+        <small class="muted">${warehousePurchases.length} فاتورة ضمن التقرير المتزامن</small>
+      </div>
+      <div style="margin-top:12px">${purchaseCards}</div>
+    </section>
+    <section class="panel wide" style="margin-top:16px">
+      <div class="panel-title-row"><h2 style="margin:0">المناقلات المرتبطة بـ${escapeHtml(selected?.warehouseName || "المستودعات")}</h2>
+        <small class="muted">${relatedTransfers.length} مناقلة · آخر تقرير ${escapeHtml(formatDateTime(state.warehouseTransferReport?.created_at))}</small>
+      </div>
+      <div style="margin-top:12px">${transferCards}</div>
+    </section>
+  `);
 }
 
 // ===== الجرد الشهري (route: inventoryRecon) =====
@@ -8973,6 +9135,7 @@ function render() {
     payments,
     sales: salesInvoice,
     purchases,
+    warehouses,
     inventoryRecon,
     dashboard: reportsPage,
     staff: staffPage,
@@ -9301,6 +9464,32 @@ function render() {
   });
   app.querySelectorAll("[data-po-copy]").forEach((btn) => {
     btn.addEventListener("click", () => copyPurchaseInvoiceText(btn.dataset.poCopy));
+  });
+
+  // ===== المستودعات والمناقلات (قراءة فقط) =====
+  app.querySelectorAll("[data-warehouse-pick]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      state.warehouseSelectedKey = btn.dataset.warehousePick;
+      state.warehouseSearch = "";
+      render();
+    });
+  });
+  app.querySelector("#warehouse-search")?.addEventListener("input", (event) => {
+    state.warehouseSearch = event.currentTarget.value;
+    render();
+    requestAnimationFrame(() => {
+      const input = app.querySelector("#warehouse-search");
+      if (input) { input.focus(); input.setSelectionRange(input.value.length, input.value.length); }
+    });
+  });
+  app.querySelector("#warehouse-show-zero")?.addEventListener("change", (event) => {
+    state.warehouseShowZero = event.currentTarget.checked;
+    render();
+  });
+  app.querySelector("[data-action='warehouse-refresh']")?.addEventListener("click", async () => {
+    await loadReconWarehouses();
+    await loadWarehouseDashboard();
+    render();
   });
 
   // ===== الجرد الشهري (route: inventoryRecon) =====
