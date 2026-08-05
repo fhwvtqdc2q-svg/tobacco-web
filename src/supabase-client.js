@@ -78,6 +78,8 @@
   const hasLibrary = Boolean(window.supabase?.createClient);
   const tableName = config.requestsTable || "customer_requests";
   const inventoryReportsTable = config.inventoryReportsTable || "inventory_reports";
+  const warehouseStockReportsTable = config.warehouseStockReportsTable || "ameen_warehouse_stock_reports";
+  const warehouseTransferReportsTable = config.warehouseTransferReportsTable || "ameen_warehouse_transfer_reports";
   const creditLimitsTable = config.creditLimitsTable || "customer_credit_limits";
   const approvedPricesTable = config.approvedPricesTable || "approved_price_items";
   const paymentRecordsTable = config.paymentRecordsTable || "payment_records";
@@ -87,6 +89,7 @@
   const purchaseInvoicesTable = config.purchaseInvoicesTable || "purchase_invoices";
   const itemSnapshotTable = config.itemSnapshotTable || "ameen_item_snapshot";
   const purchaseInvoiceReportsTable = config.purchaseInvoiceReportsTable || "ameen_purchase_invoice_reports";
+  const reconSessionsTable = config.reconSessionsTable || "inventory_recon_sessions";
   const client =
     hasConfig && hasLibrary
       ? window.supabase.createClient(config.url, config.publishableKey, {
@@ -1229,6 +1232,216 @@
 
       if (error) throw new Error(translateDbError(error.message));
       return data?.[0] || localReport;
+    },
+
+    // ============================================================
+    // الجرد الشهري (تسوية المخزون) — تسجيلي فقط. اعتماد الجلسة يقفل
+    // السجل (status='approved') ولا يغيّر أي مخزون أو حساب في الأمين
+    // أو Supabase. انظر tools/push-inventory-reconciliation-to-ameen.ps1
+    // (stub مقفل بـ exit 1) وsupabase/inventory-reconciliation-table.sql.
+    // ============================================================
+
+    async listReconSessions() {
+      if (!client) return [];
+      const session = await getSupabaseSession();
+      if (!session) return [];
+      try {
+        const { data, error } = await client
+          .from(reconSessionsTable)
+          .select("id, session_date, session_month, warehouse_key, warehouse_name, status, idempotency_key, notes, created_by, created_at, updated_at, reviewed_at, reviewed_by, approved_at, approved_by, source_report_id, source_report_date")
+          .order("session_date", { ascending: false })
+          .limit(50);
+        if (error) return [];
+        return data || [];
+      } catch {
+        return [];
+      }
+    },
+
+    async getReconSession(sessionId) {
+      if (!client || !sessionId) return null;
+      const session = await getSupabaseSession();
+      if (!session) return null;
+      const { data: sessionRow, error: sessionError } = await client
+        .from(reconSessionsTable)
+        .select("id, session_date, session_month, warehouse_key, warehouse_name, status, idempotency_key, notes, created_by, created_at, updated_at, reviewed_at, reviewed_by, approved_at, approved_by, source_report_id, source_report_date")
+        .eq("id", sessionId)
+        .maybeSingle();
+      if (sessionError) throw new Error(translateDbError(sessionError.message));
+      if (!sessionRow) return null;
+
+      // inventory_recon_lines_select أصبحت owner-only بحسب RLS — القراءة
+      // تمر عبر RPC مقنَّعة (SECURITY DEFINER) تُخفي unit_cost/currency/
+      // settlement_value لغير المالك بدل .from() المباشر الذي كان سيُرجع
+      // صفوفاً فارغة تماماً لمنشئ الجلسة نفسه إن لم يكن هو المالك.
+      const { data: lines, error: linesError } = await client.rpc("inventory_recon_lines_for_session", {
+        p_session_id: sessionId
+      });
+      if (linesError) throw new Error(translateDbError(linesError.message));
+
+      return { ...sessionRow, lines: lines || [] };
+    },
+
+    // يستدعي inventory_recon_create_session_with_lines (RPC) بدل طلبين منفصلين
+    // (إنشاء جلسة ثم حفظ سطور) — بدون ذلك يترك انقطاع الشبكة بين الطلبين جلسة
+    // فارغة محفوظة بلا سطور. الدالة تُدرج الجلسة والسطور ضمن معاملة واحدة على
+    // الخادم وترفض أي محاولة إنشاء جلسة بلا سطر إطلاقاً.
+    async createReconSessionWithLines(input, lines) {
+      if (!client) throw new Error("إنشاء جلسة جرد يتطلب اتصالاً بـ Supabase.");
+      await requireUser();
+
+      const warehouseKey = cleanText(input.warehouseKey, 60);
+      const idempotencyKey = cleanText(input.idempotencyKey, 200);
+      if (!warehouseKey || !idempotencyKey) {
+        throw new Error("لا يمكن إنشاء جلسة جرد بدون مستودع.");
+      }
+      if (!input.sourceReportId) {
+        throw new Error("لا يمكن إنشاء جلسة جرد بدون تقرير مخزون مستودع موثوق.");
+      }
+
+      // لا تُرسَل system_qty/unit_cost/item_number/item_name/unit_name/currency من المتصفح:
+      // الخادم يشتقّها داخل الـRPC من تقرير inventory_reports الموثوق (p_source_report_id)
+      // وجدول item_costs — العميل يرسل فقط الكمية الفعلية والسبب.
+      const rows = (Array.isArray(lines) ? lines : []).map((line) => ({
+        item_key: line.itemKey,
+        actual_qty: line.actualQty === "" || line.actualQty === undefined ? null : line.actualQty,
+        reason: line.reason || null
+      }));
+      if (!rows.length) {
+        throw new Error("أضف صنفاً واحداً على الأقل قبل الحفظ.");
+      }
+
+      const { data, error } = await client.rpc("inventory_recon_create_session_with_lines", {
+        p_session_date: input.sessionDate,
+        p_session_month: input.sessionMonth,
+        p_warehouse_key: warehouseKey,
+        p_warehouse_name: cleanText(input.warehouseName, 120),
+        p_notes: cleanText(input.notes, 500),
+        p_idempotency_key: idempotencyKey,
+        p_source_report_id: input.sourceReportId,
+        p_lines: rows
+      });
+
+      if (error) throw new Error(translateDbError(error.message));
+      return data || null;
+    },
+
+    // كل الكتابة على inventory_recon_sessions مقفلة عن authenticated (SELECT
+    // فقط)؛ التحديث الوحيد المسموح يمر عبر RPC بـSECURITY DEFINER
+    // (inventory_recon_set_status) الذي يتحقق من auth.uid() ويحدّث بشرط
+    // status=expectedStatus ذرياً، بينما trigger inventory_recon_guard_immutable
+    // يفرض صحة الانتقال وحصر الاعتماد بالمالك ويختم reviewed_by/approved_by
+    // من الخادم حصراً — لا حاجة لإرسال أي من ذلك من العميل.
+    async setReconSessionStatus(sessionId, nextStatus, expectedStatus) {
+      if (!client) throw new Error("تحديث حالة جلسة الجرد يتطلب اتصالاً بـ Supabase.");
+      const canTransition = window.invRecCalc && typeof window.invRecCalc.canTransitionStatus === "function"
+        ? window.invRecCalc.canTransitionStatus(expectedStatus, nextStatus)
+        : true;
+      if (!canTransition) {
+        throw new Error("لا يمكن الانتقال إلى هذه الحالة من الحالة الحالية.");
+      }
+      await requireUser();
+
+      const { error } = await client.rpc("inventory_recon_set_status", {
+        p_session_id: sessionId,
+        p_next_status: nextStatus,
+        p_expected_status: expectedStatus
+      });
+
+      if (error) throw new Error(translateDbError(error.message));
+    },
+
+    // حذف مسودة جرد — يمر حصراً عبر inventory_recon_delete_draft (SECURITY
+    // DEFINER) الذي يقفل الصف ويتحقق من status='draft' والملكية قبل الحذف؛
+    // مسموح فقط بحذف draft، وreviewed/approved تُرفض من داخل الدالة نفسها.
+    async deleteReconDraft(sessionId) {
+      if (!client) throw new Error("حذف مسودة الجرد يتطلب اتصالاً بـ Supabase.");
+      await requireUser();
+
+      const { error } = await client.rpc("inventory_recon_delete_draft", {
+        p_session_id: sessionId
+      });
+
+      if (error) throw new Error(translateDbError(error.message));
+    },
+
+    // مخزون النظام حسب المستودع — يُرفع بواسطة tools/push-ameen-warehouse-stock.ps1
+    // إلى جدول ameen_warehouse_stock_reports المستقل (مراجعة Codex على PR #40،
+    // الجولة الثانية — كتابة محصورة بحساب المزامنة الموثوق عبر RLS)،
+    // تقرير مستقل لكل مستودع حقيقي بالأمين.
+    async getLatestWarehouseStockReport(warehouseKey) {
+      if (!client) return null;
+      const session = await getSupabaseSession();
+      if (!session) return null;
+      // نجلب أحدث بضع تقارير عامة ثم نختار أحدث تقرير يطابق المستودع فعلياً —
+      // بما أن warehouse_key مخزّن داخل summary (JSON) لا كعمود مفهرس مستقل،
+      // لا يمكن تصفيته بـ.eq() على مستوى الاستعلام مباشرة.
+      const { data, error } = await client
+        .from(warehouseStockReportsTable)
+        .select("id, summary, items, created_at")
+        .order("created_at", { ascending: false })
+        .limit(20);
+      if (error || !data) return null;
+      if (!warehouseKey) return data[0] || null;
+      return data.find((row) => row.summary && row.summary.warehouseKey === warehouseKey) || null;
+    },
+
+    // يجلب كل التقارير الحديثة بطلب شبكة واحد ثم يحتفظ بأحدث تقرير لكل GUID.
+    // مخصص لصفحة المستودعات كي لا تنفذ طلباً منفصلاً لكل مستودع على الموبايل.
+    async listLatestWarehouseStockReports() {
+      if (!client) return [];
+      const session = await getSupabaseSession();
+      if (!session) return [];
+      const { data, error } = await client
+        .from(warehouseStockReportsTable)
+        .select("id, summary, items, created_at")
+        .order("created_at", { ascending: false })
+        .limit(100);
+      if (error) throw new Error(translateDbError(error.message));
+      const latestByWarehouse = new Map();
+      for (const report of data || []) {
+        const key = report.summary && report.summary.warehouseKey;
+        if (key && !latestByWarehouse.has(key)) latestByWarehouse.set(key, report);
+      }
+      return Array.from(latestByWarehouse.values());
+    },
+
+    // قائمة المستودعات الحقيقية المتاحة للجرد — مبنية من أحدث تقارير
+    // ameen_warehouse_stock فعلياً، وليست ثابتة بالكود؛ لا تُخترَع أي قيمة
+    // "جملة"/"مركز عام" هنا. المفتاح الموثوق هو GUID المستودع بالأمين.
+    async listReconWarehouses() {
+      if (!client) return [];
+      const session = await getSupabaseSession();
+      if (!session) return [];
+      const { data, error } = await client
+        .from(warehouseStockReportsTable)
+        .select("summary, created_at")
+        .order("created_at", { ascending: false })
+        .limit(50);
+      if (error || !data) return [];
+      const byKey = new Map();
+      for (const row of data) {
+        const key = row.summary && row.summary.warehouseKey;
+        const name = row.summary && row.summary.warehouseName;
+        if (!key || !name || byKey.has(key)) continue;
+        byKey.set(key, { warehouseKey: key, warehouseName: name, createdAt: row.created_at });
+      }
+      return Array.from(byKey.values()).sort((a, b) => a.warehouseName.localeCompare(b.warehouseName, "ar"));
+    },
+
+    // أحدث تقرير مناقلات مستودعات موثوق. يحتوي كل عنصر على مستودع المصدر
+    // والوجهة والبنود بعد تحقق سكربت القراءة من توازن طرفي المناقلة.
+    async getLatestWarehouseTransferReport() {
+      if (!client) return null;
+      const session = await getSupabaseSession();
+      if (!session) return null;
+      const { data, error } = await client
+        .from(warehouseTransferReportsTable)
+        .select("id, report_date, summary, items, created_at")
+        .order("created_at", { ascending: false })
+        .limit(1);
+      if (error) throw new Error(translateDbError(error.message));
+      return (data && data[0]) || null;
     }
   };
 

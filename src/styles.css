@@ -222,6 +222,13 @@ code {
 }
 .button.success:hover { background: #15632f; }
 
+.button.danger {
+  background: var(--danger);
+  color: #fff;
+  border-color: var(--danger);
+}
+.button.danger:hover { opacity: .88; }
+
 .bulletin-status { margin: 6px 0 2px; font-size: 0.88rem; padding: 6px 10px; border-radius: 6px; }
 .bulletin-status.success { background: #0d2e1a; color: #4caf7d; }
 .bulletin-status.error   { background: #2e0d0d; color: #f06060; }
