@@ -10,12 +10,16 @@
 -- في ameen-purchase-invoice-reports.sql: جدول مستقل بسياسة INSERT محصورة
 -- بحساب المزامنة الموثوق فقط، لا اعتماد على قيمة source وحدها.
 --
--- خلافاً لتقرير فواتير المشتريات، هذا التقرير يُقرأ من كل موظف مسجَّل
--- (يُستخدم لاختيار المستودع الفعلي وعرض أصنافه عند الجرد الفعلي) — لذلك
--- سياسة SELECT هنا مفتوحة لكل authenticated، والحصر فقط على INSERT.
+-- التقرير يُقرأ فقط للحساب الموجود في staff_allowlist عبر public.is_staff().
+-- مجرد امتلاك حساب authenticated لا يكفي لرؤية كميات المستودعات الحساسة.
 --
--- هذا الملف مستقل بالكامل (self-contained) عمداً: لا يعتمد على أي ملف SQL
--- آخر في هذا المستودع ولا على أي دالة معرَّفة خارجه.
+do $$
+begin
+  if to_regprocedure('public.is_staff()') is null then
+    raise exception 'أوقفت التنفيذ: الدالة public.is_staff() غير موجودة. طبّق staff_allowlist ودالة is_staff() أولاً.';
+  end if;
+end
+$$;
 
 create table if not exists public.ameen_warehouse_stock_reports (
   id uuid default gen_random_uuid() primary key,
@@ -40,13 +44,13 @@ alter table ameen_warehouse_stock_reports enable row level security;
 revoke all on table public.ameen_warehouse_stock_reports from public, anon, authenticated;
 grant select, insert, delete on table public.ameen_warehouse_stock_reports to authenticated;
 
--- القراءة: كل موظف مسجَّل — نفس سلوك inventory_reports السابق لهذا المصدر،
+-- القراءة: موظف موجود في allowlist — نفس سلوك inventory_reports السابق لهذا المصدر،
 -- يستخدمها التطبيق لعرض قائمة المستودعات الفعلية وأصنافها عند الجرد.
 drop policy if exists "authenticated can select ameen_warehouse_stock_reports" on ameen_warehouse_stock_reports;
 create policy "authenticated can select ameen_warehouse_stock_reports"
   on ameen_warehouse_stock_reports for select
   to authenticated
-  using (true);
+  using (public.is_staff());
 
 -- الكتابة (رفع من الأمين): تقتصر على حساب المزامنة الموثوق فقط — نفس
 -- الحساب المستعمل في TOBACCO_SYNC_EMAIL/TOBACCO_SYNC_PASSWORD داخل
@@ -93,7 +97,7 @@ create policy "sync writer can delete ameen_warehouse_stock_reports"
 -- ---------- تعليمات التطبيق (لا تُنفَّذ هنا) ----------
 -- 1. راجع UUID حساب المزامنة الموثوق أعلاه قبل التطبيق.
 -- 2. طبّق هذا الملف عبر Supabase SQL editor أو psql — لم يُطبَّق تلقائياً بهذه الجلسة.
---    لا يتطلب أي ملف SQL آخر كشرط مسبق (self-contained).
+--    يتطلب وجود public.is_staff() وstaff_allowlist المطبّقين في المشروع.
 -- 3. بعد التطبيق: يجب تحديث tools/push-ameen-warehouse-stock.ps1 ليكتب على
 --    هذا الجدول بدل inventory_reports (تم تحديثه بالفعل بهذا التغيير)، وتفريغ
 --    أي صفوف قديمة بمصدر ameen_warehouse_stock من inventory_reports يدوياً إن رغبت

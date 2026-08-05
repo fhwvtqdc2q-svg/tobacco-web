@@ -3,6 +3,14 @@
 
 begin;
 
+do $$
+begin
+  if to_regprocedure('public.is_staff()') is null then
+    raise exception 'أوقفت التنفيذ: الدالة public.is_staff() غير موجودة. طبّق staff_allowlist ودالة is_staff() أولاً.';
+  end if;
+end
+$$;
+
 create table if not exists public.ameen_warehouse_transfer_reports (
   id uuid default gen_random_uuid() primary key,
   report_date date not null default current_date,
@@ -43,7 +51,7 @@ drop policy if exists "authenticated can select ameen warehouse transfers"
 create policy "authenticated can select ameen warehouse transfers"
   on public.ameen_warehouse_transfer_reports
   for select to authenticated
-  using (true);
+  using (public.is_staff());
 
 drop policy if exists "sync writer can insert ameen warehouse transfers"
   on public.ameen_warehouse_transfer_reports;

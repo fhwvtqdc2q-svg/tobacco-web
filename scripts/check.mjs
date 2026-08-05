@@ -1780,6 +1780,8 @@ for (const contract of [
   const transferSqlMigration = readFileSync("supabase/ameen-warehouse-transfer-reports.sql", "utf8");
   for (const contract of [
     "alter table public.ameen_warehouse_transfer_reports enable row level security",
+    "to_regprocedure('public.is_staff()')",
+    "using (public.is_staff())",
     "revoke all on table public.ameen_warehouse_transfer_reports from public, anon, authenticated",
     "grant select, insert, delete on table public.ameen_warehouse_transfer_reports to authenticated",
     "public.ameen_warehouse_transfer_reports_is_sync_writer()",
@@ -1790,6 +1792,12 @@ for (const contract of [
       console.error(`Warehouse transfer SQL contract is missing: ${contract}`);
       failed = true;
     }
+  }
+
+  const warehouseStockSql = readFileSync("supabase/ameen-warehouse-stock-reports.sql", "utf8");
+  if (!warehouseStockSql.includes("using (public.is_staff())") || warehouseStockSql.includes("using (true);")) {
+    console.error("Warehouse stock SELECT must require public.is_staff(); authenticated-only access is too broad.");
+    failed = true;
   }
 
   const clientSource = readFileSync("src/supabase-client.js", "utf8");
