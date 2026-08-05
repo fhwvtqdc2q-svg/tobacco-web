@@ -678,7 +678,7 @@ begin
   -- مراجعة Codex على PR #40: source='ameen_warehouse_stock' وحده لا يكفي —
   -- يجب التحقق أن الصف فعلاً أنشأه حساب المزامنة الموثوق (created_by
   -- المخزَّن بالصف نفسه، وليس أي قيمة يرسلها العميل).
-  if not inventory_recon_warehouse_stock_report_is_trusted(v_report_created_by) then
+  if not public.inventory_recon_warehouse_stock_report_is_trusted(v_report_created_by) then
     raise exception 'inventory_recon: تقرير مخزون المستودع (%) ليس من حساب المزامنة الموثوق', p_source_report_id;
   end if;
 

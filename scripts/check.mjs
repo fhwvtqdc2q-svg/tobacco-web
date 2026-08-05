@@ -1617,7 +1617,7 @@ for (const contract of [
     console.error("inventory_recon_create_session_with_lines must select created_by/created_at from inventory_reports, not just report_date/summary/items.");
     failed = true;
   }
-  if (!/if not inventory_recon_warehouse_stock_report_is_trusted\(v_report_created_by\) then/.test(createSessionBodyForTrust)) {
+  if (!/if not public\.inventory_recon_warehouse_stock_report_is_trusted\(v_report_created_by\) then/.test(createSessionBodyForTrust)) {
     console.error("inventory_recon_create_session_with_lines must reject any source report whose created_by is not the trusted sync account — source='ameen_warehouse_stock' alone is spoofable by any authenticated employee.");
     failed = true;
   }
