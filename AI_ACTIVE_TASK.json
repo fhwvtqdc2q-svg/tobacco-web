@@ -1,11 +1,13 @@
 {
-  "schemaVersion": 1,
-  "status": "idle",
-  "owner": null,
-  "task": null,
-  "branch": null,
-  "files": [],
-  "startedAt": null,
-  "updatedAt": "2026-08-05T20:18:06Z",
-  "note": "No active task. Read AI_HANDOFF.md before starting work."
+    "schemaVersion":  1,
+    "status":  "active",
+    "owner":  "Claude",
+    "task":  "سند القيد: واجهة وتخزين مسودات القيود المحاسبية الداخلية بدون كتابة للأمين",
+    "branch":  "task branch pending for: سند القيد: واجهة وتخزين مسودات القيود المحاسبية الداخلية بدون كتابة للأمين",
+    "files":  [
+                  "src/app.js,src/styles.css,src/journal-entries.js,public/service-worker.js,supabase/journal-entries-tables.sql"
+              ],
+    "startedAt":  "2026-08-05T20:19:48Z",
+    "updatedAt":  "2026-08-05T20:19:48Z",
+    "note":  "Work in progress. Do not edit the reserved files."
 }
