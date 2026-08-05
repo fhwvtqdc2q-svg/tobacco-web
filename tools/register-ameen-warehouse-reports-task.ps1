@@ -1,4 +1,4 @@
-#requires -Version 5.1
+﻿#requires -Version 5.1
 # يسجّل مزامنة تقارير المستودعات والمناقلات. يتطلب Administrator.
 [CmdletBinding(SupportsShouldProcess)]
 param(
