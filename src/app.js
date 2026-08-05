@@ -185,7 +185,7 @@ function syncFreshnessLabel(value) {
   return `قبل ${Math.round(minutes / 60)} ساعة`;
 }
 
-const allowedRoutes = new Set(["overview", "login", "requests", "ameen", "balances", "pricing", "remote", "monitoring", "payments", "purchases", "sales", "inventoryRecon"]);
+const allowedRoutes = new Set(["overview", "login", "requests", "ameen", "balances", "pricing", "remote", "monitoring", "payments", "purchases", "sales", "inventoryRecon", "staff", "search", "ai", "dashboard"]);
 
 const customerPriceContacts = [
   { label: "هاتف المبيعات", value: "0985000771" },
@@ -2723,7 +2723,6 @@ function shell(content) {
           ${navButton("ameen", "📦 الأمين")}
           ${state.session ? navButton("balances", "💳 أرصدة الزبائن") : ""}
           ${navButton("pricing", "نشرة الأسعار")}
-          ${state.session ? navButton("invoice", "📄 الفواتير") : ""}
           ${state.session ? navButton("sales", "🧮 فاتورة مبيعات") : ""}
           ${state.session ? navButton("purchases", "🧾 فواتير مشتريات") : ""}
           ${state.session ? navButton("inventoryRecon", "📋 الجرد الشهري") : ""}
@@ -2791,7 +2790,6 @@ function pageTitle() {
     monitoring: "المراقبة",
     payments: "الدفع",
     ai: "المساعد الذكي",
-    invoice: "الفواتير بالدولار",
     sales: "فاتورة مبيعات",
     purchases: "فواتير المشتريات",
     inventoryRecon: "الجرد الشهري",
@@ -2802,33 +2800,23 @@ function pageTitle() {
 }
 
 function overview() {
-  const done = completionPercent();
-  const openRequests = state.requests.filter((request) => request.status !== "مغلق").length;
+  const contactInfo = [];
+  if (appConfig.centerNumber) {
+    contactInfo.push(`المركز: ${escapeHtml(appConfig.centerNumber)}`);
+  }
+  if (appConfig.privateNumber) {
+    contactInfo.push(`الخاص: ${escapeHtml(appConfig.privateNumber)}`);
+  }
 
   return shell(`
     <section class="hero-panel business-hero">
       <div class="hero-copy">
         <img class="hero-logo" src="public/icons/ozk-logo.png" alt="OZK TOBACCO" />
-        <div class="metric-row">
-          <div class="metric">
-            <strong>${openRequests}</strong>
-            <span>طلبات مفتوحة</span>
-          </div>
-          <div class="metric">
-            <strong>${done}%</strong>
-            <span>جاهزية الميزات</span>
-          </div>
-          <div class="metric">
-            <strong>${dataStore.isConfigured() ? "مباشر" : "تجريبي"}</strong>
-            <span>${dataStore.isConfigured() ? "قاعدة Supabase" : "حفظ محلي"}</span>
-          </div>
-        </div>
-      </div>
-      <div class="status-board">
-        ${monitoringCards.map(statusCard).join("")}
+        <h1 style="font-weight: bold; font-size: 1.8em; margin: 20px 0 10px 0;">مركز أبو زياد OZK TOBACCO</h1>
+        <p style="font-size: 1.1em; margin: 10px 0 20px 0;">لتجارة الدخان الوطني والأجنبي والمستورد</p>
+        ${contactInfo.length > 0 ? `<p style="margin: 15px 0 0 0; color: #666;">${contactInfo.join(" | ")}</p>` : ""}
       </div>
     </section>
-
   `);
 }
 
@@ -3124,7 +3112,7 @@ function customerLimitMap() {
 
 function deriveCustomerStatus(balance, limit) {
   if (limit > 0 && balance > limit) return "over_limit";
-  if (limit > 0 && balance > 0 && balance >= limit * 0.8) return "near_limit";
+  if (limit > 0 && balance > 0 && balance >= limit * 0.9) return "near_limit";
   if (balance > 0) return "open_balance";
   if (balance < 0) return "credit_balance";
   return "clear";
@@ -4648,17 +4636,6 @@ function customerBalanceSection(report) {
           ? `<div class="inline-warning">تعذر تحميل أو حفظ الحدود الداخلية. شغل ملف <code>supabase/customer-credit-limits.sql</code> في Supabase SQL Editor ثم حدث الصفحة. الخطأ: ${escapeHtml(state.customerLimitError)}</div>`
           : ""
       }
-      <div class="inventory-metrics">
-        ${inventoryMetric("عدد الزبائن", summary.totalCustomers || items.length, "من cu000")}
-        ${inventoryMetric("عليهم رصيد", totals.debitCustomers, "رصيد موجب")}
-        ${inventoryMetric("إجمالي الديون", formatMoney(totals.totalDebitBalance), "مجموع الأرصدة الموجبة")}
-        ${inventoryMetric("لهم رصيد", totals.creditCustomers, "رصيد سالب")}
-        ${inventoryMetric("إجمالي لصالحهم", formatMoney(totals.totalCreditBalance), "مجموع الأرصدة السالبة")}
-        ${inventoryMetric("تجاوزوا الحد", counts.over_limit, "حسب الحد الفعال")}
-        ${inventoryMetric("حدود مسجلة", totals.customersWithLimit, "داخلي أو من الأمين")}
-        ${inventoryMetric("لهم آخر دفعة", totals.customersWithPayment, "من حركات حساب الزبون")}
-        ${inventoryMetric("بلا حد", counts.no_limit, "لا يوجد حد مسجل")}
-      </div>
       <div class="inventory-controls">
         <label>
           بحث باسم الزبون
@@ -8947,7 +8924,6 @@ function render() {
     remote,
     monitoring,
     payments,
-    invoice,
     sales: salesInvoice,
     purchases,
     inventoryRecon,
