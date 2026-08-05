@@ -1827,6 +1827,146 @@ for (const contract of [
   }
 }
 
+// ============ Journal Entries Tests ============
+{
+  const vm = await import("node:vm");
+  const journalEntrySource = readFileSync("src/journal-entries.js", "utf8");
+  const appJs = readFileSync("src/app.js", "utf8");
+  const sqlSchema = readFileSync("supabase/journal-entries-tables.sql", "utf8");
+  const clientSource = readFileSync("src/supabase-client.js", "utf8");
+  const swSource = readFileSync("public/service-worker.js", "utf8");
+
+  const journalSandbox = {
+    console,
+    Date,
+    Math,
+    Number,
+    String,
+    Array,
+    Object,
+    JSON,
+    window: {}
+  };
+  vm.runInNewContext(`${journalEntrySource}\nwindow.__journal = { JournalEntry, formatTodayIso, roundTo2 };`, journalSandbox);
+  const { JournalEntry } = journalSandbox.window.__journal || {};
+  if (typeof JournalEntry !== "function") {
+    console.error("JournalEntry class did not load عبر vm");
+    failed = true;
+  } else {
+    const entry = new JournalEntry({
+      date: "2026-08-06",
+      referenceNumber: "REF-14500",
+      operationType: "fund_transfer",
+      description: "قيد اختبار",
+      notes: "ملاحظة",
+      exchangeRate: 14500,
+      lines: [
+        { account: "صندوق السوري", currency: "SYP", amount: 1450000, side: "debit", lineNote: "سطر 1" },
+        { account: "صندوق الدولار", currency: "USD", amount: 100, side: "credit", lineNote: "سطر 2" }
+      ]
+    });
+    entry.recalculate();
+    const balance = entry.getBalance();
+    if (!balance.isBalanced || balance.totalDebit !== 100 || balance.totalCredit !== 100 || balance.difference !== 0) {
+      console.error(`JournalEntry balance failed: ${JSON.stringify(balance)}`);
+      failed = true;
+    }
+    const json = entry.toJSON();
+    if (
+      json.reference_number !== "REF-14500" ||
+      json.operation_type !== "fund_transfer" ||
+      json.exchange_rate !== 14500 ||
+      json.lines?.[0]?.value_in_usd !== 100 ||
+      json.lines?.[0]?.line_note !== "سطر 1"
+    ) {
+      console.error(`JournalEntry toJSON contract failed: ${JSON.stringify(json)}`);
+      failed = true;
+    }
+    const roundTrip = JournalEntry.fromJSON(json);
+    if (
+      roundTrip.referenceNumber !== "REF-14500" ||
+      roundTrip.operationType !== "fund_transfer" ||
+      roundTrip.exchangeRate !== 14500 ||
+      roundTrip.lines?.[0]?.valueInUsd !== 100 ||
+      roundTrip.lines?.[0]?.lineNote !== "سطر 1"
+    ) {
+      console.error("JournalEntry fromJSON round-trip failed");
+      failed = true;
+    }
+    for (const bad of [
+      new JournalEntry({ exchangeRate: 0, lines: entry.lines }),
+      new JournalEntry({ exchangeRate: 14500, lines: [{ account: "a", currency: "USD", amount: -1, side: "debit" }, { account: "b", currency: "USD", amount: 1, side: "credit" }] }),
+      new JournalEntry({ exchangeRate: 14500, lines: [{ account: "a", currency: "USD", amount: Number.NaN, side: "debit" }, { account: "b", currency: "USD", amount: 1, side: "credit" }] }),
+      new JournalEntry({ exchangeRate: 14500, lines: [{ account: "a", currency: "USD", amount: Number.POSITIVE_INFINITY, side: "debit" }, { account: "b", currency: "USD", amount: 1, side: "credit" }] }),
+      new JournalEntry({ exchangeRate: 14500, lines: [{ account: "a", currency: "USD", amount: 0, side: "debit" }, { account: "b", currency: "USD", amount: 0, side: "credit" }] })
+    ]) {
+      bad.recalculate();
+      if (bad.validate().isValid) {
+        console.error("JournalEntry accepted invalid payload");
+        failed = true;
+      }
+    }
+  }
+
+  for (const pattern of ["OZKSync", "UPDATE MaterialPrice"]) {
+    if (journalEntrySource.toLowerCase().includes(pattern.toLowerCase()) || clientSource.toLowerCase().includes(pattern.toLowerCase())) {
+      console.error(`Journal entries must NOT write to Ameen: found "${pattern}"`);
+      failed = true;
+    }
+  }
+  if (sqlSchema.includes("INSERT INTO ce000") || sqlSchema.includes("INSERT INTO en000") || sqlSchema.includes("UPDATE ce000") || sqlSchema.includes("UPDATE en000")) {
+    console.error("Journal SQL must not write to Ameen tables");
+    failed = true;
+  }
+
+  for (const contract of ["BEGIN;", "COMMIT;", "SET search_path = ''", "(select auth.uid())", "jsonb_array_length(p_lines) < 2", "v_amount <= 0", "Journal entry is not balanced"]) {
+    if (!sqlSchema.includes(contract)) {
+      console.error(`Journal SQL contract missing: ${contract}`);
+      failed = true;
+    }
+  }
+
+  if (!clientSource.includes('p_reference_number: normalized.referenceNumber') ||
+      !clientSource.includes('p_operation_type: normalized.operationType') ||
+      !clientSource.includes('p_exchange_rate: normalized.exchangeRate') ||
+      !clientSource.includes('value_in_usd: line.valueInUsd') ||
+      !clientSource.includes('line_note: cleanText(line.lineNote, 300)')) {
+    console.error("RPC payload mapping is incomplete");
+    failed = true;
+  }
+
+  if (!clientSource.includes('lines:journal_entry_lines(')) {
+    console.error("listJournalEntries must fetch lines for reliable balances");
+    failed = true;
+  }
+
+  if (!appJs.includes('state.journalOpenId = "new";')) {
+    console.error("Copy flow must keep editor open with journalOpenId = new");
+    failed = true;
+  }
+
+  if (!appJs.includes("throw e;") || !appJs.includes("const saved = await saveJournalEntry(state.journalCurrentEntry);")) {
+    console.error("Save failure path is not wired to preserve the editor");
+    failed = true;
+  }
+
+  if (appJs.includes('if (!confirm("هل تريد حذف هذه المسودة؟')) {
+    console.error("Duplicate delete confirm still exists inside deleteJournalEntry");
+    failed = true;
+  }
+
+  if (!readFileSync("src/number-normalizer.js", "utf8").includes(".journal-line-amount") ||
+      !readFileSync("src/number-normalizer.js", "utf8").includes(".journal-ex-rate")) {
+    console.error("Arabic number normalization is missing for journal inputs");
+    failed = true;
+  }
+
+  if (!swSource.includes("src/journal-entries.js")) {
+    console.error("Service worker ASSETS must include src/journal-entries.js");
+    failed = true;
+  }
+}
+
 if (failed) {
   process.exit(1);
 }
