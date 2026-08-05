@@ -196,34 +196,21 @@ $$;
 -- وبيانات مصطنعة. الجولة الثانية من المراجعة (بعد نقل هذا التقرير إلى
 -- جدول ameen_warehouse_stock_reports المستقل بسياسة INSERT محصورة —
 -- supabase/ameen-warehouse-stock-reports.sql): هذه الدالة تبقى كطبقة
--- دفاع مضاعفة تتحقق من created_by عبر auth.users مباشرة (SECURITY DEFINER)،
--- بلا اعتماد كامل على سياسة INSERT بجدول واحد فقط. نفس نمط
--- ameen_purchase_invoice_reports_is_sync_writer() في
--- ameen-purchase-invoice-reports.sql.
---
--- ⚠️ قبل تطبيق هذا الملف فعلياً: استبدل البريد أدناه ببريد حساب المزامنة
--- الحقيقي (قيمة متغير البيئة TOBACCO_SYNC_EMAIL على جهاز LOQ — لا تُقرأ
--- ولا تُحفظ في المستودع أبداً). القيمة الحالية 'REPLACE_WITH_SYNC_ACCOUNT_EMAIL'
--- عمداً غير صالحة كي لا تعمل الدالة بالخطأ قبل تعديلها يدوياً.
+-- دفاع مضاعفة تتحقق من created_by بالـUUID الثابت نفسه المستخدم في سياسة
+-- ameen_warehouse_stock_reports. لا يوجد placeholder أو اعتماد على البريد.
 -- ============================================================
 
 create or replace function inventory_recon_warehouse_stock_report_is_trusted(p_created_by uuid)
 returns boolean
 language sql
 stable
-security definer
+security invoker
 set search_path = ''
 as $$
-  select p_created_by is not null
-    and exists (
-      select 1
-      from auth.users u
-      where u.id = p_created_by
-        and coalesce(u.email, '') = 'REPLACE_WITH_SYNC_ACCOUNT_EMAIL'
-    );
+  select p_created_by = '9724dbe4-ecb0-49f7-a6b4-12f7f73c68f3'::uuid;
 $$;
 
-comment on function inventory_recon_warehouse_stock_report_is_trusted(uuid) is 'دفاع مضاعف: يتحقق أن created_by المخزَّن فعلياً بصف ameen_warehouse_stock_reports يطابق حساب المزامنة الموثوق (TOBACCO_SYNC_EMAIL) عبر auth.users — بلا اعتماد على أي قيمة يرسلها العميل، وبلا اعتماد كامل على سياسة INSERT الخاصة بذلك الجدول وحدها. يجب استبدال البريد الثابت داخل الدالة قبل تطبيق هذا الملف.';
+comment on function inventory_recon_warehouse_stock_report_is_trusted(uuid) is 'دفاع مضاعف: يتحقق أن created_by المخزَّن بصف ameen_warehouse_stock_reports يطابق UUID حساب المزامنة الموثوق نفسه المستخدم في سياسة INSERT.';
 
 revoke all on function inventory_recon_warehouse_stock_report_is_trusted(uuid) from public;
 grant execute on function inventory_recon_warehouse_stock_report_is_trusted(uuid) to authenticated;

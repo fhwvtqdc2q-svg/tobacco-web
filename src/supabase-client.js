@@ -1386,6 +1386,26 @@
       return data.find((row) => row.summary && row.summary.warehouseKey === warehouseKey) || null;
     },
 
+    // يجلب كل التقارير الحديثة بطلب شبكة واحد ثم يحتفظ بأحدث تقرير لكل GUID.
+    // مخصص لصفحة المستودعات كي لا تنفذ طلباً منفصلاً لكل مستودع على الموبايل.
+    async listLatestWarehouseStockReports() {
+      if (!client) return [];
+      const session = await getSupabaseSession();
+      if (!session) return [];
+      const { data, error } = await client
+        .from(warehouseStockReportsTable)
+        .select("id, summary, items, created_at")
+        .order("created_at", { ascending: false })
+        .limit(100);
+      if (error) throw new Error(translateDbError(error.message));
+      const latestByWarehouse = new Map();
+      for (const report of data || []) {
+        const key = report.summary && report.summary.warehouseKey;
+        if (key && !latestByWarehouse.has(key)) latestByWarehouse.set(key, report);
+      }
+      return Array.from(latestByWarehouse.values());
+    },
+
     // قائمة المستودعات الحقيقية المتاحة للجرد — مبنية من أحدث تقارير
     // ameen_warehouse_stock فعلياً، وليست ثابتة بالكود؛ لا تُخترَع أي قيمة
     // "جملة"/"مركز عام" هنا. المفتاح الموثوق هو GUID المستودع بالأمين.

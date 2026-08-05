@@ -1681,8 +1681,9 @@ for (const contract of [
     console.error("inventory-reconciliation-table.sql is missing inventory_recon_warehouse_stock_report_is_trusted(uuid) — the source report's created_by must be verified against the trusted sync account, not trusted from source= alone.");
     failed = true;
   }
-  if (!/from auth\.users[\s\S]{0,120}where u\.id = p_created_by/.test(invReconSqlForTrust)) {
-    console.error("inventory_recon_warehouse_stock_report_is_trusted() must resolve the trusted account via auth.users keyed by the report's stored created_by uuid.");
+  if (!/p_created_by\s*=\s*'9724dbe4-ecb0-49f7-a6b4-12f7f73c68f3'::uuid/.test(invReconSqlForTrust)
+      || invReconSqlForTrust.includes("REPLACE_WITH_SYNC_ACCOUNT_EMAIL")) {
+    console.error("inventory_recon_warehouse_stock_report_is_trusted() must compare created_by with the committed sync-account UUID and contain no placeholder.");
     failed = true;
   }
   const createSessionBodyForTrust = (invReconSqlForTrust.split("create or replace function inventory_recon_create_session_with_lines")[1] || "").slice(0, 6000);
@@ -1757,6 +1758,7 @@ for (const contract of [
   for (const contract of [
     '$key = "$family|$date|$number"',
     "[math]::Abs($outQty - $inQty)",
+    "$qty = [decimal]",
     "فشل تحقق المناقلات؛ لن يُرفع تقرير ناقص أو غير متوازن",
     "rest/v1/ameen_warehouse_transfer_reports"
   ]) {
@@ -1803,6 +1805,7 @@ for (const contract of [
   const clientSource = readFileSync("src/supabase-client.js", "utf8");
   for (const contract of [
     "warehouseTransferReportsTable",
+    "async listLatestWarehouseStockReports()",
     "async getLatestWarehouseTransferReport()",
     ".from(warehouseTransferReportsTable)"
   ]) {

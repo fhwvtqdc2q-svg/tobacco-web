@@ -608,10 +608,10 @@ async function loadWarehouseDashboard() {
   state.warehouseLoading = true;
   try {
     if (!state.reconWarehouses.length) await loadReconWarehouses();
-    const entries = await Promise.all(state.reconWarehouses.map(async (warehouse) => {
-      const report = await dataStore.getLatestWarehouseStockReport(warehouse.warehouseKey);
-      return [warehouse.warehouseKey, report];
-    }));
+    const reports = dataStore.listLatestWarehouseStockReports
+      ? await dataStore.listLatestWarehouseStockReports()
+      : [];
+    const entries = reports.map((report) => [report?.summary?.warehouseKey, report]);
     state.warehouseReports = Object.fromEntries(entries.filter(([, report]) => report));
     if (!state.reconWarehouses.some((w) => w.warehouseKey === state.warehouseSelectedKey)) {
       state.warehouseSelectedKey = state.reconWarehouses[0]?.warehouseKey || "";
@@ -7642,8 +7642,10 @@ function warehouses() {
   }).join("") || `<p class="muted">لا يوجد تقرير مناقلات لهذا المستودع بعد.</p>`;
 
   const purchaseGroups = state.poAmeenReport && Array.isArray(state.poAmeenReport.items) ? state.poAmeenReport.items : [];
-  const warehousePurchases = selected ? purchaseGroups.flatMap((supplier) =>
+  const allPurchases = purchaseGroups.flatMap((supplier) =>
     (supplier.invoices || []).map((invoice) => ({ ...invoice, supplierName: supplier.name || "" })))
+  const unassignedPurchases = allPurchases.filter((invoice) => !invoice.warehouseGuid || Number(invoice.warehouseCount || 0) !== 1);
+  const warehousePurchases = selected ? allPurchases
     .filter((invoice) => String(invoice.warehouseGuid || "").toLowerCase() === String(selected.warehouseKey).toLowerCase())
     .sort((a, b) => String(b.date || "").localeCompare(String(a.date || ""))) : [];
   const purchaseCards = warehousePurchases.slice(0, 100).map((invoice) => `<details class="acc-group">
@@ -7684,6 +7686,7 @@ function warehouses() {
       <div class="panel-title-row"><h2 style="margin:0">المشتريات الداخلة إلى ${escapeHtml(selected?.warehouseName || "المستودع")}</h2>
         <small class="muted">${warehousePurchases.length} فاتورة ضمن التقرير المتزامن</small>
       </div>
+      ${unassignedPurchases.length ? `<div class="notice-panel warning" style="margin-top:12px">⚠ ${unassignedPurchases.length} فاتورة في التقرير مستودعها غير محدد أو متعدد؛ لم تُخفَ من البيانات لكنها لا تُنسب إلى مستودع واحد حتى تُراجع.</div>` : ""}
       <div style="margin-top:12px">${purchaseCards}</div>
     </section>
     <section class="panel wide" style="margin-top:16px">

@@ -123,7 +123,7 @@ try {
     $warehouseGuid = ([string]$reader["warehouse_guid"]).ToLowerInvariant()
     $warehouseName = [string]$reader["warehouse_name"]
     $itemGuid = ([string]$reader["item_guid"]).ToLowerInvariant()
-    $qty = [double]$reader["qty"]
+    $qty = [decimal]$reader["qty"]
     $side.documents[$documentGuid] = $true
     if ($warehouseGuid -and $warehouseName) { $side.stores[$warehouseGuid] = $warehouseName }
     if (-not $side.items.Contains($itemGuid)) {
@@ -133,7 +133,7 @@ try {
         itemNumber = [string]$reader["item_number"]
         itemName = [string]$reader["item_name"]
         unitName = [string]$reader["unit_name"]
-        qty = 0.0
+        qty = [decimal]0
       }
     }
     $side.items[$itemGuid].qty += $qty
@@ -160,9 +160,9 @@ foreach ($pairKey in $pairs.Keys) {
   foreach ($itemGuid in $allItemGuids) {
     $outItem = $pair.out.items[$itemGuid]
     $inItem = $pair.in.items[$itemGuid]
-    $outQty = if ($outItem) { [double]$outItem.qty } else { 0.0 }
-    $inQty = if ($inItem) { [double]$inItem.qty } else { 0.0 }
-    if ([math]::Abs($outQty - $inQty) -gt 0.001) {
+    $outQty = if ($outItem) { [decimal]$outItem.qty } else { [decimal]0 }
+    $inQty = if ($inItem) { [decimal]$inItem.qty } else { [decimal]0 }
+    if ([math]::Abs($outQty - $inQty) -gt [decimal]0.001) {
       $problems.Add("${pairKey}: اختلاف كمية المادة $itemGuid (إخراج=$outQty، إدخال=$inQty)")
       continue
     }
@@ -178,7 +178,7 @@ foreach ($pairKey in $pairs.Keys) {
     $problems.Add("${pairKey}: مستودع المصدر والوجهة متطابقان")
     continue
   }
-  $totalQty = 0.0
+  $totalQty = [decimal]0
   foreach ($item in $items) { $totalQty += $item.qty }
   $transfers.Add([ordered]@{
     transferKey = $pair.key
