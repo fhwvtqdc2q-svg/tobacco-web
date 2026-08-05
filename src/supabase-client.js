@@ -78,6 +78,7 @@
   const hasLibrary = Boolean(window.supabase?.createClient);
   const tableName = config.requestsTable || "customer_requests";
   const inventoryReportsTable = config.inventoryReportsTable || "inventory_reports";
+  const warehouseStockReportsTable = config.warehouseStockReportsTable || "ameen_warehouse_stock_reports";
   const creditLimitsTable = config.creditLimitsTable || "customer_credit_limits";
   const approvedPricesTable = config.approvedPricesTable || "approved_price_items";
   const paymentRecordsTable = config.paymentRecordsTable || "payment_records";
@@ -1364,7 +1365,9 @@
     },
 
     // مخزون النظام حسب المستودع — يُرفع بواسطة tools/push-ameen-warehouse-stock.ps1
-    // (مصدر ameen_warehouse_stock)، تقرير مستقل لكل مستودع حقيقي بالأمين.
+    // إلى جدول ameen_warehouse_stock_reports المستقل (مراجعة Codex على PR #40،
+    // الجولة الثانية — كتابة محصورة بحساب المزامنة الموثوق عبر RLS)،
+    // تقرير مستقل لكل مستودع حقيقي بالأمين.
     async getLatestWarehouseStockReport(warehouseKey) {
       if (!client) return null;
       const session = await getSupabaseSession();
@@ -1373,9 +1376,8 @@
       // بما أن warehouse_key مخزّن داخل summary (JSON) لا كعمود مفهرس مستقل،
       // لا يمكن تصفيته بـ.eq() على مستوى الاستعلام مباشرة.
       const { data, error } = await client
-        .from(inventoryReportsTable)
+        .from(warehouseStockReportsTable)
         .select("id, summary, items, created_at")
-        .eq("source", "ameen_warehouse_stock")
         .order("created_at", { ascending: false })
         .limit(20);
       if (error || !data) return null;
@@ -1391,9 +1393,8 @@
       const session = await getSupabaseSession();
       if (!session) return [];
       const { data, error } = await client
-        .from(inventoryReportsTable)
+        .from(warehouseStockReportsTable)
         .select("summary, created_at")
-        .eq("source", "ameen_warehouse_stock")
         .order("created_at", { ascending: false })
         .limit(50);
       if (error || !data) return [];

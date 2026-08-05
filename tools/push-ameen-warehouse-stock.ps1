@@ -7,7 +7,9 @@
 # ولا يربط مستودعاً بنوع بيع (جملة/مفرق).
 #
 # قراءة فقط من الأمين (SELECT فقط، بلا أي INSERT/UPDATE/DELETE). يكتب في
-# Supabase على inventory_reports فقط — لا يمسّ أي جدول أو رصيد أو سعر بالأمين.
+# Supabase على ameen_warehouse_stock_reports فقط (جدول مستقل محصور الكتابة
+# بحساب المزامنة هذا عبر RLS — مراجعة Codex على PR #40) — لا يمسّ أي جدول
+# أو رصيد أو سعر بالأمين.
 #
 # التشغيل التجريبي (بلا كتابة، يطبع أسماء المستودعات وعدد الأصناف والمجموع فقط):
 #   .\tools\push-ameen-warehouse-stock.ps1 -WhatIf
@@ -158,7 +160,6 @@ $reportDate = (Get-Date).ToString("yyyy-MM-dd")
 foreach ($s in $stores) {
   $body = @{
     report_date = $reportDate
-    source      = "ameen_warehouse_stock"
     created_by  = $auth.user.id
     summary     = @{
       source        = "ameen_warehouse_stock"
@@ -170,11 +171,11 @@ foreach ($s in $stores) {
     items = $s.items
   } | ConvertTo-Json -Depth 6 -Compress
 
-  Invoke-RestMethod -Method Post -Uri "$url/rest/v1/inventory_reports" `
+  Invoke-RestMethod -Method Post -Uri "$url/rest/v1/ameen_warehouse_stock_reports" `
     -Headers ($hdr + @{ Prefer = "return=minimal" }) `
     -ContentType "application/json; charset=utf-8" -Body $body | Out-Null
 
   Write-Host "رُفع تقرير مستودع: $($s.name) ($($s.items.Count) صنف)." -ForegroundColor Green
 }
 
-Write-Host "تم رفع $($stores.Count) تقرير مستودع مستقل إلى inventory_reports (ameen_warehouse_stock)." -ForegroundColor Green
+Write-Host "تم رفع $($stores.Count) تقرير مستودع مستقل إلى ameen_warehouse_stock_reports." -ForegroundColor Green

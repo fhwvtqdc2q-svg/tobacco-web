@@ -872,7 +872,7 @@ for (const contract of [
     "source_report_id",
     "source_report_date",
     "unique (created_by, idempotency_key)",
-    "and source = 'ameen_warehouse_stock'",
+    "from public.ameen_warehouse_stock_reports",
     "تقرير المخزون المحدد لا يطابق المستودع المختار",
     "الأصناف التالية غير موجودة في تقرير المستودع الموثوق",
     "مفتاح idempotency % مستخدم مسبقاً لجلسة مختلفة",
@@ -1549,8 +1549,8 @@ for (const contract of [
 
   const supabaseClientForWarehouses = readFileSync("src/supabase-client.js", "utf8");
   if (!/async listReconWarehouses\(\)/.test(supabaseClientForWarehouses)
-      || !/\.eq\("source", "ameen_warehouse_stock"\)/.test(supabaseClientForWarehouses)) {
-    console.error("supabase-client.js listReconWarehouses() must derive warehouses from ameen_warehouse_stock reports, not a static list.");
+      || !/\.from\(warehouseStockReportsTable\)/.test(supabaseClientForWarehouses)) {
+    console.error("supabase-client.js listReconWarehouses() must derive warehouses from the dedicated ameen_warehouse_stock_reports table, not a static list.");
     failed = true;
   }
   if (!/warehouseKey:\s*key,\s*warehouseName:\s*name/.test(supabaseClientForWarehouses.replace(/\s+/g, " "))) {
@@ -1560,8 +1560,8 @@ for (const contract of [
 
   // (c) تقرير مستقل لكل مستودع فعلي — لا دمج كل المستودعات بتقرير واحد
   const warehouseStockScript = readFileSync("tools/push-ameen-warehouse-stock.ps1", "utf8");
-  if (!/foreach\s*\(\$s in \$stores\)\s*\{[\s\S]{0,600}inventory_reports/.test(warehouseStockScript)) {
-    console.error("push-ameen-warehouse-stock.ps1 must POST one inventory_reports row per warehouse inside its foreach($s in $stores) loop.");
+  if (!/foreach\s*\(\$s in \$stores\)\s*\{[\s\S]{0,600}ameen_warehouse_stock_reports/.test(warehouseStockScript)) {
+    console.error("push-ameen-warehouse-stock.ps1 must POST one ameen_warehouse_stock_reports row per warehouse inside its foreach($s in $stores) loop.");
     failed = true;
   }
   if (!/warehouseKey\s*=\s*\$s\.guid/.test(warehouseStockScript)

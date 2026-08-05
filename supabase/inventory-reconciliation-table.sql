@@ -138,12 +138,14 @@ $$;
 
 -- ============================================================
 -- مراجعة Codex على PR #40: source='ameen_warehouse_stock' وحده لا يكفي —
--- أي موظف مسجَّل يملك صلاحية INSERT على inventory_reports (نفس الجدول
--- المشترك مع تقارير أخرى) يستطيع نظرياً إدراج صف بنفس المصدر وبيانات
--- مصطنعة. الثقة الحقيقية الوحيدة: created_by المخزَّن فعلياً بالسطر
--- يطابق حساب المزامنة الموثوق (TOBACCO_SYNC_EMAIL) — يُتحقَّق هنا عبر
--- auth.users مباشرة (SECURITY DEFINER)، وليس عبر أي قيمة يرسلها العميل.
--- نفس نمط ameen_purchase_invoice_reports_is_sync_writer() في
+-- أي موظف مسجَّل يملك صلاحية INSERT على inventory_reports (الجدول
+-- المشترك مع تقارير أخرى كثيرة) كان يستطيع نظرياً إدراج صف بنفس المصدر
+-- وبيانات مصطنعة. الجولة الثانية من المراجعة (بعد نقل هذا التقرير إلى
+-- جدول ameen_warehouse_stock_reports المستقل بسياسة INSERT محصورة —
+-- supabase/ameen-warehouse-stock-reports.sql): هذه الدالة تبقى كطبقة
+-- دفاع مضاعفة تتحقق من created_by عبر auth.users مباشرة (SECURITY DEFINER)،
+-- بلا اعتماد كامل على سياسة INSERT بجدول واحد فقط. نفس نمط
+-- ameen_purchase_invoice_reports_is_sync_writer() في
 -- ameen-purchase-invoice-reports.sql.
 --
 -- ⚠️ قبل تطبيق هذا الملف فعلياً: استبدل البريد أدناه ببريد حساب المزامنة
@@ -168,7 +170,7 @@ as $$
     );
 $$;
 
-comment on function inventory_recon_warehouse_stock_report_is_trusted(uuid) is 'يتحقق أن created_by المخزَّن فعلياً بصف inventory_reports يطابق حساب المزامنة الموثوق (TOBACCO_SYNC_EMAIL) عبر auth.users — بلا اعتماد على أي قيمة يرسلها العميل. يجب استبدال البريد الثابت داخل الدالة قبل تطبيق هذا الملف.';
+comment on function inventory_recon_warehouse_stock_report_is_trusted(uuid) is 'دفاع مضاعف: يتحقق أن created_by المخزَّن فعلياً بصف ameen_warehouse_stock_reports يطابق حساب المزامنة الموثوق (TOBACCO_SYNC_EMAIL) عبر auth.users — بلا اعتماد على أي قيمة يرسلها العميل، وبلا اعتماد كامل على سياسة INSERT الخاصة بذلك الجدول وحدها. يجب استبدال البريد الثابت داخل الدالة قبل تطبيق هذا الملف.';
 
 revoke all on function inventory_recon_warehouse_stock_report_is_trusted(uuid) from public;
 grant execute on function inventory_recon_warehouse_stock_report_is_trusted(uuid) to authenticated;
@@ -665,19 +667,25 @@ begin
     raise exception 'inventory_recon: يجب اختيار تقرير مخزون مستودع موثوق قبل إنشاء الجلسة';
   end if;
 
+  -- مراجعة Codex على PR #40 (الجولة الثانية): source='ameen_warehouse_stock'
+  -- وحده لم يكن كافياً على مستوى INSERT بجدول inventory_reports المشترك —
+  -- التقرير أصبح يُقرأ الآن من ameen_warehouse_stock_reports المستقل
+  -- (supabase/ameen-warehouse-stock-reports.sql)، الذي تحصر سياسة INSERT
+  -- الخاصة به الكتابة بحساب المزامنة الموثوق فقط، فـcreated_by هنا موثوق
+  -- بنيوياً بمجرد وجود الصف — لا اعتماد على source كقيمة وحيدة للثقة.
   select report_date::timestamptz, summary, items, created_by, created_at
     into v_report_date, v_report_summary, v_report_items, v_report_created_by, v_report_created_at
-  from public.inventory_reports
-  where id = p_source_report_id
-    and source = 'ameen_warehouse_stock';
+  from public.ameen_warehouse_stock_reports
+  where id = p_source_report_id;
 
   if not found then
-    raise exception 'inventory_recon: تقرير مخزون المستودع (%) غير موجود أو ليس من مصدر موثوق', p_source_report_id;
+    raise exception 'inventory_recon: تقرير مخزون المستودع (%) غير موجود', p_source_report_id;
   end if;
 
-  -- مراجعة Codex على PR #40: source='ameen_warehouse_stock' وحده لا يكفي —
-  -- يجب التحقق أن الصف فعلاً أنشأه حساب المزامنة الموثوق (created_by
-  -- المخزَّن بالصف نفسه، وليس أي قيمة يرسلها العميل).
+  -- دفاع مضاعف: حتى لو أُنشئ الصف فعلاً بجدول ameen_warehouse_stock_reports،
+  -- نتحقق مجدداً أن created_by يطابق حساب المزامنة الموثوق عبر auth.users —
+  -- يحمي من أي خطأ مستقبلي بسياسة INSERT الخاصة بذلك الجدول بلا اعتماد
+  -- كامل على RLS طبقة واحدة فقط.
   if not public.inventory_recon_warehouse_stock_report_is_trusted(v_report_created_by) then
     raise exception 'inventory_recon: تقرير مخزون المستودع (%) ليس من حساب المزامنة الموثوق', p_source_report_id;
   end if;
