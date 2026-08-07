@@ -1,0 +1,28 @@
+name: Decision Engine Check
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [decision-engine-ui]
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - run: npm run check
+      - run: node --check src/decision-engine.js
+      - run: node --check src/app.js
+      - run: node --check src/supabase-client.js
+      - name: PWA asset coverage
+        run: |
+          grep -q 'src/decision-engine.js' public/service-worker.js
+          grep -q 'src/decision-engine.css' public/service-worker.js
+          grep -q 'src/decision-engine.js' index.html
+          grep -q 'src/decision-engine.css' index.html
