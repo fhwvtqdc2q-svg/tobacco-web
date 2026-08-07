@@ -1,4 +1,4 @@
-const CACHE_NAME = "web-platform-tobacco-v466";
+const CACHE_NAME = "web-platform-tobacco-v467";
 // المسارات نسبية لملف الجذر service-worker.js الذي يستورد هذا الملف —
 // النطاق الجذري ضروري كي يفتح التطبيق من الكاش حتى لو كان السيرفر المحلي واقفاً.
 const ASSETS = [
@@ -9,6 +9,8 @@ const ASSETS = [
   "src/config.js",
   "src/supabase-client.js",
   "src/styles.css",
+  "src/decision-engine.js",
+  "src/decision-engine.css",
   "src/purchase-invoice-calc.js",
   "src/inventory-recon-calc.js",
   "public/manifest.webmanifest",
