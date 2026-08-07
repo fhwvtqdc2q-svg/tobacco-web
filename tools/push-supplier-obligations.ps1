@@ -1,0 +1,149 @@
+param(
+    [switch]$Apply,
+    [string]$EnvFile = "$PSScriptRoot\.env",
+    [string]$LogFile = "$PSScriptRoot\logs\supplier-obligations-push.log"
+)
+
+$ErrorActionPreference = "Stop"
+
+if (Test-Path $EnvFile) {
+    Get-Content $EnvFile | Where-Object { $_ -match '^\s*[^#].+=.+' } | ForEach-Object {
+        $parts = $_ -split '=', 2
+        [Environment]::SetEnvironmentVariable($parts[0].Trim(), $parts[1].Trim())
+    }
+}
+
+function Get-Setting($Name) {
+    $v = [Environment]::GetEnvironmentVariable($Name, "Process")
+    if (-not $v) { $v = [Environment]::GetEnvironmentVariable($Name, "User") }
+    return $v
+}
+
+function Write-Log($Message) {
+    $line = "{0} {1}" -f (Get-Date).ToString("yyyy-MM-dd HH:mm:ss"), $Message
+    Write-Host $line
+    $dir = Split-Path $LogFile -Parent
+    if (-not (Test-Path $dir)) { New-Item -ItemType Directory -Force -Path $dir | Out-Null }
+    Add-Content -LiteralPath $LogFile -Value $line -Encoding UTF8
+}
+
+$connStr = Get-Setting "AMEEN_SQL_CONNECTION_STRING"
+$supabaseUrl = Get-Setting "TOBACCO_SUPABASE_URL"
+if (-not $supabaseUrl) { $supabaseUrl = "https://dyxbirfpxeocqffnfdeb.supabase.co" }
+$supabaseUrl = $supabaseUrl.TrimEnd("/")
+$apiKey = Get-Setting "TOBACCO_SUPABASE_PUBLIC_KEY"
+if (-not $apiKey) { $apiKey = Get-Setting "SUPABASE_PUBLIC_KEY" }
+$syncEmail = Get-Setting "TOBACCO_SYNC_EMAIL"
+$syncPassword = Get-Setting "TOBACCO_SYNC_PASSWORD"
+
+if (-not $connStr) { throw "AMEEN_SQL_CONNECTION_STRING is missing." }
+if ($Apply -and (-not $apiKey -or -not $syncEmail -or -not $syncPassword)) {
+    throw "Supabase sync credentials are missing."
+}
+
+$PURCHASE_TYPE_GUID = "91377a56-ebfc-48c0-b79e-72063e1d7e3a"
+$SOURCE = "ameen_cu000_credit_minus_debit"
+
+$sql = @"
+SELECT
+    CONVERT(nvarchar(36), c.GUID) AS supplier_key,
+    c.CustomerName AS supplier_name,
+    CAST(c.Debit AS float) AS debit_total,
+    CAST(c.Credit AS float) AS credit_total,
+    CAST(c.Credit - c.Debit AS float) AS net_supplier_balance,
+    MAX(CAST(u.Date AS date)) AS last_purchase_date
+FROM cu000 c
+JOIN bu000 u
+  ON u.CustGUID = c.GUID
+ AND u.TypeGUID = '$PURCHASE_TYPE_GUID'
+WHERE ISNULL(c.bHide, 0) = 0
+  AND NULLIF(LTRIM(RTRIM(c.CustomerName)), N'') IS NOT NULL
+GROUP BY c.GUID, c.CustomerName, c.Debit, c.Credit
+ORDER BY net_supplier_balance DESC, c.CustomerName;
+"@
+
+Write-Log "Reading supplier balances from Ameen cu000..."
+
+Add-Type -AssemblyName "System.Data"
+$conn = New-Object System.Data.SqlClient.SqlConnection($connStr)
+$conn.Open()
+$cmd = $conn.CreateCommand()
+$cmd.CommandText = $sql
+$cmd.CommandTimeout = 120
+$reader = $cmd.ExecuteReader()
+
+$allRows = @()
+while ($reader.Read()) {
+    $net = [double]$reader["net_supplier_balance"]
+    $allRows += [PSCustomObject]@{
+        supplier_key = "$($reader['supplier_key'])"
+        supplier_name = "$($reader['supplier_name'])"
+        debit_total = [double]$reader["debit_total"]
+        credit_total = [double]$reader["credit_total"]
+        amount_due = [Math]::Max(0, $net)
+        last_purchase_date = if ($reader["last_purchase_date"] -is [DBNull]) { $null } else { ([datetime]$reader["last_purchase_date"]).ToString("yyyy-MM-dd") }
+    }
+}
+$reader.Close()
+$conn.Close()
+
+$rows = @($allRows | Where-Object { $_.amount_due -gt 0 })
+Write-Log "Found $($allRows.Count) purchase-linked suppliers; $($rows.Count) have a positive payable balance."
+
+if (-not $Apply) {
+    Write-Host "=== DRY RUN: top supplier obligations ===" -ForegroundColor Yellow
+    $rows | Sort-Object amount_due -Descending | Select-Object -First 20 supplier_name, debit_total, credit_total, amount_due, last_purchase_date | Format-Table -AutoSize
+    Write-Log "DryRun only. Re-run with -Apply to upload."
+    exit 0
+}
+
+Write-Log "Authenticating sync user..."
+$authBody = @{ email = $syncEmail; password = $syncPassword } | ConvertTo-Json
+$auth = Invoke-RestMethod -Method Post -Uri "$supabaseUrl/auth/v1/token?grant_type=password" `
+    -Headers @{ apikey = $apiKey; Accept = "application/json" } `
+    -ContentType "application/json; charset=utf-8" -Body $authBody
+$token = $auth.access_token
+$headers = @{
+    apikey = $apiKey
+    Authorization = "Bearer $token"
+    "Accept-Profile" = "public"
+    "Content-Profile" = "public"
+}
+
+$encodedSource = [Uri]::EscapeDataString($SOURCE)
+Invoke-RestMethod -Method Delete `
+    -Uri "$supabaseUrl/rest/v1/supplier_obligations?source=eq.$encodedSource" `
+    -Headers ($headers + @{ Prefer = "return=minimal" }) `
+    -TimeoutSec 60 | Out-Null
+
+$generatedAt = (Get-Date).ToUniversalTime().ToString("o")
+$payload = @($rows | ForEach-Object {
+    [PSCustomObject]@{
+        supplier_key = $_.supplier_key
+        supplier_name = $_.supplier_name
+        amount_due = [Math]::Round($_.amount_due, 3)
+        currency = "AMEEN_BASE"
+        due_date = $null
+        strategic_weight = 1.0
+        supply_risk = "normal"
+        notes = "Ameen cu000 balance: Credit - Debit; last purchase $($_.last_purchase_date); synced $generatedAt"
+        source = $SOURCE
+        updated_at = $generatedAt
+    }
+})
+
+$batchSize = 200
+for ($i = 0; $i -lt $payload.Count; $i += $batchSize) {
+    $end = [Math]::Min($i + $batchSize - 1, $payload.Count - 1)
+    $batch = $payload[$i..$end]
+    $body = $batch | ConvertTo-Json -Depth 4 -Compress
+    Invoke-RestMethod -Method Post `
+        -Uri "$supabaseUrl/rest/v1/supplier_obligations" `
+        -Headers ($headers + @{ Prefer = "return=minimal" }) `
+        -ContentType "application/json; charset=utf-8" `
+        -TimeoutSec 60 `
+        -Body ([Text.Encoding]::UTF8.GetBytes($body)) | Out-Null
+    Write-Log "Uploaded rows $($i + 1)-$($end + 1)."
+}
+
+Write-Log "Supplier obligations upload completed successfully: $($payload.Count) suppliers."

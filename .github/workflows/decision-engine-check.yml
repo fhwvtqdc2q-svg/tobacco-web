@@ -4,7 +4,7 @@ on:
   pull_request:
     branches: [main]
   push:
-    branches: [decision-engine-ui]
+    branches: [decision-engine-ui, feat/supplier-obligations-sync]
 
 jobs:
   validate:
@@ -18,11 +18,19 @@ jobs:
       - run: npm ci
       - run: npm run check
       - run: node --check src/decision-engine.js
+      - run: node --check src/decision-data-bridge.js
+      - run: node --check src/supplier-obligations-client.js
+      - run: node --check src/decision-supplier-overlay.js
       - run: node --check src/app.js
       - run: node --check src/supabase-client.js
       - name: PWA asset coverage
         run: |
           grep -q 'src/decision-engine.js' public/service-worker.js
           grep -q 'src/decision-engine.css' public/service-worker.js
+          grep -q 'src/decision-data-bridge.js' public/service-worker.js
+          grep -q 'src/supplier-obligations-client.js' public/service-worker.js
+          grep -q 'src/decision-supplier-overlay.js' public/service-worker.js
           grep -q 'src/decision-engine.js' index.html
           grep -q 'src/decision-engine.css' index.html
+          grep -q 'src/supplier-obligations-client.js' index.html
+          grep -q 'src/decision-supplier-overlay.js' index.html
