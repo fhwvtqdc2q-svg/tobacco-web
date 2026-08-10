@@ -185,7 +185,7 @@ function syncFreshnessLabel(value) {
   return `قبل ${Math.round(minutes / 60)} ساعة`;
 }
 
-const allowedRoutes = new Set(["overview", "login", "requests", "ameen", "balances", "pricing", "remote", "monitoring", "payments", "purchases", "sales", "warehouses", "inventoryRecon", "staff", "search", "ai", "dashboard"]);
+const allowedRoutes = new Set(["overview", "login", "requests", "ameen", "balances", "pricing", "remote", "monitoring", "payments", "purchases", "sales", "warehouses", "inventoryRecon", "staff", "search", "ai", "dashboard", "journalEntries"]);
 
 const customerPriceContacts = [
   { label: "هاتف المبيعات", value: "0985000771" },
@@ -324,7 +324,14 @@ const state = {
   openSections: {},
   priceMode: readJson("price-mode", "jumla"),
   showExchangeModal: false,
-  pricePreview: null
+  pricePreview: null,
+  // ===== سند القيد (route: journalEntries) — مسودة داخلية فقط بدون مزامنة للأمين =====
+  journalEntries: [],           // قائمة المسودات المحفوظة
+  journalCurrentEntry: null,    // السند الحالي المفتوح للتحرير
+  journalSaving: false,
+  journalSearchQuery: "",
+  journalOpenId: "",            // معرف المسودة المفتوحة الآن
+  journalError: null
 };
 
 const app = document.querySelector("#app");
@@ -438,6 +445,7 @@ async function boot() {
   await loadPurchaseInvoices();
   await loadReconSessions();
   await loadWarehouseDashboard();
+  await loadJournalEntries();
   state.seenRequestIds = new Set(state.requests.map((r) => r.id));
   state.notifPermission = notifSupported() ? Notification.permission : "denied";
   state.loading = false;
@@ -1124,6 +1132,7 @@ async function saveSession(form, action) {
     await loadCustomerCreditLimits();
     await loadApprovedPriceItems();
     await loadPurchaseInvoices();
+    await loadJournalEntries();
     setRoute("overview", false);
   } catch (error) {
     setNotice("error", safeErrorMessage(error));
@@ -2797,6 +2806,7 @@ function shell(content) {
           ${state.session ? navButton("purchases", "🧾 فواتير مشتريات") : ""}
           ${state.session ? navButton("warehouses", "🏭 المستودعات والمناقلات") : ""}
           ${state.session ? navButton("inventoryRecon", "📋 الجرد الشهري") : ""}
+          ${state.session ? navButton("journalEntries", "📝 سند القيد") : ""}
           ${state.session ? navButton("staff", "👥 الموظفون") : ""}
           ${state.session ? navButton("ai", "🤖 المساعد الذكي") : ""}
         </nav>
@@ -2865,6 +2875,7 @@ function pageTitle() {
     purchases: "فواتير المشتريات",
     warehouses: "المستودعات والمناقلات",
     inventoryRecon: "الجرد الشهري",
+    journalEntries: "سند القيد",
     dashboard: "التقارير",
     staff: "إدارة الموظفين",
     search: `نتائج: ${escapeHtml(state.globalSearch)}`
@@ -9052,6 +9063,262 @@ function bindAccordions(root = app) {
   });
 }
 
+// ===== سند القيد (Journal Entries) =====
+
+async function loadJournalEntries() {
+  if (!state.session || !dataStore.isConfigured()) {
+    state.journalEntries = [];
+    return;
+  }
+  try {
+    const entries = await dataStore.listJournalEntries();
+    state.journalEntries = entries || [];
+  } catch (e) {
+    state.journalError = safeErrorMessage(e);
+  }
+}
+
+async function saveJournalEntry(entry) {
+  if (!state.session || !dataStore.isConfigured()) {
+    throw new Error("عملية الحفظ تتطلب جلسة صالحة واتصال Supabase.");
+  }
+
+  const validation = entry.validate();
+  if (!validation.isValid) {
+    state.journalError = validation.errors.join(" | ");
+    render();
+    throw new Error(state.journalError);
+  }
+
+  state.journalSaving = true;
+  try {
+    const saved = await dataStore.saveJournalEntry(entry.toJSON());
+    if (saved && saved.id && !entry.id) {
+      entry.id = saved.id;
+      state.journalEntries.push(entry);
+    }
+    state.journalError = null;
+    return true;
+  } catch (e) {
+    state.journalError = safeErrorMessage(e);
+    throw e;
+  } finally {
+    state.journalSaving = false;
+    render();
+  }
+}
+
+async function deleteJournalEntry(id) {
+  state.journalSaving = true;
+  try {
+    await dataStore.deleteJournalEntry(id);
+    state.journalEntries = state.journalEntries.filter(e => e.id !== id);
+    state.journalError = null;
+    return true;
+  } catch (e) {
+    state.journalError = safeErrorMessage(e);
+    throw e;
+  } finally {
+    state.journalSaving = false;
+    render();
+  }
+}
+
+function journalEntriesPage() {
+  // إذا كان هناك سند مفتوح للتحرير، اعرض نموذج التحرير
+  if (state.journalOpenId !== "" && state.journalCurrentEntry) {
+    return journalEntryEditorPage();
+  }
+
+  // قائمة المسودات
+  const filtered = state.journalEntries.filter(e => {
+    if (!state.journalSearchQuery) return true;
+    const q = state.journalSearchQuery.toLowerCase();
+    return (e.description || "").toLowerCase().includes(q) ||
+           (e.reference_number || e.referenceNumber || "").toLowerCase().includes(q);
+  });
+
+  const list = filtered.length
+    ? filtered.map(e => {
+        const entry = JournalEntry.fromJSON(e);
+        const balance = entry.getBalance();
+        const date = e.date || "—";
+        return `
+          <div class="po-card" data-action="journal-open" data-journal-id="${escapeHtml(e.id || "")}">
+            <div class="po-card-head">
+              <div>
+                <strong>${escapeHtml(e.description || "سند بدون عنوان")}</strong>
+                <span class="muted"> — ${escapeHtml(date)}</span>
+              </div>
+              <span class="badge" style="background:${balance.isBalanced ? "#28a745" : "#dc3545"};color:white">
+                ${balance.isBalanced ? "✓ متوازن" : "⚠ غير متوازن"}
+              </span>
+            </div>
+            <div style="font-size:0.85rem;color:#666;margin-top:8px">
+              ${escapeHtml(e.reference_number || e.referenceNumber ? `الرقم المرجعي: ${e.reference_number || e.referenceNumber} · ` : "")}
+              المدين: ${balance.totalDebit.toFixed(2)}$ | الدائن: ${balance.totalCredit.toFixed(2)}$
+            </div>
+          </div>
+        `;
+      }).join("")
+    : '<p class="muted">لا توجد مسودات قيود. ابدأ بسند جديد.</p>';
+
+  return shell(`
+    <section class="panel wide inv-panel">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;flex-wrap:wrap;gap:12px">
+        <div>
+          <h2 style="margin:0">📝 سند القيد</h2>
+          <p class="muted" style="margin:4px 0 0;font-size:0.9rem">مسودات محاسبية داخلية — محفوظة في Supabase فقط، بدون كتابة للأمين</p>
+        </div>
+        <button type="button" class="button primary" data-action="journal-new">+ سند جديد</button>
+      </div>
+
+      <div class="po-search">
+        <input type="text" placeholder="🔍 بحث بالموضوع أو الرقم المرجعي..." id="journal-search" value="${escapeHtml(state.journalSearchQuery)}" maxlength="120" dir="auto">
+      </div>
+
+      ${state.journalError ? `<p class="message-panel error">${escapeHtml(state.journalError)}</p>` : ""}
+      ${list}
+    </section>
+  `);
+}
+
+function journalEntryEditorPage() {
+  const entry = state.journalCurrentEntry;
+  if (!entry) return journalEntriesPage();
+
+  const balance = entry.getBalance();
+  const isNew = !entry.id;
+
+  // إنشاء صفوف نموذج الأسطر
+  const linesHtml = entry.lines.map((line, idx) => `
+    <div class="journal-line-form" data-line-idx="${idx}" style="border:1px solid #ddd;padding:12px;border-radius:6px;margin-bottom:12px">
+      <div style="display:grid;grid-template-columns:2fr 1fr 1fr 1fr;gap:8px;margin-bottom:8px">
+        <input type="text" class="journal-line-account" value="${escapeHtml(line.account)}" placeholder="اسم الحساب" maxlength="120">
+        <select class="journal-line-currency">
+          <option value="USD" ${line.currency === "USD" ? "selected" : ""}>USD</option>
+          <option value="SYP" ${line.currency === "SYP" ? "selected" : ""}>SYP</option>
+        </select>
+        <input type="number" class="journal-line-amount" value="${line.amount || ""}" placeholder="المبلغ" step="0.01" min="0.01" inputmode="decimal" dir="ltr">
+        <select class="journal-line-side">
+          <option value="debit" ${line.side === "debit" ? "selected" : ""}>مدين</option>
+          <option value="credit" ${line.side === "credit" ? "selected" : ""}>دائن</option>
+        </select>
+      </div>
+      <div style="display:flex;gap:8px;align-items:center">
+        <input type="text" class="journal-line-note" value="${escapeHtml(line.lineNote)}" placeholder="ملاحظة السطر (اختياري)" maxlength="300" style="flex:1">
+        <span style="font-size:0.9rem;color:#666;min-width:80px">= ${line.valueInUsd.toFixed(2)} $</span>
+        <button type="button" class="button secondary mini-button" data-action="journal-remove-line" data-line-idx="${idx}">حذف</button>
+      </div>
+    </div>
+  `).join("");
+
+  const validation = entry.validate();
+  const errorHtml = validation.errors.length > 0
+    ? `<div style="background:#fee;border-left:4px solid #c33;padding:12px;margin:12px 0;border-radius:4px;font-size:0.9rem">
+        <strong>مشاكل في السند:</strong>
+        <ul style="margin:8px 0;padding-right:20px">
+          ${validation.errors.map(e => `<li>${escapeHtml(e)}</li>`).join("")}
+        </ul>
+      </div>`
+    : "";
+
+  return shell(`
+    <section class="panel wide inv-panel">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px;flex-wrap:wrap;gap:12px">
+        <div>
+          <h2 style="margin:0">${isNew ? "📝 سند قيد جديد" : "✏️ تعديل السند"}</h2>
+          <p class="muted" style="margin:4px 0 0;font-size:0.9rem">${entry.date}</p>
+        </div>
+        <button type="button" class="button secondary" data-action="journal-close">العودة للقائمة</button>
+      </div>
+
+      ${state.journalError ? `<p class="message-panel error">${escapeHtml(state.journalError)}</p>` : ""}
+
+      <!-- رأس السند -->
+      <div style="background:#f9f7f5;padding:16px;border-radius:8px;margin-bottom:20px">
+        <h3 style="margin:0 0 12px;font-size:1rem">رأس السند</h3>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px">
+          <label style="display:flex;flex-direction:column;gap:4px;font-size:0.9rem">
+            التاريخ
+            <input type="date" class="journal-date" value="${escapeHtml(entry.date)}" required>
+          </label>
+          <label style="display:flex;flex-direction:column;gap:4px;font-size:0.9rem">
+            الرقم المرجعي (اختياري)
+            <input type="text" class="journal-ref-number" value="${escapeHtml(entry.referenceNumber)}" placeholder="مثل: J001" maxlength="60">
+          </label>
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px">
+          <label style="display:flex;flex-direction:column;gap:4px;font-size:0.9rem">
+            نوع العملية
+            <select class="journal-op-type">
+              <option value="general" ${entry.operationType === "general" ? "selected" : ""}>عام</option>
+              <option value="currency_transfer" ${entry.operationType === "currency_transfer" ? "selected" : ""}>تحويل عملة</option>
+              <option value="fund_transfer" ${entry.operationType === "fund_transfer" ? "selected" : ""}>تحويل صندوق</option>
+            </select>
+          </label>
+          <label style="display:flex;flex-direction:column;gap:4px;font-size:0.9rem">
+            سعر الصرف (1 USD = X SYP)
+            <input type="number" class="journal-ex-rate" value="${entry.exchangeRate}" step="0.01" min="0.01" inputmode="decimal" dir="ltr" required>
+          </label>
+        </div>
+        <label style="display:flex;flex-direction:column;gap:4px;font-size:0.9rem;margin-bottom:12px">
+          الوصف / الموضوع
+          <input type="text" class="journal-desc" value="${escapeHtml(entry.description)}" placeholder="مثل: تحويل صندوق من السوري إلى الدولار" maxlength="500">
+        </label>
+        <label style="display:flex;flex-direction:column;gap:4px;font-size:0.9rem">
+          ملاحظات عامة (اختياري)
+          <textarea class="journal-notes" placeholder="ملاحظات إضافية..." maxlength="1000" style="resize:vertical;min-height:60px">${escapeHtml(entry.notes)}</textarea>
+        </label>
+      </div>
+
+      <!-- الأسطر -->
+      <div style="margin-bottom:20px">
+        <h3 style="margin:0 0 12px;font-size:1rem">أسطر القيد</h3>
+        ${linesHtml}
+        <button type="button" class="button secondary" data-action="journal-add-line">+ إضافة سطر</button>
+      </div>
+
+      <!-- لوحة التوازن -->
+      <div style="background:${balance.isBalanced ? "#d4edda" : "#fff3cd"};border:1px solid ${balance.isBalanced ? "#28a745" : "#ffc107"};padding:16px;border-radius:8px;margin-bottom:20px">
+        <h3 style="margin:0 0 12px;font-size:1rem">لوحة التوازن</h3>
+        <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:16px;text-align:center">
+          <div>
+            <div style="font-size:0.9rem;color:#666">إجمالي المدين</div>
+            <div style="font-size:1.4rem;font-weight:bold;color:#333">${balance.totalDebit.toFixed(2)}</div>
+            <div style="font-size:0.8rem;color:#666">USD</div>
+          </div>
+          <div>
+            <div style="font-size:0.9rem;color:#666">إجمالي الدائن</div>
+            <div style="font-size:1.4rem;font-weight:bold;color:#333">${balance.totalCredit.toFixed(2)}</div>
+            <div style="font-size:0.8rem;color:#666">USD</div>
+          </div>
+          <div>
+            <div style="font-size:0.9rem;color:#666">الفرق</div>
+            <div style="font-size:1.4rem;font-weight:bold;color:${balance.isBalanced ? "#28a745" : "#c33"}">${balance.difference.toFixed(2)}</div>
+            <div style="font-size:0.8rem;color:${balance.isBalanced ? "#28a745" : "#c33"}">${balance.isBalanced ? "✓ متوازن" : "✗ غير متوازن"}</div>
+          </div>
+        </div>
+      </div>
+
+      ${errorHtml}
+
+      <!-- الأزرار -->
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        <button type="button" class="button primary" data-action="journal-save" ${state.journalSaving ? "disabled" : ""}>
+          ${state.journalSaving ? "جاري الحفظ..." : "💾 حفظ السند"}
+        </button>
+        ${!isNew ? `
+          <button type="button" class="button secondary" data-action="journal-copy">📋 نسخ السند</button>
+          <button type="button" class="button secondary" data-action="journal-print">🖨️ طباعة/معاينة</button>
+          <button type="button" class="button danger" data-action="journal-delete">🗑️ حذف</button>
+        ` : ""}
+        <button type="button" class="button secondary" data-action="journal-close">إلغاء</button>
+      </div>
+    </section>
+  `);
+}
+
 function render() {
   if (state.showExchangeModal) {
     app.innerHTML = `
@@ -9127,6 +9394,7 @@ function render() {
     purchases,
     warehouses,
     inventoryRecon,
+    journalEntries: journalEntriesPage,
     dashboard: reportsPage,
     staff: staffPage,
     search: searchPage,
@@ -10171,6 +10439,274 @@ function render() {
   app.querySelectorAll("[data-request]").forEach((button) => {
     button.addEventListener("click", () => updateRequest(button.dataset.request, button.dataset.status));
   });
+
+  // معالجات سند القيد
+  app.querySelector("#journal-search")?.addEventListener("input", (e) => {
+    state.journalSearchQuery = e.currentTarget.value;
+    render();
+  });
+
+  app.querySelectorAll("[data-action='journal-new']").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      state.journalCurrentEntry = new JournalEntry();
+      state.journalOpenId = "new";
+      render();
+    });
+  });
+
+  app.querySelectorAll("[data-action='journal-open']").forEach((card) => {
+    card.addEventListener("click", async () => {
+      const id = card.dataset.journalId;
+      state.journalSaving = true;
+      render();
+      try {
+        const entry = await dataStore.getJournalEntry(id);
+        if (entry) {
+          state.journalCurrentEntry = JournalEntry.fromJSON(entry);
+          state.journalOpenId = id;
+        } else {
+          state.journalError = "لم يتمكن من جلب السند";
+        }
+      } catch (err) {
+        state.journalError = safeErrorMessage(err);
+      } finally {
+        state.journalSaving = false;
+        render();
+      }
+    });
+  });
+
+  // معالجات نموذج التحرير
+  const journalDateInput = document.querySelector(".journal-date");
+  if (journalDateInput) {
+    journalDateInput.addEventListener("change", () => {
+      if (state.journalCurrentEntry) {
+        state.journalCurrentEntry.date = journalDateInput.value;
+        render();
+      }
+    });
+  }
+
+  const journalRefInput = document.querySelector(".journal-ref-number");
+  if (journalRefInput) {
+    journalRefInput.addEventListener("change", () => {
+      if (state.journalCurrentEntry) {
+        state.journalCurrentEntry.referenceNumber = journalRefInput.value;
+      }
+    });
+  }
+
+  const journalOpType = document.querySelector(".journal-op-type");
+  if (journalOpType) {
+    journalOpType.addEventListener("change", () => {
+      if (state.journalCurrentEntry) {
+        state.journalCurrentEntry.operationType = journalOpType.value;
+      }
+    });
+  }
+
+  const journalExRate = document.querySelector(".journal-ex-rate");
+  if (journalExRate) {
+    journalExRate.addEventListener("change", () => {
+      if (state.journalCurrentEntry) {
+        const val = parseFloat(journalExRate.value);
+        if (Number.isFinite(val) && val > 0) {
+          state.journalCurrentEntry.exchangeRate = val;
+          state.journalCurrentEntry.recalculate();
+          render();
+        }
+      }
+    });
+  }
+
+  const journalDesc = document.querySelector(".journal-desc");
+  if (journalDesc) {
+    journalDesc.addEventListener("change", () => {
+      if (state.journalCurrentEntry) {
+        state.journalCurrentEntry.description = journalDesc.value;
+      }
+    });
+  }
+
+  const journalNotes = document.querySelector(".journal-notes");
+  if (journalNotes) {
+    journalNotes.addEventListener("change", () => {
+      if (state.journalCurrentEntry) {
+        state.journalCurrentEntry.notes = journalNotes.value;
+      }
+    });
+  }
+
+  // معالجات الأسطر
+  document.querySelectorAll(".journal-line-form").forEach((lineDiv) => {
+    const idx = parseInt(lineDiv.dataset.lineIdx);
+    const line = state.journalCurrentEntry?.lines[idx];
+    if (!line) return;
+
+    const accInput = lineDiv.querySelector(".journal-line-account");
+    if (accInput) {
+      accInput.addEventListener("change", () => {
+        if (state.journalCurrentEntry) {
+          state.journalCurrentEntry.updateLine(idx, { account: accInput.value });
+        }
+      });
+    }
+
+    const currencySelect = lineDiv.querySelector(".journal-line-currency");
+    if (currencySelect) {
+      currencySelect.addEventListener("change", () => {
+        if (state.journalCurrentEntry) {
+          state.journalCurrentEntry.updateLine(idx, { currency: currencySelect.value });
+        }
+      });
+    }
+
+    const amountInput = lineDiv.querySelector(".journal-line-amount");
+    if (amountInput) {
+      amountInput.addEventListener("change", () => {
+        if (state.journalCurrentEntry) {
+          const amount = parseFloat(amountInput.value);
+          if (Number.isFinite(amount)) {
+            state.journalCurrentEntry.updateLine(idx, { amount });
+            state.journalCurrentEntry.recalculate();
+            render();
+          }
+        }
+      });
+    }
+
+    const sideSelect = lineDiv.querySelector(".journal-line-side");
+    if (sideSelect) {
+      sideSelect.addEventListener("change", () => {
+        if (state.journalCurrentEntry) {
+          state.journalCurrentEntry.updateLine(idx, { side: sideSelect.value });
+          state.journalCurrentEntry.recalculate();
+          render();
+        }
+      });
+    }
+
+    const noteInput = lineDiv.querySelector(".journal-line-note");
+    if (noteInput) {
+      noteInput.addEventListener("change", () => {
+        if (state.journalCurrentEntry) {
+          state.journalCurrentEntry.updateLine(idx, { lineNote: noteInput.value });
+        }
+      });
+    }
+  });
+
+  // أزرار إضافة/حذف/حفظ/حذف
+  app.querySelectorAll("[data-action='journal-add-line']").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      if (state.journalCurrentEntry) {
+        state.journalCurrentEntry.addLine();
+        render();
+      }
+    });
+  });
+
+  app.querySelectorAll("[data-action='journal-remove-line']").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const idx = parseInt(btn.dataset.lineIdx);
+      if (state.journalCurrentEntry) {
+        state.journalCurrentEntry.removeLine(idx);
+        render();
+      }
+    });
+  });
+
+  app.querySelectorAll("[data-action='journal-save']").forEach((btn) => {
+    btn.addEventListener("click", async () => {
+      if (!state.journalCurrentEntry) return;
+      const validation = state.journalCurrentEntry.validate();
+      if (!validation.isValid) {
+        state.journalError = validation.errors.join(", ");
+        render();
+        return;
+      }
+      state.journalSaving = true;
+      render();
+      try {
+        const saved = await saveJournalEntry(state.journalCurrentEntry);
+        if (!saved) return;
+        state.journalError = "";
+        state.journalOpenId = "";
+        state.journalCurrentEntry = null;
+        await loadJournalEntries();
+        render();
+      } catch (err) {
+        state.journalError = `خطأ: ${err.message || "فشل الحفظ"}`;
+        state.journalSaving = false;
+        render();
+      }
+    });
+  });
+
+  app.querySelectorAll("[data-action='journal-close']").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      state.journalOpenId = "";
+      state.journalCurrentEntry = null;
+      state.journalError = "";
+      render();
+    });
+  });
+
+  app.querySelectorAll("[data-action='journal-delete']").forEach((btn) => {
+    btn.addEventListener("click", async () => {
+      if (!state.journalCurrentEntry?.id) return;
+      if (!confirm("هل تريد حذف هذا السند؟ هذا الإجراء لا يمكن التراجع عنه.")) return;
+      state.journalSaving = true;
+      render();
+      try {
+        const deleted = await deleteJournalEntry(state.journalCurrentEntry.id);
+        if (!deleted) return;
+        state.journalOpenId = "";
+        state.journalCurrentEntry = null;
+        state.journalError = "";
+        await loadJournalEntries();
+        render();
+      } catch (err) {
+        state.journalError = `خطأ: ${err.message || "فشل الحذف"}`;
+        state.journalSaving = false;
+        render();
+      }
+    });
+  });
+
+  app.querySelectorAll("[data-action='journal-copy']").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      if (state.journalCurrentEntry) {
+        const copied = JournalEntry.copy(state.journalCurrentEntry);
+        state.journalCurrentEntry = copied;
+        state.journalOpenId = "new";
+        render();
+      }
+    });
+  });
+
+  app.querySelectorAll("[data-action='journal-print']").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      if (state.journalCurrentEntry) {
+        const text = state.journalCurrentEntry.toPlainText();
+        const w = window.open("", "journal-print", "width=800,height=600");
+        if (w) {
+          w.document.write(`<pre dir="rtl" style="font-family:Arial,sans-serif;white-space:pre-wrap;word-wrap:break-word">${escapeHtml(text)}</pre>`);
+          w.document.close();
+          w.print();
+        }
+      }
+    });
+  });
+
+  // معالج البحث
+  const journalSearch = document.getElementById("journal-search");
+  if (journalSearch) {
+    journalSearch.addEventListener("input", () => {
+      state.journalSearchQuery = journalSearch.value;
+      render();
+    });
+  }
 }
 
 boot();
