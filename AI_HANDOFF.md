@@ -2,6 +2,14 @@
 
 يقرأه Claude وCodex قبل كل مهمة. أحدث سجل يكون في الأعلى. لا تحذف السجلات السابقة.
 
+## 2026-08-10 - Claude - سند القيد
+
+- Status: completed
+- Branch: task branch pending for: سند القيد: واجهة وتخزين مسودات القيود المحاسبية الداخلية بدون كتابة للأمين
+- Files: src/app.js,src/styles.css,src/journal-entries.js,public/service-worker.js,supabase/journal-entries-tables.sql
+- Result: Task completed and handed off.
+- Handoff UTC: 2026-08-10T04:01:30Z
+
 ## 2026-08-05 - Codex - ترتيب فواتير ومرتجعات ودفعات الزبون في ثلاثة أعمدة وإخفاء معلومات التواصل
 
 - Status: completed
