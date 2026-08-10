@@ -1,11 +1,13 @@
 {
-  "schemaVersion": 1,
-  "status": "idle",
-  "owner": null,
-  "task": null,
-  "branch": null,
-  "files": [],
-  "startedAt": null,
-  "updatedAt": "2026-08-10T04:01:30Z",
-  "note": "No active task. Read AI_HANDOFF.md before starting work."
+    "schemaVersion":  1,
+    "status":  "active",
+    "owner":  "Codex",
+    "task":  "تحسين SEO للصفحة الرئيسية: H1 وcanonical وOpen Graph وOrganization JSON-LD",
+    "branch":  "task branch pending for: تحسين SEO للصفحة الرئيسية: H1 وcanonical وOpen Graph وOrganization JSON-LD",
+    "files":  [
+                  "index.html,public/service-worker.js"
+              ],
+    "startedAt":  "2026-08-10T04:07:57Z",
+    "updatedAt":  "2026-08-10T04:07:57Z",
+    "note":  "Work in progress. Do not edit the reserved files."
 }
