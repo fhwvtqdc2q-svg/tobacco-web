@@ -8,6 +8,24 @@
     <meta http-equiv="X-Content-Type-Options" content="nosniff">
     <meta http-equiv="Referrer-Policy" content="strict-origin-when-cross-origin">
     <meta name="description" content="OZK TOBACCO منصة خدمة عملاء عربية تعمل على ويندوز وآبل.">
+    <link rel="canonical" href="https://ozktobacco.com/">
+    <meta property="og:type" content="website">
+    <meta property="og:site_name" content="OZK TOBACCO">
+    <meta property="og:title" content="OZK TOBACCO | مركز أبو زياد للتجارة">
+    <meta property="og:description" content="مركز أبو زياد لتجارة الدخان الوطني والأجنبي والمستورد.">
+    <meta property="og:url" content="https://ozktobacco.com/">
+    <meta property="og:image" content="https://ozktobacco.com/public/icons/ozk-logo.png">
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@type": "Organization",
+        "name": "OZK TOBACCO",
+        "alternateName": "مركز أبو زياد",
+        "url": "https://ozktobacco.com/",
+        "logo": "https://ozktobacco.com/public/icons/ozk-logo.png",
+        "description": "مركز أبو زياد لتجارة الدخان الوطني والأجنبي والمستورد."
+      }
+    </script>
     <link rel="manifest" href="public/manifest.webmanifest">
     <link rel="icon" href="public/icons/app-icon.png" type="image/png">
     <link rel="stylesheet" href="src/styles.css?v=tobacco-131">
@@ -15,7 +33,15 @@
     <title>OZK TOBACCO | خدمة العملاء</title>
   </head>
   <body>
-    <div id="app"></div>
+    <div id="app">
+      <main style="min-height:100vh;display:grid;place-items:center;padding:24px;text-align:center;background:#080705;color:#f5ead7">
+        <section>
+          <img src="public/icons/ozk-logo.png" alt="شعار OZK TOBACCO" width="260" height="260" style="max-width:70vw;height:auto">
+          <h1>مركز أبو زياد للتجارة — OZK TOBACCO</h1>
+          <p>لتجارة الدخان الوطني والأجنبي والمستورد</p>
+        </section>
+      </main>
+    </div>
     <script src="src/number-normalizer.js?v=tobacco-131" defer></script>
     <script src="public/vendor/supabase.js?v=tobacco-131" defer></script>
     <script src="public/vendor/xlsx.full.min.js?v=tobacco-131" defer></script>
