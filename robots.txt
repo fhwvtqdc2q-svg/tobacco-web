@@ -1,0 +1,10 @@
+User-agent: *
+Allow: /
+Disallow: /receipt.html
+Disallow: /reports/
+Disallow: /scripts/
+Disallow: /src/
+Disallow: /supabase/
+Disallow: /tools/
+
+Sitemap: https://ozktobacco.com/sitemap.xml
