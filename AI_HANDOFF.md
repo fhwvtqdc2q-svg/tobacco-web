@@ -2,6 +2,13 @@
 
 يقرأه Claude وCodex قبل كل مهمة. أحدث سجل يكون في الأعلى. لا تحذف السجلات السابقة.
 
+## 2026-08-10 - Codex - تحسين SEO للصفحة الرئيسية: H1 وcanonical وOpen Graph وOrganization JSON-LD
+
+- Status: completed
+- Branch: task branch pending for: تحسين SEO للصفحة الرئيسية: H1 وcanonical وOpen Graph وOrganization JSON-LD
+- Files: index.html,public/service-worker.js
+- Result: دُمج PR #51 بطريقة squash بالـcommit f9bb1f6؛ نجح workflow Deploy TOBACCO Web رقم 31355034852؛ تحقق HTTPS 200 وH1 على الهاتف وcanonical وOpen Graph وOrganization JSON-LD والشعار وCACHE_NAME v475.
+- Handoff UTC: 2026-08-10T04:26:39Z
 ## 2026-08-10 - Claude - سند القيد
 
 - Status: completed
