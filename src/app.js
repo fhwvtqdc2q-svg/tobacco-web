@@ -5141,31 +5141,9 @@ function renderMarkdown(text) {
     .replace(/\n/g, "<br>");
 }
 
-function getAiKey(provider) {
-  return sessionStorage.getItem(`ozk_ai_key_${provider}`) || appConfig.ai?.[provider]?.apiKey || "";
-}
-
-function setAiKey(provider, value) {
-  const trimmed = value.trim();
-  if (trimmed) sessionStorage.setItem(`ozk_ai_key_${provider}`, trimmed);
-  else sessionStorage.removeItem(`ozk_ai_key_${provider}`);
-}
-
 async function sendAiMessage(input) {
   const message = input.trim();
   if (!message || state.aiLoading) return;
-
-  const aiConfig = appConfig.ai;
-  const providerKey = getAiKey(state.aiProvider);
-  if (!providerKey) {
-    state.aiMessages.push({
-      role: "assistant",
-      content: `⚠️ مفتاح واجهة البرمجة (API) غير مضاف. افتح إعدادات المساعد الذكي وأدخل مفتاح ${state.aiProvider === "claude" ? "Anthropic" : "OpenAI"}.`
-    });
-    state.aiSettingsOpen = true;
-    render();
-    return;
-  }
 
   state.aiMessages.push({ role: "user", content: message });
   state.aiLoading = true;
@@ -5178,48 +5156,11 @@ async function sendAiMessage(input) {
   setTimeout(scrollBottom, 30);
 
   try {
-    let reply = "";
-
-    if (state.aiProvider === "claude") {
-      const response = await fetch("https://api.anthropic.com/v1/messages", {
-        method: "POST",
-        headers: {
-          "content-type": "application/json",
-          "x-api-key": providerKey,
-          "anthropic-version": "2023-06-01",
-          "anthropic-dangerous-direct-browser-access": "true"
-        },
-        body: JSON.stringify({
-          model: aiConfig.claude.model || "claude-opus-4-8",
-          max_tokens: 4096,
-          messages: state.aiMessages
-            .filter((m) => m.role === "user" || m.role === "assistant")
-            .map((m) => ({ role: m.role, content: m.content }))
-        })
-      });
-      const data = await response.json();
-      if (!response.ok) throw new Error(data.error?.message || `Claude API ${response.status}`);
-      reply = data.content?.[0]?.text || "";
-    } else {
-      const response = await fetch("https://api.openai.com/v1/chat/completions", {
-        method: "POST",
-        headers: {
-          "content-type": "application/json",
-          authorization: `Bearer ${providerKey}`
-        },
-        body: JSON.stringify({
-          model: aiConfig.chatgpt.model || "gpt-4o",
-          messages: state.aiMessages
-            .filter((m) => m.role === "user" || m.role === "assistant")
-            .map((m) => ({ role: m.role, content: m.content }))
-        })
-      });
-      const data = await response.json();
-      if (!response.ok) throw new Error(data.error?.message || `OpenAI API ${response.status}`);
-      reply = data.choices?.[0]?.message?.content || "";
-    }
-
-    state.aiMessages.push({ role: "assistant", content: reply });
+    const messages = state.aiMessages
+      .filter((item) => item.role === "user" || item.role === "assistant")
+      .map((item) => ({ role: item.role, content: item.content }));
+    const result = await dataStore.askFinancialAssistant(messages, state.aiProvider);
+    state.aiMessages.push({ role: "assistant", content: result.reply || "لم تصل إجابة من الخادم." });
   } catch (err) {
     state.aiMessages.push({ role: "assistant", content: `⚠️ خطأ: ${err.message}` });
   } finally {
@@ -5240,14 +5181,11 @@ function aiAssistant() {
   }
 
   const msgs = state.aiMessages;
-  const claudeKey = getAiKey("claude");
-  const chatgptKey = getAiKey("chatgpt");
-  const hasKey = Boolean(state.aiProvider === "claude" ? claudeKey : chatgptKey);
 
   const messagesHtml = msgs.length === 0
     ? `<div class="ai-welcome">
          <p class="ai-welcome-title">مرحباً في المساعد الذكي</p>
-         <p class="muted">اكتب أي سؤال أو مهمة. لا يوجد حد للرسائل.</p>
+         <p class="muted">اسأل عن أرصدة حسابات الأمين، الصناديق، الذمم، المبيعات، الأرباح أو المصروفات. البيانات للقراءة والتحليل فقط.</p>
        </div>`
     : msgs.map((m) => `
         <div class="ai-message ${m.role === "user" ? "ai-user" : "ai-bot"}">
@@ -5257,77 +5195,20 @@ function aiAssistant() {
         ? `<div class="ai-message ai-bot"><div class="ai-bubble ai-thinking"><span></span><span></span><span></span></div></div>`
         : "");
 
-  const settingsPanel = `
-    <div class="ai-settings-panel" id="ai-settings-panel">
-      <form class="ai-keys-form" data-form="ai-keys">
-        <div class="ai-key-row">
-          <label class="ai-key-label">
-            <span>مفتاح Anthropic (Claude)</span>
-            <a class="ai-key-link" href="https://console.anthropic.com/settings/keys" target="_blank" rel="noopener">احصل على مفتاح ←</a>
-          </label>
-          <div class="ai-key-input-wrap">
-            <input
-              type="password"
-              class="ai-key-input"
-              name="claude_key"
-              placeholder="sk-ant-api03-…"
-              value="${escapeHtml(claudeKey)}"
-              autocomplete="off"
-              spellcheck="false"
-            />
-            <button type="button" class="ai-key-toggle" data-toggle-key="claude_key" title="إظهار/إخفاء">👁</button>
-          </div>
-        </div>
-        <div class="ai-key-row">
-          <label class="ai-key-label">
-            <span>مفتاح OpenAI (ChatGPT)</span>
-            <a class="ai-key-link" href="https://platform.openai.com/api-keys" target="_blank" rel="noopener">احصل على مفتاح ←</a>
-          </label>
-          <div class="ai-key-input-wrap">
-            <input
-              type="password"
-              class="ai-key-input"
-              name="chatgpt_key"
-              placeholder="sk-proj-…"
-              value="${escapeHtml(chatgptKey)}"
-              autocomplete="off"
-              spellcheck="false"
-            />
-            <button type="button" class="ai-key-toggle" data-toggle-key="chatgpt_key" title="إظهار/إخفاء">👁</button>
-          </div>
-        </div>
-        <div class="ai-key-actions">
-          <button class="button primary" type="submit">حفظ المفاتيح</button>
-          ${claudeKey || chatgptKey ? `<button class="button secondary" type="button" data-action="ai-keys-clear">حذف المفاتيح</button>` : ""}
-        </div>
-        <p class="ai-key-note">تُحفظ المفاتيح في متصفحك فقط ولا تُرسل لأي خادم آخر.</p>
-      </form>
-    </div>
-  `;
-
   return shell(`
     <section class="panel wide ai-panel">
       <div class="ai-toolbar">
-        <div class="ai-provider-tabs">
-          <button class="ai-tab ${state.aiProvider === "claude" ? "active" : ""}" data-ai-provider="claude">كلود (Claude)</button>
-          <button class="ai-tab ${state.aiProvider === "chatgpt" ? "active" : ""}" data-ai-provider="chatgpt">شات جي بي تي (ChatGPT)</button>
-        </div>
+        <div class="ai-provider-tabs"><span class="ai-tab active">المساعد المالي الآمن</span></div>
         <div class="ai-toolbar-end">
           ${msgs.length > 0 ? `<button class="button secondary" style="font-size:0.8rem;padding:4px 12px" data-action="ai-clear">مسح</button>` : ""}
-          <button class="button secondary ai-settings-btn ${state.aiSettingsOpen ? "active" : ""}" data-action="ai-settings-toggle" title="إعدادات المفاتيح">
-            ⚙ إعدادات
-          </button>
+          <span class="status-pill success">قراءة فقط من الأمين</span>
         </div>
       </div>
 
-      ${state.aiSettingsOpen ? settingsPanel : ""}
-
-      ${!hasKey && !state.aiSettingsOpen ? `
-        <div class="notice-panel warning" style="margin-bottom:12px;cursor:pointer" data-action="ai-settings-toggle">
-          <strong>مفتاح واجهة البرمجة (API) مفقود.</strong>
-          <span>اضغط هنا أو على "⚙ إعدادات" لإضافة مفتاح ${state.aiProvider === "claude" ? "Anthropic" : "OpenAI"}.</span>
-        </div>
-      ` : ""}
+      <div class="notice-panel success" style="margin-bottom:12px">
+        <strong>متصل بتقارير برنامج الأمين</strong>
+        <span>البيانات تبقى داخل Supabase ولا تُرسل لأي جهة خارجية، ولا يستطيع المساعد تعديل أي حساب أو قيد.</span>
+      </div>
 
       <div class="ai-messages" id="ai-messages">${messagesHtml}</div>
 
@@ -5335,7 +5216,7 @@ function aiAssistant() {
         <textarea
           class="ai-textarea"
           name="message"
-          placeholder="اكتب رسالتك… (Shift+Enter لسطر جديد، Enter للإرسال)"
+          placeholder="مثال: ما أرصدة الصناديق اليوم؟"
           rows="2"
           dir="auto"
           ${state.aiLoading ? "disabled" : ""}
@@ -9738,35 +9619,6 @@ function render() {
 
   app.querySelector("[data-action='ai-clear']")?.addEventListener("click", () => {
     state.aiMessages = [];
-    render();
-  });
-
-  app.querySelector("[data-action='ai-settings-toggle']")?.addEventListener("click", () => {
-    state.aiSettingsOpen = !state.aiSettingsOpen;
-    render();
-  });
-
-  app.querySelector("[data-action='ai-keys-clear']")?.addEventListener("click", () => {
-    if (confirm("هل تريد حذف جميع مفاتيح واجهة البرمجة (API) المحفوظة؟")) {
-      setAiKey("claude", "");
-      setAiKey("chatgpt", "");
-      render();
-    }
-  });
-
-  app.querySelectorAll("[data-toggle-key]").forEach((btn) => {
-    btn.addEventListener("click", () => {
-      const input = btn.closest(".ai-key-input-wrap")?.querySelector("input");
-      if (input) input.type = input.type === "password" ? "text" : "password";
-    });
-  });
-
-  app.querySelector("[data-form='ai-keys']")?.addEventListener("submit", (event) => {
-    event.preventDefault();
-    const form = event.currentTarget;
-    setAiKey("claude", form.elements.claude_key.value);
-    setAiKey("chatgpt", form.elements.chatgpt_key.value);
-    state.aiSettingsOpen = false;
     render();
   });
 

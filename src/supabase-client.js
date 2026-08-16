@@ -1442,6 +1442,41 @@
         .limit(1);
       if (error) throw new Error(translateDbError(error.message));
       return (data && data[0]) || null;
+    },
+
+    // المساعد المالي يستدعي Edge Function محمية بجلسة الموظف. مفاتيح مزودي
+    // الذكاء الاصطناعي وقراءة التقارير الحساسة تبقى على الخادم ولا تصل للمتصفح.
+    async askFinancialAssistant(messages, provider = "chatgpt") {
+      if (!client) throw new Error("المساعد المالي يتطلب اتصالاً آمناً بـ Supabase.");
+      const { data: sessionData, error: sessionError } = await client.auth.getSession();
+      if (sessionError) throw new Error(translateAuthError(sessionError.message));
+      const accessToken = sessionData?.session?.access_token;
+      if (!accessToken) throw new Error(missingSessionMessage());
+
+      const response = await fetch(`${config.url.replace(/\/$/, "")}/functions/v1/financial-assistant`, {
+        method: "POST",
+        headers: {
+          apikey: config.publishableKey,
+          authorization: `Bearer ${accessToken}`,
+          "content-type": "application/json"
+        },
+        body: JSON.stringify({
+          provider: provider === "claude" ? "claude" : "chatgpt",
+          messages: (Array.isArray(messages) ? messages : []).slice(-12)
+        })
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        const errors = {
+          forbidden: "هذا المساعد المالي متاح للحسابات الإدارية المخوّلة فقط.",
+          unauthorized: "انتهت جلسة الدخول. سجّل الدخول مجدداً.",
+          openai_not_configured: "مفتاح OpenAI غير مضبوط في أسرار الخادم.",
+          anthropic_not_configured: "مفتاح Anthropic غير مضبوط في أسرار الخادم.",
+          empty_message: "اكتب سؤالك أولاً."
+        };
+        throw new Error(errors[payload.error] || "تعذر الحصول على إجابة من المساعد المالي.");
+      }
+      return payload;
     }
   };
 

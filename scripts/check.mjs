@@ -25,7 +25,11 @@ const required = [
   "public/downloads/price-list-wazari-syp-14050-light.pdf",
   "AI_WORK_SYNC.md",
   "AI_HANDOFF.md",
-  "AI_ACTIVE_TASK.json"
+  "AI_ACTIVE_TASK.json",
+  "supabase/functions/financial-assistant/index.ts",
+  "supabase/ameen-account-balance-reports.sql",
+  "tools/push-ameen-account-balances.ps1",
+  "tools/register-account-balances-task.ps1"
 ];
 
 let failed = false;
@@ -64,6 +68,54 @@ const customerInvoicesPush = readFileSync("tools/push-customer-invoices.ps1", "u
 const purchaseInvoicesPull = readFileSync("tools/pull-purchase-invoices-from-ameen.ps1", "utf8");
 const purchaseInvoicesTask = readFileSync("tools/register-purchase-invoices-pull-task.ps1", "utf8");
 const customerInvoicesVerify = readFileSync("tools/verify-customer-invoice-sync.ps1", "utf8");
+const financialAssistant = readFileSync("supabase/functions/financial-assistant/index.ts", "utf8");
+const accountBalancesSql = readFileSync("supabase/ameen-account-balance-reports.sql", "utf8");
+const accountBalancesPush = readFileSync("tools/push-ameen-account-balances.ps1", "utf8");
+
+for (const contract of [
+  "askFinancialAssistant",
+  "/functions/v1/financial-assistant",
+  "قراءة فقط من الأمين"
+]) {
+  if (!app.includes(contract) && !readFileSync("src/supabase-client.js", "utf8").includes(contract)) {
+    console.error(`Financial assistant client contract is missing: ${contract}`);
+    failed = true;
+  }
+}
+for (const forbidden of ["sessionStorage", "anthropic-dangerous-direct-browser-access", "api.openai.com/v1/chat/completions"]) {
+  if (app.includes(forbidden)) {
+    console.error(`Browser-side AI secret contract must be removed: ${forbidden}`);
+    failed = true;
+  }
+}
+for (const contract of ["requireStaff", "SUPABASE_SERVICE_ROLE_KEY", "ameen_account_balance_reports", "externalDataShared: false"]) {
+  if (!financialAssistant.includes(contract)) {
+    console.error(`Financial assistant server contract is missing: ${contract}`);
+    failed = true;
+  }
+}
+for (const forbidden of ["api.openai.com", "api.anthropic.com", "OPENAI_API_KEY", "ANTHROPIC_API_KEY"]) {
+  if (financialAssistant.includes(forbidden)) {
+    console.error(`Financial data must not leave Supabase without explicit approval: ${forbidden}`);
+    failed = true;
+  }
+}
+for (const contract of ["enable row level security", "public.is_staff()", "ameen_account_balance_reports_is_sync_writer", "revoke all"]) {
+  if (!accountBalancesSql.includes(contract)) {
+    console.error(`Account-balance RLS contract is missing: ${contract}`);
+    failed = true;
+  }
+}
+for (const contract of ["AMEEN_SQL_CONNECTION_STRING", "FROM dbo.ac000", "Debit, 0) - COALESCE(a.Credit", "ameen_account_balance_reports"]) {
+  if (!accountBalancesPush.includes(contract)) {
+    console.error(`Read-only Ameen account synchronization contract is missing: ${contract}`);
+    failed = true;
+  }
+}
+if (/\b(?:INSERT|UPDATE|DELETE|MERGE|EXEC(?:UTE)?)\b/i.test(accountBalancesPush.split('$sql = @"')[1]?.split('"@')[0] || "")) {
+  console.error("Ameen account synchronization SQL must remain SELECT-only.");
+  failed = true;
+}
 
 // فواتير المبيعات والمشتريات لها مسارات قائمة يقرأها التطبيق فعلياً. منع إعادة
 // إدخال سكربتات snapshot جزئية أو جدول مبيعات ثالث غير مستخدم.

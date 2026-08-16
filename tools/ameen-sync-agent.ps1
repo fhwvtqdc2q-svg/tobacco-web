@@ -598,6 +598,15 @@ function Sync-Once {
   } catch {
     Write-AgentLog ("Daily movement sync failed: {0}" -f $_.Exception.Message)
   }
+
+  # Keep the protected financial-assistant account snapshot fresh without
+  # increasing load on Al-Ameen during the one-minute main sync cycle.
+  try {
+    & "$PSScriptRoot\push-ameen-account-balances.ps1" -MinimumIntervalMinutes 15
+    if ($LASTEXITCODE -ne 0) { Write-AgentLog "Account balance sync returned a failure code." }
+  } catch {
+    Write-AgentLog ("Account balance sync failed: {0}" -f $_.Exception.Message)
+  }
 }
 
 do {
