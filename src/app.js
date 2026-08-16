@@ -2787,18 +2787,18 @@ function shell(content) {
           <span>${escapeHtml(appConfig.name)}</span>
         </a>
         <nav>
-          ${navButton("overview", "🏠 الرئيسية")}
-          ${state.session ? navButton("dashboard", "📑 التقارير") : ""}
-          ${navButton("login", "🔑 تسجيل الدخول")}
-          ${navButton("ameen", "📦 الأمين")}
-          ${state.session ? navButton("balances", "💳 أرصدة الزبائن") : ""}
-          ${navButton("pricing", "نشرة الأسعار")}
-          ${state.session ? navButton("sales", "🧮 فاتورة مبيعات") : ""}
-          ${state.session ? navButton("purchases", "🧾 فواتير مشتريات") : ""}
-          ${state.session ? navButton("warehouses", "🏭 المستودعات والمناقلات") : ""}
-          ${state.session ? navButton("inventoryRecon", "📋 الجرد الشهري") : ""}
-          ${state.session ? navButton("staff", "👥 الموظفون") : ""}
-          ${state.session ? navButton("ai", "🤖 المساعد الذكي") : ""}
+          ${navButton("overview", "🏠 الرئيسية", "لوحة المعلومات والبدء السريع")}
+          ${state.session ? navButton("dashboard", "📑 التقارير", "حركة مبيعات وأرصدة اليوم") : ""}
+          ${navButton("login", "🔑 تسجيل الدخول", "دخول الموظفين والإدارة")}
+          ${navButton("ameen", "📦 الأمين", "مخزون وتقارير من نظام الأمين")}
+          ${state.session ? navButton("balances", "💳 أرصدة الزبائن", "أرصدة وحدود ائتمانية") : ""}
+          ${navButton("pricing", "نشرة الأسعار", "تسعير ونشر نشرة الجملة والمفرق")}
+          ${state.session ? navButton("sales", "🧮 فاتورة مبيعات", "إنشاء فاتورة بيع") : ""}
+          ${state.session ? navButton("purchases", "🧾 فواتير مشتريات", "فواتير و التزامات الموردين") : ""}
+          ${state.session ? navButton("warehouses", "🏭 المستودعات والمناقلات", "مخزون المستودعات والمناقلات") : ""}
+          ${state.session ? navButton("inventoryRecon", "📋 الجرد الشهري", "مطابقة الجرد الشهري") : ""}
+          ${state.session ? navButton("staff", "👥 الموظفون", "إدارة حسابات الموظفين") : ""}
+          ${state.session ? navButton("ai", "🤖 المساعد الذكي", "مساعد ذكي للأسئلة والاستفسارات") : ""}
         </nav>
         <div style="margin-top:auto;padding-top:20px;border-top:1px solid #2f2415">
           <a href="privacy-policy.html" style="display:block;font-size:0.78rem;color:#7a6040;text-align:center;text-decoration:none;padding:6px 0;" target="_blank">سياسة الخصوصية</a>
@@ -2844,14 +2844,16 @@ function loadingPanel() {
   return `<section class="panel wide"><h2>جاري التحميل...</h2><p class="muted">نجهز بيانات التطبيق.</p></section>`;
 }
 
-function navButton(route, label) {
+function navButton(route, label, hint) {
   const active = state.route === route ? "active" : "";
-  return `<button class="nav-link ${active}" data-route="${route}">${label}</button>`;
+  const title = hint ? ` title="${escapeHtml(hint)}"` : "";
+  return `<button class="nav-link ${active}" data-route="${route}"${title}>${label}</button>`;
 }
 
 function pageTitle() {
   return {
     overview: "لوحة OZK",
+    decision: "قرار اليوم",
     login: "تسجيل الدخول",
     requests: "طلبات العملاء",
     ameen: "تقارير الأمين",
@@ -2880,6 +2882,34 @@ function overview() {
     contactInfo.push(`الخاص: ${escapeHtml(appConfig.privateNumber)}`);
   }
 
+  const live = dataStore.isConfigured();
+  const quickActions = state.session
+    ? [
+        { route: "decision", label: "📌 قرار اليوم", hint: "ملخص تنفيذي للتحصيل والموردين" },
+        { route: "pricing", label: "📋 نشرة الأسعار", hint: "تسعير ونشر للزبائن" },
+        { route: "ameen", label: "📦 الأمين", hint: "مخزون وتقارير" },
+        { route: "dashboard", label: "📑 التقارير", hint: "حركة اليوم" }
+      ]
+    : [
+        { route: "login", label: "🔑 تسجيل الدخول", hint: "ابدأ من هنا" },
+        { route: "pricing", label: "📋 نشرة الأسعار", hint: "معاينة النشرة العامة" },
+        { route: "ameen", label: "📦 الأمين", hint: "حالة مزامنة المخزون" }
+      ];
+
+  const quickCards = quickActions
+    .map(
+      (item) => `
+        <button class="quick-card" type="button" data-route="${item.route}" title="${escapeHtml(item.hint)}">
+          <span class="quick-label">${item.label}</span>
+          <span class="quick-hint">${escapeHtml(item.hint)}</span>
+        </button>`
+    )
+    .join("");
+
+  const systemStatus = live
+    ? `<span class="status-dot ok"></span> متصل بقاعدة Supabase`
+    : `<span class="status-dot warn"></span> وضع تجريبي محلي`;
+
   return shell(`
     <section class="hero-panel business-hero">
       <div class="hero-copy">
@@ -2888,6 +2918,15 @@ function overview() {
         <p style="font-size: 1.1em; margin: 10px 0 20px 0;">لتجارة الدخان الوطني والأجنبي والمستورد</p>
         ${contactInfo.length > 0 ? `<p style="margin: 15px 0 0 0; color: #666;">${contactInfo.join(" | ")}</p>` : ""}
       </div>
+    </section>
+
+    <section class="panel wide">
+      <div class="panel-title-row">
+        <h2>بدء سريع</h2>
+        <span class="system-status">${systemStatus}</span>
+      </div>
+      <div class="quick-grid">${quickCards}</div>
+      ${state.session ? "" : '<p class="muted">سجّل الدخول لفتح الأقسام الإدارية (التقارير، الفواتير، المستودعات، الموظفون).</p>'}
     </section>
   `);
 }

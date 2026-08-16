@@ -3514,3 +3514,16 @@ details[open]>.acc-summary::after{transform:rotate(180deg)}
 .currency-toggle{display:flex;margin:10px 0 6px;border:1px solid var(--line);border-radius:9px;overflow:hidden;width:fit-content}
 .currency-toggle .ctgl{padding:9px 18px;border:0;background:var(--surface);color:var(--ink);cursor:pointer;font-weight:800;font-size:0.85rem}
 .currency-toggle .ctgl.active{background:var(--primary,#b8892a);color:#fff}
+
+
+/* ===== بطاقات البدء السريع وحالة النظام (مضافة) ===== */
+.quick-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:14px;margin-top:8px}
+.quick-card{display:flex;flex-direction:column;gap:4px;text-align:start;padding:18px 16px;border:1px solid var(--line);border-radius:12px;background:var(--surface);color:var(--ink);cursor:pointer;transition:border-color .18s,transform .18s,box-shadow .18s;min-height:84px}
+.quick-card:hover{border-color:var(--nav-hover-border,var(--primary));transform:translateY(-2px);box-shadow:var(--shadow)}
+.quick-label{font-weight:800;font-size:1.02rem}
+.quick-hint{font-size:0.82rem;color:var(--muted)}
+.system-status{display:inline-flex;align-items:center;gap:8px;font-size:0.85rem;color:var(--muted);font-weight:700}
+.status-dot{width:9px;height:9px;border-radius:50%;display:inline-block}
+.status-dot.ok{background:#3fae6a;box-shadow:0 0 0 3px rgba(63,174,106,.18)}
+.status-dot.warn{background:var(--primary);box-shadow:0 0 0 3px rgba(183,136,42,.18)}
+@media(max-width:640px){.quick-grid{grid-template-columns:1fr 1fr}}
