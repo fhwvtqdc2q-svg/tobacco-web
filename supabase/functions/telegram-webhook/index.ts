@@ -16,7 +16,8 @@ const WELCOME = `أهلاً 👋 أنا مساعدك الشخصي.
 • فحص الأسعار
 • حالة النظام
 • شو ناقص
-• الديون
+• تقرير أرصدة الزبائن
+• تقرير أرصدة الموردين
 • مبيعات اليوم
 • ربح اليوم
 • دفعات اليوم
@@ -41,7 +42,8 @@ const MENU_KEYBOARD = {
     [{ text: "📊 مبيعات اليوم", callback_data: "sales" }, { text: "🧮 ربح اليوم", callback_data: "profit" }],
     [{ text: "💵 دفعات وصناديق اليوم", callback_data: "daily_cash" }],
     [{ text: "⚠️ شو ناقص", callback_data: "low" }],
-    [{ text: "💰 الديون", callback_data: "debts" }, { text: "📈 رسم المبيعات", callback_data: "chart" }],
+    [{ text: "💳 أرصدة الزبائن", callback_data: "customer_balances" }, { text: "🏭 أرصدة الموردين", callback_data: "supplier_balances" }],
+    [{ text: "📈 رسم المبيعات", callback_data: "chart" }],
     [{ text: "🔄 فحص الأسعار", callback_data: "price_sync" }],
     [{ text: "🩺 حالة النظام", callback_data: "system_status" }],
     [{ text: "❓ مساعدة", callback_data: "help" }],
@@ -522,10 +524,42 @@ async function handleDebts(chatId: number) {
     return;
   }
   const total = debtors.reduce((s, c) => s + Number(c.balance ?? 0), 0);
-  let msg = `💰 الديون — ${debtors.length} زبون مدين\nالإجمالي: ${fmtUSD(total)}\n\nأعلى 10:\n`;
-  debtors.slice(0, 10).forEach((c, i) => { msg += `${i + 1}. ${c.name ?? c.key}: ${fmtUSD(c.balance)}\n`; });
-  msg += `\n📅 بيانات الأمين بتاريخ ${report.reportDate}`;
-  await tg("sendMessage", { chat_id: chatId, text: msg });
+  await tg("sendMessage", {
+    chat_id: chatId,
+    text: `💳 تقرير أرصدة الزبائن\nعدد الزبائن المدينين: ${debtors.length}\nالإجمالي: ${fmtUSD(total)}\n📅 بيانات الأمين بتاريخ ${report.reportDate}\n\nمرتّب من أعلى رصيد إلى الأقل:`,
+  });
+  const chunkSize = 25;
+  for (let i = 0; i < debtors.length; i += chunkSize) {
+    const part = debtors.slice(i, i + chunkSize);
+    const lines = part.map((c, j) => `${i + j + 1}. ${c.name ?? c.key}: ${fmtUSD(c.balance)}`).join("\n");
+    await tg("sendMessage", { chat_id: chatId, text: lines });
+  }
+}
+
+async function handleSupplierBalances(chatId: number) {
+  const rows = await restGet("supplier_obligations?amount_due=gt.0&select=supplier_name,amount_due,currency,updated_at&order=amount_due.desc&limit=500");
+  const suppliers = Array.isArray(rows)
+    ? rows
+      .map((row: any) => ({ ...row, amount_due: Number(row.amount_due ?? 0) }))
+      .filter((row: any) => row.amount_due > 0)
+      .sort((a: any, b: any) => b.amount_due - a.amount_due)
+    : [];
+  if (!suppliers.length) {
+    await tg("sendMessage", { chat_id: chatId, text: "ما في أرصدة موردين موجبة متزامنة حالياً 😕" });
+    return;
+  }
+  const total = suppliers.reduce((sum: number, row: any) => sum + row.amount_due, 0);
+  const updatedAt = suppliers.map((row: any) => String(row.updated_at ?? "")).filter(Boolean).sort().at(-1);
+  await tg("sendMessage", {
+    chat_id: chatId,
+    text: `🏭 تقرير أرصدة الموردين\nعدد الموردين: ${suppliers.length}\nالإجمالي: ${fmtUSD(total)}${updatedAt ? `\n🕒 آخر تحديث: ${fmtDate(updatedAt)}` : ""}\n\nمرتّب من أعلى رصيد إلى الأقل:`,
+  });
+  const chunkSize = 25;
+  for (let i = 0; i < suppliers.length; i += chunkSize) {
+    const part = suppliers.slice(i, i + chunkSize);
+    const lines = part.map((row: any, j: number) => `${i + j + 1}. ${row.supplier_name ?? "مورد بلا اسم"}: ${fmtUSD(row.amount_due)}`).join("\n");
+    await tg("sendMessage", { chat_id: chatId, text: lines });
+  }
 }
 
 async function handleDailyCash(chatId: number) {
@@ -1075,6 +1109,40 @@ async function askClaude(question: string, context: string): Promise<string> {
   return text.trim();
 }
 
+async function askOpenAI(question: string, context: string): Promise<string> {
+  const apiKey = Deno.env.get("OPENAI_API_KEY");
+  if (!apiKey) throw new Error("openai_not_configured");
+  const instructions = `أنت مساعد ذكي لصاحب محل دخان (OZK TOBACCO) وبترد بالعربية العامية السورية المختصرة والمباشرة، بدون مقدمات طويلة.
+استخدم فقط بيانات العمل المعطاة ولا تختلق أي رقم أو اسم. المبيعات والأرصدة ودفعات الزبائن بالدولار الأساس، وحركة كل صندوق بعملته المكتوبة.
+إذا كانت البيانات المطلوبة غير متوفرة، قل ذلك بوضوح. اجعل الجواب بحد أقصى 6 أسطر إلا إذا طلب المستخدم قائمة أطول.`;
+  const res = await fetch("https://api.openai.com/v1/responses", {
+    method: "POST",
+    headers: { Authorization: `Bearer ${apiKey}`, "content-type": "application/json" },
+    body: JSON.stringify({
+      model: Deno.env.get("OPENAI_CHAT_MODEL") ?? "gpt-5-mini",
+      max_output_tokens: 700,
+      instructions,
+      input: `بيانات العمل الحالية:\n${context}\n\nسؤال المالك: ${question}`,
+    }),
+  });
+  if (!res.ok) throw new Error(`openai_${res.status}`);
+  const data = await res.json();
+  const text = data?.output_text ?? data?.output?.flatMap((item: any) => item?.content ?? []).find((item: any) => item?.type === "output_text")?.text;
+  if (typeof text !== "string" || !text.trim()) throw new Error("openai_empty_response");
+  return text.trim();
+}
+
+async function askBusinessAssistant(question: string, context: string): Promise<string> {
+  const failures: string[] = [];
+  if (Deno.env.get("OPENAI_API_KEY")) {
+    try { return await askOpenAI(question, context); } catch (e) { failures.push(String(e)); }
+  }
+  if (Deno.env.get("ANTHROPIC_API_KEY")) {
+    try { return await askClaude(question, context); } catch (e) { failures.push(String(e)); }
+  }
+  throw new Error(failures.length ? "ai_providers_unavailable" : "ai_provider_not_configured");
+}
+
 // ============================================================
 // تفريغ الرسائل الصوتية (Speech-to-Text) — عبر OpenAI Whisper
 // (Anthropic ما بيدعم صوت مباشر عبر الـ Messages API). يحتاج
@@ -1118,10 +1186,10 @@ async function handleAiQuestion(chatId: number, question: string): Promise<void>
   await tg("sendMessage", { chat_id: chatId, text: "🤔 عم فكر..." });
   try {
     const context = await buildBusinessContext(question);
-    const answer = await askClaude(question, context);
+    const answer = await askBusinessAssistant(question, context);
     await tg("sendMessage", { chat_id: chatId, text: `🤖 ${answer}` });
   } catch (e) {
-    await tg("sendMessage", { chat_id: chatId, text: `صار خطأ وأنا عم فكر بالسؤال 😕\n(${String(e).slice(0, 150)})` });
+    await tg("sendMessage", { chat_id: chatId, text: "تعذّر تشغيل المساعد الذكي حالياً 😕 جرّب كمان مرة بعد شوي." });
   }
 }
 
@@ -1156,6 +1224,26 @@ async function handleOrderAction(chatId: number, messageId: number, originalText
   });
 }
 
+async function handleCollectionContacted(chatId: number, messageId: number, originalText: string, followupId: string): Promise<void> {
+  const rows = await restGet(`collection_followups?id=eq.${encodeURIComponent(followupId)}&select=id,status`);
+  if (!Array.isArray(rows) || !rows.length) {
+    await tg("sendMessage", { chat_id: chatId, text: "لم أجد متابعة التحصيل المطلوبة." });
+    return;
+  }
+  const res = await restPatch(`collection_followups?id=eq.${encodeURIComponent(followupId)}`, {
+    status: "contacted",
+    last_contacted_at: new Date().toISOString(),
+    last_contacted_by: "telegram-owner",
+  });
+  if (!res.ok) throw new Error(`collection_update_${res.status}`);
+  await tg("editMessageText", {
+    chat_id: chatId,
+    message_id: messageId,
+    text: `${originalText}\n\n✅ تم تسجيل التواصل الآن`,
+    reply_markup: { inline_keyboard: [] },
+  });
+}
+
 async function handleSetThreshold(chatId: number, n: number) {
   if (!(n >= 1 && n <= 100000)) {
     await tg("sendMessage", { chat_id: chatId, text: "الرقم لازم يكون بين 1 و 100,000 🙏" });
@@ -1176,7 +1264,8 @@ async function handleCommand(chatId: number, text: string): Promise<boolean> {
   if (text === "/sales" || /^(المبيعات|مبيعات)( اليوم)?$/.test(norm)) { await handleSales(chatId); return true; }
   if (["رسم المبيعات", "الرسم البياني", "رسم بياني", "مخطط المبيعات", "شارت المبيعات"].includes(norm)) { await handleSalesChart(chatId); return true; }
   if (text === "/low" || ["شو ناقص", "النواقص", "نواقص", "ناقص", "المخزون الناقص", "المخزون"].includes(norm)) { await handleLowStock(chatId); return true; }
-  if (text === "/debts" || ["الديون", "ديون", "المديونيات"].includes(norm)) { await handleDebts(chatId); return true; }
+  if (text === "/debts" || text === "/customerbalances" || ["الديون", "ديون", "المديونيات", "تقرير ارصده الزبائن", "ارصده الزبائن"].includes(norm)) { await handleDebts(chatId); return true; }
+  if (text === "/supplierbalances" || ["تقرير ارصده الموردين", "ارصده الموردين", "ديون الموردين"].includes(norm)) { await handleSupplierBalances(chatId); return true; }
   if (text === "/cash" || ["دفعات اليوم", "الدفعات اليوم", "الدفعات اليوميه", "حركه الصندوق", "حركه الصناديق", "صندوق اليوم", "الصندوق", "نهايه الصندوق"].includes(norm)) { await handleDailyCash(chatId); return true; }
   if (text === "/pricesync" || ["فحص الاسعار", "مزامنه الاسعار", "حاله الاسعار", "تزامن الاسعار"].includes(norm)) { await handlePriceSyncStatus(chatId); return true; }
   if (text === "/status" || ["حاله النظام", "فحص النظام", "وضع النظام", "النظام"].includes(norm)) { await handleSystemStatus(chatId); return true; }
@@ -1304,7 +1393,8 @@ Deno.serve(async (req) => {
       else if (data === "profit") await handleProfitToday(cqChatId);
       else if (data === "daily_cash") await handleDailyCash(cqChatId);
       else if (data === "low") await handleLowStock(cqChatId);
-      else if (data === "debts") await handleDebts(cqChatId);
+      else if (data === "debts" || data === "customer_balances") await handleDebts(cqChatId);
+      else if (data === "supplier_balances") await handleSupplierBalances(cqChatId);
       else if (data === "chart") await handleSalesChart(cqChatId);
       else if (data === "price_sync") await handlePriceSyncStatus(cqChatId);
       else if (data === "system_status") await handleSystemStatus(cqChatId);
@@ -1317,6 +1407,12 @@ Deno.serve(async (req) => {
         const orderId = parts[2];
         if (action && orderId && cq.message?.message_id) {
           await handleOrderAction(cqChatId, cq.message.message_id, String(cq.message.text ?? ""), action, orderId);
+        }
+      }
+      else if (data.startsWith("collect|done|")) {
+        const followupId = data.slice("collect|done|".length);
+        if (followupId && cq.message?.message_id) {
+          await handleCollectionContacted(cqChatId, cq.message.message_id, String(cq.message.text ?? ""), followupId);
         }
       }
     } catch (e) {

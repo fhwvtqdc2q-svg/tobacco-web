@@ -463,6 +463,21 @@
       return data.map(normalizeDbRequest);
     },
 
+    async listBusinessAuditLog() {
+      if (!client) return [];
+      const session = await getSupabaseSession();
+      if (!session) return [];
+
+      const { data, error } = await client
+        .from("business_audit_log")
+        .select("id, occurred_at, actor_email, entity_table, entity_id, action, before_data, after_data")
+        .order("occurred_at", { ascending: false })
+        .limit(100);
+
+      if (error) throw new Error(translateDbError(error.message));
+      return data || [];
+    },
+
     async createRequest(input) {
       const request = {
         id: `REQ-${Date.now().toString().slice(-5)}`,

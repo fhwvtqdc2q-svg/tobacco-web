@@ -204,6 +204,8 @@ const state = {
   completed: new Set(readJson("completed-items", [])),
   session: null,
   requests: [],
+  businessAuditLog: [],
+  businessAuditError: null,
   inventoryReports: [],
   customerBalanceReports: [],
   customerMovementsReport: null,
@@ -430,6 +432,7 @@ async function boot() {
   await loadPublishedExchangeRate();
   await refreshSession();
   await loadRequests();
+  await loadBusinessAuditLog();
   await loadInventoryReports();
   await loadCustomerBalanceReports();
   await loadCustomerCreditLimits();
@@ -478,6 +481,20 @@ async function loadRequests() {
   } catch (error) {
     state.requests = dataStore.defaultRequests;
     setNotice("error", safeErrorMessage(error));
+  }
+}
+
+async function loadBusinessAuditLog() {
+  state.businessAuditError = null;
+  if (!state.session || !isOwner() || !dataStore.listBusinessAuditLog) {
+    state.businessAuditLog = [];
+    return;
+  }
+  try {
+    state.businessAuditLog = await dataStore.listBusinessAuditLog();
+  } catch (error) {
+    state.businessAuditLog = [];
+    state.businessAuditError = safeErrorMessage(error);
   }
 }
 
@@ -1119,6 +1136,7 @@ async function saveSession(form, action) {
     }
 
     await loadRequests();
+    await loadBusinessAuditLog();
     await loadInventoryReports();
     await loadCustomerBalanceReports();
     await loadCustomerCreditLimits();
@@ -1141,6 +1159,8 @@ async function logout() {
     await dataStore.signOut();
     state.session = null;
     state.inventoryReports = [];
+    state.businessAuditLog = [];
+    state.businessAuditError = null;
     state.customerBalanceReports = [];
     state.customerMovementsReport = null;
     state.customerCreditLimits = [];
@@ -5074,6 +5094,21 @@ function monitoring() {
     { label: "طلبات مغلقة", value: String(closedRequests), trend: "تمت متابعتها" },
     ...monitoringCards.slice(1)
   ];
+  const auditLabels = {
+    approved_price_items: "الأسعار المعتمدة",
+    customer_credit_limits: "حدود الائتمان",
+    payment_records: "سندات القبض",
+    purchase_invoices: "فواتير المشتريات"
+  };
+  const actionLabels = { INSERT: "إضافة", UPDATE: "تعديل", DELETE: "حذف" };
+  const auditRows = (state.businessAuditLog || []).slice(0, 50).map((entry) => `
+    <tr>
+      <td>${escapeHtml(formatDateTime(entry.occurred_at))}</td>
+      <td>${escapeHtml(actionLabels[entry.action] || entry.action)}</td>
+      <td>${escapeHtml(auditLabels[entry.entity_table] || entry.entity_table)}</td>
+      <td dir="ltr">${escapeHtml(entry.entity_id || "—")}</td>
+      <td dir="ltr">${escapeHtml(entry.actor_email || "عملية آلية")}</td>
+    </tr>`).join("");
 
   return shell(`
     <section class="panel wide">
@@ -5090,6 +5125,19 @@ function monitoring() {
         <strong>ملاحظة تشغيلية:</strong>
         <span>${dataStore.isConfigured() ? "هذه المؤشرات تقرأ من جدول الطلبات في Supabase." : "هذه المؤشرات تجريبية وتعتمد على الحفظ المحلي في هذا المتصفح."}</span>
       </div>
+      ${isOwner() ? `
+      <div style="margin-top:20px">
+        <div class="section-head">
+          <div><p class="eyebrow">سجل موحّد</p><h3>آخر التغييرات الحساسة</h3></div>
+        </div>
+        ${state.businessAuditError ? `<p class="notice error">${escapeHtml(state.businessAuditError)}</p>` : `
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>الوقت</th><th>العملية</th><th>القسم</th><th>معرّف السجل</th><th>المنفّذ</th></tr></thead>
+            <tbody>${auditRows || '<tr><td colspan="5" class="muted">لا توجد تغييرات مسجلة بعد.</td></tr>'}</tbody>
+          </table>
+        </div>`}
+      </div>` : ""}
     </section>
   `);
 }
