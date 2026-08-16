@@ -2787,18 +2787,18 @@ function shell(content) {
           <span>${escapeHtml(appConfig.name)}</span>
         </a>
         <nav>
-          ${navButton("overview", "🏠 الرئيسية", "لوحة المعلومات والبدء السريع")}
-          ${state.session ? navButton("dashboard", "📑 التقارير", "حركة مبيعات وأرصدة اليوم") : ""}
-          ${navButton("login", "🔑 تسجيل الدخول", "دخول الموظفين والإدارة")}
-          ${navButton("ameen", "📦 الأمين", "مخزون وتقارير من نظام الأمين")}
-          ${state.session ? navButton("balances", "💳 أرصدة الزبائن", "أرصدة وحدود ائتمانية") : ""}
-          ${navButton("pricing", "نشرة الأسعار", "تسعير ونشر نشرة الجملة والمفرق")}
-          ${state.session ? navButton("sales", "🧮 فاتورة مبيعات", "إنشاء فاتورة بيع") : ""}
-          ${state.session ? navButton("purchases", "🧾 فواتير مشتريات", "فواتير و التزامات الموردين") : ""}
-          ${state.session ? navButton("warehouses", "🏭 المستودعات والمناقلات", "مخزون المستودعات والمناقلات") : ""}
-          ${state.session ? navButton("inventoryRecon", "📋 الجرد الشهري", "مطابقة الجرد الشهري") : ""}
-          ${state.session ? navButton("staff", "👥 الموظفون", "إدارة حسابات الموظفين") : ""}
-          ${state.session ? navButton("ai", "🤖 المساعد الذكي", "مساعد ذكي للأسئلة والاستفسارات") : ""}
+          ${navButton("overview", "🏠 الرئيسية")}
+          ${state.session ? navButton("dashboard", "📑 التقارير") : ""}
+          ${navButton("login", "🔑 تسجيل الدخول")}
+          ${navButton("ameen", "📦 الأمين")}
+          ${state.session ? navButton("balances", "💳 أرصدة الزبائن") : ""}
+          ${navButton("pricing", "نشرة الأسعار")}
+          ${state.session ? navButton("sales", "🧮 فاتورة مبيعات") : ""}
+          ${state.session ? navButton("purchases", "🧾 فواتير مشتريات") : ""}
+          ${state.session ? navButton("warehouses", "🏭 المستودعات والمناقلات") : ""}
+          ${state.session ? navButton("inventoryRecon", "📋 الجرد الشهري") : ""}
+          ${state.session ? navButton("staff", "👥 الموظفون") : ""}
+          ${state.session ? navButton("ai", "🤖 المساعد الذكي") : ""}
         </nav>
         <div style="margin-top:auto;padding-top:20px;border-top:1px solid #2f2415">
           <a href="privacy-policy.html" style="display:block;font-size:0.78rem;color:#7a6040;text-align:center;text-decoration:none;padding:6px 0;" target="_blank">سياسة الخصوصية</a>
@@ -2844,8 +2844,25 @@ function loadingPanel() {
   return `<section class="panel wide"><h2>جاري التحميل...</h2><p class="muted">نجهز بيانات التطبيق.</p></section>`;
 }
 
-function navButton(route, label, hint) {
+const NAV_HINTS = {
+  overview: "لوحة المعلومات والبدء السريع",
+  decision: "ملخص تنفيذي للتحصيل والموردين",
+  dashboard: "حركة مبيعات وأرصدة اليوم",
+  login: "دخول الموظفين والإدارة",
+  ameen: "مخزون وتقارير من نظام الأمين",
+  balances: "أرصدة وحدود ائتمانية للزبائن",
+  pricing: "تسعير ونشر نشرة الجملة والمفرق",
+  sales: "إنشاء فاتورة بيع للزبون",
+  purchases: "فواتير المشتريات والتزامات الموردين",
+  warehouses: "مخزون المستودعات والمناقلات بينها",
+  inventoryRecon: "مطابقة الجرد الشهري مع النظام",
+  staff: "إدارة حسابات وصلاحيات الموظفين",
+  ai: "مساعد ذكي للأسئلة والاستفسارات"
+};
+
+function navButton(route, label) {
   const active = state.route === route ? "active" : "";
+  const hint = NAV_HINTS[route];
   const title = hint ? ` title="${escapeHtml(hint)}"` : "";
   return `<button class="nav-link ${active}" data-route="${route}"${title}>${label}</button>`;
 }
