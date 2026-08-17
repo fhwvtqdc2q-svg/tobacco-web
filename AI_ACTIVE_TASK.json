@@ -10,6 +10,8 @@
                   "src/command-center.js",
                   "src/supabase-client.js",
                   "src/ameen-live-client.js",
+                  "src/supplier-obligations-client.js",
+                  "src/web-push.js",
                   "scripts/check-purchase-recommendation.mjs",
                   "scripts/check-command-center.mjs",
                   "index.html",
