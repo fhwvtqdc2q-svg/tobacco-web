@@ -4,7 +4,8 @@ const worker=fs.readFileSync(new URL('../tools/ameen-read-worker.ps1',import.met
 const broker=fs.readFileSync(new URL('../supabase/functions/ameen-read-broker/index.ts',import.meta.url),'utf8');
 const client=fs.readFileSync(new URL('../src/ameen-live-client.js',import.meta.url),'utf8');
 for(const token of ['insert','update','delete','merge','drop','alter','create','truncate','exec']) if(!gateway.toLowerCase().includes(token)) throw new Error(`read-only deny token missing: ${token}`);
-if(!gateway.includes('CommandBehavior]::ReadOnly')) throw new Error('SQL reader is not explicitly read-only');
+if(!gateway.includes('Assert-ReadOnlySql')) throw new Error('SQL read-only assertion missing');
+if(!gateway.includes('$reader = $command.ExecuteReader()')) throw new Error('Windows-compatible SQL reader missing');
 if(!worker.includes('/functions/v1/ameen-read-broker')) throw new Error('worker bypasses broker');
 if(!broker.includes('AGENTS')||!broker.includes('STAFF')) throw new Error('broker role separation missing');
 if(!client.includes('Authentication required')) throw new Error('browser auth guard missing');
