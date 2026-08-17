@@ -2,12 +2,12 @@
   "schemaVersion": 1,
   "status": "active",
   "owner": "ChatGPT",
-  "task": "OZK Business OS Foundation — unified business snapshot",
-  "branch": "agent/ozk-business-os-foundation",
+  "task": "OZK Business OS Metrics Engine — decision signals and priorities",
+  "branch": "agent/ozk-business-os-metrics",
   "files": [
-    "src/business-snapshot.js,index.html,public/service-worker.js,scripts/check-business-snapshot.mjs,.github/workflows/business-os-foundation.yml,docs/OZK_BUSINESS_OS_FOUNDATION.md,AI_HANDOFF.md,AI_WORK_SYNC.md"
+    "src/business-metrics.js,index.html,public/service-worker.js,scripts/check-business-metrics.mjs,.github/workflows/business-os-foundation.yml,docs/OZK_BUSINESS_METRICS.md,AI_ACTIVE_TASK.json"
   ],
-  "startedAt": "2026-08-17T05:20:00Z",
-  "updatedAt": "2026-08-17T05:35:00Z",
-  "note": "Implementing and validating the first OZK Business OS foundation layer: one unified, source-aware business snapshot. Avoid edits outside the reserved files."
+  "startedAt": "2026-08-17T05:18:00Z",
+  "updatedAt": "2026-08-17T05:18:00Z",
+  "note": "Building deterministic metrics and ranked business priorities on top of the merged Business Snapshot. No autonomous financial writes."
 }
