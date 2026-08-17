@@ -1,14 +1,22 @@
 {
     "schemaVersion":  1,
-    "status":  "idle",
-    "owner":  null,
-    "task":  null,
-    "branch":  null,
+    "status":  "active",
+    "owner":  "Codex",
+    "task":  "Hotfix عرض توصيات الشراء وعميل Supabase",
+    "branch":  "task branch pending for: Hotfix عرض توصيات الشراء وعميل Supabase",
     "files":  [
-
+                  "src/business-snapshot.js",
+                  "src/purchase-recommendation.js",
+                  "src/command-center.js",
+                  "src/supabase-client.js",
+                  "src/ameen-live-client.js",
+                  "scripts/check-purchase-recommendation.mjs",
+                  "scripts/check-command-center.mjs",
+                  "index.html",
+                  "public/service-worker.js"
               ],
-    "startedAt":  null,
-    "updatedAt":  "2026-08-17T13:17:31Z",
+    "startedAt":  "2026-08-17T13:19:19Z",
+    "updatedAt":  "2026-08-17T13:19:19Z",
     "pr":  66,
-    "note":  "No active task. Read AI_HANDOFF.md before starting work."
+    "note":  "Display/Unicode/auth-client hotfix only; purchase settings and Ameen READ ONLY stay unchanged."
 }
