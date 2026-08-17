@@ -1,4 +1,4 @@
-const CACHE_NAME = "web-platform-tobacco-v506";
+const CACHE_NAME = "web-platform-tobacco-v507";
 // المسارات نسبية لملف الجذر service-worker.js الذي يستورد هذا الملف —
 // النطاق الجذري ضروري كي يفتح التطبيق من الكاش حتى لو كان السيرفر المحلي واقفاً.
 const ASSETS = [
@@ -8,6 +8,7 @@ const ASSETS = [
   "src/app.js",
   "src/config.js",
   "src/supabase-client.js",
+  "src/web-push.js",
   "src/styles.css",
   "src/decision-engine.js",
   "src/decision-engine.css",
@@ -26,9 +27,7 @@ const ASSETS = [
 ];
 
 self.addEventListener("install", (event) => {
-  event.waitUntil(
-    caches.open(CACHE_NAME).then((cache) => cache.addAll(ASSETS))
-  );
+  event.waitUntil(caches.open(CACHE_NAME).then((cache) => cache.addAll(ASSETS)));
   self.skipWaiting();
 });
 
@@ -41,13 +40,40 @@ self.addEventListener("activate", (event) => {
   self.clients.claim();
 });
 
+self.addEventListener("push", (event) => {
+  let payload = {};
+  try { payload = event.data?.json?.() || {}; } catch {
+    payload = { notification: { body: event.data?.text?.() || "" } };
+  }
+
+  const notification = payload.notification || payload;
+  const title = String(notification.title || "OZK TOBACCO");
+  const navigate = String(notification.navigate || "/?route=overview");
+  event.waitUntil(
+    self.registration.showNotification(title, {
+      body: String(notification.body || ""),
+      icon: notification.icon || "public/icons/app-icon.png",
+      badge: "public/icons/app-icon.png",
+      tag: notification.tag || "ozk-alert",
+      dir: "rtl",
+      lang: "ar",
+      data: { navigate }
+    })
+  );
+});
+
 self.addEventListener("notificationclick", (event) => {
   event.notification.close();
+  const target = new URL(event.notification?.data?.navigate || "/?route=overview", self.registration.scope).href;
   event.waitUntil(
-    clients.matchAll({ type: "window", includeUncontrolled: true }).then((list) => {
-      const existing = list.find((c) => c.url.includes("index.html") || c.url === self.registration.scope);
-      if (existing) return existing.focus();
-      return clients.openWindow(self.registration.scope);
+    clients.matchAll({ type: "window", includeUncontrolled: true }).then(async (list) => {
+      const existing = list.find((client) => client.url.startsWith(self.registration.scope));
+      if (existing) {
+        await existing.focus();
+        if ("navigate" in existing) await existing.navigate(target);
+        return;
+      }
+      return clients.openWindow(target);
     })
   );
 });
@@ -62,8 +88,6 @@ self.addEventListener("fetch", (event) => {
         caches.open(CACHE_NAME).then((cache) => cache.put(event.request, copy));
         return response;
       })
-      .catch(() =>
-        caches.match(event.request).then((cached) => cached || caches.match("index.html"))
-      )
+      .catch(() => caches.match(event.request).then((cached) => cached || caches.match("index.html")))
   );
 });
