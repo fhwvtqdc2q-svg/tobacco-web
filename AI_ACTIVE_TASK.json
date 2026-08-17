@@ -1,16 +1,12 @@
 {
   "schemaVersion": 1,
-  "status": "waiting_for_merge",
-  "owner": "Codex",
-  "task": "إصلاح اختفاء أسعار النشرة عند تصدير PDF",
-  "branch": "fix/bulletin-pdf-retail-prices",
-  "files": [
-    "src/bulletin-price-fix.js",
-    "index.html",
-    "public/service-worker.js"
-  ],
+  "status": "idle",
+  "owner": "",
+  "task": "",
+  "branch": "",
+  "files": [],
   "startedAt": "2026-08-17T09:17:00Z",
-  "updatedAt": "2026-08-17T09:24:00Z",
-  "pr": 62,
-  "note": "الإصلاح جاهز على PR #62: يحفظ أي سعر ظاهر مختلف ويعيد تحميل الأسعار المؤكدة من Supabase قبل بناء PDF، مع تحديث كاش PWA إلى v513. بانتظار دمج صريح إلى main حسب قواعد المشروع."
+  "updatedAt": "2026-08-17T09:55:00Z",
+  "pr": 63,
+  "note": "Bulletin website-price authority fix merged; coordination reset to idle so production checks and deployment can run."
 }
