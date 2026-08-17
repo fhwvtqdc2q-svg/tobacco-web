@@ -1,13 +1,13 @@
 {
-    "schemaVersion":  1,
-    "status":  "active",
-    "owner":  "Codex",
-    "task":  "iPhone Web Push and dynamic financial inventory alerts",
-    "branch":  "task branch pending for: iPhone Web Push and dynamic financial inventory alerts",
-    "files":  [
-                  "src/app.js,src/supabase-client.js,public/service-worker.js,supabase/web-push-notifications.sql,supabase/functions/web-push/index.ts,tools/ameen-sync-agent.ps1,scripts/check.mjs"
-              ],
-    "startedAt":  "2026-08-17T03:05:39Z",
-    "updatedAt":  "2026-08-17T03:05:39Z",
-    "note":  "Work in progress. Do not edit the reserved files."
+  "schemaVersion": 1,
+  "status": "active",
+  "owner": "ChatGPT",
+  "task": "iPhone Web Push and dynamic financial inventory alerts",
+  "branch": "chatgpt/iphone-web-push-financial-alerts",
+  "files": [
+    "src/app.js,src/supabase-client.js,public/service-worker.js,supabase/web-push-notifications.sql,supabase/functions/web-push/index.ts,tools/ameen-sync-agent.ps1,scripts/check.mjs"
+  ],
+  "startedAt": "2026-08-17T03:05:39Z",
+  "updatedAt": "2026-08-17T04:58:00Z",
+  "note": "Taken over from Codex after session stopped for insufficient balance. Continue on branch chatgpt/iphone-web-push-financial-alerts; do not edit reserved files from other sessions."
 }
