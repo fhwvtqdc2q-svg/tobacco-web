@@ -1,11 +1,13 @@
 {
   "schemaVersion": 1,
-  "status": "idle",
-  "owner": null,
-  "task": null,
-  "branch": null,
-  "files": [],
-  "startedAt": null,
-  "updatedAt": "2026-08-17T05:12:00Z",
-  "note": "iPhone Web Push and dynamic financial inventory alerts completed and merged in PR #53. No active task. Read AI_HANDOFF.md before starting work."
+  "status": "active",
+  "owner": "ChatGPT",
+  "task": "OZK Business OS Foundation — unified business snapshot",
+  "branch": "agent/ozk-business-os-foundation",
+  "files": [
+    "src/business-snapshot.js,index.html,scripts/check.mjs,AI_HANDOFF.md,AI_WORK_SYNC.md"
+  ],
+  "startedAt": "2026-08-17T05:20:00Z",
+  "updatedAt": "2026-08-17T05:20:00Z",
+  "note": "Implementing the first OZK Business OS foundation layer: one unified, source-aware business snapshot. Avoid edits outside the reserved files."
 }
