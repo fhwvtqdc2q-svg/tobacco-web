@@ -4,13 +4,15 @@ on:
   pull_request:
     paths:
       - 'src/business-snapshot.js'
+      - 'src/business-metrics.js'
       - 'scripts/check-business-snapshot.mjs'
+      - 'scripts/check-business-metrics.mjs'
       - 'index.html'
       - 'public/service-worker.js'
       - '.github/workflows/business-os-foundation.yml'
 
 jobs:
-  validate-business-snapshot:
+  validate-business-os:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -18,4 +20,6 @@ jobs:
         with:
           node-version: '20'
       - run: node --check src/business-snapshot.js
+      - run: node --check src/business-metrics.js
       - run: node scripts/check-business-snapshot.mjs
+      - run: node scripts/check-business-metrics.mjs
