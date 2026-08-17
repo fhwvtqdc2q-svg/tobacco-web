@@ -1,18 +1,12 @@
 {
   "schemaVersion": 1,
-  "status": "active",
-  "owner": "Codex",
-  "task": "ربط مركز القيادة بمخزون Ameen Live للقراءة فقط",
-  "branch": "agent/ameen-live-command-inventory",
-  "files": [
-    "src/business-snapshot.js",
-    "src/command-center.js",
-    "scripts/check.mjs",
-    "index.html",
-    "public/service-worker.js"
-  ],
+  "status": "idle",
+  "owner": "",
+  "task": "",
+  "branch": "",
+  "files": [],
   "startedAt": "2026-08-17T11:24:22Z",
-  "updatedAt": "2026-08-17T11:24:22Z",
-  "pr": 63,
-  "note": "Work in progress. Do not edit the reserved files."
+  "updatedAt": "2026-08-17T12:00:00Z",
+  "pr": 66,
+  "note": "Ameen Live command inventory integration merged and deployed successfully; coordination reset to idle."
 }
