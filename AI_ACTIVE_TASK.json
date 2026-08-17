@@ -1,12 +1,18 @@
 {
   "schemaVersion": 1,
-  "status": "idle",
-  "owner": "",
-  "task": "",
-  "branch": "",
-  "files": [],
-  "startedAt": "2026-08-17T09:17:00Z",
-  "updatedAt": "2026-08-17T09:55:00Z",
+  "status": "active",
+  "owner": "Codex",
+  "task": "ربط مركز القيادة بمخزون Ameen Live للقراءة فقط",
+  "branch": "agent/ameen-live-command-inventory",
+  "files": [
+    "src/business-snapshot.js",
+    "src/command-center.js",
+    "scripts/check.mjs",
+    "index.html",
+    "public/service-worker.js"
+  ],
+  "startedAt": "2026-08-17T11:24:22Z",
+  "updatedAt": "2026-08-17T11:24:22Z",
   "pr": 63,
-  "note": "Bulletin website-price authority fix merged; coordination reset to idle so production checks and deployment can run."
+  "note": "Work in progress. Do not edit the reserved files."
 }
