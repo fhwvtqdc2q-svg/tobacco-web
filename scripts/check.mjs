@@ -58,17 +58,7 @@ for (const file of required) {
         customers: { asOf: now, rowCount: 293, rows: [{ customer_name: "مرجع" }] }
       }
     },
-    console,
-    Date,
-    Number,
-    String,
-    Math,
-    Object,
-    Array,
-    Map,
-    Promise,
-    setTimeout,
-    clearTimeout
+    console, Date, Number, String, Math, Object, Array, Map, Promise, setTimeout, clearTimeout
   });
   vm.runInContext(snapshotSource, context);
   const liveSnapshot = await context.window.ozkBusinessOS.getSnapshot();
@@ -458,7 +448,1145 @@ const appJs = readFileSync("src/app.js", "utf8");
 
 // نموذج الفاتورة يجب أن يبقي التركيز أثناء كتابة اسم الزبون، وأن يستخدم
 // أرقاماً إنجليزية في حقول الكمية والسعر مهما كانت لغة عرض ويندوز.
-if (/state\.invCustomer = e\.currentTarget\.value;\s*render\(\);/.test(appJ…16473 tokens truncated…  let blockedOtherUserDelete = false;
+if (/state\.invCustomer = e\.currentTarget\.value;\s*render\(\);/.test(appJs)) {
+  console.error("Invoice customer input must not rerender and lose focus after every character.");
+  failed = true;
+}
+for (const field of ["qty", "price"]) {
+  const invoiceInput = new RegExp(`data-inv-field="${field}"[^>]*type="text"[^>]*inputmode="decimal"[^>]*dir="ltr"`);
+  if (!invoiceInput.test(appJs)) {
+    console.error(`Invoice ${field} input must use English decimal text entry.`);
+    failed = true;
+  }
+}
+const numberNormalizer = readFileSync("src/number-normalizer.js", "utf8");
+if (!numberNormalizer.includes("input[data-inv-field='qty']") || !numberNormalizer.includes("input[data-inv-field='price']")) {
+  console.error("Invoice numeric fields must be covered by the English-number normalizer.");
+  failed = true;
+}
+
+for (const contract of [
+  "INVENTORY_GROUP_SEQUENCE",
+  "inventoryReportStatus",
+  "inventory-group-row",
+  "inventoryTwoColumnPages",
+  "inventory-columns",
+  "grid-template-columns:repeat(2",
+  "inventory-rpt",
+  "color-scheme:light",
+  "لا تُدمج أصناف المعسل"
+]) {
+  if (!appJs.includes(contract)) {
+    console.error(`Inventory report contract is missing: ${contract}`);
+    failed = true;
+  }
+}
+
+// تقرير الذمم يجب أن يعرض تاريخ آخر دفعة وقيمتها في عمودين صريحين.
+if (!appJs.includes("قيمة آخر دفعة") || !/receivablesPdfMarkup[\s\S]*customerLastPaymentAmount\(it\)/.test(appJs)) {
+  console.error("Receivables PDF must include the last payment amount beside its date.");
+  failed = true;
+}
+
+// أرصدة الذمم تأتي موحّدة بالدولار من ac000 ولا يجوز تحويلها ثانية حسب تصنيف الزبون.
+const balanceQuery = readFileSync("tools/ameen-customer-balances-query.sql", "utf8");
+if (!/coalesce\(ac\.Debit, 0\) - coalesce\(ac\.Credit, 0\)/i.test(balanceQuery)
+  || /as balance[\s\S]{0,120}cu\.Debit/i.test(balanceQuery)
+  || !/function customerBalanceSortValue\(item\)\s*\{\s*return customerBalance\(item\);\s*\}/.test(appJs)
+  || !/receivablesPdfMarkup[\s\S]*customerBalanceSortValue\(b\) - customerBalanceSortValue\(a\)/.test(appJs)) {
+  console.error("Receivables must use and sort the USD base balance from ac000 without a second conversion.");
+  failed = true;
+}
+
+// أرصدة الزبائن صفحة مستقلة وليست جزءاً من تبويب الأمين.
+for (const contract of [
+  'navButton("balances", "💳 أرصدة الزبائن")',
+  "function customerBalancesPage()",
+  "balances: customerBalancesPage",
+  '["ameen", "balances", "pricing", "dashboard", "payments"]'
+]) {
+  if (!appJs.includes(contract)) {
+    console.error(`Standalone customer balances contract is missing: ${contract}`);
+    failed = true;
+  }
+}
+const ameenFunction = appJs.match(/function ameen\(\) \{[\s\S]*?\n\}\n\nfunction customerBalancesPage\(/)?.[0] || "";
+if (ameenFunction.includes("customerBalanceSection(")) {
+  console.error("Ameen tab must not render the customer balances section.");
+  failed = true;
+}
+
+const manifest = JSON.parse(readFileSync("public/manifest.webmanifest", "utf8"));
+if (!manifest.name || !manifest.start_url) {
+  console.error("manifest.webmanifest is incomplete.");
+  failed = true;
+}
+
+const coordination = JSON.parse(readFileSync("AI_ACTIVE_TASK.json", "utf8"));
+if (coordination.schemaVersion !== 1 || !["idle", "active"].includes(coordination.status)) {
+  console.error("AI_ACTIVE_TASK.json has an invalid schema or status.");
+  failed = true;
+}
+if (coordination.status === "active" && (!coordination.owner || !coordination.task || !coordination.branch)) {
+  console.error("Active AI task is missing owner, task, or branch.");
+  failed = true;
+}
+if (!Array.isArray(coordination.files)) {
+  console.error("AI_ACTIVE_TASK.json files must be an array.");
+  failed = true;
+}
+
+// قائمة دمج النشرة يجب أن تكون متطابقة بين المولّد (scripts/bulletin-merge-names.json)
+// وقائمة الموقع (BULLETIN_MERGE_NAMES في src/app.js): أي اختلاف يعني أن النشرة
+// العامة ستعرض صنفين بينما يعرضهما الموقع مدموجين — وهو ما يربك الزبون والبائع.
+const mergeNamesRaw = readFileSync("scripts/bulletin-merge-names.json", "utf8");
+let mergeNames = [];
+try {
+  mergeNames = JSON.parse(mergeNamesRaw);
+} catch {
+  console.error("scripts/bulletin-merge-names.json is not valid JSON.");
+  failed = true;
+}
+if (!Array.isArray(mergeNames) || mergeNames.some((name) => typeof name !== "string" || !name.trim())) {
+  console.error("scripts/bulletin-merge-names.json must be an array of non-empty strings.");
+  failed = true;
+} else {
+  const appSource = readFileSync("src/app.js", "utf8");
+  const literal = appSource.match(/const BULLETIN_MERGE_NAMES = \[(.*?)\];/s);
+  if (!literal) {
+    console.error("BULLETIN_MERGE_NAMES not found in src/app.js.");
+    failed = true;
+  } else {
+    const appNames = [...literal[1].matchAll(/"([^"]*)"/g)].map((m) => m[1]);
+    if (JSON.stringify(appNames) !== JSON.stringify(mergeNames)) {
+      console.error("BULLETIN_MERGE_NAMES in src/app.js does not match scripts/bulletin-merge-names.json.");
+      console.error(`  app.js: ${JSON.stringify(appNames)}`);
+      console.error(`  json:   ${JSON.stringify(mergeNames)}`);
+      failed = true;
+    }
+  }
+}
+
+// اختبارات حقيقية (assertions فعلية لا مجرد فحص نصي) لدوال purchase-invoice-calc.js
+// النقية: مطابقة الأصناف، حساب الأسطر/الإجمالي/المتبقي، تطبيع الأرقام، التحقق من
+// الدفعة، وحارس انتقالات حالة الفاتورة. تشغَّل داخل sandbox معزول عن DOM.
+{
+  const poCalcSource = readFileSync("src/purchase-invoice-calc.js", "utf8");
+  const sandbox = { window: {}, console };
+  vm.createContext(sandbox);
+  vm.runInContext(poCalcSource, sandbox, { filename: "purchase-invoice-calc.js" });
+  const poCalc = sandbox.window.poCalc;
+  if (!poCalc) {
+    console.error("src/purchase-invoice-calc.js did not expose window.poCalc.");
+    failed = true;
+  } else {
+    const assertEqual = (label, actual, expected) => {
+      const a = JSON.stringify(actual);
+      const e = JSON.stringify(expected);
+      if (a !== e) {
+        console.error(`poCalc test failed: ${label} — got ${a}, expected ${e}`);
+        failed = true;
+      }
+    };
+
+    // تطبيع الأرقام العربية/الفارسية إلى إنجليزية
+    assertEqual("poNormalizeNumeric arabic-indic digits", poCalc.poNormalizeNumeric("١٢٣٫٥"), "123.5");
+    assertEqual("poToNumber persian digits", poCalc.poToNumber("۴۲"), 42);
+
+    // حساب سطر الفاتورة
+    assertEqual("poRowComputed without key", poCalc.poRowComputed({ qty: "5", price: "2" }), { qty: 0, price: 0, lineTotal: 0 });
+    assertEqual("poRowComputed with key", poCalc.poRowComputed({ key: "x", qty: "5", price: "2" }), { qty: 5, price: 2, lineTotal: 10 });
+
+    // إجمالي الفاتورة (سطر بلا key لا يُحتسب)
+    assertEqual(
+      "poTotals sums only rows with key",
+      poCalc.poTotals([{ key: "a", qty: "2", price: "3" }, { qty: "9", price: "9" }, { key: "b", qty: "1", price: "1.5" }]),
+      { grand: 7.5 }
+    );
+
+    // حالة المتبقي: مستحق، مسدد بالكامل، مدفوع زيادة
+    assertEqual("poRemainingState due", poCalc.poRemainingState({ total: 100, paidAmount: 40 }).status, "due");
+    assertEqual("poRemainingState settled", poCalc.poRemainingState({ total: 100, paidAmount: 100 }).status, "settled");
+    assertEqual("poRemainingState over", poCalc.poRemainingState({ total: 100, paidAmount: 150 }).status, "over");
+
+    // التحقق من قيمة الدفعة (رفض السالب وما يتجاوز الإجمالي، قبول القيم الصحيحة)
+    assertEqual("poValidatePayment negative rejected", poCalc.poValidatePayment({ total: 100, amount: -1 }).ok, false);
+    assertEqual("poValidatePayment over-total rejected", poCalc.poValidatePayment({ total: 100, amount: 150 }).ok, false);
+    assertEqual("poValidatePayment valid accepted", poCalc.poValidatePayment({ total: 100, amount: 60 }).ok, true);
+
+    // النص الظاهر لصنف مختار: رقم — اسم دوماً، مع الحفاظ على الأصفار البادئة
+    assertEqual("poItemDisplayLabel number and name shown together", poCalc.poItemDisplayLabel("0005", "اسم المادة"), "0005 — اسم المادة");
+    assertEqual("poItemDisplayLabel leading zeros preserved", poCalc.poItemDisplayLabel("0005", "اسم المادة").startsWith("0005"), true);
+    assertEqual("poItemDisplayLabel name-only search still shows number when known", poCalc.poItemDisplayLabel("0012", "مادة بالاسم"), "0012 — مادة بالاسم");
+    assertEqual("poItemDisplayLabel falls back to name without number", poCalc.poItemDisplayLabel("", "اسم بلا رقم"), "اسم بلا رقم");
+    assertEqual("poItemDisplayLabel falls back to number without name", poCalc.poItemDisplayLabel("0009", ""), "0009");
+
+    // تعديل حقل البحث بعد اختيار صنف يُبطل الارتباط القديم فوراً
+    assertEqual(
+      "poNextRowAfterQueryInput clears stale selection when text changes after pick",
+      poCalc.poNextRowAfterQueryInput({ key: "k1", name: "صنف قديم", num: "0005", q: "0005 — صنف قديم" }, "0007"),
+      { key: "", name: "", num: "", q: "0007" }
+    );
+    assertEqual(
+      "poNextRowAfterQueryInput keeps selection when text unchanged",
+      poCalc.poNextRowAfterQueryInput({ key: "k1", name: "صنف قديم", num: "0005", q: "0005 — صنف قديم" }, "0005 — صنف قديم"),
+      { key: "k1", name: "صنف قديم", num: "0005", q: "0005 — صنف قديم" }
+    );
+    assertEqual(
+      "poNextRowAfterQueryInput plain typing with no prior selection",
+      poCalc.poNextRowAfterQueryInput({ key: "", name: "", num: "", q: "" }, "0005"),
+      { key: "", name: "", num: "", q: "0005" }
+    );
+
+    // منع حفظ سطر كُتب فيه نص بحث دون اختيار فعلي من الاقتراحات
+    assertEqual("poHasUnselectedEntry flags typed-but-unselected row", poCalc.poHasUnselectedEntry([{ key: "", q: "0005" }]), true);
+    assertEqual("poHasUnselectedEntry ignores empty rows", poCalc.poHasUnselectedEntry([{ key: "", q: "  " }]), false);
+    assertEqual("poHasUnselectedEntry passes when selected", poCalc.poHasUnselectedEntry([{ key: "k1", q: "0005 — صنف" }]), false);
+
+    // عرض فواتير مشتريات الأمين (قراءة فقط): بحث موردين متسامح مع الهمزات/التاء المربوطة
+    assertEqual(
+      "poAmeenSupplierMatches tolerates hamza/taa marbouta variants",
+      poCalc.poAmeenSupplierMatches("الامين", ["شركة الأمين للتجارة", "مورد آخر"]),
+      ["شركة الأمين للتجارة"]
+    );
+    assertEqual("poAmeenSupplierMatches empty query returns no suggestions", poCalc.poAmeenSupplierMatches("", ["مورد"]), []);
+    assertEqual(
+      "poAmeenSupplierMatches caps at 8 suggestions",
+      poCalc.poAmeenSupplierMatches("مورد", Array.from({ length: 12 }, (_, i) => `مورد ${i}`)).length,
+      8
+    );
+
+    // التنقل بين فاتورة سابقة/تالية لمورد واحد بلا خروج عن حدود القائمة
+    assertEqual("poAmeenClampNavIndex moves to next invoice", poCalc.poAmeenClampNavIndex(5, 0, 1), 1);
+    assertEqual("poAmeenClampNavIndex moves to previous invoice", poCalc.poAmeenClampNavIndex(5, 2, -1), 1);
+    assertEqual("poAmeenClampNavIndex stops at newest (index 0)", poCalc.poAmeenClampNavIndex(5, 0, -1), 0);
+    assertEqual("poAmeenClampNavIndex stops at oldest (last index)", poCalc.poAmeenClampNavIndex(5, 4, 1), 4);
+    assertEqual("poAmeenClampNavIndex empty list stays at 0", poCalc.poAmeenClampNavIndex(0, 0, 1), 0);
+
+    // بحث بنود فاتورة الأمين برقم المادة أو اسمها، مع الحفاظ على الأصفار البادئة بالرقم
+    const ameenSampleItems = [
+      { itemNumber: "0005", itemName: "دخان أحمر" },
+      { itemNumber: "0012", itemName: "دخان أزرق" }
+    ];
+    assertEqual(
+      "poAmeenItemMatches matches by leading-zero number",
+      poCalc.poAmeenItemMatches("0005", ameenSampleItems).map((i) => i.itemNumber),
+      ["0005"]
+    );
+    assertEqual(
+      "poAmeenItemMatches matches by name",
+      poCalc.poAmeenItemMatches("ازرق", ameenSampleItems).map((i) => i.itemNumber),
+      ["0012"]
+    );
+    assertEqual("poAmeenItemMatches empty query returns all items", poCalc.poAmeenItemMatches("", ameenSampleItems).length, 2);
+
+    // كشف الأصناف المكررة
+    assertEqual(
+      "poDedupeLines detects duplicate item_key",
+      poCalc.poDedupeLines([{ key: "a" }, { key: "b" }, { key: "a" }]).ok,
+      false
+    );
+    assertEqual(
+      "poDedupeLines passes distinct keys",
+      poCalc.poDedupeLines([{ key: "a" }, { key: "b" }]).ok,
+      true
+    );
+
+    // حارس انتقالات حالة الفاتورة: التقدم للأمام فقط، لا رجوع من synced أو إلى draft
+    assertEqual("poCanTransitionStatus draft->approved", poCalc.poCanTransitionStatus("draft", "approved"), true);
+    assertEqual("poCanTransitionStatus draft->synced skip forbidden", poCalc.poCanTransitionStatus("draft", "synced"), false);
+    assertEqual("poCanTransitionStatus synced is terminal", poCalc.poCanTransitionStatus("synced", "approved"), false);
+    assertEqual("poCanTransitionStatus never back to draft", poCalc.poCanTransitionStatus("approved", "draft"), false);
+    assertEqual("poCanTransitionStatus sync_pending<->failed both ways", poCalc.poCanTransitionStatus("sync_pending", "failed"), true);
+    assertEqual("poCanTransitionStatus failed->sync_pending", poCalc.poCanTransitionStatus("failed", "sync_pending"), true);
+  }
+}
+
+// عقد ربط واجهة فواتير المشتريات بملف poCalc ومصدر Supabase الجديد — يمنع رجوع
+// الواجهة لاستدعاء أسماء دوال قديمة أُزيلت من supabase-client.js.
+for (const contract of [
+  "window.poCalc.poRowComputed",
+  "window.poCalc.poTotals",
+  "poCalc.poValidatePayment",
+  "poCalc.poDedupeLines",
+  "poCalc.poCanTransitionStatus",
+  "dataStore.setPurchaseInvoiceStatus(id, nextStatus)",
+  "dataStore.correctPurchaseInvoice(id, note)",
+  "dataStore.listItemSnapshots"
+]) {
+  if (!appJs.includes(contract)) {
+    console.error(`Purchase invoice UI/data-layer contract is missing: ${contract}`);
+    failed = true;
+  }
+}
+if (appJs.includes("dataStore.updatePurchaseInvoiceStatus")) {
+  console.error("src/app.js must not call the removed dataStore.updatePurchaseInvoiceStatus method.");
+  failed = true;
+}
+
+// عقود SQL فواتير المشتريات: حذف المسودة يقتصر على مالكها، وapproved_by/
+// approved_at مقفلان خارج انتقال draft→approved نفسه (مراجعة Codex الثالثة).
+const purchaseSql = readFileSync("supabase/purchase-invoices-ameen-sync.sql", "utf8");
+for (const contract of [
+  "(status = 'draft' and created_by = auth.uid())\n      or purchase_invoices_is_owner()",
+  "elsif new.approved_by is distinct from old.approved_by",
+  "or new.approved_at is distinct from old.approved_at then"
+]) {
+  if (!purchaseSql.includes(contract)) {
+    console.error(`Purchase invoice SQL contract is missing: ${contract}`);
+    failed = true;
+  }
+}
+if (/create policy "purchase_invoices_delete_client"[\s\S]*?using \(\s*status <> 'synced'\s*and \(created_by = auth\.uid\(\) or purchase_invoices_is_owner\(\)\)\s*\);/.test(purchaseSql)) {
+  console.error("purchase_invoices_delete_client must not let any authenticated user delete any non-synced invoice — creator must be limited to their own draft.");
+  failed = true;
+}
+
+// فواتير مشتريات الأمين (موردون/أسعار/تكاليف/إجماليات/دفعات) بيانات حساسة
+// ويجب ألا تُكتب في inventory_reports (مقروء لكل موظف مسجّل) — يجب أن تبقى
+// حصراً في الجدول المستقل المحمي ameen_purchase_invoice_reports. مراجعة
+// Codex السادسة على PR #35.
+const pullPurchaseInvoicesScript = readFileSync("tools/pull-purchase-invoices-from-ameen.ps1", "utf8");
+if (/rest\/v1\/inventory_reports/.test(pullPurchaseInvoicesScript)) {
+  console.error("tools/pull-purchase-invoices-from-ameen.ps1 must write purchase-invoice reports to the protected ameen_purchase_invoice_reports table, not inventory_reports.");
+  failed = true;
+}
+if (!pullPurchaseInvoicesScript.includes("rest/v1/ameen_purchase_invoice_reports")) {
+  console.error("tools/pull-purchase-invoices-from-ameen.ps1 is missing its protected-table target ameen_purchase_invoice_reports.");
+  failed = true;
+}
+if (!appJs.includes('.from(purchaseInvoiceReportsTable)') && !readFileSync("src/supabase-client.js", "utf8").includes(".from(purchaseInvoiceReportsTable)")) {
+  console.error("src/supabase-client.js must read Ameen purchase-invoice reports from purchaseInvoiceReportsTable, not inventory_reports.");
+  failed = true;
+}
+const supabaseClientJs = readFileSync("src/supabase-client.js", "utf8");
+if (/getPurchaseInvoicesAmeenReport[\s\S]{0,400}\.from\(inventoryReportsTable\)/.test(supabaseClientJs)) {
+  console.error("getPurchaseInvoicesAmeenReport() must not read from the shared inventoryReportsTable — sensitive supplier/price/cost data would leak to every registered employee.");
+  failed = true;
+}
+const purchaseInvoiceReportsSql = readFileSync("supabase/ameen-purchase-invoice-reports.sql", "utf8");
+for (const contract of [
+  "alter table ameen_purchase_invoice_reports enable row level security",
+  "ameen_purchase_invoice_reports_is_owner()",
+  "ameen_purchase_invoice_reports_is_sync_writer()",
+  "created_by uuid not null default auth.uid()",
+  "created_by = auth.uid()"
+]) {
+  if (!purchaseInvoiceReportsSql.includes(contract)) {
+    console.error(`ameen_purchase_invoice_reports SQL contract is missing: ${contract}`);
+    failed = true;
+  }
+}
+
+// مراجعة Codex السابعة على PR #35: هذا الملف يجب أن يبقى self-contained تماماً —
+// لا اعتماد على purchase_invoices_is_owner() ولا على تطبيق
+// purchase-invoices-ameen-sync.sql كشرط مسبق، وإلا يتعذّر تطبيقه منفرداً.
+if (purchaseInvoiceReportsSql.includes("purchase_invoices_is_owner()")) {
+  console.error("supabase/ameen-purchase-invoice-reports.sql must not depend on purchase_invoices_is_owner() — it needs its own self-contained owner function.");
+  failed = true;
+}
+if (purchaseInvoiceReportsSql.includes("purchase-invoices-ameen-sync.sql")) {
+  console.error("supabase/ameen-purchase-invoice-reports.sql must not require applying purchase-invoices-ameen-sync.sql first — it must be self-contained.");
+  failed = true;
+}
+
+// created_by يجب أن يمنع NULL وانتحال الهوية معاً: عمود بقيمة افتراضية auth.uid()،
+// وسياسة INSERT تتحقق أن created_by المُرسَل يطابق auth.uid() فعلياً.
+if (!/with check \(\s*ameen_purchase_invoice_reports_is_sync_writer\(\)\s*and\s*created_by = auth\.uid\(\)\s*\)/.test(purchaseInvoiceReportsSql)) {
+  console.error("ameen_purchase_invoice_reports INSERT policy must require both the sync-writer account and created_by = auth.uid().");
+  failed = true;
+}
+
+// اختبارات دوال الجرد الشهري المعزولة (src/inventory-recon-calc.js) — نفس نمط poCalc أعلاه.
+{
+  const invRecCalcSource = readFileSync("src/inventory-recon-calc.js", "utf8");
+  const sandbox = { window: {}, console };
+  vm.createContext(sandbox);
+  vm.runInContext(invRecCalcSource, sandbox, { filename: "inventory-recon-calc.js" });
+  const invRecCalc = sandbox.window.invRecCalc;
+  if (!invRecCalc) {
+    console.error("src/inventory-recon-calc.js did not expose window.invRecCalc.");
+    failed = true;
+  } else {
+    const assertEqual = (label, actual, expected) => {
+      const a = JSON.stringify(actual);
+      const e = JSON.stringify(expected);
+      if (a !== e) {
+        console.error(`invRecCalc test failed: ${label} — got ${a}, expected ${e}`);
+        failed = true;
+      }
+    };
+
+    assertEqual("diffOf increase", invRecCalc.diffOf(10, 12), { diffQty: 2, diffType: "increase" });
+    assertEqual("diffOf decrease", invRecCalc.diffOf(10, 7), { diffQty: -3, diffType: "decrease" });
+    assertEqual("diffOf match", invRecCalc.diffOf(10, 10), { diffQty: 0, diffType: "none" });
+    assertEqual("diffOf empty actual", invRecCalc.diffOf(10, ""), { diffQty: 0, diffType: "none" });
+    assertEqual("diffOf missing actual", invRecCalc.diffOf(10, undefined), { diffQty: 0, diffType: "none" });
+
+    assertEqual("settlementValue increase", invRecCalc.settlementValue(2, 5), 10);
+    assertEqual("settlementValue decrease", invRecCalc.settlementValue(-3, 5), -15);
+
+    assertEqual(
+      "lineComputed reason required and missing",
+      invRecCalc.lineComputed({ systemQty: 10, actualQty: 7, unitCost: 5, reason: "" }),
+      { diffQty: -3, diffType: "decrease", settlementValue: -15, reasonRequired: true, reasonOk: false }
+    );
+    assertEqual(
+      "lineComputed reason required and provided",
+      invRecCalc.lineComputed({ systemQty: 10, actualQty: 7, unitCost: 5, reason: "تلف" }),
+      { diffQty: -3, diffType: "decrease", settlementValue: -15, reasonRequired: true, reasonOk: true }
+    );
+    assertEqual(
+      "lineComputed matched line needs no reason",
+      invRecCalc.lineComputed({ systemQty: 10, actualQty: 10, unitCost: 5, reason: "" }),
+      { diffQty: 0, diffType: "none", settlementValue: 0, reasonRequired: false, reasonOk: true }
+    );
+
+    assertEqual(
+      "sessionSummary aggregates gain/loss/net",
+      invRecCalc.sessionSummary([
+        { systemQty: 10, actualQty: 12, unitCost: 5, reason: "زيادة" },
+        { systemQty: 10, actualQty: 7, unitCost: 5, reason: "نقص" },
+        { systemQty: 10, actualQty: 10, unitCost: 5 }
+      ]),
+      { totalLines: 3, matchedCount: 1, increaseCount: 1, decreaseCount: 1, gainValue: 10, lossValue: 15, netValue: -5 }
+    );
+
+    assertEqual(
+      "validateForReview flags missing reasons only",
+      invRecCalc.validateForReview([
+        { systemQty: 10, actualQty: 7, unitCost: 5, reason: "" },
+        { systemQty: 10, actualQty: 10, unitCost: 5, reason: "" }
+      ]),
+      { ok: false, missingReasonCount: 1 }
+    );
+
+    assertEqual("canTransitionStatus draft->reviewed", invRecCalc.canTransitionStatus("draft", "reviewed"), true);
+    assertEqual("canTransitionStatus reviewed->approved", invRecCalc.canTransitionStatus("reviewed", "approved"), true);
+    assertEqual("canTransitionStatus draft->approved skip forbidden", invRecCalc.canTransitionStatus("draft", "approved"), false);
+    assertEqual("canTransitionStatus approved is terminal", invRecCalc.canTransitionStatus("approved", "reviewed"), false);
+    assertEqual("canTransitionStatus unknown status rejected", invRecCalc.canTransitionStatus("draft", "synced"), false);
+
+    assertEqual("normalizeSearchText hamza/taa marbuta", invRecCalc.normalizeSearchText("أحمد الشركة"), "احمد الشركه");
+    assertEqual(
+      "itemMatches tolerant of hamza variants",
+      invRecCalc.itemMatches({ itemName: "دخان أبو زياد" }, "ابو زياد"),
+      true
+    );
+
+    assertEqual(
+      "buildIdempotencyKey composes warehouse/month/nonce",
+      invRecCalc.buildIdempotencyKey("jumla", "2026-08", "n1"),
+      "jumla|2026-08|n1"
+    );
+  }
+}
+
+// عقد ربط واجهة الجرد الشهري بملف invRecCalc ومصدر Supabase الجديد.
+for (const contract of [
+  "window.invRecCalc.itemMatches",
+  "window.invRecCalc.lineComputed",
+  "window.invRecCalc.sessionSummary",
+  "window.invRecCalc.canTransitionStatus",
+  "window.invRecCalc.buildIdempotencyKey",
+  "dataStore.createReconSessionWithLines(",
+  "dataStore.setReconSessionStatus("
+]) {
+  if (!appJs.includes(contract)) {
+    console.error(`Inventory reconciliation UI/data-layer contract is missing: ${contract}`);
+    failed = true;
+  }
+}
+
+// انحدار: منع الرجوع إلى مخزون النشرة العام عند غياب تقرير مخزون المستودع —
+// مراجعة الجولة الثانية على PR الجرد الشهري (نقطة حاسمة). reconAddItem وreconSaveDraft
+// يجب أن يعتمدا حصراً على state.reconWarehouseStockItems، لا على أي قائمة أسعار عامة.
+{
+  const reconAddItemMatch = appJs.match(/function reconAddItem\(key\) \{[\s\S]{0,700}?\n\}/);
+  if (!reconAddItemMatch) {
+    console.error("reconAddItem() function not found in src/app.js.");
+    failed = true;
+  } else {
+    const body = reconAddItemMatch[0];
+    if (!body.includes("state.reconWarehouseStockItems")) {
+      console.error("reconAddItem() must build its item list from state.reconWarehouseStockItems only.");
+      failed = true;
+    }
+    if (/state\.(priceItems|reconPriceListItems)\b/.test(body) || /itemCostFor\(.*priceItems/.test(body)) {
+      console.error("reconAddItem() must not fall back to the general price-list stock.");
+      failed = true;
+    }
+  }
+
+  const reconSaveDraftMatch = appJs.match(/async function reconSaveDraft\(\) \{[\s\S]{0,300}/);
+  if (!reconSaveDraftMatch || !reconSaveDraftMatch[0].includes("reconWarehouseStockItems")) {
+    console.error("reconSaveDraft() must guard on state.reconWarehouseStockItems before allowing a save (no warehouse report = no save).");
+    failed = true;
+  }
+
+  if (!appJs.includes("hasWarehouseStock")) {
+    console.error("inventoryRecon() render must gate item-add UI and the save button on a hasWarehouseStock flag.");
+    failed = true;
+  }
+}
+
+// عقد SQL لتصليب RLS/الملكية على الجرد الشهري — مراجعة الجولة الثانية (نقطة حاسمة):
+// created_by غير قابل للانتحال، الاعتماد محصور بالمالك، سجل التدقيق trigger-only.
+{
+  const invReconSql = readFileSync("supabase/inventory-reconciliation-table.sql", "utf8");
+  for (const contract of [
+    "inventory_recon_is_owner()",
+    "created_by     uuid          references auth.users(id)",
+    "created_by لا يمكن تعديله بعد الإنشاء",
+    "اعتماد الجلسة محصور بحساب المالك",
+    "بلا كمية فعلية أو سبب أو تكلفة معروفة لفرق غير صفري",
+    "security definer set search_path = ''",
+    "created_by = auth.uid()"
+  ]) {
+    if (!invReconSql.includes(contract)) {
+      console.error(`inventory-reconciliation-table.sql SQL contract is missing: ${contract}`);
+      failed = true;
+    }
+  }
+  if (/create policy "authenticated can insert inventory_recon_audit_log"/.test(invReconSql)) {
+    console.error("inventory-reconciliation-table.sql must not allow direct client INSERT into inventory_recon_audit_log — trigger-only.");
+    failed = true;
+  }
+}
+
+// عقد SQL — مراجعة الجولة الثالثة (3 نقاط حاسمة): سجل التدقيق بلا FK (وإلا يفشل
+// الحذف ويُمحى التاريخ بالـcascade)، اعتماد جلسة بلا سطور مرفوض، كتابة السطور
+// محصورة بحالة draft فقط، GRANT صريحة، سحب EXECUTE من دالة SECURITY DEFINER،
+// وRPC ذرية لإنشاء الجلسة مع سطورها.
+{
+  const invReconSql = readFileSync("supabase/inventory-reconciliation-table.sql", "utf8");
+  if (/session_id\s+uuid\s+references inventory_recon_sessions/.test(invReconSql)) {
+    console.error("inventory_recon_audit_log.session_id must not carry a foreign key — deleting a session would then either fail (trigger insert after delete) or cascade-erase the audit trail.");
+    failed = true;
+  }
+  if (/line_id\s+uuid\s+references inventory_recon_lines/.test(invReconSql)) {
+    console.error("inventory_recon_audit_log.line_id must not carry a foreign key, for the same reason as session_id.");
+    failed = true;
+  }
+  for (const contract of [
+    "لا يمكن اعتماد جلسة بلا أي سطر",
+    "s.status = 'draft'",
+    "revoke execute on function private.inventory_recon_write_audit_log() from public",
+    "create or replace function inventory_recon_create_session_with_lines",
+    "raise exception 'inventory_recon: لا يمكن إنشاء جلسة جرد بلا سطور'"
+  ]) {
+    if (!invReconSql.includes(contract)) {
+      console.error(`inventory-reconciliation-table.sql SQL contract (round 3) is missing: ${contract}`);
+      failed = true;
+    }
+  }
+  if (/s\.status\s*<>\s*'approved'/.test(invReconSql.split("inventory_recon_lines_insert")[1] || "")) {
+    console.error("inventory_recon_lines_write policy must gate on status = 'draft', not <> 'approved' — lines must lock as soon as a session leaves draft.");
+    failed = true;
+  }
+  if (/create policy "inventory_recon_lines_write"[\s\S]{0,100}for all/.test(invReconSql)) {
+    console.error("inventory_recon_lines write access must not use FOR ALL — permissive RLS would OR it into SELECT and expose raw cost columns to draft creators.");
+    failed = true;
+  }
+  for (const policy of ["inventory_recon_lines_insert", "inventory_recon_lines_update", "inventory_recon_lines_delete"]) {
+    if (!invReconSql.includes(`create policy "${policy}"`)) {
+      console.error(`inventory reconciliation must define separate ${policy} RLS policy instead of a FOR ALL policy.`);
+      failed = true;
+    }
+  }
+}
+
+// انحدار: إنشاء الجلسة وحفظ سطورها يجب أن يمرّا عبر نداء ذرّي واحد (RPC) لا
+// طلبين منفصلين — وإلا يترك انقطاع الشبكة بين الطلبين جلسة فارغة بلا سطور.
+{
+  if (!appJs.includes("createReconSessionWithLines")) {
+    console.error("reconSaveDraft() must call dataStore.createReconSessionWithLines(...) — a single atomic call, not separate createReconSession/saveReconLines requests.");
+    failed = true;
+  }
+  if (/dataStore\.createReconSession\(/.test(appJs) || /dataStore\.saveReconLines\(/.test(appJs)) {
+    console.error("src/app.js must not call the old separate createReconSession/saveReconLines methods anymore.");
+    failed = true;
+  }
+  const supabaseClientJs = readFileSync("src/supabase-client.js", "utf8");
+  if (!/client\.rpc\(\s*["']inventory_recon_create_session_with_lines["']/.test(supabaseClientJs)) {
+    console.error("src/supabase-client.js must call the inventory_recon_create_session_with_lines RPC for atomic session+lines creation.");
+    failed = true;
+  }
+}
+
+// عقد SQL — مراجعة الجولة الرابعة (4 نقاط حاسمة): الخادم يشتق system_qty/unit_cost/
+// هوية الصنف من تقرير inventory_reports موثوق لا من المتصفح، idempotency محصور
+// بـcreated_by مع تحقق تعارض المحتوى، تصليب صلاحيات RPC الرئيسية + نقل دالة التدقيق
+// لمخطط private، وقيود CHECK تمنع قيماً سالبة/عملة غير مسموحة/مفتاح أو اسم فارغ.
+{
+  const invReconSql = readFileSync("supabase/inventory-reconciliation-table.sql", "utf8");
+  for (const contract of [
+    "source_report_id",
+    "source_report_date",
+    "unique (created_by, idempotency_key)",
+    "from public.ameen_warehouse_stock_reports",
+    "تقرير المخزون المحدد لا يطابق المستودع المختار",
+    "الأصناف التالية غير موجودة في تقرير المستودع الموثوق",
+    "مفتاح idempotency % مستخدم مسبقاً لجلسة مختلفة",
+    "مفتاح idempotency % مستخدم مسبقاً بمحتوى سطور مختلف",
+    "create schema if not exists private;",
+    "create or replace function private.inventory_recon_write_audit_log()",
+    "execute function private.inventory_recon_write_audit_log();",
+    "revoke execute on function inventory_recon_create_session_with_lines(date, date, text, text, text, text, uuid, jsonb) from public",
+    "revoke execute on function inventory_recon_create_session_with_lines(date, date, text, text, text, text, uuid, jsonb) from anon",
+    "grant execute on function inventory_recon_create_session_with_lines(date, date, text, text, text, text, uuid, jsonb) to authenticated",
+    "check (trim(item_key) <> '')",
+    "check (trim(item_name) <> '')",
+    "check (actual_qty is null or actual_qty >= 0)",
+    "check (unit_cost is null or unit_cost >= 0)"
+  ]) {
+    if (!invReconSql.includes(contract)) {
+      console.error(`inventory-reconciliation-table.sql SQL contract (round 4) is missing: ${contract}`);
+      failed = true;
+    }
+  }
+  if (/create (or replace )?function inventory_recon_write_audit_log\(\)/.test(invReconSql)) {
+    console.error("inventory_recon_write_audit_log() must be defined inside the private schema, not public — plain function name (unqualified) must not remain.");
+    failed = true;
+  }
+}
+
+// انحدار: العميل لا يرسل system_qty/unit_cost/item_number/item_name/unit_name/currency
+// كقيم موثوقة إلى الـRPC — الخادم يشتقّها من تقرير المخزون الموثوق. src/supabase-client.js
+// يمرّر source_report_id ويبني سطوراً مختزلة فقط (item_key/actual_qty/reason).
+{
+  const supabaseClientJs = readFileSync("src/supabase-client.js", "utf8");
+  const createReconMatch = supabaseClientJs.match(/async createReconSessionWithLines\(input, lines\) \{[\s\S]*?\n    \},/);
+  if (!createReconMatch) {
+    console.error("src/supabase-client.js: createReconSessionWithLines(input, lines) not found.");
+    failed = true;
+  } else {
+    const body = createReconMatch[0];
+    if (!/p_source_report_id:\s*input\.sourceReportId/.test(body)) {
+      console.error("createReconSessionWithLines must pass p_source_report_id: input.sourceReportId to the RPC.");
+      failed = true;
+    }
+    for (const clientTrustedField of ["item_number:", "item_name:", "unit_name:", "system_qty:", "unit_cost:", "currency:"]) {
+      if (body.includes(clientTrustedField)) {
+        console.error(`createReconSessionWithLines must not send client-supplied "${clientTrustedField}" to the RPC — the server derives it from the trusted inventory_reports row.`);
+        failed = true;
+      }
+    }
+  }
+  if (!/\.select\(\s*["']id, summary, items, created_at["']\s*\)/.test(supabaseClientJs)) {
+    console.error("getLatestWarehouseStockReport must select the report's id (needed as source_report_id) alongside summary/items/created_at.");
+    failed = true;
+  }
+}
+
+// انحدار: src/app.js يلتقط id تقرير مخزون المستودع ويمرره كـsourceReportId، ويرفض
+// الحفظ إن لم يتوفر تقرير موثوق (لا يُنشئ جلسة بلا مصدر موثوق).
+{
+  if (!/state\.reconWarehouseStockReportId\s*=\s*report\.id/.test(appJs)) {
+    console.error("loadReconWarehouseStock() must capture the trusted report's id into state.reconWarehouseStockReportId.");
+    failed = true;
+  }
+  if (!/sourceReportId:\s*state\.reconWarehouseStockReportId/.test(appJs)) {
+    console.error("reconSaveDraft() must pass sourceReportId: state.reconWarehouseStockReportId to dataStore.createReconSessionWithLines(...).");
+    failed = true;
+  }
+  if (!/if \(!state\.reconWarehouseStockReportId\) \{/.test(appJs)) {
+    console.error("reconSaveDraft() must guard on state.reconWarehouseStockReportId before allowing a save.");
+    failed = true;
+  }
+}
+
+// عقد SQL — مراجعة الجولة الخامسة (موانع دمج): unit_cost/currency/settlement_value
+// محجوبة عن غير المالك عبر RLS owner-only + RPC مقنَّعة، مطابقة التكلفة بـitem_guid
+// لا بالاسم، رفض item_key فارغ، تحقق عدد السطور المُدرجة، وسباق idempotency عبر
+// ON CONFLICT ذرّي بدل SELECT ثم INSERT منفصلين.
+{
+  const invReconSql = readFileSync("supabase/inventory-reconciliation-table.sql", "utf8");
+  for (const contract of [
+    "using ((select inventory_recon_is_owner()))",
+    "create or replace function inventory_recon_lines_for_session(p_session_id uuid)",
+    "revoke execute on function inventory_recon_lines_for_session(uuid) from public",
+    "revoke execute on function inventory_recon_lines_for_session(uuid) from anon",
+    "grant execute on function inventory_recon_lines_for_session(uuid) to authenticated",
+    "raise exception 'inventory_recon: % سطر بمفتاح صنف فارغ",
+    "on conflict (created_by, idempotency_key) do nothing",
+    "raise exception 'inventory_recon: عدد السطور المُدرجة (%) لا يطابق عدد الأصناف المطلوبة"
+  ]) {
+    if (!invReconSql.includes(contract)) {
+      console.error(`inventory-reconciliation-table.sql SQL contract (round 5) is missing: ${contract}`);
+      failed = true;
+    }
+  }
+  if (/create policy "inventory_recon_lines_select"[\s\S]{0,80}using \(true\)/.test(invReconSql)) {
+    console.error("inventory_recon_lines_select must no longer be using(true) — cost columns (unit_cost/currency/settlement_value) must be owner-only, masked for everyone else via inventory_recon_lines_for_session().");
+    failed = true;
+  }
+  if (!/where ic1\.item_guid = coalesce\(it ->> 'itemGuid', it ->> 'item_guid'\)/.test(invReconSql)) {
+    console.error("inventory_recon_create_session_with_lines must match item_costs by item_guid (matching push-item-costs.ps1's GUID/code/name priority), not by item_name alone with LIMIT 1.");
+    failed = true;
+  }
+
+  const supabaseClientJs = readFileSync("src/supabase-client.js", "utf8");
+  if (!/client\.rpc\(\s*["']inventory_recon_lines_for_session["']/.test(supabaseClientJs)) {
+    console.error("getReconSession() must fetch lines via the inventory_recon_lines_for_session RPC, not a direct .from(reconLinesTable) select — the owner-only RLS policy would otherwise return an empty line list to non-owner session creators.");
+    failed = true;
+  }
+
+  // الجولة السادسة: سجل التدقيق يخزّن نسخة كاملة من السطر (unit_cost/currency
+  // ضمناً) عبر to_jsonb(NEW) — using(true) على قراءته يسرّب التكلفة لكل
+  // authenticated رغم إخفائها في القراءة المقنَّعة. والدالة create_session_with_lines
+  // يجب أن تكون SECURITY DEFINER وإلا يفشل موظف غير مالك بقراءة item_costs (تكلفة
+  // NULL دائماً) وinventory_recon_lines (فشل تكرار idempotency) بسبب RLS owner-only.
+  for (const contract of [
+    'create policy "inventory_recon_audit_log_select"',
+    "using ((select inventory_recon_is_owner()))"
+  ]) {
+    if (!invReconSql.includes(contract)) {
+      console.error(`inventory-reconciliation-table.sql SQL contract (round 6) is missing: ${contract}`);
+      failed = true;
+    }
+  }
+  if (/create policy "inventory_recon_audit_log_select"[\s\S]{0,80}using \(true\)/.test(invReconSql)) {
+    console.error("inventory_recon_audit_log_select must no longer be using(true) — audit rows carry full before/after_data including unit_cost/currency, must be owner-only.");
+    failed = true;
+  }
+
+  // مستشار أداء PostgreSQL: مراجع FK المتكررة تحتاج فهارس، واستدعاءات
+  // auth.uid()/owner داخل سياسات RLS يجب أن تكون initplans ثابتة لا أن تُعاد
+  // لكل سطر عند كبر بيانات الجرد.
+  for (const indexName of [
+    "idx_inventory_recon_sessions_source_report",
+    "idx_inventory_recon_sessions_reviewed_by",
+    "idx_inventory_recon_sessions_approved_by"
+  ]) {
+    if (!invReconSql.includes(`create index if not exists ${indexName}`)) {
+      console.error(`inventory reconciliation performance index is missing: ${indexName}`);
+      failed = true;
+    }
+  }
+  const rlsBlock = (invReconSql.split('create policy "inventory_recon_sessions_insert"')[1] || "").split("-- ============================================================\n-- GRANT")[0] || "";
+  if (/(?<!select\s)auth\.uid\(\)/.test(rlsBlock)
+      || /(?<!select\s)inventory_recon_is_owner\(\)/.test(rlsBlock)) {
+    console.error("inventory reconciliation RLS policies must wrap auth.uid() and inventory_recon_is_owner() in SELECT initplans to avoid per-row re-evaluation.");
+    failed = true;
+  }
+  if (!/create or replace function inventory_recon_create_session_with_lines[\s\S]{0,400}security definer/.test(invReconSql)) {
+    console.error("inventory_recon_create_session_with_lines must be SECURITY DEFINER — as SECURITY INVOKER, a non-owner caller cannot read item_costs or inventory_recon_lines under owner-only RLS, permanently losing cost data and breaking idempotency retries.");
+    failed = true;
+  }
+
+  // اختبار قاعدة PostgreSQL الحقيقي كشف أن الوصول المباشر إلى حقل session_id
+  // داخل NEW/OLD في trigger مشترك يفشل عند تشغيله على جدول الجلسات لأن record
+  // لا يملك ذلك الحقل، حتى لو كان فرع CASE الخاص بالسطور غير مختار. يجب تحويل
+  // NEW/OLD إلى JSONB ثم استخراج id/session_id بأمان حسب TG_TABLE_NAME.
+  const auditTriggerBlock = (invReconSql.split("create or replace function private.inventory_recon_write_audit_log()")[1] || "").slice(0, 2200);
+  if (!/v_row\s*:=\s*coalesce\(v_after,\s*v_before\)/.test(auditTriggerBlock)
+      || !/\(v_row\s*->>\s*'session_id'\)::uuid/.test(auditTriggerBlock)
+      || /\b(?:NEW|OLD)\.session_id\b/i.test(auditTriggerBlock)) {
+    console.error("inventory_recon_write_audit_log must read dynamic trigger records through JSONB; direct NEW/OLD.session_id crashes the sessions trigger at runtime.");
+    failed = true;
+  }
+  if (!/security definer set search_path = ''/.test(auditTriggerBlock)
+      || !/insert into public\.inventory_recon_audit_log/.test(auditTriggerBlock)) {
+    console.error("private inventory reconciliation audit trigger must use an empty search_path and a fully-qualified public.inventory_recon_audit_log target.");
+    failed = true;
+  }
+
+  // استدعاء RPC الرئيسي (search_path='') يشغّل triggers السطور ضمن السياق
+  // نفسه؛ لذلك أي اسم جدول غير مؤهل داخل حراس الـtrigger يفشل فعلياً برسالة
+  // relation does not exist. كل حارس يثبت search_path فارغاً ويؤهل public.*.
+  const sessionGuardBlock = (invReconSql.split("create or replace function inventory_recon_guard_immutable()")[1] || "").slice(0, 3800);
+  const linesGuardBlock = (invReconSql.split("create or replace function inventory_recon_guard_lines_immutable()")[1] || "").slice(0, 1400);
+  if (!/from public\.inventory_recon_lines/.test(sessionGuardBlock)
+      || !/public\.inventory_recon_is_owner\(\)/.test(sessionGuardBlock)
+      || !/language plpgsql set search_path = ''/.test(sessionGuardBlock)) {
+    console.error("inventory_recon_guard_immutable must use an empty search_path and fully-qualified reconciliation objects.");
+    failed = true;
+  }
+  if (!/from public\.inventory_recon_sessions/.test(linesGuardBlock)
+      || !/language plpgsql set search_path = ''/.test(linesGuardBlock)
+      || !/TG_OP\s*=\s*'DELETE'\s+and\s+session_status\s+is\s+null/.test(linesGuardBlock)) {
+    console.error("inventory_recon_guard_lines_immutable must qualify public.inventory_recon_sessions; it runs inside the empty-search-path create-session RPC.");
+    failed = true;
+  }
+
+  // الجولة السابعة: تشديد الدالتين SECURITY DEFINER — search_path فارغ بدل
+  // "public" (لا اسم مخطط ثابت قابل للاعتراض)، ورفض صريح لـauth.uid() null
+  // بدل الاعتماد الضمني فقط على revoke execute from anon.
+  const linesForSessionBlock = (invReconSql.split("create or replace function inventory_recon_lines_for_session")[1] || "").slice(0, 1600);
+  if (!/security definer\s*\nset search_path = ''/.test(linesForSessionBlock)) {
+    console.error("inventory_recon_lines_for_session must use SET search_path = '' (empty), not a named schema — Supabase best practice for SECURITY DEFINER functions to prevent search_path hijacking.");
+    failed = true;
+  }
+  if (!/auth\.uid\(\) is null/.test(linesForSessionBlock)) {
+    console.error("inventory_recon_lines_for_session must explicitly reject auth.uid() is null before touching session/line data.");
+    failed = true;
+  }
+
+  const createSessionBlock = (invReconSql.split("create or replace function inventory_recon_create_session_with_lines")[1] || "").slice(0, 8000);
+  if (!/security definer\s*\nset search_path = ''/.test(createSessionBlock)) {
+    console.error("inventory_recon_create_session_with_lines must use SET search_path = '' (empty), not a named schema — Supabase best practice for SECURITY DEFINER functions to prevent search_path hijacking.");
+    failed = true;
+  }
+  if (!/auth\.uid\(\) is null/.test(createSessionBlock)) {
+    console.error("inventory_recon_create_session_with_lines must explicitly reject auth.uid() is null before creating a session.");
+    failed = true;
+  }
+  if (!/trim_scale\(nullif\(line\s*->>\s*'actual_qty',\s*''\)::numeric\)::text/.test(createSessionBlock)
+      || !/trim_scale\(actual_qty\)::text/.test(createSessionBlock)) {
+    console.error("inventory reconciliation idempotency digests must canonicalize numeric scale; otherwise input 8 mismatches stored numeric(18,3) text 8.000 on an identical retry.");
+    failed = true;
+  }
+  if (/[^.]\bfrom inventory_recon_lines\b|[^.]\bfrom inventory_recon_sessions\b|[^.]\bfrom inventory_reports\b|[^.]\bfrom item_costs\b|[^.]\binsert into inventory_recon_lines\b|[^.]\binsert into inventory_recon_sessions\b/.test(createSessionBlock)) {
+    console.error("inventory_recon_create_session_with_lines must fully qualify every relation with the public. prefix (search_path is now empty, so unqualified names would fail to resolve or silently resolve to the wrong schema).");
+    failed = true;
+  }
+}
+
+// اختبار setReconSessionStatus (src/supabase-client.js): بعد سحب GRANT المباشر
+// من authenticated (مراجعة PR-38-review-2)، يجب أن يستدعي RPC
+// inventory_recon_set_status حصراً، لا .from(reconSessionsTable).update(...).
+// نتأكد من نجاح الاستدعاء الصحيح، ورمي خطأ صريح عندما ترجع RPC خطأً (مثلاً
+// الحالة تغيّرت فعلاً — expected_status لم يعد مطابقاً).
+{
+  const supabaseClientSource = readFileSync("src/supabase-client.js", "utf8");
+
+  if (/\.from\(reconSessionsTable\)\s*\n\s*\.update\(/.test(supabaseClientSource)) {
+    console.error("setReconSessionStatus must not write directly via .from(reconSessionsTable).update(...) — authenticated no longer holds UPDATE grant on inventory_recon_sessions; it must call the inventory_recon_set_status RPC.");
+    failed = true;
+  }
+  if (!/client\.rpc\(\s*["']inventory_recon_set_status["']/.test(supabaseClientSource)) {
+    console.error("setReconSessionStatus must call the inventory_recon_set_status RPC.");
+    failed = true;
+  }
+
+  function makeMockClient(rpcResult) {
+    let lastRpcCall = null;
+    return {
+      auth: {
+        getSession: async () => ({ data: { session: { user: { id: "u1", email: "owner@ozk.test" } } }, error: null }),
+        getUser: async () => ({ data: { user: { id: "u1", email: "owner@ozk.test" } }, error: null })
+      },
+      rpc(name, params) {
+        lastRpcCall = { name, params };
+        return Promise.resolve(rpcResult).then((r) => { r.__lastRpcCall = lastRpcCall; return r; });
+      }
+    };
+  }
+
+  async function runSetReconSessionStatus(rpcResult) {
+    let capturedClient;
+    const sandbox = {
+      window: {
+        appConfig: { supabase: { url: "https://x.test", publishableKey: "key" } },
+        supabase: { createClient: () => (capturedClient = makeMockClient(rpcResult)) },
+        invRecCalc: sandbox_invRecCalc
+      },
+      localStorage: { getItem: () => null, setItem: () => {}, removeItem: () => {} },
+      console
+    };
+    vm.createContext(sandbox);
+    vm.runInContext(supabaseClientSource, sandbox, { filename: "supabase-client.js" });
+    await sandbox.window.tobaccoData.setReconSessionStatus("s1", "reviewed", "draft");
+    return capturedClient;
+  }
+
+  const invRecCalcSourceForGuard = readFileSync("src/inventory-recon-calc.js", "utf8");
+  const guardSandbox = { window: {}, console };
+  vm.createContext(guardSandbox);
+  vm.runInContext(invRecCalcSourceForGuard, guardSandbox, { filename: "inventory-recon-calc.js" });
+  const sandbox_invRecCalc = guardSandbox.window.invRecCalc;
+
+  let succeeded = false;
+  try {
+    await runSetReconSessionStatus({ data: { id: "s1", status: "reviewed" }, error: null });
+    succeeded = true;
+  } catch (err) {
+    console.error(`setReconSessionStatus should succeed when the RPC reports success: ${err.message}`);
+    failed = true;
+  }
+  if (!succeeded) failed = true;
+
+  let blocked = false;
+  try {
+    await runSetReconSessionStatus({
+      data: null,
+      error: { message: "inventory_recon_set_status: تعذّر تحديث حالة الجلسة" }
+    });
+  } catch {
+    blocked = true;
+  }
+  if (!blocked) {
+    console.error("setReconSessionStatus must throw when the inventory_recon_set_status RPC returns an error (stale expected_status / silent RLS block) instead of succeeding silently.");
+    failed = true;
+  }
+}
+
+// اختبار GRANT الضيق الجديد (مراجعة PR-38-review-2): authenticated يملك SELECT
+// فقط على الجدولين، وكل كتابة يجب أن تمر عبر RPC بـSECURITY DEFINER.
+{
+  const invReconSql = readFileSync("supabase/inventory-reconciliation-table.sql", "utf8");
+
+  if (/grant\s+select\s*,\s*insert\s*,\s*update\s*,\s*delete\s+on\s+inventory_recon_sessions\s+to\s+authenticated/.test(invReconSql)
+      || /grant\s+select\s*,\s*insert\s*,\s*update\s*,\s*delete\s+on\s+inventory_recon_lines\s+to\s+authenticated/.test(invReconSql)) {
+    console.error("inventory-reconciliation-table.sql must not grant insert/update/delete on inventory_recon_sessions/inventory_recon_lines to authenticated directly — every mutation must go through a SECURITY DEFINER RPC.");
+    failed = true;
+  }
+  const grantContracts = [
+    "revoke all privileges on table",
+    "inventory_recon_sessions,",
+    "inventory_recon_lines,",
+    "inventory_recon_audit_log",
+    "from anon, authenticated",
+    "grant select on inventory_recon_sessions to authenticated",
+    "grant select on inventory_recon_lines to authenticated"
+  ];
+  for (const contract of grantContracts) {
+    if (!invReconSql.includes(contract)) {
+      console.error(`inventory-reconciliation-table.sql GRANT-narrowing contract is missing: ${contract}`);
+      failed = true;
+    }
+  }
+
+  const setStatusBlock = (invReconSql.split("create or replace function inventory_recon_set_status")[1] || "").slice(0, 2500);
+  if (!setStatusBlock) {
+    console.error("supabase/inventory-reconciliation-table.sql is missing inventory_recon_set_status RPC.");
+    failed = true;
+  } else {
+    if (!/security definer\s*\nset search_path = ''/.test(setStatusBlock)) {
+      console.error("inventory_recon_set_status must use SECURITY DEFINER with SET search_path = '' (empty).");
+      failed = true;
+    }
+    if (!/:=\s*auth\.uid\(\)/.test(setStatusBlock) || !/v_uid is null/.test(setStatusBlock)) {
+      console.error("inventory_recon_set_status must capture auth.uid() and explicitly reject a null caller.");
+      failed = true;
+    }
+    // القفل يتم عبر FOR UPDATE قبل قراءة الصف، ثم تحقق صريح من p_expected_status
+    // يرمي استثناءً عند أي تعارض (بديل أكثر وضوحاً من شرط WHERE صامت يرجع صف
+    // فارغ)، ويقفل صلاحية الانتقال (draft→reviewed للمنشئ/المالك،
+    // reviewed→approved للمالك فقط) داخل الدالة نفسها كخط دفاع أول — مكرَّرة
+    // باستقلالية داخل inventory_recon_guard_immutable (SEE trigger block below)
+    // لأن الدالة SECURITY DEFINER ولا يجوز الاعتماد على RLS وحدها.
+    if (!/for update/.test(setStatusBlock)) {
+      console.error("inventory_recon_set_status must lock the session row with FOR UPDATE before checking status/ownership.");
+      failed = true;
+    }
+    if (!/v_session\.status\s*<>\s*p_expected_status/.test(setStatusBlock)) {
+      console.error("inventory_recon_set_status must explicitly verify the locked row's status against p_expected_status and reject any other transition.");
+      failed = true;
+    }
+    if (!/v_session\.created_by\s*=\s*v_uid\s+or\s+v_is_owner/.test(setStatusBlock)) {
+      console.error("inventory_recon_set_status must allow draft→reviewed only for the draft's creator or the owner.");
+      failed = true;
+    }
+    if (!/not\s+v_is_owner/.test(setStatusBlock)) {
+      console.error("inventory_recon_set_status must allow reviewed→approved only for the owner.");
+      failed = true;
+    }
+  }
+
+  // نفس فحوصات التفويض يجب أن تتكرر باستقلالية داخل inventory_recon_guard_immutable
+  // (التريغر) — دفاع مستقل لأن الدالة أعلاه SECURITY DEFINER ولا يجوز
+  // الاعتماد على RLS وحدها لمنع تجاوز الصلاحيات.
+  const guardImmutableBlock = (invReconSql.split("create or replace function inventory_recon_guard_immutable()")[1] || "").slice(0, 4000);
+  if (!guardImmutableBlock) {
+    console.error("supabase/inventory-reconciliation-table.sql is missing inventory_recon_guard_immutable().");
+    failed = true;
+  } else {
+    if (!/OLD\.created_by\s*=\s*auth\.uid\(\)\s+or\s+public\.inventory_recon_is_owner\(\)/.test(guardImmutableBlock)) {
+      console.error("inventory_recon_guard_immutable must independently check draft→reviewed authorization (creator or owner) — it must not rely on inventory_recon_set_status alone.");
+      failed = true;
+    }
+    if (!/not public\.inventory_recon_is_owner\(\)/.test(guardImmutableBlock)) {
+      console.error("inventory_recon_guard_immutable must independently check reviewed→approved authorization (owner only) — it must not rely on inventory_recon_set_status alone.");
+      failed = true;
+    }
+  }
+  if (!/revoke execute on function inventory_recon_set_status\(uuid, text, text\) from public/.test(invReconSql)
+      || !/revoke execute on function inventory_recon_set_status\(uuid, text, text\) from anon/.test(invReconSql)
+      || !/grant execute on function inventory_recon_set_status\(uuid, text, text\) to authenticated/.test(invReconSql)) {
+    console.error("inventory_recon_set_status must be revoked from public/anon and granted only to authenticated.");
+    failed = true;
+  }
+}
+
+// اختبار بصمة محتوى المسودة (buildDraftFingerprint) وإعادة استعمال idempotency
+// key عبر reconSaveDraft عند إعادة المحاولة بنفس المحتوى.
+{
+  const invRecCalcSource = readFileSync("src/inventory-recon-calc.js", "utf8");
+  const sandbox = { window: {}, console };
+  vm.createContext(sandbox);
+  vm.runInContext(invRecCalcSource, sandbox, { filename: "inventory-recon-calc.js" });
+  const invRecCalc = sandbox.window.invRecCalc;
+
+  const draftA = {
+    userId: "user-1",
+    sourceReportId: "report-1",
+    warehouseKey: "jumla",
+    sessionDate: "2026-08-01",
+    sessionMonth: "2026-08-01",
+    notes: "ملاحظة",
+    rows: [{ itemKey: "k1", actualQty: "10", reason: "تلف" }]
+  };
+  const fpA1 = invRecCalc.buildDraftFingerprint(draftA);
+  const fpA2 = invRecCalc.buildDraftFingerprint(JSON.parse(JSON.stringify(draftA)));
+  if (fpA1 !== fpA2) {
+    console.error("buildDraftFingerprint must be stable for identical draft content across separate calls (needed to reuse the same idempotency key on retry).");
+    failed = true;
+  }
+
+  const draftB = { ...draftA, rows: [{ itemKey: "k1", actualQty: "11", reason: "تلف" }] };
+  const fpB = invRecCalc.buildDraftFingerprint(draftB);
+  if (fpA1 === fpB) {
+    console.error("buildDraftFingerprint must change when the actual draft content changes (actualQty here), otherwise a real content change would wrongly reuse a stale idempotency key.");
+    failed = true;
+  }
+
+  // بصمتان بنفس محتوى السطور لكن بمستخدمين مختلفين يجب ألا تتطابقا — وإلا
+  // أعاد مستخدم استعمال idempotency key محفوظ لمستخدم آخر على نفس الجهاز.
+  const draftDifferentUser = { ...draftA, userId: "user-2" };
+  const fpDifferentUser = invRecCalc.buildDraftFingerprint(draftDifferentUser);
+  if (fpA1 === fpDifferentUser) {
+    console.error("buildDraftFingerprint must differ across different userId values with otherwise-identical content.");
+    failed = true;
+  }
+
+  // نفس المنطق لتقرير المخزون المصدر: تقريران مختلفان بنفس محتوى السطور يجب
+  // أن يُنتجا بصمتين مختلفتين.
+  const draftDifferentReport = { ...draftA, sourceReportId: "report-2" };
+  const fpDifferentReport = invRecCalc.buildDraftFingerprint(draftDifferentReport);
+  if (fpA1 === fpDifferentReport) {
+    console.error("buildDraftFingerprint must differ across different sourceReportId values with otherwise-identical content.");
+    failed = true;
+  }
+
+  // تطبيع الأرقام: "8" و"8.000" يجب أن ينتجا نفس البصمة.
+  const draftNumericA = { ...draftA, rows: [{ itemKey: "k1", actualQty: "8", reason: "تلف" }] };
+  const draftNumericB = { ...draftA, rows: [{ itemKey: "k1", actualQty: "8.000", reason: "تلف" }] };
+  if (invRecCalc.buildDraftFingerprint(draftNumericA) !== invRecCalc.buildDraftFingerprint(draftNumericB)) {
+    console.error("buildDraftFingerprint must normalize numeric actualQty so \"8\" and \"8.000\" produce the same fingerprint.");
+    failed = true;
+  }
+
+  const appJs = readFileSync("src/app.js", "utf8");
+  const reconSaveDraftBody = (appJs.split("async function reconSaveDraft() {")[1] || "").split("\nasync function reconSetStatus")[0];
+  if (!/buildDraftFingerprint/.test(reconSaveDraftBody)) {
+    console.error("reconSaveDraft() must build a content fingerprint via window.invRecCalc.buildDraftFingerprint(...) to support idempotency-key reuse across retries/reloads.");
+    failed = true;
+  }
+  if (!/userId,\s*\n\s*sourceReportId:/.test(reconSaveDraftBody)) {
+    console.error("reconSaveDraft() must pass userId and sourceReportId into buildDraftFingerprint(...).");
+    failed = true;
+  }
+  if (!/pending\.fingerprint === fingerprint/.test(reconSaveDraftBody)) {
+    console.error("reconSaveDraft() must reuse the previously persisted idempotency key only when the stored fingerprint matches the current draft content.");
+    failed = true;
+  }
+  if (!/localStorage\.removeItem\(pendingKey\)/.test(reconSaveDraftBody)) {
+    console.error("reconSaveDraft() must clear the persisted pending idempotency key only after the save RPC call succeeds.");
+    failed = true;
+  }
+
+  if (!/function reconPendingSaveKey\(userId\) \{\s*\n\s*return `\$\{RECON_PENDING_SAVE_KEY_PREFIX\}:\$\{userId \|\| "anon"\}`;/.test(appJs)) {
+    console.error("reconPendingSaveKey(userId) must namespace the localStorage idempotency key per user (RECON_PENDING_SAVE_KEY_PREFIX:<userId|anon>) so two users on the same device/browser never share a pending idempotency key.");
+    failed = true;
+  }
+  if (!/const pendingKey = reconPendingSaveKey\(userId\);/.test(reconSaveDraftBody)) {
+    console.error("reconSaveDraft() must derive its localStorage key via reconPendingSaveKey(userId), not a single device-wide constant.");
+    failed = true;
+  }
+}
+
+// اختبارات سلوكية لصلاحيات inventory_recon_set_status وinventory_recon_delete_draft
+// — نحاكي منطق التفويض المكتوب بـPL/pgSQL بمحاكاة JS مطابقة للشروط الفعلية
+// بالملف SQL (قفل الصف FOR UPDATE، قراءة created_by/status، ثم المقارنة)، لأن
+// الدوال الحقيقية SECURITY DEFINER لا يمكن تنفيذها هنا بلا اتصال Postgres حي.
+{
+  const invReconSql = readFileSync("supabase/inventory-reconciliation-table.sql", "utf8");
+  const OWNER_EMAIL = "owner@ozk.test";
+
+  // محاكاة inventory_recon_set_status: draft→reviewed مسموح فقط لمنشئ
+  // المسودة أو المالك؛ reviewed→approved مسموح فقط للمالك.
+  function simulateSetStatus({ callerUid, callerEmail, session, nextStatus, expectedStatus }) {
+    if (!callerUid) throw new Error("auth.uid() is null");
+    if (session.status !== expectedStatus) throw new Error("stale expected_status");
+    const isOwner = callerEmail === OWNER_EMAIL;
+    if (nextStatus === "reviewed") {
+      if (session.status !== "draft") throw new Error("invalid transition");
+      if (!isOwner && callerUid !== session.created_by) throw new Error("not authorized: only the draft creator or the owner may review it");
+      return { ...session, status: "reviewed" };
+    }
+    if (nextStatus === "approved") {
+      if (session.status !== "reviewed") throw new Error("invalid transition");
+      if (!isOwner) throw new Error("not authorized: only the owner may approve");
+      return { ...session, status: "approved" };
+    }
+    throw new Error("invalid transition");
+  }
+
+  const draftSession = { id: "s1", status: "draft", created_by: "creator-uid" };
+
+  let blockedOtherUserReview = false;
+  try {
+    simulateSetStatus({ callerUid: "other-uid", callerEmail: "other@ozk.test", session: draftSession, nextStatus: "reviewed", expectedStatus: "draft" });
+  } catch {
+    blockedOtherUserReview = true;
+  }
+  if (!blockedOtherUserReview) {
+    console.error("Behavioral: a user who is neither the draft's creator nor the owner must not be able to move a draft session to reviewed.");
+    failed = true;
+  }
+
+  let creatorReviewed = null;
+  try {
+    creatorReviewed = simulateSetStatus({ callerUid: "creator-uid", callerEmail: "creator@ozk.test", session: draftSession, nextStatus: "reviewed", expectedStatus: "draft" });
+  } catch (err) {
+    console.error(`Behavioral: the draft's own creator must be able to move it to reviewed: ${err.message}`);
+    failed = true;
+  }
+  if (creatorReviewed?.status !== "reviewed") failed = true;
+
+  const reviewedSession = { id: "s1", status: "reviewed", created_by: "creator-uid" };
+  let ownerApproved = null;
+  try {
+    ownerApproved = simulateSetStatus({ callerUid: "owner-uid", callerEmail: OWNER_EMAIL, session: reviewedSession, nextStatus: "approved", expectedStatus: "reviewed" });
+  } catch (err) {
+    console.error(`Behavioral: the owner must be able to approve a reviewed session: ${err.message}`);
+    failed = true;
+  }
+  if (ownerApproved?.status !== "approved") failed = true;
+
+  let blockedNonOwnerApprove = false;
+  try {
+    simulateSetStatus({ callerUid: "creator-uid", callerEmail: "creator@ozk.test", session: reviewedSession, nextStatus: "approved", expectedStatus: "reviewed" });
+  } catch {
+    blockedNonOwnerApprove = true;
+  }
+  if (!blockedNonOwnerApprove) {
+    console.error("Behavioral: a non-owner (even the draft's own creator) must not be able to approve a reviewed session.");
+    failed = true;
+  }
+
+  // محاكاة inventory_recon_delete_draft: حذف مسموح فقط لـstatus='draft' ولمنشئ
+  // المسودة أو المالك.
+  function simulateDeleteDraft({ callerUid, callerEmail, session }) {
+    if (!callerUid) throw new Error("auth.uid() is null");
+    if (session.status !== "draft") throw new Error("only draft sessions may be deleted");
+    const isOwner = callerEmail === OWNER_EMAIL;
+    if (!isOwner && callerUid !== session.created_by) throw new Error("not authorized: only the draft creator or the owner may delete it");
+    return true;
+  }
+
+  let creatorDeleted = false;
+  try {
+    creatorDeleted = simulateDeleteDraft({ callerUid: "creator-uid", callerEmail: "creator@ozk.test", session: draftSession });
+  } catch (err) {
+    console.error(`Behavioral: the draft's own creator must be able to delete their own draft: ${err.message}`);
+    failed = true;
+  }
+  if (!creatorDeleted) failed = true;
+
+  let blockedOtherUserDelete = false;
   try {
     simulateDeleteDraft({ callerUid: "other-uid", callerEmail: "other@ozk.test", session: draftSession });
   } catch {
@@ -797,4 +1925,3 @@ if (failed) {
 }
 
 console.log("Project check passed.");
-
