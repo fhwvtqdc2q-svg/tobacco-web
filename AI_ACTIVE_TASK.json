@@ -2,12 +2,12 @@
   "schemaVersion": 1,
   "status": "active",
   "owner": "ChatGPT",
-  "task": "OZK Business OS Metrics Engine — decision signals and priorities",
-  "branch": "agent/ozk-business-os-metrics",
+  "task": "OZK Command Center v1 — executive business control surface",
+  "branch": "agent/ozk-command-center-v1",
   "files": [
-    "src/business-metrics.js,index.html,public/service-worker.js,scripts/check-business-metrics.mjs,.github/workflows/business-os-foundation.yml,docs/OZK_BUSINESS_METRICS.md,AI_ACTIVE_TASK.json"
+    "src/command-center.js,src/command-center.css,index.html,public/service-worker.js,scripts/check-command-center.mjs,.github/workflows/business-os-foundation.yml,AI_ACTIVE_TASK.json"
   ],
-  "startedAt": "2026-08-17T05:18:00Z",
-  "updatedAt": "2026-08-17T05:18:00Z",
-  "note": "Building deterministic metrics and ranked business priorities on top of the merged Business Snapshot. No autonomous financial writes."
+  "startedAt": "2026-08-17T05:21:00Z",
+  "updatedAt": "2026-08-17T05:21:00Z",
+  "note": "Building a read-only executive Command Center on top of Business Snapshot + Metrics. No autonomous financial writes."
 }
