@@ -29,6 +29,18 @@
 
   function levelLabel(level) { return ({ critical: "حرج", high: "مرتفع", watch: "مراقبة", stable: "مستقر", normal: "طبيعي", strong: "قوية", usable: "مقبولة", weak: "ضعيفة", poor: "ضعيفة جداً" }[level] || "غير محدد"); }
   function severityClass(score) { return score >= 70 ? "critical" : score >= 40 ? "high" : score >= 20 ? "watch" : "stable"; }
+  function qty(value) { return number(value).toLocaleString("en-US", { maximumFractionDigits: 3 }); }
+  function purchaseRecommendationHtml(row) {
+    const rec = row.purchaseRecommendation;
+    if (!rec) return "";
+    const velocity = rec.velocityTrusted ? `${qty(rec.sold30d)} خلال 30 يوماً` : (rec.sold30d === null ? "غير متوفرة" : `${qty(rec.sold30d)} · غير معتمدة للحساب`);
+    const coverage = rec.coverageDays === null ? "غير محسوبة" : `${qty(rec.coverageDays)} يوم`;
+    const priority = ({ high: "عالية", medium: "متوسطة", review: "مراجعة", normal: "طبيعية" }[rec.priority] || "مراجعة");
+    const proposal = rec.proposal?.eligible
+      ? `${qty(rec.proposal.quantity)} ${escape(rec.unit1Name || "وحدة أولى")}${rec.proposal.basis === "unit2" && rec.unit2Name ? ` (${qty(rec.proposal.quantity / rec.unit2Factor)} ${escape(rec.unit2Name)})` : ""}`
+      : `بحاجة مراجعة شراء — ${escape(rec.proposal?.reason || "بحاجة اعتماد قاعدة الشراء")}`;
+    return `<li class="command-purchase-item"><strong>${escape(rec.name)}</strong><span style="display:block">المخزون الحالي: ${qty(rec.stock)} ${escape(rec.unit1Name)}</span><span style="display:block">حركة المبيعات: ${escape(velocity)}</span><span style="display:block">التغطية: ${escape(coverage)}</span><span style="display:block">الأولوية: ${escape(priority)}</span><span style="display:block">السبب: ${escape(rec.reason)}</span><span style="display:block">الكمية المقترحة: ${proposal}</span></li>`;
+  }
 
   function executiveCard(row, index) {
     const agent = executiveBrief?.agents?.[row.agent] || { icon: "🧠", name: "الفريق التنفيذي" };
@@ -42,17 +54,19 @@
     if (q === "risk") { const risky = items.filter((x) => x.severity >= 40).slice(0, 3); return { title: "وين أكبر خطر؟", body: risky.length ? `عندك ${risky.length} ملفات ضغط مرتفع تحتاج انتباه.` : "ما في ضغط مرتفع ظاهر حالياً.", items: risky }; }
     if (q === "collections") { const rows = items.filter((x) => x.agent === "collections"); return { title: "مين لازم أراجع للتحصيل؟", body: rows.length ? rows[0].action : "ما في إشارة تحصيل مرتفعة حالياً من البيانات المتاحة.", items: rows.slice(0, 2) }; }
     if (q === "buy") {
-      const urgent = Array.isArray(snapshot?.inventory?.urgentItems) ? snapshot.inventory.urgentItems : [];
-      const rows = urgent.slice(0, 8).map((item) => ({ agent: "inventory", action: `${item.name} · الكمية الحالية ${number(item.stock).toLocaleString("en-US")} · بحاجة مراجعة شراء` }));
+      const recommendation = snapshot?.inventory?.purchaseRecommendations;
+      const candidates = Array.isArray(recommendation?.items) ? recommendation.items.filter((item) => item.priority !== "normal" || number(item.proposal?.quantity) > 0) : [];
+      const rows = candidates.slice(0, 8).map((item) => ({ agent: "inventory", action: item.reason, purchaseRecommendation: item }));
       const source = snapshot?.inventory?.meta?.source === "ameen_live.stock" ? "مخزون Ameen Live الحالي" : "آخر مصدر مخزون متاح";
-      return { title: "شو لازم أشتري؟", body: rows.length ? `الأولوية حسب ${source}. لا توجد قاعدة موثوقة حالياً لاختراع كمية طلب.` : `لا تظهر أصناف نافدة أو منخفضة التغطية في ${source}.`, items: rows };
+      const settingsNote = recommendation?.settingsApproved ? "قاعدة كمية الشراء معتمدة." : "كمية الطلب الرقمية معطلة حتى اعتماد إعدادات الشراء.";
+      return { title: "شو لازم أشتري؟", body: rows.length ? `الأولوية حسب ${source}. ${settingsNote}` : `لا تظهر أصناف تحتاج توصية في ${source}.`, items: rows };
     }
     return { title: "الخلاصة التنفيذية", body: executiveBrief.headline, items: items.slice(0, 3) };
   }
 
   function quickAnswerHtml() {
     if (!answer) return '<p class="muted">اختر سؤالاً حتى يعطيك الفريق جواباً موحداً من البيانات الحالية.</p>';
-    const rows = (answer.items || []).map((row) => { const agent = executiveBrief?.agents?.[row.agent] || { icon: "🧠", name: "الفريق" }; return `<li><strong>${escape(agent.icon)} ${escape(agent.name)}:</strong> ${escape(row.action)}</li>`; }).join("");
+    const rows = (answer.items || []).map((row) => { if (row.purchaseRecommendation) return purchaseRecommendationHtml(row); const agent = executiveBrief?.agents?.[row.agent] || { icon: "🧠", name: "الفريق" }; return `<li><strong>${escape(agent.icon)} ${escape(agent.name)}:</strong> ${escape(row.action)}</li>`; }).join("");
     return `<div class="command-answer"><h3>${escape(answer.title)}</h3><p>${escape(answer.body)}</p>${rows ? `<ol>${rows}</ol>` : ""}</div>`;
   }
 
