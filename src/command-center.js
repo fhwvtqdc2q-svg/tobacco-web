@@ -36,10 +36,16 @@
     const velocity = rec.velocityTrusted ? `${qty(rec.sold30d)} خلال 30 يوماً` : (rec.sold30d === null ? "غير متوفرة" : `${qty(rec.sold30d)} · غير معتمدة للحساب`);
     const coverage = rec.coverageDays === null ? "غير محسوبة" : `${qty(rec.coverageDays)} يوم`;
     const priority = ({ high: "عالية", medium: "متوسطة", review: "مراجعة", normal: "طبيعية" }[rec.priority] || "مراجعة");
+    const velocityState = ({ fresh: "حديثة", stale: "قديمة", missing: "مفقودة", missing_as_of: "بلا تاريخ", freshness_unapproved: "غير معتمدة" }[rec.velocityState] || "غير محددة");
+    const unit1 = rec.unit1Name || "وحدة أولى";
+    const numberLine = rec.number ? `<span style="display:block">رقم الصنف: ${escape(rec.number)}</span>` : "";
+    const unit2Line = rec.unit2Name || rec.unit2Factor
+      ? `<span style="display:block">الوحدة الثانية: ${escape(rec.unit2Name || "غير مسماة")}${rec.unit2Factor ? ` · المعامل ${qty(rec.unit2Factor)}` : ""}</span>`
+      : "";
     const proposal = rec.proposal?.eligible
-      ? `${qty(rec.proposal.quantity)} ${escape(rec.unit1Name || "وحدة أولى")}${rec.proposal.basis === "unit2" && rec.unit2Name ? ` (${qty(rec.proposal.quantity / rec.unit2Factor)} ${escape(rec.unit2Name)})` : ""}`
+      ? `${qty(rec.proposal.quantity)} ${escape(unit1)}${rec.proposal.basis === "unit2" && rec.unit2Name ? ` (${qty(rec.proposal.quantity / rec.unit2Factor)} ${escape(rec.unit2Name)})` : ""}`
       : `بحاجة مراجعة شراء — ${escape(rec.proposal?.reason || "بحاجة اعتماد قاعدة الشراء")}`;
-    return `<li class="command-purchase-item"><strong>${escape(rec.name)}</strong><span style="display:block">المخزون الحالي: ${qty(rec.stock)} ${escape(rec.unit1Name)}</span><span style="display:block">حركة المبيعات: ${escape(velocity)}</span><span style="display:block">التغطية: ${escape(coverage)}</span><span style="display:block">الأولوية: ${escape(priority)}</span><span style="display:block">السبب: ${escape(rec.reason)}</span><span style="display:block">الكمية المقترحة: ${proposal}</span></li>`;
+    return `<li class="command-purchase-item"><strong>${escape(rec.name)}</strong>${numberLine}<span style="display:block">المخزون الحالي: ${qty(rec.stock)} ${escape(unit1)}</span><span style="display:block">الوحدة الأولى: ${escape(unit1)}</span>${unit2Line}<span style="display:block">حركة المبيعات: ${escape(velocity)}</span><span style="display:block">حالة الحركة: ${escape(velocityState)}</span><span style="display:block">التغطية: ${escape(coverage)}</span><span style="display:block">الأولوية: ${escape(priority)}</span><span style="display:block">السبب: ${escape(rec.reason)}</span><span style="display:block">الكمية المقترحة: ${proposal}</span></li>`;
   }
 
   function executiveCard(row, index) {

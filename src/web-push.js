@@ -10,9 +10,10 @@
 
   function getClient() {
     if (!client) {
-      client = window.supabase.createClient(config.url, config.publishableKey, {
+      client = window.ozkSupabaseClient || window.supabase.createClient(config.url, config.publishableKey, {
         auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: true }
       });
+      if (!window.ozkSupabaseClient) window.ozkSupabaseClient = client;
     }
     return client;
   }

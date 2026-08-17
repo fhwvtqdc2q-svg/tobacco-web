@@ -11,4 +11,11 @@ if(!window.ozkCommandCenter?.answerQuestion||!window.ozkCommandCenter?.refresh)t
 if(!allowedRoutes.has("command"))throw new Error("Command route not registered");
 const emptyAnswer=window.ozkCommandCenter.answerQuestion("today");
 if(emptyAnswer!==null)throw new Error("Command Center should not answer before executive brief is loaded");
+for (const label of ["رقم الصنف:", "الوحدة الأولى:", "الوحدة الثانية:", "حالة الحركة:"]) {
+  if (!source.includes(label)) throw new Error(`Purchase recommendation display is missing: ${label}`);
+}
+for (const file of ["supabase-client.js", "supplier-obligations-client.js", "web-push.js", "ameen-live-client.js"]) {
+  const clientSource = fs.readFileSync(new URL(`../src/${file}`, import.meta.url), "utf8");
+  if (!clientSource.includes("window.ozkSupabaseClient")) throw new Error(`${file} does not reuse the canonical Supabase browser client`);
+}
 console.log("OZK Command Center contract: OK");

@@ -101,6 +101,9 @@
         })
       : null;
 
+  // Canonical browser client: feature modules reuse the same GoTrue session owner.
+  if (client) window.ozkSupabaseClient = client;
+
   function normalizeSession(session) {
     const user = session?.user;
     if (!user) return null;
