@@ -1,8 +1,6 @@
-// إصلاح مزامنة أسعار النشرة قبل معاينة/تصدير PDF.
-// لا نعتمد فقط على data-dirty لأن بعض المتصفحات/طرق الإدخال قد تترك قيمة
-// الحقل مختلفة عن السعر المحفوظ من دون بقاء علامة dirty. قبل التصدير نقارن
-// القيم الظاهرة بالسعر الحالي، نحفظ كل اختلاف، ثم نعيد قراءة الأسعار من
-// Supabase حتى تُبنى المعاينة من آخر قيمة مؤكدة لا من state قديم.
+// النشرة تعتمد حصراً آخر أسعار محفوظة على الموقع.
+// قبل المعاينة نحفظ أي إدخال ظاهر، نعيد القراءة من Supabase، ثم نربط كل
+// مجموعة مدمجة بأحدث سجل سعر تم تعديله على الموقع حتى لا يفوز alias قديم.
 (function installBulletinPriceExportFix() {
   if (typeof savePricingItem !== "function" || typeof openPricePreview !== "function") return;
 
@@ -11,14 +9,26 @@
     return Math.abs(Number(left || 0) - Number(right || 0)) <= 0.005;
   }
 
+  function priceTime(row) {
+    const value = row?.updatedAt || row?.approvedAt || row?.updated_at || row?.approved_at || row?.createdAt || row?.created_at || "";
+    const time = Date.parse(value);
+    return Number.isFinite(time) ? time : 0;
+  }
+
+  function newestSavedPrice(keys) {
+    const wanted = new Set((keys || []).filter(Boolean));
+    return (state.approvedPriceItems || [])
+      .filter((row) => wanted.has(row.itemKey))
+      .sort((a, b) => priceTime(b) - priceTime(a))[0] || null;
+  }
+
   function currentSavedPrices(form) {
     const itemKey = form.dataset.itemKey || "";
     const sourceKeys = (() => {
       try { return JSON.parse(form.dataset.sourceKeys || "[]").filter(Boolean); }
       catch { return []; }
     })();
-    const wanted = new Set([itemKey, ...sourceKeys].filter(Boolean));
-    const saved = (state.approvedPriceItems || []).find((item) => wanted.has(item.itemKey));
+    const saved = newestSavedPrice([itemKey, ...sourceKeys]);
     return {
       wholesale: Number(saved?.unit2Price || 0),
       retail: Number(saved?.pricePayload?.retail?.price || 0)
@@ -34,27 +44,43 @@
     const retailText = String(retailInput?.value || "").trim();
     const wholesale = typeof toPositivePrice === "function" ? toPositivePrice(wholesaleText) : Number(wholesaleText || 0);
     const retail = typeof toPositivePrice === "function" ? toPositivePrice(retailText) : Number(retailText || 0);
+    return (wholesaleText !== "" && !sameEnteredPrice(wholesale, saved.wholesale)) ||
+      (retailText !== "" && !sameEnteredPrice(retail, saved.retail));
+  }
 
-    // الحقل الفارغ يعني «لم يُدخل سعراً هنا»، وليس طلباً لمسح السعر السابق.
-    const wholesaleChanged = wholesaleText !== "" && !sameEnteredPrice(wholesale, saved.wholesale);
-    const retailChanged = retailText !== "" && !sameEnteredPrice(retail, saved.retail);
-    return wholesaleChanged || retailChanged;
+  function enforceLatestWebsitePrices(items, useSyria) {
+    return (items || []).map((item) => {
+      const keys = [item.key, ...(Array.isArray(item.sourceKeys) ? item.sourceKeys : [])];
+      const saved = newestSavedPrice(keys);
+      if (!saved) return item;
+      if (useSyria) {
+        const retail = Number(saved?.pricePayload?.retail?.price || 0);
+        const factor = typeof itemUnit2Factor === "function" ? itemUnit2Factor({ ...item, approvedPrice: saved }) : Number(item.unit2Factor || 1);
+        const rate = Number(state.syriaExchangeRate) || 1;
+        return retail > 0 ? { ...item, unit2Price: Math.round((retail / Math.max(1, factor)) * rate) } : item;
+      }
+      const wholesale = Number(saved?.unit2Price || 0);
+      return wholesale > 0 ? { ...item, unit2Price: wholesale } : item;
+    });
+  }
+
+  const originalPrepareBulletinItems = typeof prepareBulletinItems === "function" ? prepareBulletinItems : null;
+  if (originalPrepareBulletinItems) {
+    prepareBulletinItems = function prepareBulletinItemsWebsiteAuthoritative(useSyria = false) {
+      const prepared = originalPrepareBulletinItems(useSyria);
+      if (!prepared) return prepared;
+      return { ...prepared, items: enforceLatestWebsitePrices(prepared.items, useSyria) };
+    };
   }
 
   savePendingPricingEdits = async function savePendingPricingEditsFixed() {
     const forms = [...document.querySelectorAll("[data-form='pricing-item']")];
     const pendingForms = forms.filter(formNeedsSave);
-
-    // نلتقط المراجع أولاً لأن savePricingItem يعيد render بعد كل حفظ.
     for (const form of pendingForms) {
       const saved = await savePricingItem(form);
       if (!saved) return false;
     }
-
-    // مصدر المعاينة النهائي هو القاعدة بعد الحفظ، لا نسخة state سابقة.
-    if (typeof loadApprovedPriceItems === "function") {
-      await loadApprovedPriceItems();
-    }
+    if (typeof loadApprovedPriceItems === "function") await loadApprovedPriceItems();
     return true;
   };
 
