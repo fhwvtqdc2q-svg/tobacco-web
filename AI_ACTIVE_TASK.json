@@ -5,9 +5,9 @@
   "task": "OZK Business OS Foundation — unified business snapshot",
   "branch": "agent/ozk-business-os-foundation",
   "files": [
-    "src/business-snapshot.js,index.html,scripts/check.mjs,AI_HANDOFF.md,AI_WORK_SYNC.md"
+    "src/business-snapshot.js,index.html,public/service-worker.js,scripts/check.mjs,AI_HANDOFF.md,AI_WORK_SYNC.md"
   ],
   "startedAt": "2026-08-17T05:20:00Z",
-  "updatedAt": "2026-08-17T05:20:00Z",
-  "note": "Implementing the first OZK Business OS foundation layer: one unified, source-aware business snapshot. Avoid edits outside the reserved files."
+  "updatedAt": "2026-08-17T05:28:00Z",
+  "note": "Implementing the first OZK Business OS foundation layer: one unified, source-aware business snapshot. Service worker added to scope because any published HTML/JS change requires a cache version bump. Avoid edits outside the reserved files."
 }
