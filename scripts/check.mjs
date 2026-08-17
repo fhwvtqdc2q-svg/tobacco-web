@@ -41,6 +41,47 @@ for (const file of required) {
   }
 }
 
+// Ameen Live must remain a browser-triggered, read-only inventory overlay.
+{
+  const snapshotSource = readFileSync("src/business-snapshot.js", "utf8");
+  const commandSource = readFileSync("src/command-center.js", "utf8");
+  const gatewaySource = readFileSync("tools/ameen-read-gateway.ps1", "utf8");
+  const now = new Date().toISOString();
+  const context = vm.createContext({
+    window: {
+      ozkAmeenLiveCache: {
+        updatedAt: now,
+        stock: { asOf: now, rowCount: 2, rows: [
+          { item_number: "1", item_guid: "g-1", item_name: "نفد فعلي", stock_qty: 0, stock_qty_net: 0, stock_qty_positive: 0, group_name: null, unit1_name: "علبة", unit2_name: "كرتونة", unit2_factor: 10 },
+          { item_number: "2", item_guid: "g-2", item_name: "متوفر", stock_qty: 7, stock_qty_net: 7, stock_qty_positive: 7, group_name: null, unit1_name: "علبة", unit2_name: "كرتونة", unit2_factor: 10 }
+        ] },
+        customers: { asOf: now, rowCount: 293, rows: [{ customer_name: "مرجع" }] }
+      }
+    },
+    console, Date, Number, String, Math, Object, Array, Map, Promise, setTimeout, clearTimeout
+  });
+  vm.runInContext(snapshotSource, context);
+  const liveSnapshot = await context.window.ozkBusinessOS.getSnapshot();
+  if (liveSnapshot.inventory.meta.source !== "ameen_live.stock" || liveSnapshot.inventory.itemCount !== 2 || liveSnapshot.inventory.outOfStockCount !== 1) {
+    console.error("Business Snapshot must prefer a fresh Ameen Live stock response and calculate counts from its actual rows.");
+    failed = true;
+  }
+  if (liveSnapshot.customerReference.customerCount !== 293 || liveSnapshot.receivables.meta.source === "ameen_live.customers") {
+    console.error("Ameen Live customers must remain reference-only and must not replace the trusted receivables source.");
+    failed = true;
+  }
+  for (const contract of ["بحاجة مراجعة شراء", "friendlyAmeenError", "Promise.all([window.ozkAmeenLive.health()", "آخر قراءة حية", "الأمين مباشر: متصل"]) {
+    if (!commandSource.includes(contract)) {
+      console.error(`Command Center Ameen Live contract is missing: ${contract}`);
+      failed = true;
+    }
+  }
+  if (!gatewaySource.includes('Assert-ReadOnlySql') || !gatewaySource.includes('ValidateSet("health","stock","customers")')) {
+    console.error("Ameen Live gateway must retain its SELECT-only guard and fixed resource allow-list.");
+    failed = true;
+  }
+}
+
 const html = readFileSync("index.html", "utf8");
 if (!html.includes('id="app"')) {
   console.error("index.html is missing #app root.");

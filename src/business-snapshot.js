@@ -3,6 +3,7 @@
 
   const SNAPSHOT_VERSION = 1;
   const DEFAULT_STALE_MINUTES = 15;
+  const AMEEN_LIVE_MAX_AGE_MINUTES = 15;
 
   const numberOrNull = (value) => {
     if (value === null || value === undefined || value === "") return null;
@@ -111,7 +112,14 @@
     };
   }
 
-  function buildInventory(approvedItems, snapshots) {
+  function currentAmeenLiveCache() {
+    const cache = window.ozkAmeenLiveCache;
+    const updatedAt = iso(cache?.updatedAt);
+    if (!cache || !updatedAt || Date.now() - new Date(updatedAt).getTime() > AMEEN_LIVE_MAX_AGE_MINUTES * 60000) return null;
+    return cache;
+  }
+
+  function buildInventory(approvedItems, snapshots, liveStock = null) {
     const snapshotByKey = new Map();
     const snapshotByName = new Map();
     for (const row of snapshots || []) {
@@ -121,18 +129,21 @@
       if (name) snapshotByName.set(name, row);
     }
 
-    const items = (approvedItems || []).map((item) => {
-      const key = text(item.itemKey || item.item_key);
-      const name = text(item.itemName || item.item_name) || "صنف";
+    const liveRows = Array.isArray(liveStock?.rows) ? liveStock.rows : null;
+    const sourceItems = liveRows || approvedItems || [];
+    const items = sourceItems.map((item) => {
+      const key = liveRows ? text(item.item_guid) : text(item.itemKey || item.item_key);
+      const number = liveRows ? text(item.item_number) : text(item.itemNumber || item.item_number);
+      const name = liveRows ? text(item.item_name) : (text(item.itemName || item.item_name) || "صنف");
       const snap = snapshotByKey.get(key) || snapshotByName.get(name.toLowerCase()) || null;
-      const stock = Math.max(0, numberOrZero(snap?.stockUnit1 ?? snap?.stock_unit1 ?? item.stockQty ?? item.stock_qty));
+      const stock = Math.max(0, numberOrZero(liveRows ? item.stock_qty : (snap?.stockUnit1 ?? snap?.stock_unit1 ?? item.stockQty ?? item.stock_qty)));
       const sold30d = numberOrNull(snap?.unitsSold30d ?? snap?.units_sold_30d ?? item.unitsSold30d ?? item.units_sold_30d);
       const daysCover = sold30d !== null && sold30d > 0 ? stock / (sold30d / 30) : null;
       let status = "stable";
       if (stock <= 0) status = "out";
       else if (daysCover !== null && daysCover < 7) status = "urgent";
       else if (daysCover !== null && daysCover < 14) status = "low";
-      return { key, name, stock, sold30d, daysCover, status };
+      return { key, number, name, stock, sold30d, daysCover, status, purchaseQty: null };
     });
 
     const snapshotAsOf = newestIso((snapshots || []).map((row) => row.generatedAt || row.generated_at));
@@ -144,10 +155,24 @@
       lowCoverCount: items.filter((row) => row.status === "low").length,
       urgentItems: items.filter((row) => ["out", "urgent"].includes(row.status)).sort((a, b) => (a.daysCover ?? -1) - (b.daysCover ?? -1)).slice(0, 12),
       meta: meta(
-        snapshots?.length ? "ameen_item_snapshot + approved_price_items" : "approved_price_items",
-        snapshotAsOf || approvedAsOf,
-        items.length ? (snapshots?.length ? "complete" : "partial") : "missing",
-        snapshots?.length ? "Stock and 30-day velocity use the synchronized Ameen item snapshot." : "Ameen item snapshot is unavailable; inventory intelligence is limited."
+        liveRows ? "ameen_live.stock" : (snapshots?.length ? "ameen_item_snapshot + approved_price_items" : "approved_price_items"),
+        liveRows ? (liveStock.asOf || liveStock.updatedAt) : (snapshotAsOf || approvedAsOf),
+        items.length ? (liveRows || snapshots?.length ? "complete" : "partial") : "missing",
+        liveRows ? "Stock quantities come from the current read-only Ameen Live response; low-cover status is used only when trusted 30-day velocity is available." : (snapshots?.length ? "Stock and 30-day velocity use the synchronized Ameen item snapshot." : "Ameen item snapshot is unavailable; inventory intelligence is limited."),
+        liveRows ? AMEEN_LIVE_MAX_AGE_MINUTES : DEFAULT_STALE_MINUTES
+      )
+    };
+  }
+
+  function buildCustomerReference(liveCustomers) {
+    const rows = Array.isArray(liveCustomers?.rows) ? liveCustomers.rows : [];
+    return {
+      customerCount: numberOrZero(liveCustomers?.rowCount ?? rows.length),
+      meta: meta(
+        rows.length ? "ameen_live.customers" : "ameen_live.customers.unavailable",
+        liveCustomers?.asOf || liveCustomers?.updatedAt,
+        rows.length ? "reference_only" : "missing",
+        rows.length ? "Live customers are used only as a count/link reference; receivables remain on the accounting balance report." : "No current Ameen Live customer reference is available."
       )
     };
   }
@@ -303,12 +328,14 @@
       safe("customer requests", data.listRequests?.bind(data), [])
     ]);
 
+    const liveCache = currentAmeenLiveCache();
     const movement = buildDailyMovement(dailyMovement.value, customerInvoices.value);
     const parts = {
       sales: movement.sales,
       receivables: buildReceivables(balanceReports.value, creditLimits.value),
       collections: movement.collections,
-      inventory: buildInventory(approvedItems.value, itemSnapshots.value),
+      inventory: buildInventory(approvedItems.value, itemSnapshots.value, liveCache?.stock || null),
+      customerReference: buildCustomerReference(liveCache?.customers || null),
       purchasing: buildPurchasing(purchaseInvoices.value, ameenPurchases.value),
       supplierObligations: buildSupplierObligations(supplierObligations.value),
       expenses: {
@@ -337,3 +364,4 @@
 
   window.ozkBusinessOS = Object.freeze({ schemaVersion: SNAPSHOT_VERSION, getSnapshot });
 })();
+
