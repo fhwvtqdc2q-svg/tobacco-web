@@ -15,7 +15,7 @@ on:
         required: false
         type: string
   schedule:
-    - cron: '*/5 * * * *'
+    - cron: '*/15 * * * *'
 
 permissions:
   contents: write
@@ -47,7 +47,14 @@ jobs:
         id: bulletin_changes
         shell: bash
         run: |
-          if [[ "${{ github.event_name }}" == "push" ]]; then echo "changed=true" >> "$GITHUB_OUTPUT"; elif git diff --quiet -- public/downloads/*.html scripts/exchange-rate.json; then echo "changed=false" >> "$GITHUB_OUTPUT"; else echo "changed=true" >> "$GITHUB_OUTPUT"; fi
+          if [[ "${{ github.event_name }}" == "push" ]]; then
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          elif git diff --quiet -- public/downloads/*.html scripts/exchange-rate.json; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            echo "لا تغييرات في الأسعار اليدوية أو المخزون"
+          else
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          fi
       - name: Install dependencies
         if: steps.bulletin_changes.outputs.changed == 'true'
         run: npm ci
