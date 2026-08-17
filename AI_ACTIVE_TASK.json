@@ -1,13 +1,11 @@
 {
   "schemaVersion": 1,
-  "status": "active",
-  "owner": "ChatGPT",
-  "task": "OZK Command Center v1 — executive business control surface",
-  "branch": "agent/ozk-command-center-v1",
-  "files": [
-    "src/command-center.js,src/command-center.css,index.html,public/service-worker.js,scripts/check-command-center.mjs,.github/workflows/business-os-foundation.yml,AI_ACTIVE_TASK.json"
-  ],
-  "startedAt": "2026-08-17T05:21:00Z",
-  "updatedAt": "2026-08-17T05:21:00Z",
-  "note": "Building a read-only executive Command Center on top of Business Snapshot + Metrics. No autonomous financial writes."
+  "status": "idle",
+  "owner": null,
+  "task": null,
+  "branch": null,
+  "files": [],
+  "startedAt": null,
+  "updatedAt": "2026-08-17T05:23:00Z",
+  "note": "Business Snapshot, Metrics Engine, and Command Center v1 are merged. No active task."
 }
