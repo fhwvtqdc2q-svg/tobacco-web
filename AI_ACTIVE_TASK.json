@@ -1,13 +1,13 @@
 {
     "schemaVersion":  1,
-    "status":  "idle",
-    "owner":  null,
-    "task":  null,
-    "branch":  null,
+    "status":  "active",
+    "owner":  "Codex",
+    "task":  "iPhone Web Push and dynamic financial inventory alerts",
+    "branch":  "task branch pending for: iPhone Web Push and dynamic financial inventory alerts",
     "files":  [
-
+                  "src/app.js,src/supabase-client.js,public/service-worker.js,supabase/web-push-notifications.sql,supabase/functions/web-push/index.ts,tools/ameen-sync-agent.ps1,scripts/check.mjs"
               ],
-    "startedAt":  null,
-    "updatedAt":  "2026-08-10T04:26:39Z",
-    "note":  "No active task. Read AI_HANDOFF.md before starting work."
+    "startedAt":  "2026-08-17T03:05:39Z",
+    "updatedAt":  "2026-08-17T03:05:39Z",
+    "note":  "Work in progress. Do not edit the reserved files."
 }
