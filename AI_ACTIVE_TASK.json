@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "status": "active",
+  "status": "waiting_for_merge",
   "owner": "Codex",
   "task": "إصلاح اختفاء أسعار النشرة عند تصدير PDF",
   "branch": "fix/bulletin-pdf-retail-prices",
@@ -10,6 +10,7 @@
     "public/service-worker.js"
   ],
   "startedAt": "2026-08-17T09:17:00Z",
-  "updatedAt": "2026-08-17T09:17:00Z",
-  "note": "تشخيص: نشرة المفرق تستبعد السعر المستقل عندما يكون سعر الجملة صفراً قبل تجهيز PDF."
+  "updatedAt": "2026-08-17T09:24:00Z",
+  "pr": 62,
+  "note": "الإصلاح جاهز على PR #62: يحفظ أي سعر ظاهر مختلف ويعيد تحميل الأسعار المؤكدة من Supabase قبل بناء PDF، مع تحديث كاش PWA إلى v513. بانتظار دمج صريح إلى main حسب قواعد المشروع."
 }
