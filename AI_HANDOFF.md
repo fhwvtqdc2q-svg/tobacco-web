@@ -2,6 +2,13 @@
 
 يقرأه Claude وCodex قبل كل مهمة. أحدث سجل يكون في الأعلى. لا تحذف السجلات السابقة.
 
+## 2026-08-17 - Codex - محرك توصية كمية شراء آمن من Ameen Live
+
+- Status: completed
+- Branch: agent/safe-purchase-recommendation
+- Files: src/purchase-recommendation.js, src/business-snapshot.js, src/command-center.js, scripts/check-purchase-recommendation.mjs, package.json, index.html, public/service-worker.js
+- Result: PR #67 merged at 891e6d2; checks and Deploy #968 succeeded.
+- Handoff UTC: 2026-08-17T13:17:31Z
 ## 2026-08-10 - Codex - تحسين SEO للصفحة الرئيسية: H1 وcanonical وOpen Graph وOrganization JSON-LD
 
 - Status: completed
