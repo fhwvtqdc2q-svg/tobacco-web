@@ -1,11 +1,15 @@
 {
   "schemaVersion": 1,
-  "status": "idle",
-  "owner": null,
-  "task": null,
-  "branch": null,
-  "files": [],
-  "startedAt": null,
-  "updatedAt": "2026-08-17T05:23:00Z",
-  "note": "Business Snapshot, Metrics Engine, and Command Center v1 are merged. No active task."
+  "status": "active",
+  "owner": "Codex",
+  "task": "إصلاح اختفاء أسعار النشرة عند تصدير PDF",
+  "branch": "fix/bulletin-pdf-retail-prices",
+  "files": [
+    "src/bulletin-price-fix.js",
+    "index.html",
+    "public/service-worker.js"
+  ],
+  "startedAt": "2026-08-17T09:17:00Z",
+  "updatedAt": "2026-08-17T09:17:00Z",
+  "note": "تشخيص: نشرة المفرق تستبعد السعر المستقل عندما يكون سعر الجملة صفراً قبل تجهيز PDF."
 }
