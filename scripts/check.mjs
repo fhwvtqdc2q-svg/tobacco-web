@@ -45,6 +45,7 @@ for (const file of required) {
 {
   const snapshotSource = readFileSync("src/business-snapshot.js", "utf8");
   const commandSource = readFileSync("src/command-center.js", "utf8");
+  const liveClientSource = readFileSync("src/ameen-live-client.js", "utf8");
   const gatewaySource = readFileSync("tools/ameen-read-gateway.ps1", "utf8");
   const now = new Date().toISOString();
   const context = vm.createContext({
@@ -75,6 +76,21 @@ for (const file of required) {
       console.error(`Command Center Ameen Live contract is missing: ${contract}`);
       failed = true;
     }
+  }
+  for (const contract of [
+    'const RESOURCES=new Set(["health","stock","customers"])',
+    "const AMEEN_REQUEST_TIMEOUT_MS=60000",
+    "timeoutMs=AMEEN_REQUEST_TIMEOUT_MS",
+    "pollMs=700"
+  ]) {
+    if (!liveClientSource.includes(contract)) {
+      console.error(`Ameen Live frontend timing/resource contract is missing: ${contract}`);
+      failed = true;
+    }
+  }
+  if (/setInterval|AMEEN_REQUEST_TIMEOUT_MS\s*=\s*(?!60000)/.test(liveClientSource)) {
+    console.error("Ameen Live must keep manual polling only and use the approved 60-second frontend timeout.");
+    failed = true;
   }
   if (!gatewaySource.includes('Assert-ReadOnlySql') || !gatewaySource.includes('ValidateSet("health","stock","customers")')) {
     console.error("Ameen Live gateway must retain its SELECT-only guard and fixed resource allow-list.");

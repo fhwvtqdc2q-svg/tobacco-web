@@ -22,7 +22,7 @@
   function friendlyAmeenError(error) {
     const message = String(error?.message || error || "").toLowerCase();
     if (/auth|unauthorized|forbidden|session/.test(message)) return "انتهت جلسة الدخول أو لا تملك صلاحية القراءة. سجّل الدخول ثم حاول مجدداً.";
-    if (/timed out|expired|timeout/.test(message)) return "تأخرت استجابة جهاز الأمين. تأكد أن خدمة القراءة تعمل ثم حاول مجدداً.";
+    if (/timed out|expired|timeout/.test(message)) return "استغرقت قراءة الأمين وقتاً أطول من المتوقع. حاول التحديث مرة أخرى.";
     if (/fetch|network|offline/.test(message)) return "تعذر الوصول إلى خدمة القراءة حالياً. تحقق من الاتصال وحاول مجدداً.";
     return "تعذر إكمال القراءة من الأمين حالياً. حاول مجدداً بعد قليل.";
   }
