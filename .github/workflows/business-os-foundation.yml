@@ -5,8 +5,11 @@ on:
     paths:
       - 'src/business-snapshot.js'
       - 'src/business-metrics.js'
+      - 'src/command-center.js'
+      - 'src/command-center.css'
       - 'scripts/check-business-snapshot.mjs'
       - 'scripts/check-business-metrics.mjs'
+      - 'scripts/check-command-center.mjs'
       - 'index.html'
       - 'public/service-worker.js'
       - '.github/workflows/business-os-foundation.yml'
@@ -21,5 +24,7 @@ jobs:
           node-version: '20'
       - run: node --check src/business-snapshot.js
       - run: node --check src/business-metrics.js
+      - run: node --check src/command-center.js
       - run: node scripts/check-business-snapshot.mjs
       - run: node scripts/check-business-metrics.mjs
+      - run: node scripts/check-command-center.mjs
