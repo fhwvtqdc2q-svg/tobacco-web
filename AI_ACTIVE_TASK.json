@@ -1,13 +1,11 @@
 {
   "schemaVersion": 1,
-  "status": "active",
-  "owner": "ChatGPT",
-  "task": "iPhone Web Push and dynamic financial inventory alerts",
-  "branch": "chatgpt/iphone-web-push-financial-alerts",
-  "files": [
-    "src/app.js,src/supabase-client.js,public/service-worker.js,supabase/web-push-notifications.sql,supabase/functions/web-push/index.ts,tools/ameen-sync-agent.ps1,scripts/check.mjs"
-  ],
-  "startedAt": "2026-08-17T03:05:39Z",
-  "updatedAt": "2026-08-17T04:58:00Z",
-  "note": "Taken over from Codex after session stopped for insufficient balance. Continue on branch chatgpt/iphone-web-push-financial-alerts; do not edit reserved files from other sessions."
+  "status": "idle",
+  "owner": null,
+  "task": null,
+  "branch": null,
+  "files": [],
+  "startedAt": null,
+  "updatedAt": "2026-08-17T05:12:00Z",
+  "note": "iPhone Web Push and dynamic financial inventory alerts completed and merged in PR #53. No active task. Read AI_HANDOFF.md before starting work."
 }
