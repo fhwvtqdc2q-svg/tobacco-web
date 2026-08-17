@@ -17,6 +17,15 @@
   const escape = (value) => String(value ?? "").replace(/[&<>"']/g, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#039;" }[char]));
   const number = (value) => Number.isFinite(Number(value)) ? Number(value) : 0;
   const money = (value, currency = "USD") => `${Math.round(number(value)).toLocaleString("en-US")} ${currency === "USD" ? "$" : escape(currency || "")}`;
+  const liveCache = () => window.ozkAmeenLiveCache || null;
+  function liveTime(value) { const date = value ? new Date(value) : null; return date && !Number.isNaN(date.getTime()) ? date.toLocaleTimeString("ar", { hour: "2-digit", minute: "2-digit" }) : "—"; }
+  function friendlyAmeenError(error) {
+    const message = String(error?.message || error || "").toLowerCase();
+    if (/auth|unauthorized|forbidden|session/.test(message)) return "انتهت جلسة الدخول أو لا تملك صلاحية القراءة. سجّل الدخول ثم حاول مجدداً.";
+    if (/timed out|expired|timeout/.test(message)) return "تأخرت استجابة جهاز الأمين. تأكد أن خدمة القراءة تعمل ثم حاول مجدداً.";
+    if (/fetch|network|offline/.test(message)) return "تعذر الوصول إلى خدمة القراءة حالياً. تحقق من الاتصال وحاول مجدداً.";
+    return "تعذر إكمال القراءة من الأمين حالياً. حاول مجدداً بعد قليل.";
+  }
 
   function levelLabel(level) { return ({ critical: "حرج", high: "مرتفع", watch: "مراقبة", stable: "مستقر", normal: "طبيعي", strong: "قوية", usable: "مقبولة", weak: "ضعيفة", poor: "ضعيفة جداً" }[level] || "غير محدد"); }
   function severityClass(score) { return score >= 70 ? "critical" : score >= 40 ? "high" : score >= 20 ? "watch" : "stable"; }
@@ -32,7 +41,12 @@
     if (q === "today") return { title: "شو أعمل اليوم؟", body: executiveBrief.headline, items: items.slice(0, 3) };
     if (q === "risk") { const risky = items.filter((x) => x.severity >= 40).slice(0, 3); return { title: "وين أكبر خطر؟", body: risky.length ? `عندك ${risky.length} ملفات ضغط مرتفع تحتاج انتباه.` : "ما في ضغط مرتفع ظاهر حالياً.", items: risky }; }
     if (q === "collections") { const rows = items.filter((x) => x.agent === "collections"); return { title: "مين لازم أراجع للتحصيل؟", body: rows.length ? rows[0].action : "ما في إشارة تحصيل مرتفعة حالياً من البيانات المتاحة.", items: rows.slice(0, 2) }; }
-    if (q === "buy") { const rows = items.filter((x) => x.agent === "inventory"); return { title: "شو لازم أشتري؟", body: rows.length ? rows[0].action : "ما في إشارة شراء عاجلة ظاهرة حالياً.", items: rows.slice(0, 2) }; }
+    if (q === "buy") {
+      const urgent = Array.isArray(snapshot?.inventory?.urgentItems) ? snapshot.inventory.urgentItems : [];
+      const rows = urgent.slice(0, 8).map((item) => ({ agent: "inventory", action: `${item.name} · الكمية الحالية ${number(item.stock).toLocaleString("en-US")} · بحاجة مراجعة شراء` }));
+      const source = snapshot?.inventory?.meta?.source === "ameen_live.stock" ? "مخزون Ameen Live الحالي" : "آخر مصدر مخزون متاح";
+      return { title: "شو لازم أشتري؟", body: rows.length ? `الأولوية حسب ${source}. لا توجد قاعدة موثوقة حالياً لاختراع كمية طلب.` : `لا تظهر أصناف نافدة أو منخفضة التغطية في ${source}.`, items: rows };
+    }
     return { title: "الخلاصة التنفيذية", body: executiveBrief.headline, items: items.slice(0, 3) };
   }
 
@@ -47,10 +61,12 @@
     if (!snapshot || !metrics || !executiveBrief) return shell(`<section class="panel wide command-center"><h2>🧠 مركز القيادة</h2><p class="muted">${loading ? "جاري تجميع صورة الشركة وتشغيل الفريق التنفيذي…" : escape(lastError || "لم تُحمّل البيانات بعد.")}</p></section>`);
     const updated = lastUpdatedAt ? lastUpdatedAt.toLocaleTimeString("ar", { hour: "2-digit", minute: "2-digit" }) : "—";
     const receivables = number(snapshot.receivables?.total), debtors = number(snapshot.receivables?.debtorCount), collectedToday = snapshot.collections?.todayTotal ?? null, currency = snapshot.collections?.currency || "USD", urgentInventory = number(snapshot.inventory?.urgentReorderCount) + number(snapshot.inventory?.outOfStockCount), suppliers = number(snapshot.supplierObligations?.supplierCount);
-    const liveText = ameenLoading ? "جاري القراءة من الأمين…" : (ameenStatus ? escape(ameenStatus) : "قراءة مباشرة وآمنة من جهاز الأمين");
+    const cachedLive = liveCache(), liveConnected = snapshot.inventory?.meta?.source === "ameen_live.stock";
+    const liveText = ameenLoading ? "جاري القراءة من الأمين…" : (liveConnected ? "الأمين مباشر: متصل" : (ameenStatus && !ameenStatus.startsWith("الأمين مباشر: متصل") ? escape(ameenStatus) : (cachedLive ? "انتهت حداثة القراءة الحية؛ اضغط تحديث من الأمين." : "قراءة مباشرة وآمنة من جهاز الأمين")));
+    const liveUpdated = liveTime(cachedLive?.updatedAt);
     return shell(`
       <section class="panel wide command-center"><div class="command-hero"><div><span class="command-kicker">OZK BUSINESS OS · EXECUTIVE TEAM</span><h2>🧠 مركز القيادة</h2><p>${escape(executiveBrief.headline)}</p></div><div class="command-health ${escape(metrics.overall.level)}"><small>ضغط العمل</small><strong>${Math.round(number(metrics.overall.riskScore))}/100</strong><span>${levelLabel(metrics.overall.level)}</span></div></div><div class="command-meta"><span>ثقة البيانات: <strong>${Math.round(number(metrics.overall.confidenceScore))}%</strong></span><span>آخر تحديث: <strong>${escape(updated)}</strong></span><span>وضع الفريق: <strong>قراءة وتحليل فقط</strong></span>${lastError ? `<span class="command-warning">${escape(lastError)}</span>` : ""}</div><div class="command-kpis"><article><small>إجمالي الذمم</small><strong dir="ltr">${money(receivables, "USD")}</strong><span>${debtors} زبون مدين</span></article><article><small>تحصيل اليوم</small><strong dir="ltr">${collectedToday === null ? "غير متاح" : money(collectedToday, currency)}</strong><span>من تقرير الحركة اليومي</span></article><article><small>مخزون يحتاج تدخل</small><strong>${urgentInventory}</strong><span>نافد + شراء عاجل</span></article><article><small>موردون عليهم التزامات</small><strong>${suppliers}</strong><span>بدون خلط العملات</span></article></div></section>
-      <section class="panel wide"><div class="panel-title-row"><div><h2 style="margin:0">🔌 الأمين مباشر</h2><p class="muted" style="margin:4px 0 0">${liveText}</p></div><button class="button" type="button" data-action="ameen-live-refresh" ${ameenLoading ? "disabled" : ""}>${ameenLoading ? "جاري التحديث…" : "تحديث من الأمين"}</button></div></section>
+      <section class="panel wide"><div class="panel-title-row"><div><h2 style="margin:0">🔌 الأمين مباشر</h2><p class="muted" style="margin:4px 0 0">${liveText}</p><p class="muted" style="margin:4px 0 0">آخر قراءة حية: <strong>${escape(liveUpdated)}</strong> · المواد <strong>${number(snapshot.inventory?.itemCount)}</strong> · النافد <strong>${number(snapshot.inventory?.outOfStockCount)}</strong> · منخفض التغطية <strong>${number(snapshot.inventory?.urgentReorderCount) + number(snapshot.inventory?.lowCoverCount)}</strong></p></div><button class="button" type="button" data-action="ameen-live-refresh" ${ameenLoading ? "disabled" : ""}>${ameenLoading ? "جاري التحديث…" : "تحديث من الأمين"}</button></div></section>
       <section class="panel wide command-questions"><div class="panel-title-row"><div><h2 style="margin:0">💬 اسأل فريقك التنفيذي</h2><p class="muted" style="margin:4px 0 0">أسئلة سريعة مبنية على بياناتك الحالية، بدون تخمين.</p></div><button class="button secondary" type="button" data-action="command-refresh">تحديث البيانات</button></div><div class="command-question-buttons"><button class="button secondary" data-question="today">شو أعمل اليوم؟</button><button class="button secondary" data-question="risk">وين أكبر خطر؟</button><button class="button secondary" data-question="collections">مين لازم أراجع للتحصيل؟</button><button class="button secondary" data-question="buy">شو لازم أشتري؟</button></div><div class="command-answer-wrap">${quickAnswerHtml()}</div></section>
       <section class="panel wide command-priorities"><div class="panel-title-row"><div><h2 style="margin:0">👥 رأي الفريق الموحّد</h2><p class="muted" style="margin:4px 0 0">الأقسام لا ترمي عليك تقارير منفصلة. المدير يجمعها ويرتبها هنا.</p></div></div><div class="command-priority-list">${executiveBrief.executiveOrder.map(executiveCard).join("") || '<p class="muted">الوضع مستقر ولا توجد أولوية مرتفعة حالياً.</p>'}</div></section>
       <section class="panel wide command-team"><h2>🧩 الفريق الحالي</h2><div class="command-team-grid">${Object.values(executiveBrief.agents).map((agent) => `<article><strong>${escape(agent.icon)} ${escape(agent.name)}</strong><span>${agent.id === "ceo" ? "يجمع الأولويات ويعطيك الخلاصة" : agent.id === "controller" ? "يراقب جودة وحداثة البيانات" : "يحلل نطاقه ويرفع توصية للمدير"}</span></article>`).join("")}</div></section>
@@ -70,14 +86,12 @@
     ameenLoading = true; ameenStatus = null; render();
     try {
       if (!window.ozkAmeenLive) throw new Error("Ameen Live Client غير متاح.");
-      const health = await window.ozkAmeenLive.health();
-      const stock = await window.ozkAmeenLive.stock();
-      const customers = await window.ozkAmeenLive.customers();
+      const [health, stock, customers] = await Promise.all([window.ozkAmeenLive.health(), window.ozkAmeenLive.stock(), window.ozkAmeenLive.customers()]);
       const stockCount = number(stock?.rowCount ?? stock?.rows?.length), customerCount = number(customers?.rowCount ?? customers?.rows?.length);
       window.ozkAmeenLiveCache = Object.freeze({ health, stock, customers, updatedAt: new Date().toISOString() });
-      ameenStatus = `تم الاتصال بالأمين بنجاح · مخزون ${stockCount} مادة · زبائن ${customerCount}`;
+      ameenStatus = `الأمين مباشر: متصل · مخزون ${stockCount} مادة · زبائن ${customerCount}`;
       await refreshCommandCenter();
-    } catch (error) { ameenStatus = `تعذر التحديث: ${String(error?.message || error)}`; console.error("[OZK Ameen Live]", error); }
+    } catch (error) { ameenStatus = friendlyAmeenError(error); console.error("[OZK Ameen Live]", error); }
     finally { ameenLoading = false; if (state?.route === ROUTE) render(); }
   }
 
@@ -88,3 +102,4 @@
   try { allowedRoutes.add(ROUTE); if (new URLSearchParams(window.location.search).get("route") === ROUTE) state.route = ROUTE; const baseRender = render; render = function commandAwareRender() { if (state.route === ROUTE) { app.innerHTML = commandPage(); bindCommandEvents(); addCommandNav(); syncTimer(); return; } baseRender(); addCommandNav(); syncTimer(); }; window.ozkCommandCenter = Object.freeze({ answerQuestion, refresh: refreshCommandCenter, refreshFromAmeen }); render(); if (state?.route === ROUTE) setTimeout(refreshCommandCenter, 0); }
   catch (error) { console.error("[OZK Command Center Init]", error); }
 })();
+
