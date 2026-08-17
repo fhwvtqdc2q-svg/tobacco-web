@@ -1,14 +1,13 @@
 (function () {
   "use strict";
 
-  // إعدادات تجارية غير معتمدة بعد. لا يفعّل المحرك كمية رقمية قبل أن تصبح
-  // approved=true وتُعتمد قيم التغطية وحداثة حركة المبيعات صراحةً.
+  // إعدادات تجارية معتمدة لحساب توصية كمية الشراء.
   window.ozkPurchaseBusinessSettings = Object.freeze({
-    approved: false,
-    targetCoverageDays: null,
-    urgentCoverageDays: null,
-    salesVelocityFreshnessDays: null,
+    approved: true,
+    targetCoverageDays: 30,
+    urgentCoverageDays: 7,
+    salesVelocityFreshnessDays: 3,
     minimumOrderUnit: null,
-    roundingToUnit2: false
+    roundingToUnit2: true
   });
 })();
