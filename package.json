@@ -7,13 +7,11 @@
   "scripts": {
     "dev": "node scripts/serve.mjs",
     "start": "node scripts/serve.mjs",
-    "check": "node scripts/check.mjs",
+    "check": "node scripts/check.mjs && node scripts/check-ameen-read-gateway.mjs",
     "generate": "node scripts/generate-price-lists.mjs && node scripts/generate-pdfs.mjs",
     "generate:lists": "node scripts/generate-price-lists.mjs",
     "generate:pdfs": "node scripts/generate-pdfs.mjs",
     "generate:rate": "node scripts/generate-price-lists.mjs --rate"
   },
-  "devDependencies": {
-    "playwright": "^1.60.0"
-  }
+  "devDependencies": { "playwright": "^1.60.0" }
 }
