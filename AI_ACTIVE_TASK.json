@@ -1,12 +1,20 @@
 {
   "schemaVersion": 1,
-  "status": "idle",
-  "owner": "",
-  "task": "",
-  "branch": "",
-  "files": [],
-  "startedAt": "2026-08-17T11:24:22Z",
-  "updatedAt": "2026-08-17T12:00:00Z",
+  "status": "active",
+  "owner": "Codex",
+  "task": "محرك توصية كمية شراء آمن من Ameen Live",
+  "branch": "agent/safe-purchase-recommendation",
+  "files": [
+    "src/purchase-recommendation.js",
+    "src/business-snapshot.js",
+    "src/command-center.js",
+    "scripts/check-purchase-recommendation.mjs",
+    "package.json",
+    "index.html",
+    "public/service-worker.js"
+  ],
+  "startedAt": "2026-08-17T12:30:00Z",
+  "updatedAt": "2026-08-17T12:30:00Z",
   "pr": 66,
-  "note": "Ameen Live command inventory integration merged and deployed successfully; coordination reset to idle."
+  "note": "Work in progress. Quantity output stays disabled until business settings are explicitly approved."
 }
