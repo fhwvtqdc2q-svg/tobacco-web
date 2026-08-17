@@ -1,4 +1,4 @@
-﻿param(
+param(
   [ValidateSet("health","stock","customers")]
   [string]$Resource = "health",
   [string]$StockQueryPath = ".\tools\ameen-stock-query.sql",
@@ -26,12 +26,16 @@ function Invoke-ReadOnlySql([string]$ConnectionString, [string]$Query) {
   Add-Type -AssemblyName System.Data
   $connection = New-Object System.Data.SqlClient.SqlConnection $ConnectionString
   $rows = New-Object System.Collections.Generic.List[object]
+  $reader = $null
   try {
     $connection.Open()
     $command = $connection.CreateCommand()
     $command.CommandTimeout = 45
     $command.CommandText = $Query
-    $reader = $command.ExecuteReader([System.Data.CommandBehavior]::ReadOnly)
+    # ExecuteReader() without CommandBehavior is supported by the Windows/.NET
+    # runtime used on the Ameen machine. Safety is enforced by Assert-ReadOnlySql
+    # and the gateway only exposes allow-listed resources.
+    $reader = $command.ExecuteReader()
     while ($reader.Read()) {
       $row = [ordered]@{}
       for ($i = 0; $i -lt $reader.FieldCount; $i++) {
@@ -40,6 +44,7 @@ function Invoke-ReadOnlySql([string]$ConnectionString, [string]$Query) {
       $rows.Add([PSCustomObject]$row)
     }
   } finally {
+    if ($reader) { $reader.Close() }
     if ($connection.State -eq "Open") { $connection.Close() }
   }
   return $rows
