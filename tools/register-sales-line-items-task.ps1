@@ -13,8 +13,8 @@ $ErrorActionPreference = "Stop"
 $id = [Security.Principal.WindowsIdentity]::GetCurrent()
 $pr = New-Object Security.Principal.WindowsPrincipal($id)
 if (-not $pr.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
-    Write-Host "خطأ: لازم تشغّل هالسكريبت من PowerShell كمسؤول (Administrator)." -ForegroundColor Red
-    Write-Host "دوس بزر الفأرة اليمين على PowerShell واختر 'Run as administrator'، وأعد المحاولة." -ForegroundColor Yellow
+    Write-Host "ERROR: Run this script from an elevated PowerShell (Administrator)." -ForegroundColor Red
+    Write-Host "Open PowerShell with Run as administrator, then retry." -ForegroundColor Yellow
     exit 1
 }
 
@@ -45,9 +45,9 @@ try {
         -RunLevel Highest `
         -Force | Out-Null
 
-    Write-Host "تم تسجيل المهمة المجدولة: '$taskName' كل $IntervalMinutes دقيقة ✓" -ForegroundColor Green
-    Write-Host "المسار: $scriptPath" -ForegroundColor Cyan
+    Write-Host "Registered scheduled task: '$taskName' every $IntervalMinutes minutes." -ForegroundColor Green
+    Write-Host "Script path: $scriptPath" -ForegroundColor Cyan
 } catch {
-    Write-Host "فشل تسجيل المهمة: $($_.Exception.Message)" -ForegroundColor Red
+    Write-Host "Task registration failed: $($_.Exception.Message)" -ForegroundColor Red
     exit 1
 }
