@@ -1,8 +1,8 @@
 // النشرة تعتمد حصراً آخر أسعار محفوظة على الموقع.
-// قبل المعاينة نحفظ أي إدخال ظاهر، نعيد القراءة من Supabase، ثم نربط كل
-// مجموعة مدمجة بأحدث سجل سعر تم تعديله على الموقع حتى لا يفوز alias قديم.
+// نحفظ كل تعديل ظاهر، نعيد القراءة من Supabase، ثم نفتح نفس قالب النشرة الجديدة
+// المنشورة. لا نستخدم مولّد PDF الداخلي القديم إطلاقاً.
 (function installBulletinPriceExportFix() {
-  if (typeof savePricingItem !== "function" || typeof openPricePreview !== "function") return;
+  if (typeof savePricingItem !== "function") return;
 
   function sameEnteredPrice(left, right) {
     if (typeof samePrice === "function") return samePrice(left, right);
@@ -48,35 +48,9 @@
       (retailText !== "" && !sameEnteredPrice(retail, saved.retail));
   }
 
-  function enforceLatestWebsitePrices(items, useSyria) {
-    return (items || []).map((item) => {
-      const keys = [item.key, ...(Array.isArray(item.sourceKeys) ? item.sourceKeys : [])];
-      const saved = newestSavedPrice(keys);
-      if (!saved) return item;
-      if (useSyria) {
-        const retail = Number(saved?.pricePayload?.retail?.price || 0);
-        const factor = typeof itemUnit2Factor === "function" ? itemUnit2Factor({ ...item, approvedPrice: saved }) : Number(item.unit2Factor || 1);
-        const rate = Number(state.syriaExchangeRate) || 1;
-        return retail > 0 ? { ...item, unit2Price: Math.round((retail / Math.max(1, factor)) * rate) } : item;
-      }
-      const wholesale = Number(saved?.unit2Price || 0);
-      return wholesale > 0 ? { ...item, unit2Price: wholesale } : item;
-    });
-  }
-
-  const originalPrepareBulletinItems = typeof prepareBulletinItems === "function" ? prepareBulletinItems : null;
-  if (originalPrepareBulletinItems) {
-    prepareBulletinItems = function prepareBulletinItemsWebsiteAuthoritative(useSyria = false) {
-      const prepared = originalPrepareBulletinItems(useSyria);
-      if (!prepared) return prepared;
-      return { ...prepared, items: enforceLatestWebsitePrices(prepared.items, useSyria) };
-    };
-  }
-
   savePendingPricingEdits = async function savePendingPricingEditsFixed() {
     const forms = [...document.querySelectorAll("[data-form='pricing-item']")];
-    const pendingForms = forms.filter(formNeedsSave);
-    for (const form of pendingForms) {
+    for (const form of forms.filter(formNeedsSave)) {
       const saved = await savePricingItem(form);
       if (!saved) return false;
     }
@@ -84,8 +58,15 @@
     return true;
   };
 
+  function approvedBulletinUrl(useSyria) {
+    const file = useSyria ? "price-list-syp.html" : "price-list-usd.html";
+    return `public/downloads/${file}?fresh=${Date.now()}`;
+  }
+
+  // هذا الزر كان يفتح customerPricePdfMarkup القديم. الآن صار يفتح نفس التصميم
+  // الجديد المستخدم في أزرار اختيار اللون، بعد ضمان حفظ آخر تسعير بالموقع.
   openFreshPricePreview = async function openFreshPricePreviewFixed(useSyria = false) {
     if (!(await savePendingPricingEdits())) return;
-    openPricePreview(useSyria);
+    window.open(approvedBulletinUrl(useSyria), "_blank", "noopener,noreferrer");
   };
 })();
