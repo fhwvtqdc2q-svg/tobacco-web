@@ -130,6 +130,7 @@
     }
 
     const liveRows = Array.isArray(liveStock?.rows) ? liveStock.rows : null;
+    const stockAsOf = liveRows ? iso(liveStock?.asOf || liveStock?.updatedAt) : null;
     const sourceItems = liveRows || approvedItems || [];
     const items = sourceItems.map((item) => {
       const key = liveRows ? text(item.item_guid) : text(item.itemKey || item.item_key);
@@ -143,17 +144,32 @@
       if (stock <= 0) status = "out";
       else if (daysCover !== null && daysCover < 7) status = "urgent";
       else if (daysCover !== null && daysCover < 14) status = "low";
-      return { key, number, name, stock, sold30d, daysCover, status, purchaseQty: null };
+      return {
+        key, number, name, stock, sold30d, daysCover, status, purchaseQty: null,
+        stockAsOf: stockAsOf || iso(snap?.generatedAt || snap?.generated_at || item.sourceSyncedAt || item.source_synced_at),
+        velocityAsOf: iso(snap?.generatedAt || snap?.generated_at),
+        unit1Name: text(liveRows ? item.unit1_name : (snap?.unit1Name || snap?.unit1_name || item.unit1Name || item.unit1_name)),
+        unit2Name: text(liveRows ? item.unit2_name : (snap?.unit2Name || snap?.unit2_name || item.unit2Name || item.unit2_name)),
+        unit2Factor: numberOrNull(liveRows ? item.unit2_factor : (snap?.unit2Factor ?? snap?.unit2_factor ?? item.unit2Factor ?? item.unit2_factor)),
+        lastPurchaseDate: iso(snap?.lastPurchaseDate || snap?.last_purchase_date),
+        lastPurchasePrice: numberOrNull(snap?.lastPurchasePrice ?? snap?.last_purchase_price),
+        averageCost: numberOrNull(snap?.averageCost ?? snap?.average_cost)
+      };
     });
 
     const snapshotAsOf = newestIso((snapshots || []).map((row) => row.generatedAt || row.generated_at));
     const approvedAsOf = newestIso((approvedItems || []).map((row) => row.updatedAt || row.updated_at || row.sourceSyncedAt || row.source_synced_at));
+    const purchaseRecommendations = window.ozkPurchaseRecommendation?.recommendInventory?.(
+      items,
+      window.ozkPurchaseBusinessSettings || window.ozkPurchaseRecommendation?.DEFAULT_SETTINGS
+    ) || { settingsApproved: false, settings: {}, items: [] };
     return {
       itemCount: items.length,
       outOfStockCount: items.filter((row) => row.status === "out").length,
       urgentReorderCount: items.filter((row) => row.status === "urgent").length,
       lowCoverCount: items.filter((row) => row.status === "low").length,
       urgentItems: items.filter((row) => ["out", "urgent"].includes(row.status)).sort((a, b) => (a.daysCover ?? -1) - (b.daysCover ?? -1)).slice(0, 12),
+      purchaseRecommendations,
       meta: meta(
         liveRows ? "ameen_live.stock" : (snapshots?.length ? "ameen_item_snapshot + approved_price_items" : "approved_price_items"),
         liveRows ? (liveStock.asOf || liveStock.updatedAt) : (snapshotAsOf || approvedAsOf),
