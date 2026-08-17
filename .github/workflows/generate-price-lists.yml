@@ -15,7 +15,6 @@ on:
         required: false
         type: string
   schedule:
-    # GitHub Actions لا يضمن أقل من 5 دقائق للـ cron؛ نولّد كل 5 دقائق من Supabase لكل الأصناف.
     - cron: '*/5 * * * *'
 
 permissions:
@@ -29,65 +28,48 @@ jobs:
   generate:
     runs-on: ubuntu-latest
     timeout-minutes: 10
-
     steps:
       - name: Checkout
         uses: actions/checkout@v4
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
-
+          fetch-depth: 0
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: '20'
           cache: 'npm'
-
       - name: Generate price list HTML
         env:
           SYP_RATE: ${{ inputs.rate || '' }}
         run: node scripts/generate-price-lists.mjs
-
       - name: Detect bulletin changes
         id: bulletin_changes
         shell: bash
         run: |
-          if [[ "${{ github.event_name }}" == "push" ]]; then
-            echo "changed=true" >> "$GITHUB_OUTPUT"
-          elif git diff --quiet -- public/downloads/*.html scripts/exchange-rate.json; then
-            echo "changed=false" >> "$GITHUB_OUTPUT"
-            echo "لا تغييرات في الأسعار اليدوية أو المخزون — تخطي PDF والدفع."
-          else
-            echo "changed=true" >> "$GITHUB_OUTPUT"
-          fi
-
+          if [[ "${{ github.event_name }}" == "push" ]]; then echo "changed=true" >> "$GITHUB_OUTPUT"; elif git diff --quiet -- public/downloads/*.html scripts/exchange-rate.json; then echo "changed=false" >> "$GITHUB_OUTPUT"; else echo "changed=true" >> "$GITHUB_OUTPUT"; fi
       - name: Install dependencies
         if: steps.bulletin_changes.outputs.changed == 'true'
         run: npm ci
-
       - name: Install Playwright Chromium
         if: steps.bulletin_changes.outputs.changed == 'true'
         run: npx playwright install chromium --with-deps
-
       - name: Generate PDFs
         if: steps.bulletin_changes.outputs.changed == 'true'
         run: node scripts/generate-pdfs.mjs
-
       - name: Bump service worker cache version
         if: steps.bulletin_changes.outputs.changed == 'true'
         run: |
-          FILE="public/service-worker.js"
-          CURRENT=$(grep -o 'v[0-9]*"' "$FILE" | tr -d '"v')
-          NEW=$((CURRENT + 1))
-          sed -i "s/v${CURRENT}\"/v${NEW}\"/" "$FILE"
-          echo "Cache bumped: v${CURRENT} → v${NEW}"
-
+          FILE="public/service-worker.js"; CURRENT=$(grep -o 'v[0-9]*"' "$FILE" | tr -d '"v'); NEW=$((CURRENT + 1)); sed -i "s/v${CURRENT}\"/v${NEW}\"/" "$FILE"
       - name: Commit generated files
         if: steps.bulletin_changes.outputs.changed == 'true'
         run: |
-          git config user.name  "price-bot"
+          git config user.name "price-bot"
           git config user.email "action@github.com"
           git add public/downloads/ public/service-worker.js scripts/exchange-rate.json
-          git diff --staged --quiet && echo "لا تغييرات" && exit 0
+          git diff --staged --quiet && exit 0
           STAMP=$(date -u '+%Y-%m-%d %H:%M UTC')
           git commit -m "Auto: تحديث نشرات الأسعار — ${STAMP}"
-          git push
+          # main قد يتحرك أثناء توليد PDF. أعد الدمج ثم ادفع بدل فشل non-fast-forward.
+          git pull --rebase origin main
+          git push origin HEAD:main
