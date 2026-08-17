@@ -5675,3 +5675,13 @@
 - التحقق: `npm.cmd run check` و`git diff --check`.
 - المتبقي: لا شيء بعد رفع التغييرات إلى GitHub.
 - ملاحظة للمتابع: اقرأ آخر سجل وملف القفل قبل تعديل أي ملف.
+
+## 2026-08-17 - Codex - ربط مركز القيادة بمخزون Ameen Live الحالي
+
+- Status: completed and deployed
+- PR: #66
+- Merge commit: `3e2c008f41339327009867d88a4652f4708f3c99`
+- Files: `src/business-snapshot.js`, `src/command-center.js`, `scripts/check.mjs`, `index.html`, `public/service-worker.js`
+- Result: Business Snapshot now prefers a fresh 15-minute read-only Ameen Live stock cache; Command Center counts live items/out-of-stock/low-cover, shows last live read, and answers «شو لازم أشتري؟» with actual current quantities and «بحاجة مراجعة شراء» without inventing order quantities. Live customers remain reference-only; receivables stay on trusted accounting reports.
+- Safety: No Ameen SQL, Worker, Broker, permissions, write scripts, or browser secrets changed. Ameen access remains SELECT-only.
+- Checks: PR workflows Business OS Foundation, Decision Engine Check, and فحص المشروع succeeded. Deploy TOBACCO Web run 32027372040 succeeded; production assets verified on ozktobacco.com.
