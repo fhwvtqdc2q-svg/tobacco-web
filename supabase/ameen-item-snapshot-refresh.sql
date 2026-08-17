@@ -1,5 +1,51 @@
 -- Review and apply separately before registering the scheduled task.
 -- The payload is staged and validated before an atomic transactional replacement.
+begin;
+
+alter table public.ameen_item_snapshot enable row level security;
+
+-- Keep the existing authenticated SELECT policy, but remove every direct table
+-- privilege that the snapshot producer does not need.
+revoke all on table public.ameen_item_snapshot from public, anon, authenticated;
+grant select, insert, delete on table public.ameen_item_snapshot to authenticated;
+
+-- Server-side identity guard. This UUID is the established Supabase sync account
+-- used by the other OZK sync-writer policies; it is never shipped to the frontend.
+create or replace function public.ameen_item_snapshot_is_sync_writer()
+returns boolean
+language sql
+stable
+security invoker
+set search_path = ''
+as $$
+  select (select auth.uid()) = '9724dbe4-ecb0-49f7-a6b4-12f7f73c68f3'::uuid;
+$$;
+
+revoke all on function public.ameen_item_snapshot_is_sync_writer()
+  from public, anon, service_role;
+grant execute on function public.ameen_item_snapshot_is_sync_writer()
+  to authenticated;
+
+-- Replace the broad authenticated write policies. SELECT is deliberately untouched.
+drop policy if exists "authenticated can insert ameen_item_snapshot"
+  on public.ameen_item_snapshot;
+drop policy if exists "authenticated can delete ameen_item_snapshot"
+  on public.ameen_item_snapshot;
+drop policy if exists "sync writer can insert ameen_item_snapshot"
+  on public.ameen_item_snapshot;
+drop policy if exists "sync writer can delete ameen_item_snapshot"
+  on public.ameen_item_snapshot;
+
+create policy "sync writer can insert ameen_item_snapshot"
+  on public.ameen_item_snapshot
+  for insert to authenticated
+  with check ((select public.ameen_item_snapshot_is_sync_writer()));
+
+create policy "sync writer can delete ameen_item_snapshot"
+  on public.ameen_item_snapshot
+  for delete to authenticated
+  using ((select public.ameen_item_snapshot_is_sync_writer()));
+
 create or replace function public.replace_ameen_item_snapshot(p_rows jsonb)
 returns table(row_count integer, generated_at timestamptz)
 language plpgsql
@@ -10,7 +56,9 @@ declare
   v_count integer;
   v_generated_at timestamptz;
 begin
-  if (select auth.role()) <> 'authenticated' then raise exception 'authenticated role required'; end if;
+  if not (select public.ameen_item_snapshot_is_sync_writer()) then
+    raise exception 'sync writer required';
+  end if;
   if jsonb_typeof(p_rows) <> 'array' or jsonb_array_length(p_rows) = 0 then
     raise exception 'snapshot payload must be a non-empty array';
   end if;
@@ -59,5 +107,8 @@ begin
 end;
 $$;
 
-revoke all on function public.replace_ameen_item_snapshot(jsonb) from public;
+revoke all on function public.replace_ameen_item_snapshot(jsonb)
+  from public, anon, service_role;
 grant execute on function public.replace_ameen_item_snapshot(jsonb) to authenticated;
+
+commit;
