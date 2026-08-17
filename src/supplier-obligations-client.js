@@ -2,13 +2,14 @@
   const config = window.appConfig?.supabase || {};
   if (!window.supabase?.createClient || !config.url || !config.publishableKey) return;
 
-  const client = window.supabase.createClient(config.url, config.publishableKey, {
+  const client = window.ozkSupabaseClient || window.supabase.createClient(config.url, config.publishableKey, {
     auth: {
       persistSession: true,
       autoRefreshToken: true,
       detectSessionInUrl: true
     }
   });
+  if (!window.ozkSupabaseClient) window.ozkSupabaseClient = client;
 
   async function listSupplierObligations() {
     const { data: sessionData } = await client.auth.getSession();

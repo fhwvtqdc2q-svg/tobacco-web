@@ -14,6 +14,11 @@
   const finite = (value) => value !== null && value !== undefined && value !== "" && Number.isFinite(Number(value)) ? Number(value) : null;
   const positive = (value) => { const parsed = finite(value); return parsed !== null && parsed > 0 ? parsed : null; };
   const iso = (value) => { const date = value ? new Date(value) : null; return date && !Number.isNaN(date.getTime()) ? date.toISOString() : null; };
+  const cleanText = (value) => String(value ?? "").trim().replace(/\s+/gu, " ");
+  const readableText = (value) => {
+    const text = cleanText(value);
+    return text && /[\p{L}\p{N}]/u.test(text) && !/[?؟�]{2,}/u.test(text) ? text : "";
+  };
 
   function normalizeSettings(input = {}) {
     return Object.freeze({
@@ -96,9 +101,12 @@
       proposal = { eligible: true, quantity: rounded.quantity, rawQuantity, basis: rounded.basis, unitSize: rounded.unitSize, reason: null };
     }
 
+    const key = cleanText(item.key);
+    const number = readableText(item.number);
+    const name = readableText(item.name) || number || readableText(key) || "صنف غير مسمى";
     return Object.freeze({
-      key: String(item.key || ""), number: String(item.number || ""), name: String(item.name || "صنف"),
-      stock, stockAsOf: iso(item.stockAsOf), unit1Name: String(item.unit1Name || ""), unit2Name: String(item.unit2Name || ""), unit2Factor: positive(item.unit2Factor),
+      key, number, name,
+      stock, stockAsOf: iso(item.stockAsOf), unit1Name: readableText(item.unit1Name), unit2Name: readableText(item.unit2Name), unit2Factor: positive(item.unit2Factor),
       sold30d: velocity.sold30d, velocityAsOf: velocity.asOf, velocityState: velocity.state, velocityTrusted: velocity.trusted,
       averageDailySales, coverageDays, priority, status, reason, proposal
     });

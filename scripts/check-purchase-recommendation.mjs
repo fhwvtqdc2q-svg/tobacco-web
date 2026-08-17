@@ -14,7 +14,7 @@ const approved = {
   approved: true,
   targetCoverageDays: 30,
   urgentCoverageDays: 7,
-  salesVelocityFreshnessDays: 2,
+  salesVelocityFreshnessDays: 3,
   minimumOrderUnit: null,
   roundingToUnit2: false
 };
@@ -42,5 +42,15 @@ assert(roundedUnit2.proposal.quantity === 30 && roundedUnit2.proposal.rawQuantit
 const unapproved = engine.recommendItem(item({ stock: 0 }), engine.DEFAULT_SETTINGS, now);
 assert(!unapproved.proposal.eligible && unapproved.proposal.quantity === null, "unapproved business settings must suppress numeric quantity.");
 assert(unapproved.velocityState === "freshness_unapproved", "velocity must not be trusted without an approved freshness duration.");
+
+const arabic = engine.recommendItem(item({ key: "guid-ar", number: "١٢٣", name: "مارلبورو أحمر", unit1Name: "علبة", unit2Name: "كرتونة" }), approved, now);
+assert(arabic.name === "مارلبورو أحمر" && arabic.number === "١٢٣" && arabic.unit1Name === "علبة" && arabic.unit2Name === "كرتونة", "Arabic item and unit text must remain unchanged.");
+assert(arabic.proposal.quantity === 25, "Display normalization must not change quantity behavior.");
+
+const numberFallback = engine.recommendItem(item({ key: "guid-fallback", number: "456", name: "?? ??", unit1Name: "????", unit2Name: "??" }), approved, now);
+assert(numberFallback.name === "456" && numberFallback.number === "456", "Corrupted item name must fall back to item number.");
+assert(numberFallback.unit1Name === "" && numberFallback.unit2Name === "", "Corrupted unit labels must not be displayed.");
+const guidFallback = engine.recommendItem(item({ key: "guid-only", number: "", name: "??" }), approved, now);
+assert(guidFallback.name === "guid-only", "Missing name and number must fall back to item GUID.");
 
 console.log("Purchase recommendation checks passed.");
