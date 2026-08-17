@@ -15,8 +15,8 @@ on:
         required: false
         type: string
   schedule:
-    # الأسعار اليدوية المحفوظة في Supabase تصل إلى النشرة بلا زر نشر وبلا لابتوب.
-    - cron: '*/15 * * * *'
+    # GitHub Actions لا يضمن أقل من 5 دقائق للـ cron؛ نولّد كل 5 دقائق من Supabase لكل الأصناف.
+    - cron: '*/5 * * * *'
 
 permissions:
   contents: write
@@ -89,7 +89,5 @@ jobs:
           git add public/downloads/ public/service-worker.js scripts/exchange-rate.json
           git diff --staged --quiet && echo "لا تغييرات" && exit 0
           STAMP=$(date -u '+%Y-%m-%d %H:%M UTC')
-          # هذا الدفع يجب أن يشغّل pages.yml حتى تصل الأسعار الجديدة للموقع فوراً.
-          # لا تستخدم [skip ci] هنا؛ مسار push أعلاه محصور بملف price-data فلا توجد حلقة توليد.
           git commit -m "Auto: تحديث نشرات الأسعار — ${STAMP}"
           git push
