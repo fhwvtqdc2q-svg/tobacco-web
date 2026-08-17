@@ -9,7 +9,6 @@
     const parsed = Number(String(value).replace(/,/g, ""));
     return Number.isFinite(parsed) ? parsed : null;
   };
-
   const numberOrZero = (value) => numberOrNull(value) ?? 0;
   const text = (value) => String(value ?? "").trim();
 
@@ -17,6 +16,13 @@
     if (!value) return null;
     const date = new Date(value);
     return Number.isNaN(date.getTime()) ? null : date.toISOString();
+  }
+
+  function localDateKey(date = new Date()) {
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, "0");
+    const day = String(date.getDate()).padStart(2, "0");
+    return `${year}-${month}-${day}`;
   }
 
   function newestIso(values) {
@@ -27,21 +33,11 @@
   function freshness(asOf, staleMinutes = DEFAULT_STALE_MINUTES) {
     if (!asOf) return { state: "unknown", ageMinutes: null, stale: true };
     const ageMinutes = Math.max(0, Math.round((Date.now() - new Date(asOf).getTime()) / 60000));
-    return {
-      state: ageMinutes <= staleMinutes ? "fresh" : "stale",
-      ageMinutes,
-      stale: ageMinutes > staleMinutes
-    };
+    return { state: ageMinutes <= staleMinutes ? "fresh" : "stale", ageMinutes, stale: ageMinutes > staleMinutes };
   }
 
   function meta(source, asOf, completeness, note = null, staleMinutes = DEFAULT_STALE_MINUTES) {
-    return {
-      source,
-      asOf: iso(asOf),
-      completeness,
-      note,
-      freshness: freshness(asOf, staleMinutes)
-    };
+    return { source, asOf: iso(asOf), completeness, note, freshness: freshness(asOf, staleMinutes) };
   }
 
   function sumByCurrency(rows, amountGetter, currencyGetter) {
@@ -67,11 +63,9 @@
   function customerKey(row) {
     return text(row?.customerKey || row?.customer_key || row?.key || row?.guid || row?.customerGuid || row?.customer_guid || row?.name);
   }
-
   function customerName(row) {
     return text(row?.customerName || row?.customer_name || row?.name || row?.customer) || "زبون";
   }
-
   function customerBalance(row) {
     return numberOrZero(row?.balance ?? row?.debit ?? row?.amount ?? row?.remaining ?? 0);
   }
@@ -89,25 +83,18 @@
       if (name) limitByName.set(name, numberOrZero(limit.creditLimit || limit.credit_limit));
     }
 
-    const debtors = rows
-      .map((row) => {
-        const balance = Math.max(0, customerBalance(row));
-        const key = customerKey(row);
-        const name = customerName(row);
-        const creditLimit = limitByKey.get(key) ?? limitByName.get(name.toLowerCase()) ?? 0;
-        const ratio = creditLimit > 0 ? balance / creditLimit : null;
-        let level = "normal";
-        if (ratio !== null && ratio >= 1) level = "critical";
-        else if (ratio !== null && ratio >= 0.9) level = "high";
-        else if (balance > 0 && creditLimit === 0) level = "unbounded";
-        return { key, name, balance, creditLimit, ratio, level };
-      })
-      .filter((row) => row.balance > 0)
-      .sort((a, b) => {
-        const ar = a.ratio ?? -1;
-        const br = b.ratio ?? -1;
-        return br - ar || b.balance - a.balance;
-      });
+    const debtors = rows.map((row) => {
+      const balance = Math.max(0, customerBalance(row));
+      const key = customerKey(row);
+      const name = customerName(row);
+      const creditLimit = limitByKey.get(key) ?? limitByName.get(name.toLowerCase()) ?? 0;
+      const ratio = creditLimit > 0 ? balance / creditLimit : null;
+      let level = "normal";
+      if (ratio !== null && ratio >= 1) level = "critical";
+      else if (ratio !== null && ratio >= 0.9) level = "high";
+      else if (balance > 0 && creditLimit === 0) level = "unbounded";
+      return { key, name, balance, creditLimit, ratio, level };
+    }).filter((row) => row.balance > 0).sort((a, b) => (b.ratio ?? -1) - (a.ratio ?? -1) || b.balance - a.balance);
 
     return {
       total: debtors.reduce((sum, row) => sum + row.balance, 0),
@@ -155,7 +142,7 @@
       outOfStockCount: items.filter((row) => row.status === "out").length,
       urgentReorderCount: items.filter((row) => row.status === "urgent").length,
       lowCoverCount: items.filter((row) => row.status === "low").length,
-      urgentItems: items.filter((row) => row.status === "out" || row.status === "urgent").sort((a, b) => (a.daysCover ?? -1) - (b.daysCover ?? -1)).slice(0, 12),
+      urgentItems: items.filter((row) => ["out", "urgent"].includes(row.status)).sort((a, b) => (a.daysCover ?? -1) - (b.daysCover ?? -1)).slice(0, 12),
       meta: meta(
         snapshots?.length ? "ameen_item_snapshot + approved_price_items" : "approved_price_items",
         snapshotAsOf || approvedAsOf,
@@ -168,16 +155,13 @@
   function buildPurchasing(purchaseInvoices, ameenPurchaseReport) {
     const local = Array.isArray(purchaseInvoices) ? purchaseInvoices : [];
     const open = local.filter((row) => !["synced", "cancelled"].includes(text(row.status).toLowerCase()));
-    const openTotals = sumByCurrency(open, (row) => row.remainingTotal ?? row.remaining_total ?? row.total, (row) => row.currency);
     const ameenGroups = Array.isArray(ameenPurchaseReport?.items) ? ameenPurchaseReport.items : [];
-    const ameenInvoiceCount = ameenGroups.reduce((sum, supplier) => sum + (Array.isArray(supplier?.invoices) ? supplier.invoices.length : 0), 0);
-
     return {
       draftCount: local.filter((row) => text(row.status).toLowerCase() === "draft").length,
       pendingSyncCount: local.filter((row) => ["approved", "sync_pending", "failed"].includes(text(row.status).toLowerCase())).length,
-      openTotalsByCurrency: openTotals,
+      openTotalsByCurrency: sumByCurrency(open, (row) => row.remainingTotal ?? row.remaining_total ?? row.total, (row) => row.currency),
       ameenSupplierCount: ameenGroups.length,
-      ameenInvoiceCount,
+      ameenInvoiceCount: ameenGroups.reduce((sum, supplier) => sum + (Array.isArray(supplier?.invoices) ? supplier.invoices.length : 0), 0),
       meta: meta(
         ameenPurchaseReport ? "ameen_purchase_invoice_reports + purchase_invoices" : "purchase_invoices",
         newestIso([ameenPurchaseReport?.created_at, ameenPurchaseReport?.report_date, ...local.map((row) => row.updatedAt || row.updated_at || row.createdAt || row.created_at)]),
@@ -210,38 +194,69 @@
     };
   }
 
-  function buildSales(customerInvoicesReport, dailyMovementReport) {
-    const payload = dailyMovementReport?.payload || null;
-    const candidates = [
-      payload?.sales_total,
-      payload?.salesTotal,
-      payload?.total_sales,
-      payload?.totalSales,
-      dailyMovementReport?.sales_total,
-      dailyMovementReport?.salesTotal
-    ];
-    const todayTotal = candidates.map(numberOrNull).find((value) => value !== null) ?? null;
-    const invoices = Array.isArray(customerInvoicesReport?.items) ? customerInvoicesReport.items : [];
+  function buildDailyMovement(dailyMovementReport, customerInvoicesReport) {
+    const payload = dailyMovementReport?.payload || {};
+    const salesRows = Array.isArray(payload.sales) ? payload.sales : [];
+    const paymentSummary = payload.paymentSummary || {};
+    const payments = Array.isArray(payload.payments) ? payload.payments : [];
+    const salesByUnit = {};
+    let salesBillSignals = 0;
+
+    for (const row of salesRows) {
+      const unit = text(row.unit) || "UNKNOWN";
+      const units = numberOrZero(row.units);
+      const bills = numberOrZero(row.bills);
+      salesBillSignals += bills;
+      if (!salesByUnit[unit]) salesByUnit[unit] = { units: 0, bills: 0 };
+      salesByUnit[unit].units += units;
+      salesByUnit[unit].bills += bills;
+    }
+
+    const reportAsOf = dailyMovementReport?.created_at || dailyMovementReport?.report_date || payload.generatedAt || payload.date;
+    const reportPresent = Boolean(dailyMovementReport);
+    const paymentTotalUsd = numberOrNull(paymentSummary.totalUsd);
+    const paymentCount = numberOrNull(paymentSummary.count) ?? payments.length;
+    const customerInvoices = Array.isArray(customerInvoicesReport?.items) ? customerInvoicesReport.items : [];
 
     return {
-      todayTotal,
-      currency: text(payload?.currency || dailyMovementReport?.currency) || null,
-      customerInvoiceGroups: invoices.length,
-      meta: meta(
-        dailyMovementReport ? "daily_movement_reports" : (customerInvoicesReport ? "ameen_customer_invoices" : "none"),
-        newestIso([dailyMovementReport?.created_at, dailyMovementReport?.report_date, customerInvoicesReport?.created_at, customerInvoicesReport?.report_date]),
-        todayTotal !== null ? "complete" : (customerInvoicesReport ? "partial" : "missing"),
-        todayTotal !== null ? null : "A trustworthy daily sales total was not found in the available payload, so the value is intentionally null."
-      )
+      sales: {
+        todayRevenue: null,
+        revenueCurrency: null,
+        movementRows: salesRows.length,
+        billSignals: salesBillSignals,
+        unitsByType: salesByUnit,
+        customerInvoiceGroups: customerInvoices.length,
+        meta: meta(
+          reportPresent ? "daily_movement_reports" : (customerInvoicesReport ? "ameen_customer_invoices" : "none"),
+          newestIso([reportAsOf, customerInvoicesReport?.created_at, customerInvoicesReport?.report_date]),
+          reportPresent ? "partial" : (customerInvoicesReport ? "partial" : "missing"),
+          "Daily movement currently exposes trustworthy bill/unit movement but not a single revenue total, so revenue remains null."
+        )
+      },
+      collections: {
+        todayTotal: paymentTotalUsd,
+        currency: paymentTotalUsd === null ? null : "USD",
+        count: paymentCount,
+        topPayments: payments.slice().sort((a, b) => numberOrZero(b.amount) - numberOrZero(a.amount)).slice(0, 10).map((row) => ({
+          customer: text(row.customer) || "زبون",
+          amount: numberOrZero(row.amount),
+          notes: text(row.notes)
+        })),
+        meta: meta(
+          "daily_movement_reports.paymentSummary",
+          reportAsOf,
+          reportPresent && paymentTotalUsd !== null ? "complete" : (reportPresent ? "partial" : "missing"),
+          reportPresent ? "Customer payments use the Ameen daily movement payment summary; accounting basis states USD base." : "No daily movement report is available."
+        )
+      }
     };
   }
 
   function buildRequests(requests) {
     const rows = Array.isArray(requests) ? requests : [];
-    const open = rows.filter((row) => !["مغلق", "closed"].includes(text(row.status)));
     return {
       recentCount: rows.length,
-      openCount: open.length,
+      openCount: rows.filter((row) => !["مغلق", "closed"].includes(text(row.status))).length,
       meta: meta("customer_requests", newestIso(rows.map((row) => row.createdAt || row.created_at)), rows.length ? "complete" : "unknown")
     };
   }
@@ -273,20 +288,9 @@
   async function getSnapshot() {
     const data = window.tobaccoData || {};
     const suppliers = window.supplierObligationsData || {};
-    const today = new Date().toISOString().slice(0, 10);
+    const today = localDateKey();
 
-    const [
-      balanceReports,
-      creditLimits,
-      approvedItems,
-      itemSnapshots,
-      purchaseInvoices,
-      ameenPurchases,
-      supplierObligations,
-      customerInvoices,
-      dailyMovement,
-      requests
-    ] = await Promise.all([
+    const [balanceReports, creditLimits, approvedItems, itemSnapshots, purchaseInvoices, ameenPurchases, supplierObligations, customerInvoices, dailyMovement, requests] = await Promise.all([
       safe("customer balances", data.listCustomerBalanceReports?.bind(data), []),
       safe("credit limits", data.listCustomerCreditLimits?.bind(data), []),
       safe("approved prices", data.listApprovedPriceItems?.bind(data), []),
@@ -299,27 +303,23 @@
       safe("customer requests", data.listRequests?.bind(data), [])
     ]);
 
+    const movement = buildDailyMovement(dailyMovement.value, customerInvoices.value);
     const parts = {
-      sales: buildSales(customerInvoices.value, dailyMovement.value),
+      sales: movement.sales,
       receivables: buildReceivables(balanceReports.value, creditLimits.value),
+      collections: movement.collections,
       inventory: buildInventory(approvedItems.value, itemSnapshots.value),
       purchasing: buildPurchasing(purchaseInvoices.value, ameenPurchases.value),
       supplierObligations: buildSupplierObligations(supplierObligations.value),
-      requests: buildRequests(requests.value),
-      collections: {
-        todayTotal: null,
-        currency: null,
-        meta: meta("payment_records", null, "missing", "A single trusted aggregate for all payment records is not exposed by the current data client yet; this is intentionally null until a dedicated source is added.")
-      },
       expenses: {
         totalsByCurrency: {},
-        meta: meta("ameen_expenses", null, "missing", "Expense data exists in the platform but is not yet exposed through a dedicated authenticated data method for the snapshot.")
-      }
+        meta: meta("ameen_expenses", null, "missing", "No ameen_expenses report is currently present in Supabase production, so expenses remain intentionally unavailable.")
+      },
+      requests: buildRequests(requests.value)
     };
 
-    const errors = [balanceReports, creditLimits, approvedItems, itemSnapshots, purchaseInvoices, ameenPurchases, supplierObligations, customerInvoices, dailyMovement, requests]
-      .filter((result) => !result.ok)
-      .map((result) => result.error);
+    const results = [balanceReports, creditLimits, approvedItems, itemSnapshots, purchaseInvoices, ameenPurchases, supplierObligations, customerInvoices, dailyMovement, requests];
+    const errors = results.filter((result) => !result.ok).map((result) => result.error);
 
     return {
       schemaVersion: SNAPSHOT_VERSION,
@@ -335,8 +335,5 @@
     };
   }
 
-  window.ozkBusinessOS = Object.freeze({
-    schemaVersion: SNAPSHOT_VERSION,
-    getSnapshot
-  });
+  window.ozkBusinessOS = Object.freeze({ schemaVersion: SNAPSHOT_VERSION, getSnapshot });
 })();
