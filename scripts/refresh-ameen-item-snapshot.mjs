@@ -1,0 +1,92 @@
+import { buildItemSnapshot, getSalesWindow, SNAPSHOT_FIELDS } from './item-snapshot-pipeline.mjs';
+
+const argumentsList = process.argv.slice(2);
+const apply = argumentsList.includes('--apply');
+const windowEndArgument = argumentsList.find((argument) => argument.startsWith('--window-end='));
+const windowEnd = windowEndArgument?.slice('--window-end='.length) ?? localDateString(new Date());
+const supabaseUrl = (process.env.TOBACCO_SUPABASE_URL || 'https://dyxbirfpxeocqffnfdeb.supabase.co').replace(/\/$/, '');
+const publicKey = process.env.TOBACCO_SUPABASE_PUBLIC_KEY || process.env.SUPABASE_PUBLIC_KEY;
+const email = process.env.TOBACCO_SYNC_EMAIL;
+const password = process.env.TOBACCO_SYNC_PASSWORD;
+
+function localDateString(date) {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
+function requireSetting(value, name) {
+  if (!value) throw new Error(`Missing required setting: ${name}`);
+  return value;
+}
+
+async function request(url, options = {}) {
+  const response = await fetch(url, { ...options, signal: AbortSignal.timeout(60_000) });
+  if (!response.ok) {
+    const detail = (await response.text()).slice(0, 500);
+    throw new Error(`Supabase request failed (${response.status}): ${detail}`);
+  }
+  if (response.status === 204) return null;
+  const text = await response.text();
+  return text ? JSON.parse(text) : null;
+}
+
+async function authenticate() {
+  const key = requireSetting(publicKey, 'TOBACCO_SUPABASE_PUBLIC_KEY');
+  const session = await request(`${supabaseUrl}/auth/v1/token?grant_type=password`, {
+    method: 'POST', headers: { apikey: key, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email: requireSetting(email, 'TOBACCO_SYNC_EMAIL'),
+      password: requireSetting(password, 'TOBACCO_SYNC_PASSWORD') }),
+  });
+  return { apikey: key, Authorization: `Bearer ${session.access_token}` };
+}
+
+async function readAll(table, select, order, headers, filters = []) {
+  const rows = [];
+  const pageSize = 1000;
+  for (let offset = 0; ; offset += pageSize) {
+    const url = new URL(`${supabaseUrl}/rest/v1/${table}`);
+    url.searchParams.set('select', select);
+    url.searchParams.set('order', order);
+    for (const [name, value] of filters) url.searchParams.append(name, value);
+    const page = await request(url, { headers: { ...headers, Range: `${offset}-${offset + pageSize - 1}` } });
+    rows.push(...page);
+    if (page.length < pageSize) return rows;
+  }
+}
+
+async function main() {
+  const headers = await authenticate();
+  const window = getSalesWindow(windowEnd, 30);
+  const [currentSnapshot, itemCosts, salesLineItems] = await Promise.all([
+    readAll('ameen_item_snapshot', SNAPSHOT_FIELDS.join(','), 'item_key.asc', headers),
+    readAll('item_costs', 'item_guid,item_name,avg_cost,currency,updated_at', 'item_guid.asc', headers),
+    readAll('sales_line_items', 'id,item_key,item_name,qty,sale_date,bill_type,unit2_name,unit2_factor',
+      'id.asc', headers, [['sale_date', `gte.${window.start}`], ['sale_date', `lte.${window.end}`]]),
+  ]);
+  const result = buildItemSnapshot({ currentSnapshot, itemCosts, salesLineItems, windowEnd });
+  console.log(`snapshot rows=${result.rows.length} sales_items=${result.salesItemCount} window=${result.window.start}..${result.window.end}`);
+  if (!apply) {
+    console.log('DRY RUN: no Supabase write performed. Pass --apply only after review.');
+    return;
+  }
+
+  const writeResult = await request(`${supabaseUrl}/rest/v1/rpc/replace_ameen_item_snapshot`, {
+    method: 'POST', headers: { ...headers, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ p_rows: result.rows }),
+  });
+  const verification = await readAll('ameen_item_snapshot',
+    'item_key,units_sold_30d,movement_rank,generated_at', 'item_key.asc', headers,
+    [['generated_at', `eq.${result.generatedAt}`]]);
+  const uniqueKeys = new Set(verification.map((row) => row.item_key));
+  if (verification.length !== result.rows.length || uniqueKeys.size !== result.rows.length) {
+    throw new Error(`post-write verification failed: expected ${result.rows.length}, received ${verification.length}`);
+  }
+  console.log(`Supabase snapshot replaced atomically and verified (${writeResult?.[0]?.row_count ?? verification.length} rows).`);
+}
+
+main().catch((error) => {
+  console.error(`Snapshot refresh failed: ${error.message}`);
+  process.exitCode = 1;
+});

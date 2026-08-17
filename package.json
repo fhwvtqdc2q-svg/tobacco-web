@@ -7,7 +7,7 @@
   "scripts": {
     "dev": "node scripts/serve.mjs",
     "start": "node scripts/serve.mjs",
-    "check": "node scripts/check.mjs && node scripts/check-purchase-recommendation.mjs",
+    "check": "node scripts/check.mjs && node scripts/check-purchase-recommendation.mjs && node scripts/check-item-snapshot-pipeline.mjs",
     "generate": "node scripts/generate-price-lists.mjs && node scripts/generate-pdfs.mjs",
     "generate:lists": "node scripts/generate-price-lists.mjs",
     "generate:pdfs": "node scripts/generate-pdfs.mjs",
