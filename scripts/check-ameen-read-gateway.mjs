@@ -5,8 +5,11 @@ const broker=fs.readFileSync(new URL('../supabase/functions/ameen-read-broker/in
 const client=fs.readFileSync(new URL('../src/ameen-live-client.js',import.meta.url),'utf8');
 for(const token of ['insert','update','delete','merge','drop','alter','create','truncate','exec']) if(!gateway.toLowerCase().includes(token)) throw new Error(`read-only deny token missing: ${token}`);
 if(!gateway.includes('Assert-ReadOnlySql')) throw new Error('SQL read-only assertion missing');
-if(!gateway.includes('$reader = $command.ExecuteReader()')) throw new Error('Windows-compatible SQL reader missing');
+if(!/\$reader\s*=\s*\$command\.ExecuteReader\(\)/.test(gateway)) throw new Error('Windows-compatible SQL reader missing');
+if(!gateway.includes('[ValidateSet("health","stock","customers")]')) throw new Error('Ameen resources changed');
 if(!worker.includes('/functions/v1/ameen-read-broker')) throw new Error('worker bypasses broker');
+if(!worker.includes('[System.Text.Encoding]::UTF8.GetBytes($json)')) throw new Error('worker broker body is not explicitly UTF-8 encoded');
+if(!worker.includes('-ContentType "application/json; charset=utf-8" -Body $utf8Body')) throw new Error('worker broker request is missing the UTF-8 JSON content type or byte body');
 if(!broker.includes('AGENTS')||!broker.includes('STAFF')) throw new Error('broker role separation missing');
 if(!client.includes('Authentication required')) throw new Error('browser auth guard missing');
 if(/AMEEN_SQL_CONNECTION_STRING/.test(client+broker)) throw new Error('SQL connection string leaked outside Windows gateway');
