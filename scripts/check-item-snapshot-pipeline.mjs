@@ -66,6 +66,15 @@ for (const source of [wrapper, producer]) {
 }
 assert.match(wrapper, /\[switch\]\$Apply/);
 assert.match(producer, /if \(!apply\)/);
+assert.match(producer, /const PUBLIC_PROFILE = 'public'/);
+assert.match(producer, /'Accept-Profile': PUBLIC_PROFILE/);
+assert.match(producer, /'Content-Profile': PUBLIC_PROFILE/);
+assert.match(producer, /readAll\('ameen_item_snapshot'/);
+assert.match(producer, /readAll\('item_costs'/);
+assert.match(producer, /readAll\('sales_line_items'/);
+assert.match(producer, /publicRestHeaders\(headers, \{ write: true \}\)/);
+assert.doesNotMatch(producer, /Accept-Profile['"]?\s*:\s*['"]api['"]/i);
+assert.doesNotMatch(producer, /Content-Profile['"]?\s*:\s*['"]api['"]/i);
 assert.match(registration, /New-ScheduledTaskTrigger -Daily/);
 assert.match(registration, /05:05/);
 assert.match(registration, /MultipleInstances IgnoreNew/);
