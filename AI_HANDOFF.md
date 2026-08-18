@@ -2,6 +2,13 @@
 
 يقرأه Claude وCodex قبل كل مهمة. أحدث سجل يكون في الأعلى. لا تحذف السجلات السابقة.
 
+## 2026-08-18 - Codex - Fix password recovery link and iPhone owner-only navigation
+
+- Status: completed
+- Branch: task branch pending for: Fix password recovery link and iPhone owner-only navigation
+- Files: src/supabase-client.js,src/app.js,src/decision-engine.js,src/command-center.js,scripts/check.mjs,index.html,public/service-worker.js
+- Result: Recovery callbacks now always open the password form; stale PWA clients reload on v531; npm, browser recovery, iPhone employee route tests, and PR 82 checks passed.
+- Handoff UTC: 2026-08-18T18:59:29Z
 ## 2026-08-18 - Codex - Restrict employee executive tabs and assign Gmail owners
 
 - Status: completed

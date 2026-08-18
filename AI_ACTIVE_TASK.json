@@ -1,14 +1,14 @@
 {
     "schemaVersion":  1,
-    "status":  "active",
-    "owner":  "Codex",
-    "task":  "Fix password recovery link and iPhone owner-only navigation",
-    "branch":  "task branch pending for: Fix password recovery link and iPhone owner-only navigation",
+    "status":  "idle",
+    "owner":  null,
+    "task":  null,
+    "branch":  null,
     "files":  [
-                  "src/supabase-client.js,src/app.js,src/decision-engine.js,src/command-center.js,scripts/check.mjs,index.html,public/service-worker.js"
+
               ],
-    "startedAt":  "2026-08-18T18:45:15Z",
-    "updatedAt":  "2026-08-18T18:45:15Z",
+    "startedAt":  null,
+    "updatedAt":  "2026-08-18T18:59:29Z",
     "pr":  66,
-    "note":  "Work in progress. Do not edit the reserved files."
+    "note":  "No active task. Read AI_HANDOFF.md before starting work."
 }
