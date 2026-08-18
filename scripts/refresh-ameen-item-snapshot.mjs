@@ -1,4 +1,10 @@
 import { buildItemSnapshot, getSalesWindow, SNAPSHOT_FIELDS } from './item-snapshot-pipeline.mjs';
+import {
+  SALES_SYNC_SOURCE,
+  assertTrustedSalesInput,
+  getSingleSalesSyncMarker,
+  validateSalesSyncMarker,
+} from './item-snapshot-freshness.mjs';
 
 const argumentsList = process.argv.slice(2);
 const apply = argumentsList.includes('--apply');
@@ -73,16 +79,30 @@ async function readAll(table, select, order, headers, filters = []) {
 async function main() {
   const headers = await authenticate();
   const window = getSalesWindow(windowEnd, 30);
+  const markerSelect = 'source,sync_run_id,window_start,window_end,row_count,completed_at';
+  const markerFilters = [['source', `eq.${SALES_SYNC_SOURCE}`]];
+  const markerBefore = getSingleSalesSyncMarker(await readAll(
+    'sales_line_items_sync_state', markerSelect, 'source.asc', headers, markerFilters,
+  ));
+  validateSalesSyncMarker(markerBefore, window);
   const [currentSnapshot, itemCosts, salesLineItems] = await Promise.all([
     readAll('ameen_item_snapshot', SNAPSHOT_FIELDS.join(','), 'item_key.asc', headers),
     readAll('item_costs', 'item_guid,item_name,avg_cost,currency,updated_at', 'item_guid.asc', headers),
-    readAll('sales_line_items', 'id,item_key,item_name,qty,sale_date,bill_type,unit2_name,unit2_factor',
+    readAll('sales_line_items', 'id,source_key,item_key,item_name,qty,sale_date,bill_type,unit2_name,unit2_factor',
       'id.asc', headers, [['sale_date', `gte.${window.start}`], ['sale_date', `lte.${window.end}`]]),
   ]);
+  const markerAfter = getSingleSalesSyncMarker(await readAll(
+    'sales_line_items_sync_state', markerSelect, 'source.asc', headers, markerFilters,
+  ));
+  const trustedSalesSync = assertTrustedSalesInput({
+    markerBefore, markerAfter, salesLineItems, snapshotWindow: window,
+  });
   const result = buildItemSnapshot({ currentSnapshot, itemCosts, salesLineItems, windowEnd });
+  console.log(`sales sync trusted: run=${trustedSalesSync.syncRunId} completed=${trustedSalesSync.completedAt} marker_window=${trustedSalesSync.windowStart}..${trustedSalesSync.windowEnd}`);
   console.log(`snapshot rows=${result.rows.length} sales_items=${result.salesItemCount} window=${result.window.start}..${result.window.end}`);
+  // Dry Run deliberately shares the Apply guard so its output is safe to approve later.
   if (!apply) {
-    console.log('DRY RUN: no Supabase write performed. Pass --apply only after review.');
+    console.log('DRY RUN: trusted inputs verified; no Supabase write performed. Pass --apply only after review.');
     return;
   }
 

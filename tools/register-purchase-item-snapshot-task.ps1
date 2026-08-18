@@ -1,30 +1,104 @@
+#requires -Version 5.1
 # Registration only. This script never starts the task or the producer.
+[CmdletBinding()]
 param(
-    [string]$TaskName = "TOBACCO Ameen Item Snapshot Refresh",
-    [string]$DailyAt = "05:05"
+    [ValidatePattern('^(?:[01]\d|2[0-3]):[0-5]\d$')][string]$DailyAt = "05:05",
+    [Switch]$ReplaceExisting
 )
 
 $ErrorActionPreference = "Stop"
-$principal = New-ScheduledTaskPrincipal -UserId $env:USERNAME -LogonType Interactive -RunLevel Highest
-$settings = New-ScheduledTaskSettingsSet `
-    -ExecutionTimeLimit (New-TimeSpan -Minutes 10) `
-    -RestartCount 2 `
-    -RestartInterval (New-TimeSpan -Minutes 2) `
-    -MultipleInstances IgnoreNew
+$taskName = "TOBACCO Ameen Item Snapshot Refresh"
+$requiredUserId = "OZK2026\LOQ"
 
-if ($DailyAt -notmatch '^(?:[01]\d|2[0-3]):[0-5]\d$') { throw "DailyAt must use 24-hour HH:mm format." }
-$scriptPath = Join-Path $PSScriptRoot "push-purchase-item-snapshot.ps1"
-if (-not (Test-Path -LiteralPath $scriptPath)) { throw "Producer wrapper not found: $scriptPath" }
-$powerShell = "$env:SystemRoot\System32\WindowsPowerShell\v1.0\powershell.exe"
+$identity = [Security.Principal.WindowsIdentity]::GetCurrent()
+$adminPrincipal = New-Object Security.Principal.WindowsPrincipal($identity)
+if (-not $adminPrincipal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
+    throw "Run this registration script from an elevated Windows PowerShell session."
+}
+if (-not $identity.Name.Equals($requiredUserId, [StringComparison]::OrdinalIgnoreCase)) {
+    throw "This task must be registered from the OZK2026\LOQ Windows account."
+}
+
+$existingTask = Get-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue
+if ($null -ne $existingTask) {
+    if (-not $ReplaceExisting) {
+        throw "Scheduled task '$taskName' already exists. No changes were made. Re-run with -ReplaceExisting to explicitly replace it."
+    }
+    Write-Warning "ReplaceExisting was explicitly requested. The existing scheduled task '$taskName' will be replaced; it will not be started or stopped."
+}
+
+$repoRoot = [IO.Path]::GetFullPath((Split-Path -Parent $PSScriptRoot))
+$expectedRepoRoot = [IO.Path]::GetFullPath((Join-Path $env:USERPROFILE "Documents\OZK-TOBACCO\tobacco-web"))
+if (-not $repoRoot.Equals($expectedRepoRoot, [StringComparison]::OrdinalIgnoreCase)) {
+    throw "Registration is allowed only from the permanent production checkout: $expectedRepoRoot"
+}
+
+$scriptPath = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot "push-purchase-item-snapshot.ps1"))
+$powerShellPath = Join-Path $env:SystemRoot "System32\WindowsPowerShell\v1.0\powershell.exe"
+if (-not (Test-Path -LiteralPath $scriptPath -PathType Leaf)) { throw "Producer wrapper not found: $scriptPath" }
+if (-not (Test-Path -LiteralPath $powerShellPath -PathType Leaf)) { throw "Windows PowerShell 5.1 executable was not found." }
+if ($scriptPath.Contains('"')) { throw "Producer path contains an unsupported quote character." }
+
+$tokens = $null
+$parserErrors = $null
+[Management.Automation.Language.Parser]::ParseFile($scriptPath, [ref]$tokens, [ref]$parserErrors) | Out-Null
+if ($parserErrors.Count -ne 0) { throw "Snapshot producer wrapper failed PowerShell parser validation." }
+
 $arguments = "-NoProfile -NonInteractive -ExecutionPolicy Bypass -File `"$scriptPath`" -Apply"
-$action = New-ScheduledTaskAction -Execute $powerShell -Argument $arguments -WorkingDirectory $PSScriptRoot
+$action = New-ScheduledTaskAction `
+    -Execute $powerShellPath `
+    -Argument $arguments `
+    -WorkingDirectory $repoRoot
 $startAt = [datetime]::Today.Add([timespan]::ParseExact($DailyAt, 'hh\:mm', $null))
 if ($startAt -le (Get-Date)) { $startAt = $startAt.AddDays(1) }
 $trigger = New-ScheduledTaskTrigger -Daily -At $startAt
+$settings = New-ScheduledTaskSettingsSet `
+    -AllowStartIfOnBatteries `
+    -DontStopIfGoingOnBatteries `
+    -StartWhenAvailable `
+    -ExecutionTimeLimit (New-TimeSpan -Minutes 15) `
+    -MultipleInstances IgnoreNew `
+    -RestartCount 2 `
+    -RestartInterval (New-TimeSpan -Minutes 1)
+$taskPrincipal = New-ScheduledTaskPrincipal `
+    -UserId $requiredUserId `
+    -LogonType Password `
+    -RunLevel Highest
+$taskDefinition = New-ScheduledTask `
+    -Action $action `
+    -Trigger $trigger `
+    -Settings $settings `
+    -Principal $taskPrincipal `
+    -Description "Daily Supabase-only refresh of ameen_item_snapshot from trusted sales_line_items."
 
-Register-ScheduledTask -TaskName $TaskName -Action $action -Trigger $trigger `
-    -Principal $principal -Settings $settings `
-    -Description "Daily Supabase-only refresh of ameen_item_snapshot from sales_line_items." -Force | Out-Null
-Write-Host "Registered task: $TaskName"
+Write-Host "The task will run as $requiredUserId with LogonType Password."
+Write-Host "Enter the Windows password when prompted. It is not written to disk or printed."
+$securePassword = Read-Host -Prompt "Windows password for $requiredUserId" -AsSecureString
+$passwordPointer = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($securePassword)
+try {
+    $plainPassword = [Runtime.InteropServices.Marshal]::PtrToStringBSTR($passwordPointer)
+    if ([string]::IsNullOrEmpty($plainPassword)) {
+        throw "A Windows password is required to register this scheduled task."
+    }
+
+    $registrationParameters = @{
+        TaskName    = $taskName
+        InputObject = $taskDefinition
+        User        = $requiredUserId
+        Password    = $plainPassword
+        ErrorAction = "Stop"
+    }
+    if (($null -ne $existingTask) -and $ReplaceExisting) {
+        $registrationParameters["Force"] = $true
+    }
+
+    Register-ScheduledTask @registrationParameters | Out-Null
+} finally {
+    [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($passwordPointer)
+    $plainPassword = $null
+    if ($securePassword) { $securePassword.Dispose() }
+}
+
+Write-Host "Registered task: $taskName"
 Write-Host "Schedule: daily at $DailyAt (local machine time)"
 Write-Host "The task was not started by this registration script."
