@@ -101,13 +101,21 @@
         })
       : null;
   let passwordRecoveryActive = /(?:[?&]recovery=1)|(?:[#&]type=recovery)/i.test(window.location?.href || "");
+  const passwordRecoveryListeners = new Set();
+
+  function notifyPasswordRecovery() {
+    passwordRecoveryActive = true;
+    passwordRecoveryListeners.forEach((listener) => {
+      try { listener(); } catch {}
+    });
+  }
 
   // Canonical browser client: feature modules reuse the same GoTrue session owner.
   if (client) {
     window.ozkSupabaseClient = client;
     if (typeof client.auth.onAuthStateChange === "function") {
       client.auth.onAuthStateChange((event) => {
-        if (event === "PASSWORD_RECOVERY") passwordRecoveryActive = true;
+        if (event === "PASSWORD_RECOVERY") notifyPasswordRecovery();
       });
     }
   }
@@ -409,6 +417,13 @@
 
     isPasswordRecovery() {
       return Boolean(client && passwordRecoveryActive);
+    },
+
+    onPasswordRecovery(listener) {
+      if (typeof listener !== "function") return () => {};
+      passwordRecoveryListeners.add(listener);
+      if (passwordRecoveryActive) queueMicrotask(listener);
+      return () => passwordRecoveryListeners.delete(listener);
     },
 
     async requestPasswordReset(emailInput) {
