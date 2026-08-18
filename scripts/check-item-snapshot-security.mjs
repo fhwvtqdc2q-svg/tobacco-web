@@ -60,6 +60,12 @@ assert.match(
   /select s\.item_key\s*from pg_temp\.staged_ameen_item_snapshot s\s*group by s\.item_key/i,
 );
 assert.match(rpc, /where s\.units_sold_30d < 0/i);
+assert.doesNotMatch(rpc, /delete from public\.ameen_item_snapshot\s*;/i);
+assert.match(
+  rpc,
+  /delete from public\.ameen_item_snapshot s\s*where s\.item_key is not null\s*;/i,
+);
+assert.doesNotMatch(rpc, /delete from public\.ameen_item_snapshot[\s\S]{0,100}where\s+(?:true|1\s*=\s*1)/i);
 
 const stagedInsert = rpc.match(
   /insert into public\.ameen_item_snapshot[\s\S]*?\)\s*select[\s\S]*?from pg_temp\.staged_ameen_item_snapshot s;/i,

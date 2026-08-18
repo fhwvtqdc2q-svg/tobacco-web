@@ -106,7 +106,8 @@ begin
     raise exception 'generated_at must be identical for all rows';
   end if;
 
-  delete from public.ameen_item_snapshot;
+  delete from public.ameen_item_snapshot s
+  where s.item_key is not null;
   insert into public.ameen_item_snapshot (
     id, item_key, item_guid, item_number, item_name, unit1_name, unit2_name,
     unit2_factor, stock_unit1, stock_unit2, last_purchase_price,
