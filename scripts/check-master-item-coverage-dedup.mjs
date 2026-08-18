@@ -56,7 +56,7 @@ snapshots.push(
   { itemGuid: known.old398, itemKey: known.old398, itemName: "مانشستر كوين طقة توت", stockUnit1: 2, unitsSold30d: 30, generatedAt: now }
 );
 
-const partialApproved = liveRows.slice(1, 254).map((row, index) => ({
+const partialApproved = liveRows.slice(1, 253).map((row, index) => ({
   itemKey: index % 2 ? row.item_name : row.item_guid,
   itemNumber: row.item_number,
   itemName: row.item_name,
@@ -72,6 +72,7 @@ const live = await snapshotFor({ liveRows, snapshots, approved: partialApproved 
 const recommendations = live.inventory.purchaseRecommendations.items;
 if (live.inventory.itemCount !== 423 || recommendations.length !== 423) throw new Error("CASE A/H: partial approved prices must not reduce 423-item current master coverage");
 if (new Set(recommendations.map((row) => row.itemGuid)).size !== 423) throw new Error("CASE A/K: output must contain 423 unique canonical GUIDs");
+if (recommendations.filter((row) => row.priceOverlayState === "missing").length !== 170) throw new Error("CASE A/H: all 170 current items without an approved price must remain in coverage");
 if (live.inventory.approvedDuplicateCount !== 1) throw new Error("CASE B: duplicate approved rows were not collapsed to one overlay");
 const item429 = recommendations.find((row) => row.itemGuid === known.item429);
 const item430 = recommendations.find((row) => row.itemGuid === known.item430);
