@@ -2,6 +2,13 @@
 
 يقرأه Claude وCodex قبل كل مهمة. أحدث سجل يكون في الأعلى. لا تحذف السجلات السابقة.
 
+## 2026-08-18 - Codex - Close merged PR 66 stale lock
+
+- Status: completed
+- Branch: task branch pending for: Hotfix عرض توصيات الشراء وعميل Supabase
+- Files: src/business-snapshot.js, src/purchase-recommendation.js, src/command-center.js, src/supabase-client.js, src/ameen-live-client.js, src/supplier-obligations-client.js, src/web-push.js, scripts/check-purchase-recommendation.mjs, scripts/check-command-center.mjs, index.html, public/service-worker.js
+- Result: PR 66 merged at 2026-08-17T11:56:39Z; stale lock released before employee access work.
+- Handoff UTC: 2026-08-18T18:01:28Z
 ## 2026-08-17 - Codex - محرك توصية كمية شراء آمن من Ameen Live
 
 - Status: completed
