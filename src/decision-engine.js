@@ -151,6 +151,7 @@
 
   function decisionPage() {
     if (!state?.session) return shell(`<section class="panel"><h2>قرار اليوم</h2><p class="muted">سجّل الدخول أولاً لعرض قرارات السيولة والتحصيل والموردين.</p></section>`);
+    if (!window.ozkCanAccessRoute?.(ROUTE)) return shell(`<section class="panel"><h2>غير متاح</h2><p class="muted">قرار اليوم متاح لحساب المالك فقط.</p></section>`);
     const risks = customerRiskRows();
     const target = collectionTarget(risks);
     const suppliers = supplierSignals();
@@ -180,6 +181,10 @@
   }
 
   function addDecisionNav() {
+    if (!window.ozkCanAccessRoute?.(ROUTE)) {
+      document.querySelectorAll('[data-route="decision"]').forEach((node) => node.remove());
+      return;
+    }
     if (document.querySelector('aside .sidebar nav [data-route="decision"], aside nav [data-route="decision"]')) return;
     const nav = document.querySelector("aside .sidebar nav, aside nav, .sidebar nav");
     if (!nav) return;
@@ -220,16 +225,16 @@
 
   function syncRefreshTimer() {
     if (refreshTimer) { clearInterval(refreshTimer); refreshTimer = null; }
-    if (state?.route === ROUTE && state?.session) refreshTimer = setInterval(refreshDecisionData, REFRESH_MS);
+    if (state?.route === ROUTE && state?.session && window.ozkCanAccessRoute?.(ROUTE)) refreshTimer = setInterval(refreshDecisionData, REFRESH_MS);
   }
 
   try {
     allowedRoutes.add(ROUTE);
     const requestedRoute = new URLSearchParams(window.location.search).get("route");
-    if (requestedRoute === ROUTE) state.route = ROUTE;
+    if (requestedRoute === ROUTE && window.ozkCanAccessRoute?.(ROUTE)) state.route = ROUTE;
     const baseRender = render;
     render = function decisionAwareRender() {
-      if (state.route === ROUTE) {
+      if (state.route === ROUTE && window.ozkCanAccessRoute?.(ROUTE)) {
         app.innerHTML = decisionPage();
         app.querySelectorAll("[data-route]").forEach((button) => button.addEventListener("click", (event) => { event.preventDefault(); setRoute(button.dataset.route); }));
         addDecisionNav();

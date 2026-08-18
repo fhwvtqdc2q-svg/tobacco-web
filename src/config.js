@@ -9,11 +9,14 @@ window.appConfig = {
   language: "ar",
   paymentStatus: "واجهة جاهزة للربط",
   staffRoles: {
-    "ozk.kh@outlook.com": { name: "المدير", role: "مدير" },
+    "ozk.kh@outlook.com": { name: "موظف OZK", role: "موظف", accessRole: "employee" },
+    "ozkkhalouf@gmail.com": { name: "مالك OZK", role: "المالك", accessRole: "owner" },
+    "ozkkhallouf@gmail.com": { name: "مالك OZK", role: "المالك", accessRole: "owner" },
     "khalelkhalouf1196@gmail.com": { name: "خليل خلوف", role: "محاسب" }
   },
   ai: {
-    ownerEmail: "ozk.kh@outlook.com",
+    ownerEmail: "ozkkhallouf@gmail.com",
+    ownerEmails: ["ozkkhallouf@gmail.com", "ozkkhalouf@gmail.com"],
     claude: {
       apiKey: "",
       model: "claude-opus-4-8"

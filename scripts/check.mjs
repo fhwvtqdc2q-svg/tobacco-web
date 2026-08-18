@@ -1936,6 +1936,53 @@ for (const contract of [
   }
 }
 
+// Owner/employee access-control contract. Authorization comes from immutable
+// app_metadata; the former owner account must not regain executive access by
+// editing user_metadata or by opening a route URL directly.
+{
+  const configSource = readFileSync("src/config.js", "utf8");
+  const clientSource = readFileSync("src/supabase-client.js", "utf8");
+  const decisionSource = readFileSync("src/decision-engine.js", "utf8");
+  const commandSource = readFileSync("src/command-center.js", "utf8");
+  const ownerSql = readFileSync("supabase/owner-role-access.sql", "utf8");
+
+  for (const email of ["ozkkhallouf@gmail.com", "ozkkhalouf@gmail.com"]) {
+    if (!configSource.includes(`"${email}"`) || !appJs.includes(`"${email}"`)) {
+      console.error(`Owner identity is missing from the browser access contract: ${email}`);
+      failed = true;
+    }
+  }
+  for (const contract of [
+    '"ozk.kh@outlook.com": { name: "موظف OZK", role: "موظف", accessRole: "employee" }',
+    'user.app_metadata?.role',
+    'const OWNER_ONLY_ROUTES = new Set(["decision", "command"])',
+    'window.ozkCanAccessRoute = canAccessRoute',
+    'requestPasswordReset(emailInput)',
+    'updateRecoveredPassword(passwordInput)'
+  ]) {
+    if (!(configSource + clientSource + appJs).includes(contract)) {
+      console.error(`Owner/employee access contract is missing: ${contract}`);
+      failed = true;
+    }
+  }
+  if (/const OWNER_EMAILS\s*=\s*\[[^\]]*ozk\.kh@outlook\.com/i.test(appJs)) {
+    console.error("The employee Outlook account must not remain in OWNER_EMAILS.");
+    failed = true;
+  }
+  if (!decisionSource.includes("window.ozkCanAccessRoute?.(ROUTE)") || !commandSource.includes("window.ozkCanAccessRoute?.(ROUTE)")) {
+    console.error("Executive modules must guard both navigation and direct route rendering.");
+    failed = true;
+  }
+  if (!ownerSql.includes("auth.jwt() -> 'app_metadata' ->> 'role'") || /auth\.jwt\(\)\s*->\s*'user_metadata'/.test(ownerSql)) {
+    console.error("Database owner authorization must use app_metadata.role only.");
+    failed = true;
+  }
+  if (!ownerSql.includes("security invoker") || !ownerSql.includes("revoke all on function public.is_owner() from public, anon")) {
+    console.error("Owner authorization functions must not be anonymously executable or SECURITY DEFINER.");
+    failed = true;
+  }
+}
+
 if (failed) {
   process.exit(1);
 }
