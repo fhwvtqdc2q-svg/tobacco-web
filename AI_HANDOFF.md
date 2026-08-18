@@ -2,6 +2,13 @@
 
 يقرأه Claude وCodex قبل كل مهمة. أحدث سجل يكون في الأعلى. لا تحذف السجلات السابقة.
 
+## 2026-08-18 - Codex - Restrict employee executive tabs and assign Gmail owners
+
+- Status: completed
+- Branch: task branch pending for: Restrict employee executive tabs and assign Gmail owners
+- Files: src/config.js, src/supabase-client.js, src/app.js, src/decision-engine.js, src/command-center.js, scripts/check.mjs, index.html, public/service-worker.js
+- Result: Employee Outlook access restricted; both Gmail accounts assigned owner; recovery UI added; npm checks and browser validation passed; PR 81 merged.
+- Handoff UTC: 2026-08-18T18:30:23Z
 ## 2026-08-18 - Codex - Close merged PR 66 stale lock
 
 - Status: completed
