@@ -1,14 +1,21 @@
 {
     "schemaVersion":  1,
-    "status":  "idle",
-    "owner":  null,
-    "task":  null,
-    "branch":  null,
+    "status":  "active",
+    "owner":  "Codex",
+    "task":  "Restrict employee executive tabs and assign Gmail owners",
+    "branch":  "task branch pending for: Restrict employee executive tabs and assign Gmail owners",
     "files":  [
-
+                  "src/config.js",
+                  "src/supabase-client.js",
+                  "src/app.js",
+                  "src/decision-engine.js",
+                  "src/command-center.js",
+                  "scripts/check.mjs",
+                  "index.html",
+                  "public/service-worker.js"
               ],
-    "startedAt":  null,
-    "updatedAt":  "2026-08-18T18:01:28Z",
+    "startedAt":  "2026-08-18T18:01:32Z",
+    "updatedAt":  "2026-08-18T18:01:32Z",
     "pr":  66,
-    "note":  "No active task. Read AI_HANDOFF.md before starting work."
+    "note":  "Employee Outlook must not see or open command center or daily decision; both Gmail accounts are owner identities."
 }
