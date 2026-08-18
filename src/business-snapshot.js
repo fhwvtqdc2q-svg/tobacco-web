@@ -129,8 +129,10 @@
       if (name) snapshotByName.set(name, row);
     }
 
-    const liveRows = Array.isArray(liveStock?.rows) ? liveStock.rows : null;
-    const stockAsOf = liveRows ? iso(liveStock?.asOf || liveStock?.updatedAt) : null;
+    const liveStockAsOf = iso(liveStock?.asOf || liveStock?.updatedAt);
+    const liveStockFreshness = freshness(liveStockAsOf, AMEEN_LIVE_MAX_AGE_MINUTES);
+    const liveRows = Array.isArray(liveStock?.rows) && !liveStockFreshness.stale ? liveStock.rows : null;
+    const stockAsOf = liveRows ? liveStockAsOf : null;
     const sourceItems = liveRows || approvedItems || [];
     const items = sourceItems.map((item) => {
       const key = liveRows ? text(item.item_guid) : text(item.itemKey || item.item_key);
@@ -138,6 +140,7 @@
       const name = liveRows ? text(item.item_name) : (text(item.itemName || item.item_name) || "صنف");
       const snap = snapshotByKey.get(key) || snapshotByName.get(name.toLowerCase()) || null;
       const stock = Math.max(0, numberOrZero(liveRows ? item.stock_qty : (snap?.stockUnit1 ?? snap?.stock_unit1 ?? item.stockQty ?? item.stock_qty)));
+      const stockSource = liveRows ? "ameen_live.stock" : (snap ? "ameen_item_snapshot.fallback" : "approved_price_items.fallback");
       const sold30d = numberOrNull(snap?.unitsSold30d ?? snap?.units_sold_30d ?? item.unitsSold30d ?? item.units_sold_30d);
       const daysCover = sold30d !== null && sold30d > 0 ? stock / (sold30d / 30) : null;
       let status = "stable";
@@ -146,7 +149,7 @@
       else if (daysCover !== null && daysCover < 14) status = "low";
       return {
         key, number, name, stock, sold30d, daysCover, status, purchaseQty: null,
-        stockAsOf: stockAsOf || iso(snap?.generatedAt || snap?.generated_at || item.sourceSyncedAt || item.source_synced_at),
+        stockSource, stockAsOf, stockTrusted: Boolean(liveRows),
         velocityAsOf: iso(snap?.generatedAt || snap?.generated_at),
         unit1Name: text(liveRows ? item.unit1_name : (snap?.unit1Name || snap?.unit1_name || item.unit1Name || item.unit1_name)),
         unit2Name: text(liveRows ? item.unit2_name : (snap?.unit2Name || snap?.unit2_name || item.unit2Name || item.unit2_name)),
@@ -170,11 +173,15 @@
       lowCoverCount: items.filter((row) => row.status === "low").length,
       urgentItems: items.filter((row) => ["out", "urgent"].includes(row.status)).sort((a, b) => (a.daysCover ?? -1) - (b.daysCover ?? -1)).slice(0, 12),
       purchaseRecommendations,
+      stockSource: liveRows ? "ameen_live.stock" : "fallback",
+      stockAsOf,
+      stockTrusted: Boolean(liveRows),
+      velocityAsOf: snapshotAsOf,
       meta: meta(
         liveRows ? "ameen_live.stock" : (snapshots?.length ? "ameen_item_snapshot + approved_price_items" : "approved_price_items"),
-        liveRows ? (liveStock.asOf || liveStock.updatedAt) : (snapshotAsOf || approvedAsOf),
-        items.length ? (liveRows || snapshots?.length ? "complete" : "partial") : "missing",
-        liveRows ? "Stock quantities come from the current read-only Ameen Live response; low-cover status is used only when trusted 30-day velocity is available." : (snapshots?.length ? "Stock and 30-day velocity use the synchronized Ameen item snapshot." : "Ameen item snapshot is unavailable; inventory intelligence is limited."),
+        stockAsOf,
+        items.length ? (liveRows ? "complete" : "partial") : "missing",
+        liveRows ? "Stock quantities come from the current read-only Ameen Live response; low-cover status is used only when trusted 30-day velocity is available." : (snapshots?.length ? "30-day velocity uses the synchronized snapshot; fallback stock remains untrusted until a fresh Ameen Live read succeeds." : "Ameen item snapshot is unavailable; inventory intelligence is limited."),
         liveRows ? AMEEN_LIVE_MAX_AGE_MINUTES : DEFAULT_STALE_MINUTES
       )
     };
@@ -380,4 +387,3 @@
 
   window.ozkBusinessOS = Object.freeze({ schemaVersion: SNAPSHOT_VERSION, getSnapshot });
 })();
-

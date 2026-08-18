@@ -79,5 +79,38 @@ if (!snapshot.receivables.meta?.source || !snapshot.inventory.meta?.completeness
 const liveRecommendation = snapshot.inventory.purchaseRecommendations.items[0];
 if (liveRecommendation.name !== "مارلبورو أحمر" || liveRecommendation.number !== "123") throw new Error("Arabic Ameen Live item text/number did not survive the stock-to-recommendation path");
 if (liveRecommendation.unit1Name !== "علبة" || liveRecommendation.unit2Name !== "كرتونة" || liveRecommendation.unit2Factor !== 10) throw new Error("Ameen Live unit metadata did not survive the stock-to-recommendation path");
+if (!liveRecommendation.stockTrusted || liveRecommendation.stockSource !== "ameen_live.stock" || !liveRecommendation.proposal.eligible) throw new Error("Fresh Ameen Live stock must permit an otherwise valid numeric recommendation");
+if (snapshot.inventory.stockAsOf !== now || snapshot.inventory.velocityAsOf !== now) throw new Error("Stock and velocity timestamps must remain explicitly separated");
+
+async function fallbackSnapshot(cache) {
+  const fallbackContext = {
+    console, Date, Map, Object, Promise, Number, String, Math, Array, Set,
+    window: {
+      tobaccoData: {
+        async listApprovedPriceItems() { return [{ itemKey: "guid-ar", itemName: "مارلبورو أحمر", stockQty: 0 }]; },
+        async listItemSnapshots() { return [{ itemKey: "guid-ar", itemName: "مارلبورو أحمر", stockUnit1: 0, unitsSold30d: 30, generatedAt: now }]; }
+      },
+      supplierObligationsData: {},
+      ozkPurchaseBusinessSettings: { approved: true, targetCoverageDays: 30, urgentCoverageDays: 7, salesVelocityFreshnessDays: 3, minimumOrderUnit: null, roundingToUnit2: true },
+      ozkAmeenLiveCache: cache
+    }
+  };
+  fallbackContext.globalThis = fallbackContext;
+  vm.createContext(fallbackContext);
+  vm.runInContext(purchaseSource, fallbackContext, { filename: "purchase-recommendation.js" });
+  vm.runInContext(source, fallbackContext, { filename: "business-snapshot.js" });
+  return fallbackContext.window.ozkBusinessOS.getSnapshot();
+}
+
+const oldLiveAsOf = new Date(Date.now() - 16 * 60000).toISOString();
+const staleStockSnapshot = await fallbackSnapshot({ updatedAt: now, stock: { asOf: oldLiveAsOf, rows: [{ item_guid: "guid-ar", item_name: "مارلبورو أحمر", stock_qty: 0 }] } });
+const staleStockRecommendation = staleStockSnapshot.inventory.purchaseRecommendations.items[0];
+if (staleStockSnapshot.inventory.stockTrusted || staleStockSnapshot.inventory.stockAsOf !== null) throw new Error("Fresh snapshot generated_at must not make stale Ameen Live stock current");
+if (staleStockRecommendation.stockAsOf !== null || staleStockRecommendation.proposal.quantity !== null) throw new Error("Stale Ameen Live stock must fall back without a numeric quantity");
+if (staleStockRecommendation.velocityAsOf !== now || staleStockRecommendation.velocityState !== "fresh") throw new Error("Fresh velocity must remain available when stock is stale");
+
+const timeoutFallbackSnapshot = await fallbackSnapshot(null);
+const timeoutFallbackRecommendation = timeoutFallbackSnapshot.inventory.purchaseRecommendations.items[0];
+if (timeoutFallbackRecommendation.stockTrusted || timeoutFallbackRecommendation.proposal.quantity !== null) throw new Error("Ameen Live timeout/fallback must not become trusted through snapshot generated_at");
 
 console.log("OZK Business Snapshot contract: OK");

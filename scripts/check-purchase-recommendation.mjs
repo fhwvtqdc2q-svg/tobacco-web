@@ -18,7 +18,7 @@ const approved = {
   minimumOrderUnit: null,
   roundingToUnit2: false
 };
-const item = (overrides = {}) => ({ key: "i1", name: "صنف اختبار", stock: 5, stockAsOf: now.toISOString(), sold30d: 30, velocityAsOf: freshAsOf, unit1Name: "علبة", unit2Name: "كرتونة", unit2Factor: 10, ...overrides });
+const item = (overrides = {}) => ({ key: "i1", name: "صنف اختبار", stock: 5, stockSource: "ameen_live.stock", stockAsOf: now.toISOString(), stockTrusted: true, sold30d: 30, velocityAsOf: freshAsOf, unit1Name: "علبة", unit2Name: "كرتونة", unit2Factor: 10, ...overrides });
 const assert = (condition, message) => { if (!condition) throw new Error(message); };
 
 const outFresh = engine.recommendItem(item({ stock: 0 }), approved, now);
@@ -29,9 +29,20 @@ const lowFresh = engine.recommendItem(item({ stock: 2 }), approved, now);
 assert(lowFresh.priority === "high" && lowFresh.coverageDays === 2, "low stock with fresh velocity must use trusted coverage.");
 assert(lowFresh.proposal.quantity === 28, "low stock quantity must follow target minus current stock.");
 
+const fallbackStock = engine.recommendItem(item({ stock: 0, stockSource: "ameen_item_snapshot.fallback", stockTrusted: false }), approved, now);
+assert(fallbackStock.priority === "high" && fallbackStock.status === "out_of_stock", "Fallback stock may still signal review priority.");
+assert(!fallbackStock.stockTrusted && !fallbackStock.proposal.eligible && fallbackStock.proposal.quantity === null, "Fresh velocity plus fallback stock must suppress numeric quantity.");
+assert(fallbackStock.proposal.reason === "المخزون الحالي غير محدث", "Fallback stock must explain why quantity is blocked.");
+
 const staleVelocity = engine.recommendItem(item({ velocityAsOf: staleAsOf }), approved, now);
 assert(staleVelocity.velocityState === "stale" && !staleVelocity.proposal.eligible && staleVelocity.proposal.quantity === null, "stale velocity must never produce a quantity.");
 assert(staleVelocity.reason.includes("حركة المبيعات غير حديثة"), "stale velocity must explain the freshness failure.");
+
+const staleVelocityAndStock = engine.recommendItem(item({ velocityAsOf: staleAsOf, stockSource: "ameen_item_snapshot.fallback", stockTrusted: false }), approved, now);
+assert(!staleVelocityAndStock.velocityTrusted && !staleVelocityAndStock.stockTrusted && !staleVelocityAndStock.proposal.eligible, "Stale velocity plus stale stock must suppress numeric quantity.");
+
+const staleLiveStock = engine.recommendItem(item({ stockAsOf: "2026-08-17T11:40:00.000Z" }), approved, now);
+assert(staleLiveStock.stockState === "stale" && !staleLiveStock.proposal.eligible, "Ameen Live stock older than 15 minutes must be stale.");
 
 const missingVelocity = engine.recommendItem(item({ sold30d: null, velocityAsOf: null }), approved, now);
 assert(missingVelocity.velocityState === "missing" && !missingVelocity.proposal.eligible, "missing velocity must never produce a quantity.");
