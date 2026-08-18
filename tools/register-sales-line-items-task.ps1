@@ -2,7 +2,8 @@
 # Registration only. This script never starts the scheduled task or producer.
 [CmdletBinding()]
 param(
-    [ValidateRange(5, 1440)][int]$IntervalMinutes = 30
+    [ValidateRange(5, 1440)][int]$IntervalMinutes = 30,
+    [Switch]$ReplaceExisting
 )
 
 $ErrorActionPreference = "Stop"
@@ -16,6 +17,15 @@ if (-not $adminPrincipal.IsInRole([Security.Principal.WindowsBuiltInRole]::Admin
 }
 if (-not $identity.Name.Equals($requiredUserId, [StringComparison]::OrdinalIgnoreCase)) {
     throw "This task must be registered from the OZK2026\LOQ Windows account."
+}
+
+$existingTask = Get-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue
+if ($null -ne $existingTask) {
+    if (-not $ReplaceExisting) {
+        throw "Scheduled task '$taskName' already exists. No changes were made. Re-run with -ReplaceExisting to explicitly replace it."
+    }
+
+    Write-Warning "ReplaceExisting was explicitly requested. The existing scheduled task '$taskName' will be replaced; it will not be started or stopped."
 }
 
 $repoRoot = Split-Path -Parent $PSScriptRoot
@@ -80,13 +90,18 @@ try {
         throw "A Windows password is required to register this scheduled task."
     }
 
-    Register-ScheduledTask `
-        -TaskName $taskName `
-        -InputObject $taskDefinition `
-        -User $requiredUserId `
-        -Password $plainPassword `
-        -Force `
-        -ErrorAction Stop | Out-Null
+    $registrationParameters = @{
+        TaskName    = $taskName
+        InputObject = $taskDefinition
+        User        = $requiredUserId
+        Password    = $plainPassword
+        ErrorAction = "Stop"
+    }
+    if (($null -ne $existingTask) -and $ReplaceExisting) {
+        $registrationParameters["Force"] = $true
+    }
+
+    Register-ScheduledTask @registrationParameters | Out-Null
 } finally {
     [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($passwordPointer)
     $plainPassword = $null
