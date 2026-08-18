@@ -1944,6 +1944,7 @@ for (const contract of [
   const clientSource = readFileSync("src/supabase-client.js", "utf8");
   const decisionSource = readFileSync("src/decision-engine.js", "utf8");
   const commandSource = readFileSync("src/command-center.js", "utf8");
+  const serviceWorkerSource = readFileSync("public/service-worker.js", "utf8");
   const ownerSql = readFileSync("supabase/owner-role-access.sql", "utf8");
 
   for (const email of ["ozkkhallouf@gmail.com", "ozkkhalouf@gmail.com"]) {
@@ -1958,7 +1959,9 @@ for (const contract of [
     'const OWNER_ONLY_ROUTES = new Set(["decision", "command"])',
     'window.ozkCanAccessRoute = canAccessRoute',
     'requestPasswordReset(emailInput)',
-    'updateRecoveredPassword(passwordInput)'
+    'updateRecoveredPassword(passwordInput)',
+    'onPasswordRecovery(listener)',
+    'if (dataStore.isPasswordRecovery?.()) state.route = "login"'
   ]) {
     if (!(configSource + clientSource + appJs).includes(contract)) {
       console.error(`Owner/employee access contract is missing: ${contract}`);
@@ -1979,6 +1982,10 @@ for (const contract of [
   }
   if (!ownerSql.includes("security invoker") || !ownerSql.includes("revoke all on function public.is_owner() from public, anon")) {
     console.error("Owner authorization functions must not be anonymously executable or SECURITY DEFINER.");
+    failed = true;
+  }
+  if (!serviceWorkerSource.includes('client.navigate(url)') || !serviceWorkerSource.includes('recovery=1')) {
+    console.error("The PWA update must refresh stale open clients without interrupting password recovery links.");
     failed = true;
   }
 }

@@ -329,6 +329,15 @@ const state = {
 
 const app = document.querySelector("#app");
 
+function enterPasswordRecovery() {
+  if (!dataStore.isPasswordRecovery?.()) return;
+  state.route = "login";
+  state.notice = null;
+  render();
+}
+
+dataStore.onPasswordRecovery?.(enterPasswordRecovery);
+
 window.addEventListener("beforeinstallprompt", (event) => {
   event.preventDefault();
   state.installPrompt = event;
@@ -427,8 +436,15 @@ function notifPermissionBanner() {
 async function boot() {
   applyTheme();
   initKeyboardShortcuts();
+  if (dataStore.isPasswordRecovery?.()) state.route = "login";
   await loadPublishedExchangeRate();
   await refreshSession();
+  if (dataStore.isPasswordRecovery?.()) {
+    state.route = "login";
+    state.loading = false;
+    render();
+    return;
+  }
   await loadRequests();
   await loadInventoryReports();
   await loadCustomerBalanceReports();
