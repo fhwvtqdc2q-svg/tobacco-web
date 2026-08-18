@@ -37,6 +37,7 @@
     const coverage = rec.coverageDays === null ? "غير محسوبة" : `${qty(rec.coverageDays)} يوم`;
     const priority = ({ high: "عالية", medium: "متوسطة", review: "مراجعة", normal: "طبيعية" }[rec.priority] || "مراجعة");
     const velocityState = ({ fresh: "حديثة", stale: "قديمة", missing: "مفقودة", missing_as_of: "بلا تاريخ", freshness_unapproved: "غير معتمدة" }[rec.velocityState] || "غير محددة");
+    const stockState = rec.stockTrusted ? "حديث وموثوق من Ameen Live" : "غير محدث/غير موثوق";
     const unit1 = rec.unit1Name || "وحدة أولى";
     const numberLine = rec.number ? `<span style="display:block">رقم الصنف: ${escape(rec.number)}</span>` : "";
     const unit2Line = rec.unit2Name || rec.unit2Factor
@@ -45,7 +46,7 @@
     const proposal = rec.proposal?.eligible
       ? `${qty(rec.proposal.quantity)} ${escape(unit1)}${rec.proposal.basis === "unit2" && rec.unit2Name ? ` (${qty(rec.proposal.quantity / rec.unit2Factor)} ${escape(rec.unit2Name)})` : ""}`
       : `بحاجة مراجعة شراء — ${escape(rec.proposal?.reason || "بحاجة اعتماد قاعدة الشراء")}`;
-    return `<li class="command-purchase-item"><strong>${escape(rec.name)}</strong>${numberLine}<span style="display:block">المخزون الحالي: ${qty(rec.stock)} ${escape(unit1)}</span><span style="display:block">الوحدة الأولى: ${escape(unit1)}</span>${unit2Line}<span style="display:block">حركة المبيعات: ${escape(velocity)}</span><span style="display:block">حالة الحركة: ${escape(velocityState)}</span><span style="display:block">التغطية: ${escape(coverage)}</span><span style="display:block">الأولوية: ${escape(priority)}</span><span style="display:block">السبب: ${escape(rec.reason)}</span><span style="display:block">الكمية المقترحة: ${proposal}</span></li>`;
+    return `<li class="command-purchase-item"><strong>${escape(rec.name)}</strong>${numberLine}<span style="display:block">المخزون الحالي: ${qty(rec.stock)} ${escape(unit1)}</span><span style="display:block">حالة المخزون: ${escape(stockState)}</span><span style="display:block">الوحدة الأولى: ${escape(unit1)}</span>${unit2Line}<span style="display:block">حركة المبيعات: ${escape(velocity)}</span><span style="display:block">حالة الحركة: ${escape(velocityState)}</span><span style="display:block">التغطية: ${escape(coverage)}</span><span style="display:block">الأولوية: ${escape(priority)}</span><span style="display:block">السبب: ${escape(rec.reason)}</span><span style="display:block">الكمية المقترحة: ${proposal}</span></li>`;
   }
 
   function executiveCard(row, index) {
@@ -65,7 +66,8 @@
       const rows = candidates.slice(0, 8).map((item) => ({ agent: "inventory", action: item.reason, purchaseRecommendation: item }));
       const source = snapshot?.inventory?.meta?.source === "ameen_live.stock" ? "مخزون Ameen Live الحالي" : "آخر مصدر مخزون متاح";
       const settingsNote = recommendation?.settingsApproved ? "قاعدة كمية الشراء معتمدة." : "كمية الطلب الرقمية معطلة حتى اعتماد إعدادات الشراء.";
-      return { title: "شو لازم أشتري؟", body: rows.length ? `الأولوية حسب ${source}. ${settingsNote}` : `لا تظهر أصناف تحتاج توصية في ${source}.`, items: rows };
+      const stockNote = snapshot?.inventory?.stockTrusted ? "المخزون الحالي موثوق وحديث." : "المخزون الحالي غير محدث؛ الكميات الرقمية معطلة.";
+      return { title: "شو لازم أشتري؟", body: rows.length ? `الأولوية حسب ${source}. ${settingsNote} ${stockNote}` : `لا تظهر أصناف تحتاج توصية في ${source}. ${stockNote}`, items: rows };
     }
     return { title: "الخلاصة التنفيذية", body: executiveBrief.headline, items: items.slice(0, 3) };
   }
@@ -122,4 +124,3 @@
   try { allowedRoutes.add(ROUTE); if (new URLSearchParams(window.location.search).get("route") === ROUTE) state.route = ROUTE; const baseRender = render; render = function commandAwareRender() { if (state.route === ROUTE) { app.innerHTML = commandPage(); bindCommandEvents(); addCommandNav(); syncTimer(); return; } baseRender(); addCommandNav(); syncTimer(); }; window.ozkCommandCenter = Object.freeze({ answerQuestion, refresh: refreshCommandCenter, refreshFromAmeen }); render(); if (state?.route === ROUTE) setTimeout(refreshCommandCenter, 0); }
   catch (error) { console.error("[OZK Command Center Init]", error); }
 })();
-

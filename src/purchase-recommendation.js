@@ -2,6 +2,7 @@
   "use strict";
 
   const VERSION = 1;
+  const AMEEN_LIVE_STOCK_MAX_AGE_MINUTES = 15;
   const DEFAULT_SETTINGS = Object.freeze({
     approved: false,
     targetCoverageDays: null,
@@ -49,6 +50,17 @@
     return { trusted: true, state: "fresh", sold30d, asOf, ageDays, reason: null };
   }
 
+  function stockTrust(item, nowMs) {
+    const source = cleanText(item.stockSource);
+    const asOf = iso(item.stockAsOf);
+    if (source !== "ameen_live.stock") return { trusted: false, state: "fallback", source, asOf, ageMinutes: null, reason: "المخزون الحالي غير محدث" };
+    if (!asOf) return { trusted: false, state: "missing_as_of", source, asOf: null, ageMinutes: null, reason: "تاريخ المخزون الحالي غير متوفر" };
+    const ageMinutes = Math.max(0, (nowMs - new Date(asOf).getTime()) / 60000);
+    if (ageMinutes > AMEEN_LIVE_STOCK_MAX_AGE_MINUTES) return { trusted: false, state: "stale", source, asOf, ageMinutes, reason: "المخزون الحالي غير محدث" };
+    if (item.stockTrusted !== true) return { trusted: false, state: "untrusted", source, asOf, ageMinutes, reason: "المخزون الحالي غير موثوق" };
+    return { trusted: true, state: "fresh", source, asOf, ageMinutes, reason: null };
+  }
+
   function roundQuantity(quantity, item, settings) {
     if (quantity <= 0) return { quantity: 0, basis: "none", unitSize: null };
     const factor = positive(item.unit2Factor);
@@ -62,6 +74,7 @@
     const nowMs = now instanceof Date ? now.getTime() : new Date(now).getTime();
     const stock = finite(item.stock);
     const velocity = velocityTrust(item, settings, Number.isFinite(nowMs) ? nowMs : Date.now());
+    const stockStatus = stockTrust(item, Number.isFinite(nowMs) ? nowMs : Date.now());
     const averageDailySales = velocity.trusted ? velocity.sold30d / 30 : null;
     const coverageDays = averageDailySales !== null && averageDailySales > 0 && stock !== null ? Math.max(0, stock) / averageDailySales : null;
     let priority = "review";
@@ -95,6 +108,7 @@
     let proposal = { eligible: false, quantity: null, rawQuantity: null, basis: null, unitSize: null, reason: "بحاجة اعتماد قاعدة الشراء" };
     if (!velocity.trusted) proposal.reason = velocity.state === "stale" ? "حركة المبيعات غير حديثة" : velocity.reason;
     else if (stock === null) proposal.reason = "المخزون الحالي غير متوفر";
+    else if (!stockStatus.trusted) proposal.reason = stockStatus.reason;
     else if (settingsReady(settings)) {
       const rawQuantity = Math.max(0, averageDailySales * settings.targetCoverageDays - Math.max(0, stock));
       const rounded = roundQuantity(rawQuantity, item, settings);
@@ -106,7 +120,8 @@
     const name = readableText(item.name) || number || readableText(key) || "صنف غير مسمى";
     return Object.freeze({
       key, number, name,
-      stock, stockAsOf: iso(item.stockAsOf), unit1Name: readableText(item.unit1Name), unit2Name: readableText(item.unit2Name), unit2Factor: positive(item.unit2Factor),
+      stock, stockSource: stockStatus.source, stockAsOf: stockStatus.asOf, stockState: stockStatus.state, stockTrusted: stockStatus.trusted, stockAgeMinutes: stockStatus.ageMinutes,
+      unit1Name: readableText(item.unit1Name), unit2Name: readableText(item.unit2Name), unit2Factor: positive(item.unit2Factor),
       sold30d: velocity.sold30d, velocityAsOf: velocity.asOf, velocityState: velocity.state, velocityTrusted: velocity.trusted,
       averageDailySales, coverageDays, priority, status, reason, proposal
     });
@@ -120,5 +135,5 @@
     return Object.freeze({ version: VERSION, settings: normalizedSettings, settingsApproved: settingsReady(normalizedSettings), items: recommendations });
   }
 
-  window.ozkPurchaseRecommendation = Object.freeze({ VERSION, DEFAULT_SETTINGS, normalizeSettings, settingsReady, recommendItem, recommendInventory });
+  window.ozkPurchaseRecommendation = Object.freeze({ VERSION, AMEEN_LIVE_STOCK_MAX_AGE_MINUTES, DEFAULT_SETTINGS, normalizeSettings, settingsReady, recommendItem, recommendInventory });
 })();
