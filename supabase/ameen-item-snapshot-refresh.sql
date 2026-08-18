@@ -77,16 +77,32 @@ begin
   select count(*), min(s.generated_at) into v_count, v_generated_at
   from pg_temp.staged_ameen_item_snapshot s;
   if v_count <> jsonb_array_length(p_rows) then raise exception 'payload row count mismatch'; end if;
-  if exists (select 1 from pg_temp.staged_ameen_item_snapshot where nullif(btrim(item_key), '') is null) then
+  if exists (
+    select 1
+    from pg_temp.staged_ameen_item_snapshot s
+    where nullif(btrim(s.item_key), '') is null
+  ) then
     raise exception 'item_key is required';
   end if;
-  if exists (select item_key from pg_temp.staged_ameen_item_snapshot group by item_key having count(*) > 1) then
+  if exists (
+    select s.item_key
+    from pg_temp.staged_ameen_item_snapshot s
+    group by s.item_key
+    having count(*) > 1
+  ) then
     raise exception 'duplicate item_key in payload';
   end if;
-  if exists (select 1 from pg_temp.staged_ameen_item_snapshot where units_sold_30d < 0) then
+  if exists (
+    select 1
+    from pg_temp.staged_ameen_item_snapshot s
+    where s.units_sold_30d < 0
+  ) then
     raise exception 'negative units_sold_30d is not allowed';
   end if;
-  if (select count(distinct generated_at) from pg_temp.staged_ameen_item_snapshot) <> 1 then
+  if (
+    select count(distinct s.generated_at)
+    from pg_temp.staged_ameen_item_snapshot s
+  ) <> 1 then
     raise exception 'generated_at must be identical for all rows';
   end if;
 
@@ -97,12 +113,12 @@ begin
     last_purchase_currency, last_purchase_date, last_purchase_unit, average_cost,
     average_cost_currency, average_cost_basis, last_supplier_name,
     last_supplier_guid, units_sold_30d, movement_rank, generated_at
-  ) select id, item_key, item_guid, item_number, item_name, unit1_name, unit2_name,
-    unit2_factor, stock_unit1, stock_unit2, last_purchase_price,
-    last_purchase_currency, last_purchase_date, last_purchase_unit, average_cost,
-    average_cost_currency, average_cost_basis, last_supplier_name,
-    last_supplier_guid, units_sold_30d, movement_rank, generated_at
-  from pg_temp.staged_ameen_item_snapshot;
+  ) select s.id, s.item_key, s.item_guid, s.item_number, s.item_name, s.unit1_name, s.unit2_name,
+    s.unit2_factor, s.stock_unit1, s.stock_unit2, s.last_purchase_price,
+    s.last_purchase_currency, s.last_purchase_date, s.last_purchase_unit, s.average_cost,
+    s.average_cost_currency, s.average_cost_basis, s.last_supplier_name,
+    s.last_supplier_guid, s.units_sold_30d, s.movement_rank, s.generated_at
+  from pg_temp.staged_ameen_item_snapshot s;
   return query select v_count, v_generated_at;
 end;
 $$;
