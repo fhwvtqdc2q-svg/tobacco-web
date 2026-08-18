@@ -1,11 +1,11 @@
-# ============================================================
+﻿# ============================================================
 # push-sales-line-items.ps1
 # يقرأ حركة الفواتير التفصيلية (مبيعات مركز + طلبيات جملة) من
 # قاعدة الأمين آخر N يوم، ويرفعها لجدول sales_line_items بـSupabase.
 # هاد الجدول هو مصدر البيانات لأوامر البوت "حركة مادة" و"ربح اليوم".
 #
-# كل تشغيلة: تمسح صفوف نفس نافذة الأيام وترفعها من جديد (idempotent) —
-# فما في تكرار ولا حاجة لمعرفة مفتاح فريد داخل الأمين.
+# كل تشغيلة: ترسل النافذة كاملة إلى RPC يهيّئها ويتحقق منها ثم يستبدلها
+# ضمن transaction واحدة. لا يرى أي consumer نافذة محذوفة أو دفعات جزئية.
 #
 # تجربة بدون رفع:  .\tools\push-sales-line-items.ps1 -DryRun
 # تشغيل فعلي:      .\tools\push-sales-line-items.ps1
@@ -13,7 +13,7 @@
 # ============================================================
 param(
     [switch]$DryRun,
-    [int]$Days = 7,
+    [ValidateRange(1, 31)][int]$Days = 7,
     [string]$EnvFile = "$PSScriptRoot\.env",
     [string]$LogFile = "$PSScriptRoot\logs\sales-line-items-push.log"
 )
@@ -57,6 +57,10 @@ $apiKey = Get-Setting "TOBACCO_SUPABASE_PUBLIC_KEY"
 if (-not $apiKey) { $apiKey = Get-Setting "SUPABASE_PUBLIC_KEY" }
 $syncEmail = Get-Setting "TOBACCO_SYNC_EMAIL"
 $syncPassword = Get-Setting "TOBACCO_SYNC_PASSWORD"
+$windowEndDate = (Get-Date).Date
+$windowStartDate = $windowEndDate.AddDays(-$Days)
+$windowStart = $windowStartDate.ToString("yyyy-MM-dd")
+$windowEnd = $windowEndDate.ToString("yyyy-MM-dd")
 
 if (-not $connStr) { Write-Log "khata: AMEEN_SQL_CONNECTION_STRING ghyr mwjwd."; exit 1 }
 if (-not $supabaseUrl -or -not $apiKey -or -not $syncEmail -or -not $syncPassword) {
@@ -76,6 +80,7 @@ $SALES_TYPE_GUID     = "7f5b0921-61f3-4f23-a1f4-fbfae4144bf4"
 
 $sql = @"
 SELECT
+  CONVERT(nvarchar(36), bi.GUID)                              AS source_key,
   u.Number                                                    AS bill_no,
   CASE WHEN u.TypeGUID = '$RETAIL_TYPE_GUID' THEN 'retail'
        ELSE 'wholesale' END                                   AS bill_type,
@@ -107,7 +112,8 @@ FROM bu000 u
 JOIN bi000 bi ON bi.ParentGUID = u.GUID
 JOIN mt000 m  ON m.GUID = bi.MatGUID
 WHERE u.TypeGUID IN ('$RETAIL_TYPE_GUID', '$WHOLESALE_TYPE_GUID', '$SALES_TYPE_GUID')
-  AND u.Date >= DATEADD(day, -$Days, CAST(GETDATE() AS date))
+  AND u.Date >= CONVERT(date, '$windowStart', 23)
+  AND u.Date < DATEADD(day, 1, CONVERT(date, '$windowEnd', 23))
 ORDER BY u.Date DESC, u.Number DESC
 "@
 
@@ -123,9 +129,10 @@ try {
     $cmd.CommandTimeout = 120
     $reader = $cmd.ExecuteReader()
 
-    $rows = @()
+    $rows = New-Object 'System.Collections.Generic.List[object]'
     while ($reader.Read()) {
-        $rows += [PSCustomObject]@{
+        $rows.Add([PSCustomObject]@{
+            source_key    = "$($reader['source_key'])"
             bill_no       = "$($reader['bill_no'])"
             bill_type     = "$($reader['bill_type'])"
             sale_date     = ([datetime]$reader['sale_date']).ToString("yyyy-MM-dd")
@@ -139,7 +146,7 @@ try {
             customer_name = "$($reader['customer_name'])"
             unit2_name    = "$($reader['unit2_name'])"
             unit2_factor  = if ($reader['unit2_factor'] -is [DBNull]) { $null } else { [double]$reader['unit2_factor'] }
-        }
+        })
     }
     $reader.Close()
     $conn.Close()
@@ -166,23 +173,34 @@ try {
     $token = $auth.access_token
     $hdr = @{ apikey = $apiKey; Authorization = "Bearer $token"; "Accept-Profile" = "public"; "Content-Profile" = "public" }
 
-    # مسح نافذة نفس الأيام قبل إعادة الرفع (idempotent — يتفادى التكرار والفواتير المعدَّلة/الملغاة)
-    $cutoff = (Get-Date).AddDays(-$Days).ToString("yyyy-MM-dd")
-    Invoke-RestMethod -Method Delete -Uri "$supabaseUrl/rest/v1/sales_line_items?sale_date=gte.$cutoff" `
-        -Headers ($hdr + @{ Prefer = "return=minimal" }) | Out-Null
-    Write-Log "tem masah al-sofoof al-qadima (>= $cutoff)."
-
-    # رفع بدفعات 500 صف لتفادي حجم طلب كبير
-    $batchSize = 500
-    for ($i = 0; $i -lt $rows.Count; $i += $batchSize) {
-        $batch = $rows[$i..([Math]::Min($i + $batchSize - 1, $rows.Count - 1))]
-        $body = $batch | ConvertTo-Json -Depth 3
-        Invoke-RestMethod -Method Post -Uri "$supabaseUrl/rest/v1/sales_line_items" `
-            -Headers ($hdr + @{ Prefer = "return=minimal" }) `
-            -ContentType "application/json; charset=utf-8" -Body $body | Out-Null
+    # The RPC stages and validates the complete payload before it changes the
+    # target window. DELETE, INSERT, and completion metadata commit atomically.
+    $body = @{
+        p_window_start = $windowStart
+        p_window_end   = $windowEnd
+        p_rows         = @($rows.ToArray())
+    } | ConvertTo-Json -Depth 4 -Compress
+    $syncResult = @(
+        Invoke-RestMethod -Method Post `
+            -Uri "$supabaseUrl/rest/v1/rpc/replace_sales_line_items_window" `
+            -Headers ($hdr + @{ Prefer = "return=representation" }) `
+            -ContentType "application/json; charset=utf-8" `
+            -Body $body `
+            -TimeoutSec 300
+    )
+    if ($syncResult.Count -ne 1) {
+        throw "atomic_sales_refresh_returned_unexpected_result_count"
+    }
+    $resultRow = $syncResult[0]
+    if ([int]$resultRow.row_count -ne $rows.Count -or
+        "$($resultRow.window_start)" -ne $windowStart -or
+        "$($resultRow.window_end)" -ne $windowEnd -or
+        [string]::IsNullOrWhiteSpace("$($resultRow.sync_run_id)") -or
+        [string]::IsNullOrWhiteSpace("$($resultRow.completed_at)")) {
+        throw "atomic_sales_refresh_verification_failed"
     }
 
-    Write-Log "tem raf3 $($rows.Count) satr b-najah ✓"
+    Write-Log "tem istibdal $($rows.Count) satr atomically ($windowStart..$windowEnd)."
 
     # نفس المهمة المجدولة تحدّث تقرير الربح بعد تحديث حركة المبيعات، حتى
     # يبقى أمر «ربح اليوم» قريباً من الأمين من دون مهمة Windows إضافية.
