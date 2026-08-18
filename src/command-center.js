@@ -49,6 +49,15 @@
     return `<li class="command-purchase-item"><strong>${escape(rec.name)}</strong>${numberLine}<span style="display:block">المخزون الحالي: ${qty(rec.stock)} ${escape(unit1)}</span><span style="display:block">حالة المخزون: ${escape(stockState)}</span><span style="display:block">الوحدة الأولى: ${escape(unit1)}</span>${unit2Line}<span style="display:block">حركة المبيعات: ${escape(velocity)}</span><span style="display:block">حالة الحركة: ${escape(velocityState)}</span><span style="display:block">التغطية: ${escape(coverage)}</span><span style="display:block">الأولوية: ${escape(priority)}</span><span style="display:block">السبب: ${escape(rec.reason)}</span><span style="display:block">الكمية المقترحة: ${proposal}</span></li>`;
   }
 
+  function dedupeRecommendations(items) {
+    const unique = new Map();
+    for (const item of Array.isArray(items) ? items : []) {
+      const key = String(item?.itemGuid || item?.key || "").trim().toUpperCase();
+      if (key && !unique.has(key)) unique.set(key, item);
+    }
+    return [...unique.values()];
+  }
+
   function executiveCard(row, index) {
     const agent = executiveBrief?.agents?.[row.agent] || { icon: "🧠", name: "الفريق التنفيذي" };
     return `<article class="command-priority ${severityClass(row.severity)}"><div class="command-priority-rank">${index + 1}</div><div class="command-priority-body"><div class="command-priority-head"><strong>${escape(row.title)}</strong><span class="command-agent">${escape(agent.icon)} ${escape(agent.name)}</span></div><p><strong>ليش؟</strong> ${escape(row.why)}</p><p><strong>الإجراء:</strong> ${escape(row.action)}</p><div class="command-priority-actions"><span class="command-score">ضغط ${Math.round(number(row.severity))}/100</span><button class="button secondary" type="button" data-route="${escape(row.route || "overview")}">فتح القسم</button></div></div></article>`;
@@ -62,7 +71,7 @@
     if (q === "collections") { const rows = items.filter((x) => x.agent === "collections"); return { title: "مين لازم أراجع للتحصيل؟", body: rows.length ? rows[0].action : "ما في إشارة تحصيل مرتفعة حالياً من البيانات المتاحة.", items: rows.slice(0, 2) }; }
     if (q === "buy") {
       const recommendation = snapshot?.inventory?.purchaseRecommendations;
-      const candidates = Array.isArray(recommendation?.items) ? recommendation.items.filter((item) => item.priority !== "normal" || number(item.proposal?.quantity) > 0) : [];
+      const candidates = dedupeRecommendations(recommendation?.items).filter((item) => item.priority !== "normal" || number(item.proposal?.quantity) > 0);
       const rows = candidates.slice(0, 8).map((item) => ({ agent: "inventory", action: item.reason, purchaseRecommendation: item }));
       const source = snapshot?.inventory?.meta?.source === "ameen_live.stock" ? "مخزون Ameen Live الحالي" : "آخر مصدر مخزون متاح";
       const settingsNote = recommendation?.settingsApproved ? "قاعدة كمية الشراء معتمدة." : "كمية الطلب الرقمية معطلة حتى اعتماد إعدادات الشراء.";
@@ -121,6 +130,6 @@
   function bindCommandEvents() { app.querySelectorAll("[data-route]").forEach((button) => button.addEventListener("click", (event) => { event.preventDefault(); setRoute(button.dataset.route); })); app.querySelector("[data-action='command-refresh']")?.addEventListener("click", refreshCommandCenter); app.querySelector("[data-action='ameen-live-refresh']")?.addEventListener("click", refreshFromAmeen); app.querySelectorAll("[data-question]").forEach((button) => button.addEventListener("click", () => { answer = answerQuestion(button.dataset.question); render(); })); }
   function syncTimer() { if (refreshTimer) clearInterval(refreshTimer); refreshTimer = state?.route === ROUTE && state?.session ? setInterval(refreshCommandCenter, REFRESH_MS) : null; }
 
-  try { allowedRoutes.add(ROUTE); if (new URLSearchParams(window.location.search).get("route") === ROUTE) state.route = ROUTE; const baseRender = render; render = function commandAwareRender() { if (state.route === ROUTE) { app.innerHTML = commandPage(); bindCommandEvents(); addCommandNav(); syncTimer(); return; } baseRender(); addCommandNav(); syncTimer(); }; window.ozkCommandCenter = Object.freeze({ answerQuestion, refresh: refreshCommandCenter, refreshFromAmeen }); render(); if (state?.route === ROUTE) setTimeout(refreshCommandCenter, 0); }
+  try { allowedRoutes.add(ROUTE); if (new URLSearchParams(window.location.search).get("route") === ROUTE) state.route = ROUTE; const baseRender = render; render = function commandAwareRender() { if (state.route === ROUTE) { app.innerHTML = commandPage(); bindCommandEvents(); addCommandNav(); syncTimer(); return; } baseRender(); addCommandNav(); syncTimer(); }; window.ozkCommandCenter = Object.freeze({ answerQuestion, dedupeRecommendations, refresh: refreshCommandCenter, refreshFromAmeen }); render(); if (state?.route === ROUTE) setTimeout(refreshCommandCenter, 0); }
   catch (error) { console.error("[OZK Command Center Init]", error); }
 })();

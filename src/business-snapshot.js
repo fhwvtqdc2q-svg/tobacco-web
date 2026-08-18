@@ -4,6 +4,10 @@
   const SNAPSHOT_VERSION = 1;
   const DEFAULT_STALE_MINUTES = 15;
   const AMEEN_LIVE_MAX_AGE_MINUTES = 15;
+  const HISTORICAL_ITEM_GUIDS = new Set([
+    "8772CDCC-DDFD-4588-B6FB-2FA5B328760A",
+    "97DEAB72-26FC-4654-8E1B-E332FD126C3D"
+  ]);
 
   const numberOrNull = (value) => {
     if (value === null || value === undefined || value === "") return null;
@@ -12,6 +16,10 @@
   };
   const numberOrZero = (value) => numberOrNull(value) ?? 0;
   const text = (value) => String(value ?? "").trim();
+  const guid = (value) => {
+    const normalized = text(value).toUpperCase();
+    return /^[0-9A-F]{8}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{12}$/.test(normalized) ? normalized : "";
+  };
 
   function iso(value) {
     if (!value) return null;
@@ -119,36 +127,107 @@
     return cache;
   }
 
+  function itemGuid(row) {
+    return guid(row?.itemGuid || row?.item_guid || row?.itemKey || row?.item_key);
+  }
+
+  function itemNumber(row) {
+    return text(row?.itemNumber ?? row?.item_number);
+  }
+
+  function decisionTimestamp(row) {
+    const payload = row?.pricePayload || row?.price_payload || {};
+    const explicitApprovedAt = row?.approvedAtExplicit || row?.approved_at;
+    return newestIso([explicitApprovedAt, payload?.pricedDate || payload?.priced_date]);
+  }
+
+  function stableCommercialValue(row) {
+    const payload = row?.pricePayload || row?.price_payload || {};
+    return JSON.stringify({
+      salePrice: numberOrNull(row?.salePrice ?? row?.sale_price),
+      unit1Price: numberOrNull(row?.unit1Price ?? row?.unit1_price),
+      unit2Price: numberOrNull(row?.unit2Price ?? row?.unit2_price),
+      unit2Factor: numberOrNull(row?.unit2Factor ?? row?.unit2_factor),
+      retailPrice: numberOrNull(payload?.retail?.price),
+      wholesalePrice: numberOrNull(payload?.wholesale?.price)
+    });
+  }
+
+  function chooseApprovedOverlay(rows) {
+    if (!rows.length) return { state: "missing", row: null, duplicateCount: 0 };
+    if (rows.length === 1) return { state: "resolved", row: rows[0], duplicateCount: 0 };
+    const dated = rows.map((row) => ({ row, at: decisionTimestamp(row) })).filter((entry) => entry.at);
+    if (dated.length) {
+      const latest = dated.map((entry) => entry.at).sort().at(-1);
+      const winners = dated.filter((entry) => entry.at === latest).map((entry) => entry.row);
+      if (winners.length === 1 || new Set(winners.map(stableCommercialValue)).size === 1) {
+        return { state: "resolved", row: winners[0], duplicateCount: rows.length - 1 };
+      }
+      return { state: "review_only", row: null, duplicateCount: rows.length - 1, reason: "conflicting latest approved price decisions" };
+    }
+    if (new Set(rows.map(stableCommercialValue)).size === 1) {
+      return { state: "resolved", row: rows[0], duplicateCount: rows.length - 1 };
+    }
+    return { state: "review_only", row: null, duplicateCount: rows.length - 1, reason: "conflicting approved prices without an explicit decision timestamp" };
+  }
+
   function buildInventory(approvedItems, snapshots, liveStock = null) {
-    const snapshotByKey = new Map();
-    const snapshotByName = new Map();
+    const snapshotByGuid = new Map();
     for (const row of snapshots || []) {
-      const key = text(row.itemKey || row.item_key || row.itemGuid || row.item_guid);
-      const name = text(row.itemName || row.item_name).toLowerCase();
-      if (key) snapshotByKey.set(key, row);
-      if (name) snapshotByName.set(name, row);
+      const key = itemGuid(row);
+      if (key && !snapshotByGuid.has(key)) snapshotByGuid.set(key, row);
     }
 
     const liveStockAsOf = iso(liveStock?.asOf || liveStock?.updatedAt);
     const liveStockFreshness = freshness(liveStockAsOf, AMEEN_LIVE_MAX_AGE_MINUTES);
     const liveRows = Array.isArray(liveStock?.rows) && !liveStockFreshness.stale ? liveStock.rows : null;
     const stockAsOf = liveRows ? liveStockAsOf : null;
-    const sourceItems = liveRows || approvedItems || [];
-    const items = sourceItems.map((item) => {
-      const key = liveRows ? text(item.item_guid) : text(item.itemKey || item.item_key);
-      const number = liveRows ? text(item.item_number) : text(item.itemNumber || item.item_number);
+    const masterByGuid = new Map();
+    const masterRows = liveRows || (snapshots || []).filter((row) => !HISTORICAL_ITEM_GUIDS.has(itemGuid(row)));
+    for (const row of masterRows) {
+      const key = itemGuid(row);
+      if (key && !masterByGuid.has(key)) masterByGuid.set(key, row);
+    }
+    const numberToGuid = new Map();
+    const ambiguousNumbers = new Set();
+    for (const [key, row] of masterByGuid) {
+      const number = itemNumber(row);
+      if (!number) continue;
+      if (numberToGuid.has(number) && numberToGuid.get(number) !== key) ambiguousNumbers.add(number);
+      else numberToGuid.set(number, key);
+    }
+    for (const number of ambiguousNumbers) numberToGuid.delete(number);
+
+    const approvedByGuid = new Map();
+    const overlayAnomalies = [];
+    for (const row of approvedItems || []) {
+      const directGuid = itemGuid(row);
+      const number = itemNumber(row);
+      const key = directGuid && masterByGuid.has(directGuid) ? directGuid : (numberToGuid.get(number) || "");
+      if (!key) continue;
+      if (!approvedByGuid.has(key)) approvedByGuid.set(key, []);
+      approvedByGuid.get(key).push(row);
+    }
+
+    const items = [...masterByGuid.entries()].map(([key, item]) => {
+      const number = itemNumber(item);
       const name = liveRows ? text(item.item_name) : (text(item.itemName || item.item_name) || "صنف");
-      const snap = snapshotByKey.get(key) || snapshotByName.get(name.toLowerCase()) || null;
+      const snap = snapshotByGuid.get(key) || null;
+      const overlay = chooseApprovedOverlay(approvedByGuid.get(key) || []);
+      if (overlay.state === "review_only") overlayAnomalies.push({ itemGuid: key, itemNumber: number || null, code: "APPROVED_PRICE_CONFLICT", reason: overlay.reason });
       const stock = Math.max(0, numberOrZero(liveRows ? item.stock_qty : (snap?.stockUnit1 ?? snap?.stock_unit1 ?? item.stockQty ?? item.stock_qty)));
-      const stockSource = liveRows ? "ameen_live.stock" : (snap ? "ameen_item_snapshot.fallback" : "approved_price_items.fallback");
-      const sold30d = numberOrNull(snap?.unitsSold30d ?? snap?.units_sold_30d ?? item.unitsSold30d ?? item.units_sold_30d);
+      const stockSource = liveRows ? "ameen_live.stock" : "ameen_item_snapshot.fallback";
+      const sold30d = numberOrNull(snap?.unitsSold30d ?? snap?.units_sold_30d);
       const daysCover = sold30d !== null && sold30d > 0 ? stock / (sold30d / 30) : null;
       let status = "stable";
       if (stock <= 0) status = "out";
       else if (daysCover !== null && daysCover < 7) status = "urgent";
       else if (daysCover !== null && daysCover < 14) status = "low";
       return {
-        key, number, name, stock, sold30d, daysCover, status, purchaseQty: null,
+        key, itemGuid: key, number, name, stock, sold30d, daysCover, status, purchaseQty: null,
+        priceOverlay: overlay.row,
+        priceOverlayState: overlay.state,
+        approvedDuplicateCount: overlay.duplicateCount,
         stockSource, stockAsOf, stockTrusted: Boolean(liveRows),
         velocityAsOf: iso(snap?.generatedAt || snap?.generated_at),
         unit1Name: text(liveRows ? item.unit1_name : (snap?.unit1Name || snap?.unit1_name || item.unit1Name || item.unit1_name)),
@@ -173,15 +252,18 @@
       lowCoverCount: items.filter((row) => row.status === "low").length,
       urgentItems: items.filter((row) => ["out", "urgent"].includes(row.status)).sort((a, b) => (a.daysCover ?? -1) - (b.daysCover ?? -1)).slice(0, 12),
       purchaseRecommendations,
+      priceOverlayAnomalies: overlayAnomalies,
+      approvedDuplicateCount: items.reduce((sum, row) => sum + row.approvedDuplicateCount, 0),
+      historicalIdentityCount: liveRows ? 0 : (snapshots || []).filter((row) => HISTORICAL_ITEM_GUIDS.has(itemGuid(row))).length,
       stockSource: liveRows ? "ameen_live.stock" : "fallback",
       stockAsOf,
       stockTrusted: Boolean(liveRows),
       velocityAsOf: snapshotAsOf,
       meta: meta(
-        liveRows ? "ameen_live.stock" : (snapshots?.length ? "ameen_item_snapshot + approved_price_items" : "approved_price_items"),
+        liveRows ? "ameen_live.stock" : (snapshots?.length ? "ameen_item_snapshot" : "none"),
         stockAsOf,
         items.length ? (liveRows ? "complete" : "partial") : "missing",
-        liveRows ? "Stock quantities come from the current read-only Ameen Live response; low-cover status is used only when trusted 30-day velocity is available." : (snapshots?.length ? "30-day velocity uses the synchronized snapshot; fallback stock remains untrusted until a fresh Ameen Live read succeeds." : "Ameen item snapshot is unavailable; inventory intelligence is limited."),
+        liveRows ? "Current Ameen GUIDs define item coverage; approved prices are optional overlays only. Low-cover status is used only when trusted 30-day velocity is available." : (snapshots?.length ? "Snapshot GUIDs define fallback item coverage after excluding known historical identities; fallback stock remains untrusted until a fresh Ameen Live read succeeds." : "Ameen item snapshot is unavailable; approved prices do not define item coverage."),
         liveRows ? AMEEN_LIVE_MAX_AGE_MINUTES : DEFAULT_STALE_MINUTES
       )
     };

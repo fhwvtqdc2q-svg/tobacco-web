@@ -8,6 +8,8 @@ const window={location:{search:""},addEventListener:()=>{}};
 const context={console,Date,Math,Number,String,Array,Object,Promise,URLSearchParams,setTimeout:()=>0,setInterval:()=>0,clearInterval:()=>{},window,document,allowedRoutes,state:{route:"overview",session:null},app,shell:(x)=>x,render:()=>{},setRoute:()=>{}};
 context.globalThis=context;vm.createContext(context);vm.runInContext(source,context,{filename:"command-center.js"});
 if(!window.ozkCommandCenter?.answerQuestion||!window.ozkCommandCenter?.refresh)throw new Error("Command Center API missing");
+const duplicateGuid="11111111-1111-4111-8111-111111111111";
+if(window.ozkCommandCenter.dedupeRecommendations([{itemGuid:duplicateGuid},{itemGuid:duplicateGuid.toLowerCase()}]).length!==1)throw new Error("Command Center must emit at most one recommendation per canonical GUID");
 if(!allowedRoutes.has("command"))throw new Error("Command route not registered");
 const emptyAnswer=window.ozkCommandCenter.answerQuestion("today");
 if(emptyAnswer!==null)throw new Error("Command Center should not answer before executive brief is loaded");

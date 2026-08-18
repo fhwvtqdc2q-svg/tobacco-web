@@ -53,8 +53,8 @@ for (const file of required) {
       ozkAmeenLiveCache: {
         updatedAt: now,
         stock: { asOf: now, rowCount: 2, rows: [
-          { item_number: "1", item_guid: "g-1", item_name: "نفد فعلي", stock_qty: 0, stock_qty_net: 0, stock_qty_positive: 0, group_name: null, unit1_name: "علبة", unit2_name: "كرتونة", unit2_factor: 10 },
-          { item_number: "2", item_guid: "g-2", item_name: "متوفر", stock_qty: 7, stock_qty_net: 7, stock_qty_positive: 7, group_name: null, unit1_name: "علبة", unit2_name: "كرتونة", unit2_factor: 10 }
+          { item_number: "1", item_guid: "11111111-1111-4111-8111-111111111111", item_name: "نفد فعلي", stock_qty: 0, stock_qty_net: 0, stock_qty_positive: 0, group_name: null, unit1_name: "علبة", unit2_name: "كرتونة", unit2_factor: 10 },
+          { item_number: "2", item_guid: "22222222-2222-4222-8222-222222222222", item_name: "متوفر", stock_qty: 7, stock_qty_net: 7, stock_qty_positive: 7, group_name: null, unit1_name: "علبة", unit2_name: "كرتونة", unit2_factor: 10 }
         ] },
         customers: { asOf: now, rowCount: 293, rows: [{ customer_name: "مرجع" }] }
       }

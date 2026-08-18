@@ -119,7 +119,10 @@
     const number = readableText(item.number);
     const name = readableText(item.name) || number || readableText(key) || "صنف غير مسمى";
     return Object.freeze({
-      key, number, name,
+      key, itemGuid: cleanText(item.itemGuid || key), number, name,
+      priceOverlay: item.priceOverlay || null,
+      priceOverlayState: cleanText(item.priceOverlayState) || "missing",
+      approvedDuplicateCount: finite(item.approvedDuplicateCount) || 0,
       stock, stockSource: stockStatus.source, stockAsOf: stockStatus.asOf, stockState: stockStatus.state, stockTrusted: stockStatus.trusted, stockAgeMinutes: stockStatus.ageMinutes,
       unit1Name: readableText(item.unit1Name), unit2Name: readableText(item.unit2Name), unit2Factor: positive(item.unit2Factor),
       sold30d: velocity.sold30d, velocityAsOf: velocity.asOf, velocityState: velocity.state, velocityTrusted: velocity.trusted,

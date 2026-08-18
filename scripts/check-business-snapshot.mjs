@@ -4,6 +4,7 @@ import vm from "node:vm";
 const source = fs.readFileSync(new URL("../src/business-snapshot.js", import.meta.url), "utf8");
 const purchaseSource = fs.readFileSync(new URL("../src/purchase-recommendation.js", import.meta.url), "utf8");
 const now = new Date().toISOString();
+const itemGuid = "11111111-1111-4111-8111-111111111111";
 
 const context = {
   console,
@@ -28,7 +29,7 @@ const context = {
         return [{ itemKey: "i1", itemName: "صنف 1", stockQty: 5, updatedAt: new Date().toISOString() }];
       },
       async listItemSnapshots() {
-        return [{ itemKey: "guid-ar", itemName: "مارلبورو أحمر", stockUnit1: 5, unitsSold30d: 30, generatedAt: now }];
+        return [{ itemKey: itemGuid, itemGuid, itemName: "مارلبورو أحمر", stockUnit1: 5, unitsSold30d: 30, generatedAt: now }];
       },
       async listPurchaseInvoices() { return []; },
       async getPurchaseInvoicesAmeenReport() { return null; },
@@ -53,7 +54,7 @@ const context = {
     ozkPurchaseBusinessSettings: { approved: true, targetCoverageDays: 30, urgentCoverageDays: 7, salesVelocityFreshnessDays: 3, minimumOrderUnit: null, roundingToUnit2: true },
     ozkAmeenLiveCache: {
       updatedAt: now,
-      stock: { asOf: now, rows: [{ item_guid: "guid-ar", item_number: "123", item_name: "مارلبورو أحمر", stock_qty: 5, unit1_name: "علبة", unit2_name: "كرتونة", unit2_factor: 10 }] },
+      stock: { asOf: now, rows: [{ item_guid: itemGuid, item_number: "123", item_name: "مارلبورو أحمر", stock_qty: 5, unit1_name: "علبة", unit2_name: "كرتونة", unit2_factor: 10 }] },
       customers: { asOf: now, rows: [] }
     }
   }
@@ -87,8 +88,8 @@ async function fallbackSnapshot(cache) {
     console, Date, Map, Object, Promise, Number, String, Math, Array, Set,
     window: {
       tobaccoData: {
-        async listApprovedPriceItems() { return [{ itemKey: "guid-ar", itemName: "مارلبورو أحمر", stockQty: 0 }]; },
-        async listItemSnapshots() { return [{ itemKey: "guid-ar", itemName: "مارلبورو أحمر", stockUnit1: 0, unitsSold30d: 30, generatedAt: now }]; }
+        async listApprovedPriceItems() { return [{ itemKey: itemGuid, itemName: "مارلبورو أحمر", stockQty: 0 }]; },
+        async listItemSnapshots() { return [{ itemKey: itemGuid, itemGuid, itemName: "مارلبورو أحمر", stockUnit1: 0, unitsSold30d: 30, generatedAt: now }]; }
       },
       supplierObligationsData: {},
       ozkPurchaseBusinessSettings: { approved: true, targetCoverageDays: 30, urgentCoverageDays: 7, salesVelocityFreshnessDays: 3, minimumOrderUnit: null, roundingToUnit2: true },
@@ -103,7 +104,7 @@ async function fallbackSnapshot(cache) {
 }
 
 const oldLiveAsOf = new Date(Date.now() - 16 * 60000).toISOString();
-const staleStockSnapshot = await fallbackSnapshot({ updatedAt: now, stock: { asOf: oldLiveAsOf, rows: [{ item_guid: "guid-ar", item_name: "مارلبورو أحمر", stock_qty: 0 }] } });
+const staleStockSnapshot = await fallbackSnapshot({ updatedAt: now, stock: { asOf: oldLiveAsOf, rows: [{ item_guid: itemGuid, item_name: "مارلبورو أحمر", stock_qty: 0 }] } });
 const staleStockRecommendation = staleStockSnapshot.inventory.purchaseRecommendations.items[0];
 if (staleStockSnapshot.inventory.stockTrusted || staleStockSnapshot.inventory.stockAsOf !== null) throw new Error("Fresh snapshot generated_at must not make stale Ameen Live stock current");
 if (staleStockRecommendation.stockAsOf !== null || staleStockRecommendation.proposal.quantity !== null) throw new Error("Stale Ameen Live stock must fall back without a numeric quantity");
