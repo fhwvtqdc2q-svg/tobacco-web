@@ -203,7 +203,12 @@
     for (const row of approvedItems || []) {
       const directGuid = itemGuid(row);
       const number = itemNumber(row);
-      const key = directGuid && masterByGuid.has(directGuid) ? directGuid : (numberToGuid.get(number) || "");
+      const key = directGuid
+        ? (masterByGuid.has(directGuid) ? directGuid : "")
+        : (numberToGuid.get(number) || "");
+      if (directGuid && !key) {
+        overlayAnomalies.push({ itemGuid: directGuid, itemNumber: number || null, code: "APPROVED_GUID_NOT_IN_CURRENT_MASTER", reason: "explicit approved GUID is not part of the current master" });
+      }
       if (!key) continue;
       if (!approvedByGuid.has(key)) approvedByGuid.set(key, []);
       approvedByGuid.get(key).push(row);

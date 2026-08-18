@@ -89,6 +89,49 @@ const fallback = await snapshotFor({ snapshots, approved: partialApproved });
 if (fallback.inventory.itemCount !== 423 || fallback.inventory.historicalIdentityCount !== 2) throw new Error("CASE F/G: snapshot fallback must exclude exactly the two known historical identities");
 if (fallback.inventory.purchaseRecommendations.items.some((row) => row.stockTrusted || row.proposal.quantity !== null)) throw new Error("CASE I: fallback snapshot stock must remain untrusted and block numeric quantities");
 
+const historicalApproved = await snapshotFor({
+  liveRows: fixedRows.filter((row) => ["273", "398"].includes(row.item_number)),
+  snapshots: snapshots.filter((row) => ["273", "398"].includes(row.itemNumber)),
+  approved: [
+    { itemKey: known.old273, itemNumber: "273", itemName: "هوية 273 تاريخية", unit1Price: 273, approvedAtExplicit: now },
+    { itemKey: known.old398, itemNumber: "398", itemName: "هوية 398 تاريخية", unit1Price: 398, approvedAtExplicit: now }
+  ]
+});
+const historicalRecommendations = historicalApproved.inventory.purchaseRecommendations.items;
+if (historicalApproved.inventory.itemCount !== 2 || historicalRecommendations.length !== 2 || new Set(historicalRecommendations.map((row) => row.itemGuid)).size !== 2) throw new Error("CASE F/G: current 273/398 master coverage must remain complete and duplicate-free");
+for (const identity of [{ oldGuid: known.old273, currentGuid: known.current273, number: "273" }, { oldGuid: known.old398, currentGuid: known.current398, number: "398" }]) {
+  const current = historicalRecommendations.find((row) => row.itemGuid === identity.currentGuid);
+  if (!current || current.priceOverlay || current.priceOverlayState === "resolved") throw new Error(`CASE ${identity.number}: an explicit historical GUID must not fall back by item_number to the current GUID`);
+  if (!historicalApproved.inventory.priceOverlayAnomalies.some((row) => row.itemGuid === identity.oldGuid && row.code === "APPROVED_GUID_NOT_IN_CURRENT_MASTER")) throw new Error(`CASE ${identity.number}: unmatched explicit historical GUID must remain a review anomaly`);
+}
+if (historicalRecommendations.some((row) => row.itemGuid === known.old273 || row.itemGuid === known.old398)) throw new Error("CASE F/G: historical GUIDs must not enter current recommendation identities");
+
+const numberFallbackGuid = generatedGuid(9100);
+const numberFallback = await snapshotFor({
+  liveRows: [{ item_guid: numberFallbackGuid, item_number: "9100", item_name: "fallback by number", stock_qty: 2 }],
+  snapshots: [{ itemGuid: numberFallbackGuid, itemNumber: "9100", itemName: "fallback by number", stockUnit1: 2, unitsSold30d: 30, generatedAt: now }],
+  approved: [{ itemKey: "not-a-valid-guid", itemNumber: "9100", itemName: "fallback by number", unit1Price: 91, approvedAtExplicit: now }]
+});
+const numberFallbackRow = numberFallback.inventory.purchaseRecommendations.items[0];
+if (numberFallbackRow?.itemGuid !== numberFallbackGuid || numberFallbackRow?.priceOverlayState !== "resolved" || numberFallbackRow?.priceOverlay?.unit1Price !== 91) throw new Error("CASE L: a row without a valid explicit GUID must still use a unique trusted item_number fallback");
+
+const directWinnerGuid = generatedGuid(9201);
+const mismatchedNumberGuid = generatedGuid(9202);
+const directGuidWins = await snapshotFor({
+  liveRows: [
+    { item_guid: directWinnerGuid, item_number: "9201", item_name: "direct GUID winner", stock_qty: 2 },
+    { item_guid: mismatchedNumberGuid, item_number: "9202", item_name: "number must lose", stock_qty: 2 }
+  ],
+  snapshots: [
+    { itemGuid: directWinnerGuid, itemNumber: "9201", itemName: "direct GUID winner", stockUnit1: 2, unitsSold30d: 30, generatedAt: now },
+    { itemGuid: mismatchedNumberGuid, itemNumber: "9202", itemName: "number must lose", stockUnit1: 2, unitsSold30d: 30, generatedAt: now }
+  ],
+  approved: [{ itemKey: directWinnerGuid, itemNumber: "9202", itemName: "direct GUID winner", unit1Price: 92, approvedAtExplicit: now }]
+});
+const directWinner = directGuidWins.inventory.purchaseRecommendations.items.find((row) => row.itemGuid === directWinnerGuid);
+const numberLoser = directGuidWins.inventory.purchaseRecommendations.items.find((row) => row.itemGuid === mismatchedNumberGuid);
+if (directWinner?.priceOverlayState !== "resolved" || directWinner?.priceOverlay?.unit1Price !== 92 || numberLoser?.priceOverlay) throw new Error("CASE M: a valid current direct GUID must win over a conflicting item_number");
+
 const sameNameDifferentGuids = await snapshotFor({
   liveRows: [
     { item_guid: generatedGuid(9001), item_number: "9001", item_name: "أبيض طبعة" },
