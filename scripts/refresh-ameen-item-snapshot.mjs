@@ -8,6 +8,7 @@ const supabaseUrl = (process.env.TOBACCO_SUPABASE_URL || 'https://dyxbirfpxeocqf
 const publicKey = process.env.TOBACCO_SUPABASE_PUBLIC_KEY || process.env.SUPABASE_PUBLIC_KEY;
 const email = process.env.TOBACCO_SYNC_EMAIL;
 const password = process.env.TOBACCO_SYNC_PASSWORD;
+const PUBLIC_PROFILE = 'public';
 
 function localDateString(date) {
   const year = date.getFullYear();
@@ -19,6 +20,14 @@ function localDateString(date) {
 function requireSetting(value, name) {
   if (!value) throw new Error(`Missing required setting: ${name}`);
   return value;
+}
+
+function publicRestHeaders(headers, { write = false } = {}) {
+  return {
+    ...headers,
+    'Accept-Profile': PUBLIC_PROFILE,
+    ...(write ? { 'Content-Profile': PUBLIC_PROFILE } : {}),
+  };
 }
 
 async function request(url, options = {}) {
@@ -50,7 +59,10 @@ async function readAll(table, select, order, headers, filters = []) {
     url.searchParams.set('select', select);
     url.searchParams.set('order', order);
     for (const [name, value] of filters) url.searchParams.append(name, value);
-    const page = await request(url, { headers: { ...headers, Range: `${offset}-${offset + pageSize - 1}` } });
+    const page = await request(url, {
+      headers: publicRestHeaders(headers, { write: false }),
+      Range: `${offset}-${offset + pageSize - 1}`,
+    });
     rows.push(...page);
     if (page.length < pageSize) return rows;
   }
@@ -73,7 +85,8 @@ async function main() {
   }
 
   const writeResult = await request(`${supabaseUrl}/rest/v1/rpc/replace_ameen_item_snapshot`, {
-    method: 'POST', headers: { ...headers, 'Content-Type': 'application/json' },
+    method: 'POST',
+    headers: { ...publicRestHeaders(headers, { write: true }), 'Content-Type': 'application/json' },
     body: JSON.stringify({ p_rows: result.rows }),
   });
   const verification = await readAll('ameen_item_snapshot',
