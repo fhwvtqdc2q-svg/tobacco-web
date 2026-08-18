@@ -100,9 +100,17 @@
           }
         })
       : null;
+  let passwordRecoveryActive = /(?:[?&]recovery=1)|(?:[#&]type=recovery)/i.test(window.location?.href || "");
 
   // Canonical browser client: feature modules reuse the same GoTrue session owner.
-  if (client) window.ozkSupabaseClient = client;
+  if (client) {
+    window.ozkSupabaseClient = client;
+    if (typeof client.auth.onAuthStateChange === "function") {
+      client.auth.onAuthStateChange((event) => {
+        if (event === "PASSWORD_RECOVERY") passwordRecoveryActive = true;
+      });
+    }
+  }
 
   function normalizeSession(session) {
     const user = session?.user;
@@ -110,13 +118,18 @@
 
     const email = (user.email || "").toLowerCase();
     const staffEntry = window.appConfig?.staffRoles?.[email];
+    const metadataRole = String(user.app_metadata?.role || "").toLowerCase();
+    const accessRole = metadataRole === "owner" || metadataRole === "employee"
+      ? metadataRole
+      : staffEntry?.accessRole || "employee";
 
     return {
       provider: "supabase",
       id: user.id,
       email: user.email || "",
       name: staffEntry?.name || user.user_metadata?.display_name || user.email || "موظف OZK",
-      role: staffEntry?.role || user.user_metadata?.role || "خدمة العملاء"
+      role: staffEntry?.role || (accessRole === "owner" ? "المالك" : "موظف"),
+      accessRole
     };
   }
 
@@ -392,6 +405,28 @@
     async getSession() {
       if (client) return getSupabaseSession();
       return readJson(SESSION_KEY, null);
+    },
+
+    isPasswordRecovery() {
+      return Boolean(client && passwordRecoveryActive);
+    },
+
+    async requestPasswordReset(emailInput) {
+      if (!client) throw new Error("استعادة كلمة المرور تتطلب اتصالاً بـ Supabase.");
+      const email = cleanText(emailInput, 160);
+      if (!email) throw new Error("اكتب البريد الإلكتروني أولاً.");
+      const redirectTo = `${window.location.origin}${window.location.pathname}?route=login&recovery=1`;
+      const { error } = await client.auth.resetPasswordForEmail(email, { redirectTo });
+      if (error) throw new Error(translateAuthError(error.message));
+    },
+
+    async updateRecoveredPassword(passwordInput) {
+      if (!client || !passwordRecoveryActive) throw new Error("رابط استعادة كلمة المرور غير صالح أو انتهت صلاحيته.");
+      const password = String(passwordInput || "");
+      if (password.length < 10) throw new Error("استخدم كلمة مرور من 10 أحرف على الأقل.");
+      const { error } = await client.auth.updateUser({ password });
+      if (error) throw new Error(translateAuthError(error.message));
+      passwordRecoveryActive = false;
     },
 
     async signIn(input) {

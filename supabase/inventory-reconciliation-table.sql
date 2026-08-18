@@ -174,8 +174,7 @@ create index if not exists idx_inventory_recon_audit_log_session
   on inventory_recon_audit_log (session_id);
 
 -- ============================================================
--- دالة المالك — نفس نمط purchase_invoices_is_owner() في
--- purchase-invoices-ameen-sync.sql، وتطابق OWNER_EMAILS في src/app.js
+-- دالة المالك تعتمد app_metadata التي لا يستطيع المستخدم تعديلها بنفسه.
 -- سطر ~498 (نفس القائمة المستعملة لبوابات واجهة أخرى مثل item_costs).
 -- بلا SECURITY DEFINER: تقرأ فقط auth.jwt() الخاص بالجلسة الحالية.
 -- ============================================================
@@ -186,7 +185,7 @@ language sql
 stable
 set search_path = public
 as $$
-  select coalesce(auth.jwt() ->> 'email', '') in ('ozk.kh@outlook.com', 'ozkkhalouf@gmail.com');
+  select lower(coalesce(auth.jwt() -> 'app_metadata' ->> 'role', '')) = 'owner';
 $$;
 
 -- ============================================================

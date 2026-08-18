@@ -462,6 +462,7 @@ async function loadPublishedExchangeRate() {
 async function refreshSession() {
   try {
     state.session = await dataStore.getSession();
+    if (!canAccessRoute(state.route)) state.route = "overview";
   } catch (error) {
     state.session = null;
     setNotice("error", safeErrorMessage(error));
@@ -652,11 +653,16 @@ async function loadDailyMovement(date) {
 }
 
 // التكلفة للمدير فقط — تُجلب من جدول item_costs المحمي (RLS = is_owner)
-const OWNER_EMAILS = ["ozk.kh@outlook.com", "ozkkhalouf@gmail.com"];
+const OWNER_EMAILS = ["ozkkhallouf@gmail.com", "ozkkhalouf@gmail.com"];
+const OWNER_ONLY_ROUTES = new Set(["decision", "command"]);
 function isOwner() {
   const email = String(state.session?.email || "").trim().toLowerCase();
-  return OWNER_EMAILS.includes(email);
+  return state.session?.accessRole === "owner" || OWNER_EMAILS.includes(email);
 }
+function canAccessRoute(route) {
+  return !OWNER_ONLY_ROUTES.has(String(route || "")) || isOwner();
+}
+window.ozkCanAccessRoute = canAccessRoute;
 
 async function loadItemCosts() {
   try {
@@ -1081,7 +1087,12 @@ function printOverdueReport() {
 }
 
 function setRoute(route, clearNotice = true) {
-  state.route = route;
+  const requestedRoute = String(route || "overview");
+  state.route = canAccessRoute(requestedRoute) ? requestedRoute : "overview";
+  if (state.route !== requestedRoute) {
+    setNotice("error", "هذه الصفحة متاحة لحساب المالك فقط.");
+    clearNotice = false;
+  }
   // أرشيف الفواتير شاشة عابرة داخل صفحة المبيعات: أي تنقّل يعيدك إلى النموذج
   // لا إلى الأرشيف، كي لا تفتح «فاتورة مبيعات» فتجد قائمة الفواتير القديمة.
   state.salesHistoryOpen = false;
@@ -1129,6 +1140,33 @@ async function saveSession(form, action) {
     setNotice("error", safeErrorMessage(error));
     render();
   }
+}
+
+async function requestPasswordReset(form) {
+  try {
+    const email = formValue(form, "email");
+    await dataStore.requestPasswordReset(email);
+    setNotice("success", "أرسلنا رابط استعادة كلمة المرور إلى البريد. افتحه من جهازك ثم اختر كلمة مرور جديدة.");
+  } catch (error) {
+    setNotice("error", safeErrorMessage(error));
+  }
+  render();
+}
+
+async function saveRecoveredPassword(form) {
+  try {
+    const password = formValue(form, "password");
+    const confirmation = formValue(form, "passwordConfirmation");
+    if (password !== confirmation) throw new Error("كلمتا المرور غير متطابقتين.");
+    await dataStore.updateRecoveredPassword(password);
+    await dataStore.signOut();
+    state.session = null;
+    window.history.replaceState({}, "", `${window.location.pathname}?route=login`);
+    setNotice("success", "تم تغيير كلمة المرور. سجّل الدخول الآن بكلمة المرور الجديدة.");
+  } catch (error) {
+    setNotice("error", safeErrorMessage(error));
+  }
+  render();
 }
 
 async function logout() {
@@ -2902,7 +2940,7 @@ function overview() {
   const live = dataStore.isConfigured();
   const quickActions = state.session
     ? [
-        { route: "decision", label: "📌 قرار اليوم", hint: "ملخص تنفيذي للتحصيل والموردين" },
+        ...(isOwner() ? [{ route: "decision", label: "📌 قرار اليوم", hint: "ملخص تنفيذي للتحصيل والموردين" }] : []),
         { route: "pricing", label: "📋 نشرة الأسعار", hint: "تسعير ونشر للزبائن" },
         { route: "ameen", label: "📦 الأمين", hint: "مخزون وتقارير" },
         { route: "dashboard", label: "📑 التقارير", hint: "حركة اليوم" }
@@ -2950,6 +2988,19 @@ function overview() {
 
 function login() {
   const live = dataStore.isConfigured();
+  const recovering = live && dataStore.isPasswordRecovery?.();
+  if (recovering) {
+    return shell(`
+      <section class="panel wide form-layout">
+        <div><h2>اختيار كلمة مرور جديدة</h2><p class="muted">اكتب كلمة مرور قوية للحساب، ثم سجّل الدخول بها.</p></div>
+        <form class="form-card" data-form="password-recovery">
+          <label>كلمة المرور الجديدة<input name="password" type="password" minlength="10" autocomplete="new-password" required></label>
+          <label>تأكيد كلمة المرور<input name="passwordConfirmation" type="password" minlength="10" autocomplete="new-password" required></label>
+          <button class="button primary" type="submit">حفظ كلمة المرور</button>
+        </form>
+      </section>
+    `);
+  }
   return shell(`
     <section class="panel wide form-layout">
       <div>
@@ -2981,6 +3032,7 @@ function login() {
           <button class="button primary" type="submit" data-auth-action="signin">دخول</button>
           ${live ? '<button class="button secondary" type="submit" data-auth-action="signup">إنشاء حساب جديد</button>' : ""}
         </div>
+        ${live ? '<button class="button secondary" type="button" data-action="forgot-password">نسيت كلمة المرور</button>' : ""}
       </form>
     </section>
   `);
@@ -5029,7 +5081,7 @@ function staffPage() {
   if (!state.session) {
     return shell(`<section class="panel"><p class="muted">سجّل الدخول للوصول لهذه الصفحة.</p></section>`);
   }
-  const isOwner = state.session.email === appConfig.ai.ownerEmail;
+  const ownerSession = isOwner();
   const roles = [
     { name: "الإدارة", desc: "صلاحيات كاملة لجميع الصفحات", pages: ["الطلبات", "الأمين", "التسعير", "التقارير", "الفواتير", "المراقبة", "الدفع"] },
     { name: "خدمة العملاء", desc: "إدارة الطلبات والتواصل مع العملاء", pages: ["الطلبات", "المراقبة"] },
@@ -5062,7 +5114,7 @@ function staffPage() {
       <h3>الأدوار الوظيفية</h3>
       <div class="staff-roles-grid">${rolesHtml}</div>
     </section>
-    ${isOwner ? `
+    ${ownerSession ? `
     <section class="panel" style="margin-top:16px">
       <h3>إضافة موظف جديد</h3>
       <p class="muted" style="margin-bottom:12px">أضف حسابات الموظفين من منصة Supabase ثم شارك بيانات الدخول معهم.</p>
@@ -10059,6 +10111,15 @@ function render() {
   app.querySelector("[data-form='login']")?.addEventListener("submit", (event) => {
     event.preventDefault();
     saveSession(event.currentTarget, event.submitter?.dataset.authAction || "signin");
+  });
+
+  app.querySelector("[data-action='forgot-password']")?.addEventListener("click", (event) => {
+    requestPasswordReset(event.currentTarget.closest("form"));
+  });
+
+  app.querySelector("[data-form='password-recovery']")?.addEventListener("submit", (event) => {
+    event.preventDefault();
+    saveRecoveredPassword(event.currentTarget);
   });
 
   app.querySelector("[data-form='request']")?.addEventListener("submit", (event) => {

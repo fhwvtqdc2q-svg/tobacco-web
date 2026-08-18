@@ -38,17 +38,17 @@ grant select, insert, delete on ameen_purchase_invoice_reports to authenticated;
 
 -- دالة مالك ضيقة خاصة بهذا الملف فقط — معرَّفة ومستخدَمة محلياً هنا بلا أي
 -- اعتماد على دالة مشابهة بملف آخر، كي يبقى هذا الملف قابلاً للتطبيق منفرداً.
--- القائمة تطابق OWNER_EMAILS في src/app.js (نفس البريدين، مُعرَّفين هنا بشكل مستقل).
+-- دور المالك يأتي من app_metadata التي لا يستطيع المستخدم تعديلها بنفسه.
 create or replace function ameen_purchase_invoice_reports_is_owner()
 returns boolean
 language sql
 stable
 set search_path = public
 as $$
-  select coalesce(auth.jwt() ->> 'email', '') in ('ozk.kh@outlook.com', 'ozkkhalouf@gmail.com');
+  select lower(coalesce(auth.jwt() -> 'app_metadata' ->> 'role', '')) = 'owner';
 $$;
 
-comment on function ameen_purchase_invoice_reports_is_owner() is 'دالة مالك مستقلة خاصة بجدول ameen_purchase_invoice_reports فقط — تطابق OWNER_EMAILS في src/app.js، معرَّفة بشكل مستقل بلا اعتماد على أي دالة مشابهة بملف آخر.';
+comment on function ameen_purchase_invoice_reports_is_owner() is 'دالة مالك مستقلة تعتمد app_metadata.role=owner غير القابلة لتعديل المستخدم.';
 
 drop policy if exists "owner can select ameen_purchase_invoice_reports" on ameen_purchase_invoice_reports;
 create policy "owner can select ameen_purchase_invoice_reports"

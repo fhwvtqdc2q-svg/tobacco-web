@@ -185,7 +185,7 @@ comment on function purchase_invoice_guard_immutable_and_stamp() is 'يمنع ت
 -- ---------- RLS حقيقية: تفصل المُنشئ عن المُعتمِد عن عامل المزامنة ----------
 -- تستبدل هذه السياسات policies الأربع العامة في purchase-invoices-table.sql
 -- (سطر 32-47 هناك، authenticated بلا أي تفريق أدوار) بسياسات مضبوطة فعلياً.
--- الدور "المُعتمِد" (approver) يطابق OWNER_EMAILS في src/app.js سطر 498 —
+-- الدور "المُعتمِد" (approver) يعتمد app_metadata.role=owner —
 -- نفس القائمة المستعملة لبوابات الواجهة الأخرى (item_costs وغيرها)، وليست
 -- قائمة جديدة مستقلة.
 -- بلا SECURITY DEFINER: الدالة تقرأ فقط auth.jwt() الخاص بالجلسة الحالية، لا
@@ -196,10 +196,10 @@ language sql
 stable
 set search_path = public
 as $$
-  select coalesce(auth.jwt() ->> 'email', '') in ('ozk.kh@outlook.com', 'ozkkhalouf@gmail.com');
+  select lower(coalesce(auth.jwt() -> 'app_metadata' ->> 'role', '')) = 'owner';
 $$;
 
-comment on function purchase_invoices_is_owner() is 'يطابق OWNER_EMAILS في src/app.js — أساس صلاحية اعتماد/تعديل فواتير المشتريات بعد المسودة';
+comment on function purchase_invoices_is_owner() is 'يعتمد app_metadata.role=owner — أساس صلاحية اعتماد/تعديل فواتير المشتريات بعد المسودة';
 
 drop policy if exists "authenticated can select purchase_invoices" on purchase_invoices;
 drop policy if exists "authenticated can insert purchase_invoices" on purchase_invoices;
