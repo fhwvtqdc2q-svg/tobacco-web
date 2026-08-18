@@ -295,6 +295,7 @@
       sourceSyncedAt: row.source_synced_at || "",
       pricePayload: row.price_payload || {},
       notes: row.notes || "",
+      approvedAtExplicit: row.approved_at || "",
       approvedAt: row.approved_at || row.updated_at || row.created_at || "",
       updatedAt: row.updated_at || row.approved_at || row.created_at || ""
     };
