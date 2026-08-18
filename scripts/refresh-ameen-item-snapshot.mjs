@@ -60,8 +60,10 @@ async function readAll(table, select, order, headers, filters = []) {
     url.searchParams.set('order', order);
     for (const [name, value] of filters) url.searchParams.append(name, value);
     const page = await request(url, {
-      headers: publicRestHeaders(headers, { write: false }),
-      Range: `${offset}-${offset + pageSize - 1}`,
+      headers: {
+        ...publicRestHeaders(headers, { write: false }),
+        Range: `${offset}-${offset + pageSize - 1}`,
+      },
     });
     rows.push(...page);
     if (page.length < pageSize) return rows;
