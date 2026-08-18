@@ -16,6 +16,8 @@ const requiredRegistrationContracts = [
   ['repository working directory', /-WorkingDirectory\s+\$repoRoot/],
   ['AtStartup trigger', /New-ScheduledTaskTrigger\s+-AtStartup/],
   ['StartWhenAvailable', /-StartWhenAvailable/],
+  ['allow start on batteries', /-AllowStartIfOnBatteries/],
+  ['keep running on batteries', /-DontStopIfGoingOnBatteries/],
   ['unlimited execution time', /-ExecutionTimeLimit\s+\(New-TimeSpan -Seconds 0\)/],
   ['IgnoreNew instances', /-MultipleInstances\s+IgnoreNew/],
   ['restart count', /-RestartCount\s+99/],
