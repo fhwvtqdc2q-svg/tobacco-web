@@ -46,7 +46,16 @@ create policy "sync writer can delete ameen_item_snapshot"
   for delete to authenticated
   using ((select public.ameen_item_snapshot_is_sync_writer()));
 
-create or replace function public.replace_ameen_item_snapshot(p_rows jsonb)
+-- Remove the legacy one-argument overload so no caller can bypass the trusted
+-- sales-generation precondition after this migration is applied.
+drop function if exists public.replace_ameen_item_snapshot(jsonb);
+
+create or replace function public.replace_ameen_item_snapshot(
+  p_rows jsonb,
+  p_snapshot_window_start date,
+  p_snapshot_window_end date,
+  p_expected_sales_generation jsonb
+)
 returns table(row_count integer, generated_at timestamptz)
 language plpgsql
 security invoker
@@ -55,12 +64,52 @@ as $$
 declare
   v_count integer;
   v_generated_at timestamptz;
+  v_expected_source text;
+  v_expected_sync_run_id uuid;
+  v_expected_window_start date;
+  v_expected_window_end date;
+  v_expected_row_count integer;
+  v_expected_completed_at timestamptz;
+  v_current_source text;
+  v_current_sync_run_id uuid;
+  v_current_window_start date;
+  v_current_window_end date;
+  v_current_row_count integer;
+  v_current_completed_at timestamptz;
+  v_actual_sales_count integer;
+  v_actual_source_key_count integer;
+  v_actual_distinct_source_key_count integer;
 begin
   if not (select public.ameen_item_snapshot_is_sync_writer()) then
     raise exception 'sync writer required';
   end if;
   if jsonb_typeof(p_rows) <> 'array' or jsonb_array_length(p_rows) = 0 then
     raise exception 'snapshot payload must be a non-empty array';
+  end if;
+  if p_snapshot_window_start is null or p_snapshot_window_end is null
+     or (p_snapshot_window_end - p_snapshot_window_start) <> 30 then
+    raise exception 'snapshot sales window must be exactly D-30..D';
+  end if;
+  if p_expected_sales_generation is null
+     or jsonb_typeof(p_expected_sales_generation) <> 'object' then
+    raise exception 'expected sales generation metadata is required';
+  end if;
+
+  begin
+    v_expected_source := nullif(btrim(p_expected_sales_generation ->> 'source'), '');
+    v_expected_sync_run_id := nullif(p_expected_sales_generation ->> 'sync_run_id', '')::uuid;
+    v_expected_window_start := nullif(p_expected_sales_generation ->> 'window_start', '')::date;
+    v_expected_window_end := nullif(p_expected_sales_generation ->> 'window_end', '')::date;
+    v_expected_row_count := nullif(p_expected_sales_generation ->> 'row_count', '')::integer;
+    v_expected_completed_at := nullif(p_expected_sales_generation ->> 'completed_at', '')::timestamptz;
+  exception when invalid_text_representation or datetime_field_overflow then
+    raise exception 'expected sales generation metadata is invalid';
+  end;
+  if v_expected_source is null or v_expected_sync_run_id is null
+     or v_expected_window_start is null or v_expected_window_end is null
+     or v_expected_row_count is null or v_expected_row_count < 0
+     or v_expected_completed_at is null then
+    raise exception 'expected sales generation metadata is incomplete';
   end if;
 
   create temporary table staged_ameen_item_snapshot on commit drop as
@@ -106,6 +155,53 @@ begin
     raise exception 'generated_at must be identical for all rows';
   end if;
 
+  -- Sales replacement and Snapshot publication take this one transaction-level
+  -- lock in the same order. Once acquired, no Sales generation can commit until
+  -- this function either publishes the verified Snapshot or rolls back.
+  perform pg_advisory_xact_lock(hashtextextended('public.sales_line_items.atomic_refresh', 0));
+
+  select s.source, s.sync_run_id, s.window_start, s.window_end,
+         s.row_count, s.completed_at
+    into v_current_source, v_current_sync_run_id, v_current_window_start,
+         v_current_window_end, v_current_row_count, v_current_completed_at
+  from public.sales_line_items_sync_state s
+  where s.source = 'ameen_sales_line_items';
+  if not found then
+    raise exception 'trusted sales completion marker is missing';
+  end if;
+  if v_current_source is distinct from v_expected_source
+     or v_current_sync_run_id is distinct from v_expected_sync_run_id
+     or v_current_window_start is distinct from v_expected_window_start
+     or v_current_window_end is distinct from v_expected_window_end
+     or v_current_row_count is distinct from v_expected_row_count
+     or v_current_completed_at is distinct from v_expected_completed_at then
+    raise exception 'sales generation changed before snapshot publication';
+  end if;
+  if v_current_source <> 'ameen_sales_line_items'
+     or v_current_window_start <> p_snapshot_window_start
+     or v_current_window_end <> p_snapshot_window_end then
+    raise exception 'trusted sales marker does not cover the full snapshot window';
+  end if;
+  if v_current_completed_at < clock_timestamp() - interval '75 minutes'
+     or v_current_completed_at > clock_timestamp() + interval '5 minutes' then
+    raise exception 'trusted sales completion marker is stale or invalid';
+  end if;
+
+  select count(*)::integer, count(s.source_key)::integer,
+         count(distinct s.source_key)::integer
+    into v_actual_sales_count, v_actual_source_key_count,
+         v_actual_distinct_source_key_count
+  from public.sales_line_items s
+  where s.sale_date >= p_snapshot_window_start
+    and s.sale_date <= p_snapshot_window_end;
+  if v_actual_sales_count <> v_current_row_count then
+    raise exception 'trusted sales row_count no longer matches the full snapshot window';
+  end if;
+  if v_actual_source_key_count <> v_actual_sales_count
+     or v_actual_distinct_source_key_count <> v_actual_sales_count then
+    raise exception 'trusted sales source_key coverage is incomplete or duplicated';
+  end if;
+
   delete from public.ameen_item_snapshot s
   where s.item_key is not null;
   insert into public.ameen_item_snapshot (
@@ -124,8 +220,9 @@ begin
 end;
 $$;
 
-revoke all on function public.replace_ameen_item_snapshot(jsonb)
+revoke all on function public.replace_ameen_item_snapshot(jsonb, date, date, jsonb)
   from public, anon, service_role;
-grant execute on function public.replace_ameen_item_snapshot(jsonb) to authenticated;
+grant execute on function public.replace_ameen_item_snapshot(jsonb, date, date, jsonb)
+  to authenticated;
 
 commit;

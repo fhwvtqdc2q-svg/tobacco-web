@@ -43,7 +43,7 @@ assert.doesNotMatch(sql, /for delete[\s\S]{0,200}using\s*\(\s*true\s*\)/i);
 assert.doesNotMatch(sql, /for insert[\s\S]{0,200}with check[\s\S]{0,100}auth\.role/i);
 
 const rpc = sql.match(
-  /create or replace function public\.replace_ameen_item_snapshot\(p_rows jsonb\)[\s\S]*?\$\$;/i,
+  /create or replace function public\.replace_ameen_item_snapshot\([\s\S]*?p_expected_sales_generation jsonb[\s\S]*?\$\$;/i,
 )?.[0];
 assert.ok(rpc, 'snapshot replacement RPC must exist');
 assert.match(rpc, /\bsecurity invoker\b/i);
@@ -60,6 +60,16 @@ assert.match(
   /select s\.item_key\s*from pg_temp\.staged_ameen_item_snapshot s\s*group by s\.item_key/i,
 );
 assert.match(rpc, /where s\.units_sold_30d < 0/i);
+assert.match(sql, /drop function if exists public\.replace_ameen_item_snapshot\(jsonb\);/i);
+assert.match(rpc, /p_snapshot_window_start date[\s\S]*p_snapshot_window_end date/i);
+assert.match(rpc, /p_expected_sales_generation jsonb/i);
+assert.match(rpc, /pg_advisory_xact_lock\s*\(\s*hashtextextended\s*\(\s*'public\.sales_line_items\.atomic_refresh'/i);
+assert.match(rpc, /from public\.sales_line_items_sync_state s[\s\S]*where s\.source = 'ameen_sales_line_items'/i);
+assert.match(rpc, /sales generation changed before snapshot publication/i);
+assert.match(rpc, /trusted sales marker does not cover the full snapshot window/i);
+assert.match(rpc, /interval '75 minutes'/i);
+assert.match(rpc, /count\(\*\)::integer, count\(s\.source_key\)::integer,[\s\S]*count\(distinct s\.source_key\)::integer/i);
+assert.match(rpc, /trusted sales row_count no longer matches the full snapshot window/i);
 assert.doesNotMatch(rpc, /delete from public\.ameen_item_snapshot\s*;/i);
 assert.match(
   rpc,
@@ -99,8 +109,9 @@ for (const field of [
 }
 assert.doesNotMatch(sql, /\bsecurity definer\b/i);
 assert.doesNotMatch(sql, /grant execute[^;]*to (?:public|anon|service_role)/i);
-assert.match(sql, /grant execute on function public\.replace_ameen_item_snapshot\(jsonb\) to authenticated;/i);
-assert.match(sql, /revoke all on function public\.replace_ameen_item_snapshot\(jsonb\)[\s\S]*?from public, anon, service_role;/i);
+assert.match(sql, /grant execute on function public\.replace_ameen_item_snapshot\(jsonb, date, date, jsonb\)[\s\S]*?to authenticated;/i);
+assert.match(sql, /revoke all on function public\.replace_ameen_item_snapshot\(jsonb, date, date, jsonb\)[\s\S]*?from public, anon, service_role;/i);
+assert.doesNotMatch(sql, /grant execute on function public\.replace_ameen_item_snapshot\(jsonb\)\s/i);
 
 // Authorization matrix implied by the fixed-UID helper and RLS policies.
 const normalAuthenticatedUid = '00000000-0000-4000-8000-000000000001';
