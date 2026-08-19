@@ -237,6 +237,8 @@ const state = {
   dmFetchedFor: null,
   loading: true,
   notice: null,
+  passwordResetMode: new URLSearchParams(window.location.search).get("recovery") === "code",
+  passwordResetEmail: "",
   aiMessages: [],
   aiProvider: "claude",
   aiLoading: false,
@@ -1162,7 +1164,33 @@ async function requestPasswordReset(form) {
   try {
     const email = formValue(form, "email");
     await dataStore.requestPasswordReset(email);
-    setNotice("success", "أرسلنا رابط استعادة كلمة المرور إلى البريد. افتحه من جهازك ثم اختر كلمة مرور جديدة.");
+    state.passwordResetMode = true;
+    state.passwordResetEmail = email;
+    window.history.replaceState({}, "", `${window.location.pathname}?route=login&recovery=code`);
+    setNotice("success", "أرسلنا رمز استعادة من 6 أرقام إلى البريد. أدخل الرمز أدناه ثم اختر كلمة مرور جديدة.");
+  } catch (error) {
+    setNotice("error", safeErrorMessage(error));
+  }
+  render();
+}
+
+async function saveRecoveredPasswordCode(form) {
+  try {
+    const email = formValue(form, "email");
+    const token = formValue(form, "recoveryCode");
+    const password = formValue(form, "password");
+    const confirmation = formValue(form, "passwordConfirmation");
+    if (password !== confirmation) throw new Error("كلمتا المرور غير متطابقتين.");
+    if (!dataStore.isPasswordRecovery?.()) {
+      await dataStore.verifyPasswordRecoveryOtp(email, token);
+    }
+    await dataStore.updateRecoveredPassword(password);
+    await dataStore.signOut();
+    state.session = null;
+    state.passwordResetMode = false;
+    state.passwordResetEmail = "";
+    window.history.replaceState({}, "", `${window.location.pathname}?route=login`);
+    setNotice("success", "تم تغيير كلمة المرور. سجّل الدخول الآن بكلمة المرور الجديدة.");
   } catch (error) {
     setNotice("error", safeErrorMessage(error));
   }
@@ -3013,6 +3041,24 @@ function login() {
           <label>كلمة المرور الجديدة<input name="password" type="password" minlength="10" autocomplete="new-password" required></label>
           <label>تأكيد كلمة المرور<input name="passwordConfirmation" type="password" minlength="10" autocomplete="new-password" required></label>
           <button class="button primary" type="submit">حفظ كلمة المرور</button>
+        </form>
+      </section>
+    `);
+  }
+  if (live && state.passwordResetMode) {
+    return shell(`
+      <section class="panel wide form-layout">
+        <div>
+          <h2>تغيير كلمة المرور برمز الاستعادة</h2>
+          <p class="muted">أدخل البريد نفسه والرمز المكوّن من 6 أرقام الموجود في أحدث رسالة، ثم اختر كلمة مرور جديدة.</p>
+        </div>
+        <form class="form-card" data-form="password-recovery-code">
+          <label>البريد الإلكتروني<input name="email" type="email" value="${escapeHtml(state.passwordResetEmail)}" autocomplete="email" required></label>
+          <label>رمز الاستعادة<input name="recoveryCode" type="text" inputmode="numeric" pattern="[0-9]{6}" maxlength="6" autocomplete="one-time-code" required></label>
+          <label>كلمة المرور الجديدة<input name="password" type="password" minlength="10" autocomplete="new-password" required></label>
+          <label>تأكيد كلمة المرور<input name="passwordConfirmation" type="password" minlength="10" autocomplete="new-password" required></label>
+          <button class="button primary" type="submit">التحقق وحفظ كلمة المرور</button>
+          <button class="button secondary" type="button" data-action="cancel-password-reset">العودة إلى تسجيل الدخول</button>
         </form>
       </section>
     `);
@@ -10136,6 +10182,19 @@ function render() {
   app.querySelector("[data-form='password-recovery']")?.addEventListener("submit", (event) => {
     event.preventDefault();
     saveRecoveredPassword(event.currentTarget);
+  });
+
+  app.querySelector("[data-form='password-recovery-code']")?.addEventListener("submit", (event) => {
+    event.preventDefault();
+    saveRecoveredPasswordCode(event.currentTarget);
+  });
+
+  app.querySelector("[data-action='cancel-password-reset']")?.addEventListener("click", () => {
+    state.passwordResetMode = false;
+    state.passwordResetEmail = "";
+    state.notice = null;
+    window.history.replaceState({}, "", `${window.location.pathname}?route=login`);
+    render();
   });
 
   app.querySelector("[data-form='request']")?.addEventListener("submit", (event) => {
