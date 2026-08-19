@@ -9,8 +9,8 @@
   "theme_color": "#080705",
   "icons": [
     {
-      "src": "icons/app-icon.png",
-      "sizes": "720x720",
+      "src": "icons/ozk-ios-notification-icon.png",
+      "sizes": "512x512",
       "type": "image/png",
       "purpose": "any maskable"
     }
