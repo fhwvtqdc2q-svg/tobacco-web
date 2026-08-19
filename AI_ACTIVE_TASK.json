@@ -1,14 +1,14 @@
 {
     "schemaVersion":  1,
-    "status":  "active",
-    "owner":  "Codex",
-    "task":  "Accept configured 8-digit Supabase recovery OTP",
-    "branch":  "task branch pending for: Accept configured 8-digit Supabase recovery OTP",
+    "status":  "idle",
+    "owner":  null,
+    "task":  null,
+    "branch":  null,
     "files":  [
-                  "\"src/supabase-client.js\",\"src/app.js\",\"scripts/check.mjs\",\"index.html\",\"public/service-worker.js\""
+
               ],
-    "startedAt":  "2026-08-19T01:58:39Z",
-    "updatedAt":  "2026-08-19T01:58:39Z",
+    "startedAt":  null,
+    "updatedAt":  "2026-08-19T02:05:50Z",
     "pr":  66,
-    "note":  "Fix verified mismatch: Supabase email OTP length is 8 while recovery form truncates to 6."
+    "note":  "No active task. Read AI_HANDOFF.md before starting work."
 }

@@ -2,6 +2,13 @@
 
 يقرأه Claude وCodex قبل كل مهمة. أحدث سجل يكون في الأعلى. لا تحذف السجلات السابقة.
 
+## 2026-08-19 - Codex - قبول طول رمز Supabase OTP المضبوط
+
+- Status: completed
+- Branch: task branch pending for: Accept configured 8-digit Supabase recovery OTP
+- Files: "src/supabase-client.js","src/app.js","scripts/check.mjs","index.html","public/service-worker.js"
+- Result: PR #85 merged; verified Supabase expiry 3600 seconds and OTP length 8; live tobacco-151/v534 accepts 6-10 digits; all checks passed.
+- Handoff UTC: 2026-08-19T02:05:50Z
 ## 2026-08-19 - Codex - استعادة كلمة المرور برمز OTP يدوي
 
 - Status: completed
