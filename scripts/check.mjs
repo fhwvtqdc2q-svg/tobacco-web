@@ -1966,6 +1966,9 @@ for (const contract of [
     'type: "recovery"',
     'data-form="password-recovery-code"',
     'autocomplete="one-time-code"',
+    'pattern="[0-9]{6,10}"',
+    'maxlength="10"',
+    '/^\\d{6,10}$/.test(token)',
     'recovery=code'
   ]) {
     if (!(configSource + clientSource + appJs).includes(contract)) {
