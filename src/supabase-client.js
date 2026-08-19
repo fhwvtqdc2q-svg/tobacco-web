@@ -100,7 +100,12 @@
           }
         })
       : null;
-  let passwordRecoveryActive = /(?:[?&]recovery=1)|(?:[#&]type=recovery)/i.test(window.location?.href || "");
+  const initialRecoveryUrl = String(window.location?.href || "");
+  // لا تعتبر query string وحدها جلسة استعادة. جلسة الرابط الضمني تحتاج access token فعلياً،
+  // أما مسار الرمز اليدوي فيُفعّل فقط بعد نجاح verifyOtp.
+  let passwordRecoveryActive =
+    /(?:[#&]type=recovery)/i.test(initialRecoveryUrl) &&
+    /(?:[#&]access_token=)/i.test(initialRecoveryUrl);
   const passwordRecoveryListeners = new Set();
 
   function notifyPasswordRecovery() {
@@ -361,6 +366,7 @@
   function translateAuthError(message) {
     const msg = message || "";
     if (/auth session missing|session.*missing/i.test(msg)) return missingSessionMessage();
+    if (/otp_expired|token.*expired|invalid.*token|token.*invalid|one-time token/i.test(msg)) return "رمز الاستعادة غير صالح أو انتهت صلاحيته. اطلب رمزاً جديداً واحداً.";
     if (/invalid.*credentials|invalid.*password|wrong.*password/i.test(msg)) return "البريد الإلكتروني أو كلمة المرور غير صحيحة.";
     if (/email.*not.*confirmed|email.*unconfirmed/i.test(msg)) return "يرجى تأكيد بريدك الإلكتروني قبل تسجيل الدخول.";
     if (/too many requests|rate.*limit/i.test(msg)) return "محاولات كثيرة. انتظر قليلاً ثم حاول مجدداً.";
@@ -435,8 +441,21 @@
       if (error) throw new Error(translateAuthError(error.message));
     },
 
+    async verifyPasswordRecoveryOtp(emailInput, tokenInput) {
+      if (!client) throw new Error("استعادة كلمة المرور تتطلب اتصالاً بـ Supabase.");
+      const email = cleanText(emailInput, 160);
+      const token = cleanText(tokenInput, 12).replace(/\s+/g, "");
+      if (!email) throw new Error("اكتب البريد الإلكتروني أولاً.");
+      if (!/^\d{6}$/.test(token)) throw new Error("اكتب رمز الاستعادة المكوّن من 6 أرقام.");
+      const { data, error } = await client.auth.verifyOtp({ email, token, type: "recovery" });
+      if (error) throw new Error(translateAuthError(error.message));
+      if (!data?.session) throw new Error("تعذّر إنشاء جلسة استعادة كلمة المرور.");
+      notifyPasswordRecovery();
+      return normalizeSession(data.session);
+    },
+
     async updateRecoveredPassword(passwordInput) {
-      if (!client || !passwordRecoveryActive) throw new Error("رابط استعادة كلمة المرور غير صالح أو انتهت صلاحيته.");
+      if (!client || !passwordRecoveryActive) throw new Error("جلسة استعادة كلمة المرور غير صالحة أو انتهت صلاحيتها.");
       const password = String(passwordInput || "");
       if (password.length < 10) throw new Error("استخدم كلمة مرور من 10 أحرف على الأقل.");
       const { error } = await client.auth.updateUser({ password });

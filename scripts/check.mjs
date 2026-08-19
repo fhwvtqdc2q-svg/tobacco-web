@@ -1959,14 +1959,23 @@ for (const contract of [
     'const OWNER_ONLY_ROUTES = new Set(["decision", "command"])',
     'window.ozkCanAccessRoute = canAccessRoute',
     'requestPasswordReset(emailInput)',
+    'verifyPasswordRecoveryOtp(emailInput, tokenInput)',
     'updateRecoveredPassword(passwordInput)',
     'onPasswordRecovery(listener)',
-    'if (dataStore.isPasswordRecovery?.()) state.route = "login"'
+    'if (dataStore.isPasswordRecovery?.()) state.route = "login"',
+    'type: "recovery"',
+    'data-form="password-recovery-code"',
+    'autocomplete="one-time-code"',
+    'recovery=code'
   ]) {
     if (!(configSource + clientSource + appJs).includes(contract)) {
       console.error(`Owner/employee access contract is missing: ${contract}`);
       failed = true;
     }
+  }
+  if (/passwordRecoveryActive\s*=\s*\/(?:[^\n]|\\n)*recovery=1/.test(clientSource)) {
+    console.error("A recovery query string alone must not be treated as an authenticated recovery session.");
+    failed = true;
   }
   if (/const OWNER_EMAILS\s*=\s*\[[^\]]*ozk\.kh@outlook\.com/i.test(appJs)) {
     console.error("The employee Outlook account must not remain in OWNER_EMAILS.");
@@ -1984,8 +1993,8 @@ for (const contract of [
     console.error("Owner authorization functions must not be anonymously executable or SECURITY DEFINER.");
     failed = true;
   }
-  if (!serviceWorkerSource.includes('client.navigate(url)') || !serviceWorkerSource.includes('recovery=1')) {
-    console.error("The PWA update must refresh stale open clients without interrupting password recovery links.");
+  if (!serviceWorkerSource.includes('client.navigate(url)') || !serviceWorkerSource.includes('recovery=(?:1|code)') || !serviceWorkerSource.includes('type=recovery')) {
+    console.error("The PWA update must refresh stale open clients without interrupting link or OTP password recovery.");
     failed = true;
   }
 }
