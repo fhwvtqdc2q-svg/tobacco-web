@@ -2,6 +2,13 @@
 
 يقرأه Claude وCodex قبل كل مهمة. أحدث سجل يكون في الأعلى. لا تحذف السجلات السابقة.
 
+## 2026-08-19 - Codex - إصلاح وتفعيل اشتراك Web Push للأجهزة
+
+- Status: completed
+- Branch: task branch pending for: إصلاح وتفعيل اشتراك Web Push للأجهزة
+- Files: supabase/functions/web-push/index.ts
+- Result: PR #87 merged; Supabase web-push v2 active; one iPhone subscription enabled; physical lock-screen notification delivery confirmed.
+- Handoff UTC: 2026-08-19T02:47:14Z
 ## 2026-08-19 - Codex - قبول طول رمز Supabase OTP المضبوط
 
 - Status: completed
