@@ -11,13 +11,13 @@ const snapshotWindow = { start: '2026-07-20', end: '2026-08-19' };
 const marker = {
   source: 'ameen_sales_line_items',
   sync_run_id: 'afc6e476-01d6-4332-88d9-b2cfe6fcdb23',
-  window_start: '2026-08-12',
+  window_start: '2026-07-20',
   window_end: '2026-08-19',
-  row_count: 2,
+  row_count: 3,
   completed_at: '2026-08-19T00:45:00.000Z',
 };
 const salesRows = [
-  { sale_date: '2026-07-25', source_key: null },
+  { sale_date: '2026-07-25', source_key: '00000000-0000-4000-8000-000000000003' },
   { sale_date: '2026-08-12', source_key: '00000000-0000-4000-8000-000000000001' },
   { sale_date: '2026-08-19', source_key: '00000000-0000-4000-8000-000000000002' },
 ];
@@ -27,7 +27,7 @@ const trusted = assertTrustedSalesInput({
   markerBefore: marker, markerAfter: { ...marker }, salesLineItems: salesRows,
   snapshotWindow, now,
 });
-assert.equal(trusted.rowCount, 2);
+assert.equal(trusted.rowCount, 3);
 assert.equal(SALES_SYNC_MAX_AGE_MINUTES, 75);
 assert.throws(() => assertTrustedSalesInput({
   markerBefore: { ...marker, source: 'wrong_source' },
@@ -52,30 +52,48 @@ assert.throws(() => assertTrustedSalesInput({
 // B. Missing marker is fail-closed.
 assert.throws(() => getSingleSalesSyncMarker([]), /completion marker is missing/);
 
-// C. Two missed 30-minute cycles plus the 15-minute execution margin is stale.
+// C. One missed 30-minute run, the next cadence, and its 15-minute execution allowance totals 75 minutes.
 assert.throws(() => assertTrustedSalesInput({
   markerBefore: { ...marker, completed_at: '2026-08-18T23:54:59.000Z' },
   markerAfter: { ...marker, completed_at: '2026-08-18T23:54:59.000Z' },
   salesLineItems: salesRows, snapshotWindow, now,
 }), /completion marker is stale/);
 
-// D. The marker must cover the mutable D-7..D tail and share the consumer end date.
+// D. Only an exact D-30..D generation proves the full consumer window.
 assert.throws(() => assertTrustedSalesInput({
-  markerBefore: { ...marker, window_start: '2026-08-13' },
-  markerAfter: { ...marker, window_start: '2026-08-13' },
+  markerBefore: { ...marker, window_start: '2026-08-12', row_count: 2 },
+  markerAfter: { ...marker, window_start: '2026-08-12', row_count: 2 },
   salesLineItems: salesRows, snapshotWindow, now,
-}), /does not cover the required 7-day mutable tail/);
+}), /must exactly match the full snapshot window/);
 assert.throws(() => assertTrustedSalesInput({
   markerBefore: { ...marker, window_end: '2026-08-18' },
   markerAfter: { ...marker, window_end: '2026-08-18' },
   salesLineItems: salesRows, snapshotWindow, now,
-}), /does not match snapshot window_end/);
+}), /must exactly match the full snapshot window/);
+
+// The producer can replace wider history, so the guard never treats older rows as immutable.
+const salesProducer = await readFile('tools/push-sales-line-items.ps1', 'utf8');
+assert.match(salesProducer, /\[ValidateRange\(1, 31\)\]\[int\]\$Days = 7/);
+assert.throws(() => assertTrustedSalesInput({
+  markerBefore: { ...marker, window_start: '2026-08-05' },
+  markerAfter: { ...marker, window_start: '2026-08-05' },
+  salesLineItems: salesRows, snapshotWindow, now,
+}), /must exactly match the full snapshot window/);
 
 // E. The committed marker count must match actual rows in the marker window.
 assert.throws(() => assertTrustedSalesInput({
-  markerBefore: { ...marker, row_count: 3 }, markerAfter: { ...marker, row_count: 3 },
+  markerBefore: { ...marker, row_count: 4 }, markerAfter: { ...marker, row_count: 4 },
   salesLineItems: salesRows, snapshotWindow, now,
-}), /marker row_count is 3, but 2 rows were read/);
+}), /marker row_count is 4, but 3 rows were read/);
+assert.throws(() => assertTrustedSalesInput({
+  markerBefore: marker, markerAfter: marker,
+  salesLineItems: [{ ...salesRows[0], source_key: null }, ...salesRows.slice(1)], snapshotWindow, now,
+}), /missing or invalid source_key/);
+assert.throws(() => assertTrustedSalesInput({
+  markerBefore: marker, markerAfter: marker,
+  salesLineItems: [salesRows[0], { ...salesRows[1], source_key: salesRows[0].source_key }, salesRows[2]],
+  snapshotWindow, now,
+}), /duplicate source_key/);
 
 // F. A sales commit during pagination changes sync_run_id and blocks the snapshot.
 assert.throws(() => assertTrustedSalesInput({
@@ -92,5 +110,8 @@ const rpcIndex = producer.indexOf('/rest/v1/rpc/replace_ameen_item_snapshot');
 assert.ok(guardIndex >= 0 && guardIndex < dryRunIndex, 'freshness guard must run before Dry Run returns');
 assert.ok(guardIndex < rpcIndex, 'freshness guard must run before the snapshot RPC');
 assert.doesNotMatch(producer, /max\s*\(\s*created_at\s*\)/i);
+assert.match(producer, /p_snapshot_window_start:\s*result\.window\.start/);
+assert.match(producer, /p_snapshot_window_end:\s*result\.window\.end/);
+assert.match(producer, /p_expected_sales_generation:\s*\{/);
 
 console.log('Item snapshot freshness guard contract checks passed.');

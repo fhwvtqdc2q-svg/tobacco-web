@@ -109,7 +109,19 @@ async function main() {
   const writeResult = await request(`${supabaseUrl}/rest/v1/rpc/replace_ameen_item_snapshot`, {
     method: 'POST',
     headers: { ...publicRestHeaders(headers, { write: true }), 'Content-Type': 'application/json' },
-    body: JSON.stringify({ p_rows: result.rows }),
+    body: JSON.stringify({
+      p_rows: result.rows,
+      p_snapshot_window_start: result.window.start,
+      p_snapshot_window_end: result.window.end,
+      p_expected_sales_generation: {
+        source: trustedSalesSync.source,
+        sync_run_id: trustedSalesSync.syncRunId,
+        window_start: trustedSalesSync.windowStart,
+        window_end: trustedSalesSync.windowEnd,
+        row_count: trustedSalesSync.rowCount,
+        completed_at: trustedSalesSync.completedAt,
+      },
+    }),
   });
   const verification = await readAll('ameen_item_snapshot',
     'item_key,units_sold_30d,movement_rank,generated_at', 'item_key.asc', headers,

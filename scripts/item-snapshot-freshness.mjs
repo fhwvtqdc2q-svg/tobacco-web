@@ -1,8 +1,7 @@
 export const SALES_SYNC_SOURCE = 'ameen_sales_line_items';
 export const SALES_SYNC_CADENCE_MINUTES = 30;
-// Two missed 30-minute cadences plus the task's 15-minute execution/jitter budget.
+// One fully missed 30-minute run, then the next cadence plus its 15-minute execution allowance.
 export const SALES_SYNC_MAX_AGE_MINUTES = 75;
-export const SALES_SYNC_TRUSTED_TAIL_DAYS = 7;
 const MAX_FUTURE_SKEW_MINUTES = 5;
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -20,12 +19,6 @@ function dateOnly(value, label) {
   return text;
 }
 
-function subtractDays(dateText, days) {
-  const date = new Date(`${dateText}T00:00:00.000Z`);
-  date.setUTCDate(date.getUTCDate() - days);
-  return date.toISOString().slice(0, 10);
-}
-
 export function getSingleSalesSyncMarker(rows) {
   if (!Array.isArray(rows) || rows.length !== 1) {
     fail(rows?.length ? `expected one ${SALES_SYNC_SOURCE} marker, received ${rows.length}` : 'completion marker is missing');
@@ -36,7 +29,6 @@ export function getSingleSalesSyncMarker(rows) {
 export function validateSalesSyncMarker(marker, snapshotWindow, {
   now = new Date(),
   maxAgeMinutes = SALES_SYNC_MAX_AGE_MINUTES,
-  trustedTailDays = SALES_SYNC_TRUSTED_TAIL_DAYS,
 } = {}) {
   if (!marker || typeof marker !== 'object' || Array.isArray(marker)) fail('completion marker is missing');
   if (marker.source !== SALES_SYNC_SOURCE) fail(`unexpected marker source: ${marker.source ?? '<missing>'}`);
@@ -63,15 +55,8 @@ export function validateSalesSyncMarker(marker, snapshotWindow, {
   const snapshotStart = dateOnly(snapshotWindow?.start, 'snapshot.window_start');
   const snapshotEnd = dateOnly(snapshotWindow?.end, 'snapshot.window_end');
   if (snapshotEnd < snapshotStart) fail('snapshot window is inverted');
-  const requiredTailStart = subtractDays(snapshotEnd, trustedTailDays);
-  if (markerEnd !== snapshotEnd) {
-    fail(`marker window_end ${markerEnd} does not match snapshot window_end ${snapshotEnd}`);
-  }
-  if (markerStart > requiredTailStart) {
-    fail(`marker window does not cover the required ${trustedTailDays}-day mutable tail starting ${requiredTailStart}`);
-  }
-  if (markerStart < snapshotStart) {
-    fail(`marker window_start ${markerStart} is outside snapshot window_start ${snapshotStart}`);
+  if (markerStart !== snapshotStart || markerEnd !== snapshotEnd) {
+    fail(`marker window ${markerStart}..${markerEnd} must exactly match the full snapshot window ${snapshotStart}..${snapshotEnd}`);
   }
 
   return {
@@ -80,7 +65,7 @@ export function validateSalesSyncMarker(marker, snapshotWindow, {
     windowStart: markerStart,
     windowEnd: markerEnd,
     rowCount,
-    completedAt: completedAt.toISOString(),
+    completedAt: completedAtText,
   };
 }
 
