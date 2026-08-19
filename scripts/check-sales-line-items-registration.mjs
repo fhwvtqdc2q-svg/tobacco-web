@@ -2,15 +2,18 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 
 const registration = await readFile('tools/register-sales-line-items-task.ps1', 'utf8');
+const producer = await readFile('tools/push-sales-line-items.ps1', 'utf8');
 
 const contracts = [
   ['task name', /\$taskName\s*=\s*"TOBACCO Sales Line Items Push"/],
+  ['30 minute default cadence', /\[int\]\$IntervalMinutes\s*=\s*30/],
   ['explicit replacement opt-in', /\[Switch\]\$ReplaceExisting/],
   ['existing task preflight', /Get-ScheduledTask\s+-TaskName\s+\$taskName\s+-ErrorAction\s+SilentlyContinue/],
   ['stable principal', /\$requiredUserId\s*=\s*"OZK2026\\LOQ"/],
   ['Password logon', /-LogonType\s+Password/],
   ['highest run level', /-RunLevel\s+Highest/],
   ['producer path', /Join-Path\s+\$PSScriptRoot\s+"push-sales-line-items\.ps1"/],
+  ['explicit scheduled 30-day window', /\$arguments\s*=\s*".*-File\s+`"\$scriptPath`"\s+-Days\s+30"/],
   ['Windows PowerShell 5.1', /System32\\WindowsPowerShell\\v1\.0\\powershell\.exe/],
   ['repository working directory', /-WorkingDirectory\s+\$repoRoot/],
   ['repetition interval', /-RepetitionInterval\s+\(New-TimeSpan -Minutes \$IntervalMinutes\)/],
@@ -35,6 +38,22 @@ const contracts = [
 for (const [name, pattern] of contracts) {
   assert.match(registration, pattern, `registration contract missing: ${name}`);
 }
+
+assert.equal(
+  registration.match(/-Days\s+30\b/g)?.length,
+  1,
+  'scheduled task must pass exactly one explicit -Days 30 argument',
+);
+assert.doesNotMatch(
+  registration,
+  /-Days\s+(?:7|\$Days)\b/i,
+  'scheduled task must not use the producer default or a mutable Days value',
+);
+assert.match(
+  producer,
+  /\[ValidateRange\(1,\s*31\)\]\[int\]\$Days\s*=\s*7\b/,
+  'producer default must remain 7 days for manual and other callers',
+);
 
 const preflightIndex = registration.indexOf('Get-ScheduledTask');
 const passwordPromptIndex = registration.indexOf('Read-Host');
