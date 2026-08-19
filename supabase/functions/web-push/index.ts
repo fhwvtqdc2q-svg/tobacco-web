@@ -117,7 +117,7 @@ export default {
           tag: "push-test",
           lang: "ar",
           dir: "rtl",
-          icon: "https://ozktobacco.com/public/icons/app-icon.png",
+          icon: "https://ozktobacco.com/public/icons/ozk-ios-notification-icon.png",
           app_badge: "1",
         },
       });
@@ -186,7 +186,7 @@ export default {
             tag: message.tag || message.event_type,
             lang: "ar",
             dir: "rtl",
-            icon: "https://ozktobacco.com/public/icons/app-icon.png",
+            icon: "https://ozktobacco.com/public/icons/ozk-ios-notification-icon.png",
             app_badge: "1",
           },
         });
