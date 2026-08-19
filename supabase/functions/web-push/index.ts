@@ -47,7 +47,7 @@ export default {
       return String(data?.value || "");
     }
 
-    if (action === "config") {
+    if (action === "config" || action === "public-key") {
       const user = await requireUser();
       if (!user) return json({ error: "unauthorized" }, 401);
       const publicKey = await readSecret("web_push_vapid_public_key");
@@ -96,15 +96,58 @@ export default {
     if (action === "test") {
       const user = await requireUser();
       if (!user) return json({ error: "unauthorized" }, 401);
-      const { error } = await admin.from("web_push_outbox").insert({
-        event_type: "push_test",
-        title: "🔔 اختبار إشعارات OZK",
-        body: "الإشعارات الفورية مفعّلة على هذا الجهاز.",
-        tag: "push-test",
-        navigate: "/?route=overview",
+      const { data: subscriptions, error } = await admin.from("web_push_subscriptions")
+        .select("id,endpoint,p256dh,auth_key")
+        .eq("user_id", user.id)
+        .eq("enabled", true);
+      if (error) return json({ error: "test_subscription_load_failed" }, 500);
+      if (!subscriptions?.length) return json({ error: "no_active_subscriptions" }, 409);
+
+      const vapidPublic = await readSecret("web_push_vapid_public_key");
+      const vapidPrivate = await readSecret("web_push_vapid_private_key");
+      if (!vapidPublic || !vapidPrivate) return json({ error: "vapid_not_configured" }, 503);
+      webpush.setVapidDetails("mailto:admin@ozktobacco.com", vapidPublic, vapidPrivate);
+
+      const payload = JSON.stringify({
+        web_push: 8030,
+        notification: {
+          title: "🔔 اختبار إشعارات OZK",
+          body: "الإشعارات الفورية مفعّلة على هذا الجهاز.",
+          navigate: "https://ozktobacco.com/?route=overview",
+          tag: "push-test",
+          lang: "ar",
+          dir: "rtl",
+          icon: "https://ozktobacco.com/public/icons/app-icon.png",
+          app_badge: "1",
+        },
       });
-      if (error) return json({ error: "test_queue_failed" }, 500);
-      return json({ ok: true });
+
+      let sent = 0;
+      let failed = 0;
+      for (const subscription of subscriptions) {
+        try {
+          await webpush.sendNotification({
+            endpoint: subscription.endpoint,
+            keys: { p256dh: subscription.p256dh, auth: subscription.auth_key },
+          }, payload, { TTL: 300, urgency: "high" });
+          sent++;
+          await admin.from("web_push_subscriptions")
+            .update({ last_success_at: new Date().toISOString(), last_error: null })
+            .eq("id", subscription.id);
+        } catch (pushError) {
+          failed++;
+          const statusCode = Number((pushError as { statusCode?: number })?.statusCode || 0);
+          const lastError = String((pushError as Error)?.message || "push_failed").slice(0, 500);
+          await admin.from("web_push_subscriptions")
+            .update(statusCode === 404 || statusCode === 410
+              ? { enabled: false, last_error: `expired:${statusCode}` }
+              : { last_error: lastError })
+            .eq("id", subscription.id);
+        }
+      }
+
+      if (sent === 0) return json({ error: "test_delivery_failed", sent, failed }, 502);
+      return json({ ok: true, sent, failed });
     }
 
     if (action === "dispatch") {
