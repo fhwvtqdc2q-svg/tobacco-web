@@ -2,6 +2,13 @@
 
 يقرأه Claude وCodex قبل كل مهمة. أحدث سجل يكون في الأعلى. لا تحذف السجلات السابقة.
 
+## 2026-08-19 - Codex - استعادة كلمة المرور برمز OTP يدوي
+
+- Status: completed
+- Branch: task branch pending for: Make password recovery resistant to email prefetching with a manual OTP code
+- Files: 'src/supabase-client.js','src/app.js','scripts/check.mjs','index.html','public/service-worker.js'
+- Result: PR #84 merged; hosted recovery template uses Token; project and GitHub checks passed; live tobacco-150/v532 verified.
+- Handoff UTC: 2026-08-19T01:24:02Z
 ## 2026-08-18 - Codex - Fix password recovery link and iPhone owner-only navigation
 
 - Status: completed
