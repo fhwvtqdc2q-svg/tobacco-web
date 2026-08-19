@@ -1167,7 +1167,7 @@ async function requestPasswordReset(form) {
     state.passwordResetMode = true;
     state.passwordResetEmail = email;
     window.history.replaceState({}, "", `${window.location.pathname}?route=login&recovery=code`);
-    setNotice("success", "أرسلنا رمز استعادة من 6 أرقام إلى البريد. أدخل الرمز أدناه ثم اختر كلمة مرور جديدة.");
+    setNotice("success", "أرسلنا رمز استعادة إلى البريد. أدخل الرمز كاملاً كما ورد في أحدث رسالة، ثم اختر كلمة مرور جديدة.");
   } catch (error) {
     setNotice("error", safeErrorMessage(error));
   }
@@ -3050,11 +3050,11 @@ function login() {
       <section class="panel wide form-layout">
         <div>
           <h2>تغيير كلمة المرور برمز الاستعادة</h2>
-          <p class="muted">أدخل البريد نفسه والرمز المكوّن من 6 أرقام الموجود في أحدث رسالة، ثم اختر كلمة مرور جديدة.</p>
+          <p class="muted">أدخل البريد نفسه والرمز الرقمي كاملاً من أحدث رسالة (إعداد Supabase الحالي: 8 أرقام)، ثم اختر كلمة مرور جديدة.</p>
         </div>
         <form class="form-card" data-form="password-recovery-code">
           <label>البريد الإلكتروني<input name="email" type="email" value="${escapeHtml(state.passwordResetEmail)}" autocomplete="email" required></label>
-          <label>رمز الاستعادة<input name="recoveryCode" type="text" inputmode="numeric" pattern="[0-9]{6}" maxlength="6" autocomplete="one-time-code" required></label>
+          <label>رمز الاستعادة<input name="recoveryCode" type="text" inputmode="numeric" pattern="[0-9]{6,10}" minlength="6" maxlength="10" autocomplete="one-time-code" required></label>
           <label>كلمة المرور الجديدة<input name="password" type="password" minlength="10" autocomplete="new-password" required></label>
           <label>تأكيد كلمة المرور<input name="passwordConfirmation" type="password" minlength="10" autocomplete="new-password" required></label>
           <button class="button primary" type="submit">التحقق وحفظ كلمة المرور</button>

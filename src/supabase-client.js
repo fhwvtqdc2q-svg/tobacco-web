@@ -446,7 +446,7 @@
       const email = cleanText(emailInput, 160);
       const token = cleanText(tokenInput, 12).replace(/\s+/g, "");
       if (!email) throw new Error("اكتب البريد الإلكتروني أولاً.");
-      if (!/^\d{6}$/.test(token)) throw new Error("اكتب رمز الاستعادة المكوّن من 6 أرقام.");
+      if (!/^\d{6,10}$/.test(token)) throw new Error("اكتب رمز الاستعادة الرقمي كاملاً كما ورد في الرسالة (من 6 إلى 10 أرقام).");
       const { data, error } = await client.auth.verifyOtp({ email, token, type: "recovery" });
       if (error) throw new Error(translateAuthError(error.message));
       if (!data?.session) throw new Error("تعذّر إنشاء جلسة استعادة كلمة المرور.");
