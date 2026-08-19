@@ -52,7 +52,7 @@ if ($parserErrors.Count -ne 0) {
     throw "Sales line items producer failed PowerShell parser validation."
 }
 
-$arguments = "-NoProfile -ExecutionPolicy Bypass -File `"$scriptPath`""
+$arguments = "-NoProfile -ExecutionPolicy Bypass -File `"$scriptPath`" -Days 30"
 $action = New-ScheduledTaskAction `
     -Execute $powerShellPath `
     -Argument $arguments `
