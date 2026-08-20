@@ -18,6 +18,7 @@
     const { data, error } = await client
       .from("supplier_obligations")
       .select("supplier_key,supplier_name,amount_due,currency,due_date,strategic_weight,supply_risk,notes,source,updated_at")
+      .eq("source", "ameen_ac000_credit_minus_debit")
       .gt("amount_due", 0)
       .order("amount_due", { ascending: false })
       .limit(200);
