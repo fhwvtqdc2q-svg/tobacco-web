@@ -5,6 +5,7 @@
 import { readFileSync, writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, resolve } from "node:path";
+import { createHash } from "node:crypto";
 import "../src/price-list-template.js";
 
 const __dir = dirname(fileURLToPath(import.meta.url));
@@ -580,6 +581,11 @@ const buildHtml = ({ pageItems, titleSuffix, badgeClass, badgeLabel, unitLabel, 
       price: priceFormatter(item)
     }))
   }));
+  const pdfVersion = createHash("sha256")
+    .update(JSON.stringify({ groups, rate: SYP_RATE, pdfFile }))
+    .digest("hex")
+    .slice(0, 12);
+  const versionedPdfFile = `${pdfFile}?v=${pdfVersion}`;
   const bulletinMarkup = priceListTemplate.render({
     groups,
     logoSrc,
@@ -587,7 +593,7 @@ const buildHtml = ({ pageItems, titleSuffix, badgeClass, badgeLabel, unitLabel, 
     badgeClass,
     badgeLabelHtml: badgeLabel,
     unitLabel,
-    tools: { pdfFile },
+    tools: { pdfFile: versionedPdfFile },
     theme: "dark"
   });
   return `<!DOCTYPE html>
@@ -606,7 +612,7 @@ ${bulletinMarkup}
   sheet.dataset.theme = savedTheme || 'dark';
   document.body.dataset.theme = sheet.dataset.theme;
   function selectedPdfFile() {
-    return sheet.dataset.theme === 'light' ? '${pdfFile.replace(".pdf", "-light.pdf")}' : '${pdfFile}';
+    return sheet.dataset.theme === 'light' ? '${versionedPdfFile.replace(".pdf", "-light.pdf")}' : '${versionedPdfFile}';
   }
   function syncPdfLinks() {
     const selected = selectedPdfFile();

@@ -146,6 +146,28 @@ for (const contract of [
     failed = true;
   }
 }
+
+for (const contract of [
+  'bulletinPdfTheme: readJson("bulletin-pdf-theme", "dark")',
+  "function storeBulletinPdfTheme",
+  "function setPricePreviewTheme",
+  'data-action="select-bulletin-theme"',
+  'data-action="price-preview-theme"',
+  "customerPricePdfMarkup(items, latest, useSyria, previewTheme)",
+  "backgroundColor = selectedTheme === \"light\" ? \"#fffdf8\" : \"#0c0a07\"",
+  "freshPublishedBulletinUrl"
+]) {
+  if (!app.includes(contract)) {
+    console.error(`Bulletin light/dark preview contract is missing: ${contract}`);
+    failed = true;
+  }
+}
+for (const contract of ['createHash("sha256")', "versionedPdfFile", "?v=${pdfVersion}"]) {
+  if (!priceGenerator.includes(contract)) {
+    console.error(`Published PDF cache-busting contract is missing: ${contract}`);
+    failed = true;
+  }
+}
 for (const forbidden of ["sessionStorage", "anthropic-dangerous-direct-browser-access", "api.openai.com/v1/chat/completions"]) {
   if (app.includes(forbidden)) {
     console.error(`Browser-side AI secret contract must be removed: ${forbidden}`);
@@ -347,6 +369,9 @@ for (const contract of [
   "function storeSyriaExchangeRate",
   "function capturePublishedExchangeRate",
   "writeJson(\"syria-exchange-rate\", rate)",
+  "syria-exchange-rate-pending",
+  "pendingRate !== rate",
+  'localStorage.removeItem("syria-exchange-rate-pending")',
   "scheduleBulletinPublish({ label:",
   'const REPO = "ozkkhallouf-ux/tobacco-web"'
 ]) {
@@ -357,7 +382,7 @@ for (const contract of [
 }
 
 {
-  const freshPreviewFunction = app.match(/async function openFreshPricePreview\(useSyria = false\) \{[\s\S]*?\n\}/)?.[0];
+  const freshPreviewFunction = app.match(/async function openFreshPricePreview\(useSyria = false(?:, theme = state\.bulletinPdfTheme)?\) \{[\s\S]*?\n\}/)?.[0];
   if (!freshPreviewFunction) {
     console.error("Could not isolate openFreshPricePreview for the exchange-rate regression check.");
     failed = true;
@@ -532,6 +557,10 @@ for (const newsletterPage of generatedNewsletterPages) {
   const page = readFileSync(newsletterPage, "utf8");
   if (!page.includes("طباعة مباشرة") || !page.includes("فتح PDF") || !page.includes("تنزيل PDF") || !page.includes("-light.pdf") || page.includes('target="_blank"')) {
     console.error(`Newsletter page is missing theme-aware mobile print controls: ${newsletterPage}`);
+    failed = true;
+  }
+  if (!/price-list-[^"']+\.pdf\?v=[a-f0-9]{12}/.test(page)) {
+    console.error(`Newsletter PDF links must carry a content version to bypass stale browser PDFs: ${newsletterPage}`);
     failed = true;
   }
   if (page.includes("item-count-num") || page.includes("item-count-lbl")) {
