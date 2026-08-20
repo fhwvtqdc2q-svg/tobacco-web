@@ -139,8 +139,8 @@
 
       <div class="price-list-document-tools no-print">
         <button type="button" onclick="window.print()">طباعة مباشرة</button>
-        <a data-pdf-open href="price-list-syp-14050.pdf?v=fff43c0892fb">فتح PDF</a>
-        <a data-pdf-download href="price-list-syp-14050.pdf?v=fff43c0892fb" download>تنزيل PDF</a>
+        <a data-pdf-open href="price-list-syp-14050.pdf?v=d10ab2d82cb4">فتح PDF</a>
+        <a data-pdf-download href="price-list-syp-14050.pdf?v=d10ab2d82cb4" download>تنزيل PDF</a>
         <button class="theme-switch" type="button" onclick="toggleTheme()">فاتح / داكن</button>
       </div>
         <header class="price-list-header">
@@ -499,14 +499,19 @@
 
       <div class="price-list-group">
         <div class="price-list-group-header">
-          <span>سيدرز</span>
-          <span class="price-list-group-count">1</span>
+          <span>دفيدوف</span>
+          <span class="price-list-group-count">2</span>
         </div>
         <table><tbody>
           <tr class="odd">
-            <td class="name">سيدرز طويل فضي</td>
+            <td class="name">دفيدوف سليم غولد</td>
             <td class="unit">كروز</td>
-            <td class="price">١٠٨٬٧٣٠ ل.س</td>
+            <td class="price">٤٠١٬٧٣٣ ل.س</td>
+          </tr>
+          <tr class="even">
+            <td class="name">دفيدوف طويل ابيض</td>
+            <td class="unit">كروز</td>
+            <td class="price">٢٤٢٬٣٥٠ ل.س</td>
           </tr>
         </tbody></table>
       </div>
@@ -540,7 +545,7 @@
           <tr class="odd">
             <td class="name">كلارو سيغار</td>
             <td class="unit">كروز</td>
-            <td class="price">٢٧٨٬٣٧٥ ل.س</td>
+            <td class="price">١٩٦٬٥٠٠ ل.س</td>
           </tr>
         </tbody></table>
       </div>
@@ -595,6 +600,20 @@
             <td class="name">وينستون فضي حرة</td>
             <td class="unit">كروز</td>
             <td class="price">١٨٠٬٧٨٠ ل.س</td>
+          </tr>
+        </tbody></table>
+      </div>
+
+      <div class="price-list-group">
+        <div class="price-list-group-header">
+          <span>وينشستر</span>
+          <span class="price-list-group-count">1</span>
+        </div>
+        <table><tbody>
+          <tr class="odd">
+            <td class="name">وينشستر</td>
+            <td class="unit">كروز</td>
+            <td class="price">٥٥٬٠٢٠ ل.س</td>
           </tr>
         </tbody></table>
       </div></div>
@@ -955,6 +974,20 @@
 
       <div class="price-list-group">
         <div class="price-list-group-header">
+          <span>سيدرز</span>
+          <span class="price-list-group-count">1</span>
+        </div>
+        <table><tbody>
+          <tr class="odd">
+            <td class="name">سيدرز طويل فضي</td>
+            <td class="unit">كروز</td>
+            <td class="price">١٠٨٬٧٣٠ ل.س</td>
+          </tr>
+        </tbody></table>
+      </div>
+
+      <div class="price-list-group">
+        <div class="price-list-group-header">
           <span>كورسير</span>
           <span class="price-list-group-count">2</span>
         </div>
@@ -1212,7 +1245,7 @@
           <tr class="even">
             <td class="name">سلفان الزعيم</td>
             <td class="unit">علبة</td>
-            <td class="price">٣٬٨٢١ ل.س</td>
+            <td class="price">٤٬٣٦٧ ل.س</td>
           </tr>
         </tbody></table>
       </div></div>
@@ -1313,7 +1346,7 @@
   sheet.dataset.theme = savedTheme || 'dark';
   document.body.dataset.theme = sheet.dataset.theme;
   function selectedPdfFile() {
-    return sheet.dataset.theme === 'light' ? 'price-list-syp-14050-light.pdf?v=fff43c0892fb' : 'price-list-syp-14050.pdf?v=fff43c0892fb';
+    return sheet.dataset.theme === 'light' ? 'price-list-syp-14050-light.pdf?v=d10ab2d82cb4' : 'price-list-syp-14050.pdf?v=d10ab2d82cb4';
   }
   function syncPdfLinks() {
     const selected = selectedPdfFile();
