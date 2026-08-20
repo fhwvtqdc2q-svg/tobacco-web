@@ -27,6 +27,31 @@
     return "تعذر إكمال القراءة من الأمين حالياً. حاول مجدداً بعد قليل.";
   }
 
+  async function readAmeenLiveResources(client) {
+    const resourceNames = ["health", "stock", "customers"];
+    const settled = await Promise.allSettled(resourceNames.map((resource) => Promise.resolve().then(() => {
+      const read = client?.[resource];
+      if (typeof read !== "function") throw new Error(`Ameen Live ${resource} resource غير متاح.`);
+      return read.call(client);
+    })));
+    const values = { health: null, stock: null, customers: null };
+    const errors = {};
+    let successCount = 0;
+    settled.forEach((result, index) => {
+      const resource = resourceNames[index];
+      if (result.status === "fulfilled") {
+        values[resource] = result.value ?? null;
+        successCount += 1;
+      } else {
+        errors[resource] = result.reason;
+      }
+    });
+    const cache = successCount > 0
+      ? Object.freeze({ health: values.health, stock: values.stock, customers: values.customers, updatedAt: new Date().toISOString() })
+      : null;
+    return Object.freeze({ cache, errors: Object.freeze(errors) });
+  }
+
   function levelLabel(level) { return ({ critical: "حرج", high: "مرتفع", watch: "مراقبة", stable: "مستقر", normal: "طبيعي", strong: "قوية", usable: "مقبولة", weak: "ضعيفة", poor: "ضعيفة جداً" }[level] || "غير محدد"); }
   function severityClass(score) { return score >= 70 ? "critical" : score >= 40 ? "high" : score >= 20 ? "watch" : "stable"; }
   function qty(value) { return number(value).toLocaleString("en-US", { maximumFractionDigits: 3 }); }
@@ -117,13 +142,21 @@
     if (ameenLoading || !state?.session) return;
     ameenLoading = true; ameenStatus = null; render();
     try {
-      if (!window.ozkAmeenLive) throw new Error("Ameen Live Client غير متاح.");
-      const [health, stock, customers] = await Promise.all([window.ozkAmeenLive.health(), window.ozkAmeenLive.stock(), window.ozkAmeenLive.customers()]);
+      const { cache, errors } = await readAmeenLiveResources(window.ozkAmeenLive);
+      window.ozkAmeenLiveCache = cache;
+      const { health, stock, customers } = cache || {};
       const stockCount = number(stock?.rowCount ?? stock?.rows?.length), customerCount = number(customers?.rowCount ?? customers?.rows?.length);
-      window.ozkAmeenLiveCache = Object.freeze({ health, stock, customers, updatedAt: new Date().toISOString() });
-      ameenStatus = `الأمين مباشر: متصل · مخزون ${stockCount} مادة · زبائن ${customerCount}`;
+      Object.entries(errors).forEach(([resource, error]) => console.warn(`[OZK Ameen Live ${resource}]`, error));
+      if (stock) {
+        const details = [`الأمين مباشر: متصل · مخزون ${stockCount} مادة`];
+        details.push(customers ? `زبائن ${customerCount}` : "الزبائن غير متاحة");
+        if (!health) details.push("فحص الحالة غير متاح");
+        ameenStatus = details.join(" · ");
+      } else {
+        ameenStatus = friendlyAmeenError(errors.stock || new Error("Ameen Live stock resource غير متاح."));
+      }
       await refreshCommandCenter();
-    } catch (error) { ameenStatus = friendlyAmeenError(error); console.error("[OZK Ameen Live]", error); }
+    } catch (error) { window.ozkAmeenLiveCache = null; ameenStatus = friendlyAmeenError(error); console.error("[OZK Ameen Live]", error); }
     finally { ameenLoading = false; if (state?.route === ROUTE) render(); }
   }
 

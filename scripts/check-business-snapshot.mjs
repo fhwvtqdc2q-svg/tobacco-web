@@ -54,8 +54,7 @@ const context = {
     ozkPurchaseBusinessSettings: { approved: true, targetCoverageDays: 30, urgentCoverageDays: 7, salesVelocityFreshnessDays: 3, minimumOrderUnit: null, roundingToUnit2: true },
     ozkAmeenLiveCache: {
       updatedAt: now,
-      stock: { asOf: now, rows: [{ item_guid: itemGuid, item_number: "123", item_name: "مارلبورو أحمر", stock_qty: 5, unit1_name: "علبة", unit2_name: "كرتونة", unit2_factor: 10 }] },
-      customers: { asOf: now, rows: [] }
+      stock: { asOf: now, rows: [{ item_guid: itemGuid, item_number: "123", item_name: "مارلبورو أحمر", stock_qty: 5, unit1_name: "علبة", unit2_name: "كرتونة", unit2_factor: 10 }] }
     }
   }
 };
@@ -80,7 +79,7 @@ if (!snapshot.receivables.meta?.source || !snapshot.inventory.meta?.completeness
 const liveRecommendation = snapshot.inventory.purchaseRecommendations.items[0];
 if (liveRecommendation.name !== "مارلبورو أحمر" || liveRecommendation.number !== "123") throw new Error("Arabic Ameen Live item text/number did not survive the stock-to-recommendation path");
 if (liveRecommendation.unit1Name !== "علبة" || liveRecommendation.unit2Name !== "كرتونة" || liveRecommendation.unit2Factor !== 10) throw new Error("Ameen Live unit metadata did not survive the stock-to-recommendation path");
-if (!liveRecommendation.stockTrusted || liveRecommendation.stockSource !== "ameen_live.stock" || !liveRecommendation.proposal.eligible) throw new Error("Fresh Ameen Live stock must permit an otherwise valid numeric recommendation");
+if (!liveRecommendation.stockTrusted || liveRecommendation.stockSource !== "ameen_live.stock" || !liveRecommendation.proposal.eligible) throw new Error("Fresh stock-only Ameen Live cache must permit an otherwise valid numeric recommendation");
 if (snapshot.inventory.stockAsOf !== now || snapshot.inventory.velocityAsOf !== now) throw new Error("Stock and velocity timestamps must remain explicitly separated");
 
 async function fallbackSnapshot(cache) {
@@ -113,5 +112,13 @@ if (staleStockRecommendation.velocityAsOf !== now || staleStockRecommendation.ve
 const timeoutFallbackSnapshot = await fallbackSnapshot(null);
 const timeoutFallbackRecommendation = timeoutFallbackSnapshot.inventory.purchaseRecommendations.items[0];
 if (timeoutFallbackRecommendation.stockTrusted || timeoutFallbackRecommendation.proposal.quantity !== null) throw new Error("Ameen Live timeout/fallback must not become trusted through snapshot generated_at");
+
+const failedStockSnapshot = await fallbackSnapshot({ updatedAt: now, health: { ok: true }, stock: null, customers: { asOf: now, rows: [] } });
+const failedStockRecommendation = failedStockSnapshot.inventory.purchaseRecommendations.items[0];
+if (failedStockSnapshot.inventory.stockTrusted || failedStockSnapshot.inventory.stockAsOf !== null || failedStockRecommendation.proposal.quantity !== null) throw new Error("Failed stock with other successful resources must remain an untrusted fallback");
+
+const invalidRowsSnapshot = await fallbackSnapshot({ updatedAt: now, stock: { asOf: now, rows: { item_guid: itemGuid, stock_qty: 0 } } });
+const invalidRowsRecommendation = invalidRowsSnapshot.inventory.purchaseRecommendations.items[0];
+if (invalidRowsSnapshot.inventory.stockTrusted || invalidRowsSnapshot.inventory.stockAsOf !== null || invalidRowsRecommendation.proposal.quantity !== null) throw new Error("Invalid Ameen Live stock rows must never become trusted");
 
 console.log("OZK Business Snapshot contract: OK");
