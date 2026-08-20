@@ -2,6 +2,13 @@
 
 يقرأه Claude وCodex قبل كل مهمة. أحدث سجل يكون في الأعلى. لا تحذف السجلات السابقة.
 
+## 2026-08-20 - Codex - منع تعليق الموقع عند انقطاع Supabase وإضافة إعادة محاولة آمنة
+
+- Status: completed
+- Branch: task branch pending for: منع تعليق الموقع عند انقطاع Supabase وإضافة إعادة محاولة آمنة
+- Files: src/app.js,index.html,public/service-worker.js,scripts/check.mjs
+- Result: أضيفت مهلة تهيئة 12 ثانية مع خروج مضمون من شاشة التحميل، تنبيه انقطاع وزر إعادة محاولة دون تغييرات قاعدة بيانات. نجح npm check واختبار Chrome بمحاكاة جلسة معلقة، ونُشرت النسخة tobacco-157 مع cache v544.
+- Handoff UTC: 2026-08-20T11:36:47Z
 ## 2026-08-20 - Codex - إصلاح اعتماد سعر الصرف الجديد في معاينة ونشر PDF السوري
 
 - Status: completed
