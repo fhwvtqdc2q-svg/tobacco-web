@@ -96,13 +96,16 @@
       const balance = Math.max(0, customerBalance(row));
       const key = customerKey(row);
       const name = customerName(row);
-      const creditLimit = limitByKey.get(key) ?? limitByName.get(name.toLowerCase()) ?? 0;
+      const approvedLimit = limitByKey.get(key) ?? limitByName.get(name.toLowerCase()) ?? 0;
+      const ameenLimit = numberOrZero(row?.creditLimit ?? row?.credit_limit ?? 0);
+      const creditLimit = approvedLimit > 0 ? approvedLimit : ameenLimit;
+      const creditLimitSource = approvedLimit > 0 ? "approved" : ameenLimit > 0 ? "ameen" : "missing";
       const ratio = creditLimit > 0 ? balance / creditLimit : null;
       let level = "normal";
       if (ratio !== null && ratio >= 1) level = "critical";
       else if (ratio !== null && ratio >= 0.9) level = "high";
       else if (balance > 0 && creditLimit === 0) level = "unbounded";
-      return { key, name, balance, creditLimit, ratio, level };
+      return { key, name, balance, creditLimit, creditLimitSource, ratio, level };
     }).filter((row) => row.balance > 0).sort((a, b) => (b.ratio ?? -1) - (a.ratio ?? -1) || b.balance - a.balance);
 
     return {
