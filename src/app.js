@@ -324,6 +324,7 @@ const state = {
   syriaCurrency: "USD",
   syriaExchangeRate: readJson("syria-exchange-rate", 14050),
   syriaRateConfirmed: false,
+  bulletinPdfTheme: readJson("bulletin-pdf-theme", "dark") === "light" ? "light" : "dark",
   openSections: {},
   priceMode: readJson("price-mode", "jumla"),
   showExchangeModal: false,
@@ -490,6 +491,15 @@ async function loadPublishedExchangeRate() {
     const payload = await response.json();
     const rate = Number(payload.sypPerUsd || 0);
     if (rate > 0) {
+      const pendingRate = Number(readJson("syria-exchange-rate-pending", 0));
+      if (Number.isFinite(pendingRate) && pendingRate > 0 && pendingRate !== rate) {
+        state.syriaExchangeRate = pendingRate;
+        writeJson("syria-exchange-rate", pendingRate);
+        return;
+      }
+      if (pendingRate === rate) {
+        try { localStorage.removeItem("syria-exchange-rate-pending"); } catch {}
+      }
       state.syriaExchangeRate = rate;
       writeJson("syria-exchange-rate", rate);
     }
@@ -2366,7 +2376,23 @@ function bulletinDisplayGroups(items, useSyria = false) {
   return orderPriorityGroups(groupCustomerPriceItems(items));
 }
 
-function customerPricePdfMarkup(items, latest, useSyria = false) {
+function normalizedBulletinPdfTheme(theme = state.bulletinPdfTheme) {
+  return theme === "light" ? "light" : "dark";
+}
+
+function storeBulletinPdfTheme(theme) {
+  const normalized = normalizedBulletinPdfTheme(theme);
+  state.bulletinPdfTheme = normalized;
+  writeJson("bulletin-pdf-theme", normalized);
+  return normalized;
+}
+
+function freshPublishedBulletinUrl(path) {
+  const separator = String(path || "").includes("?") ? "&" : "?";
+  return `${path}${separator}fresh=${Date.now()}`;
+}
+
+function customerPricePdfMarkup(items, latest, useSyria = false, theme = state.bulletinPdfTheme) {
   const groups = bulletinDisplayGroups(items, useSyria);
   const template = window.OZKPriceListTemplate;
   if (!template) throw new Error("تعذر تحميل تصميم النشرة الجديدة. حدّث الصفحة وجرّب مجدداً.");
@@ -2390,7 +2416,7 @@ function customerPricePdfMarkup(items, latest, useSyria = false) {
       ? `${syriaFlag} ليرة — مفرق — صرف ${Number(state.syriaExchangeRate || 0).toLocaleString()}`
       : "💵 دولار أمريكي — جملة",
     unitLabel: useSyria ? "سعر المفرق للوحدة" : "سعر الكرتونة (جملة)",
-    theme: "dark"
+    theme: normalizedBulletinPdfTheme(theme)
   });
 }
 
@@ -2420,6 +2446,7 @@ function storeSyriaExchangeRate(value) {
   if (!Number.isFinite(rate) || rate <= 0) return null;
   state.syriaExchangeRate = rate;
   writeJson("syria-exchange-rate", rate);
+  writeJson("syria-exchange-rate-pending", rate);
   return rate;
 }
 
@@ -2484,7 +2511,7 @@ async function publishBulletin(options = {}) {
     if (resp.status === 204) {
       state.bulletinStatus = {
         type: "success",
-        msg: "✅ تم الطلب — النشرة ستكون جاهزة للزبائن خلال دقيقتين على الرابط الثابت.",
+        msg: `✅ تم إرسال سعر الصرف ${rate.toLocaleString()} — ستتولد النسختان الداكنة والفاتحة خلال دقيقتين، وبعدها افتح الروابط العلوية.`,
       };
     } else if (resp.status === 401 || resp.status === 403) {
       localStorage.removeItem("gh_publish_token");
@@ -2555,7 +2582,7 @@ function prepareBulletinItems(useSyria = false) {
 }
 
 // يفتح معاينة النشرة قبل التصدير
-function openPricePreview(useSyria = false) {
+function openPricePreview(useSyria = false, theme = state.bulletinPdfTheme) {
   if (useSyria && !state.syriaRateConfirmed) {
     state.showExchangeModal = true;
     render();
@@ -2564,7 +2591,13 @@ function openPricePreview(useSyria = false) {
   const prepared = prepareBulletinItems(useSyria);
   state.syriaRateConfirmed = false;
   if (!prepared) return;
-  state.pricePreview = { open: true, useSyria, items: prepared.items, latest: prepared.latest };
+  state.pricePreview = {
+    open: true,
+    useSyria,
+    items: prepared.items,
+    latest: prepared.latest,
+    theme: storeBulletinPdfTheme(theme)
+  };
   render();
 }
 
@@ -2612,7 +2645,7 @@ async function savePendingPricingEdits() {
   return true;
 }
 
-async function openFreshPricePreview(useSyria = false) {
+async function openFreshPricePreview(useSyria = false, theme = state.bulletinPdfTheme) {
   // يجب التقاط السعر قبل savePendingPricingEdits لأن حفظ صنف واحد قد يستدعي
   // render ويستبدل الحقل المرئي بنسخة state القديمة.
   if (useSyria && app.querySelector("[data-published-exchange-rate]")) {
@@ -2628,7 +2661,7 @@ async function openFreshPricePreview(useSyria = false) {
     if (useSyria) state.syriaRateConfirmed = false;
     return;
   }
-  openPricePreview(useSyria);
+  openPricePreview(useSyria, theme);
 }
 
 function closePricePreview() {
@@ -2637,10 +2670,12 @@ function closePricePreview() {
 }
 
 // يولّد ويحفظ ملف PDF من عناصر جاهزة
-async function exportBulletinPdf(items, latest, useSyria = false) {
+async function exportBulletinPdf(items, latest, useSyria = false, theme = state.bulletinPdfTheme) {
   if (!items || !items.length || !window.html2pdf) return;
-  const filename = `ozk-${useSyria ? "mufrak-syp" : "jumla-usd"}-${todayIsoDate()}.pdf`;
-  const markup = customerPricePdfMarkup(items, latest, useSyria);
+  const selectedTheme = normalizedBulletinPdfTheme(theme);
+  const backgroundColor = selectedTheme === "light" ? "#fffdf8" : "#0c0a07";
+  const filename = `ozk-${useSyria ? "mufrak-syp" : "jumla-usd"}-${selectedTheme}-${todayIsoDate()}.pdf`;
+  const markup = customerPricePdfMarkup(items, latest, useSyria, selectedTheme);
 
   // iOS داخل الـPWA لا ينفّذ تنزيل html2pdf().save() بشكل موثوق. نولّد Blob
   // حقيقياً ثم نعرض زر مشاركة مستقل؛ النقر على الزر يمنح Safari إيماءة مستخدم
@@ -2651,7 +2686,7 @@ async function exportBulletinPdf(items, latest, useSyria = false) {
         margin: [0, 0, 0, 0],
         width: 794,
         scale: 2,
-        backgroundColor: "#0c0a07",
+        backgroundColor,
         image: { type: "jpeg", quality: 0.94 },
         allowTaint: true,
         pagebreak: { mode: ["css"] }
@@ -2666,7 +2701,7 @@ async function exportBulletinPdf(items, latest, useSyria = false) {
 
   const container = document.createElement("div");
   container.style.width = "794px";
-  container.style.backgroundColor = "#0c0a07";
+  container.style.backgroundColor = backgroundColor;
   container.innerHTML = markup;
   document.body.appendChild(container);
 
@@ -2677,7 +2712,7 @@ async function exportBulletinPdf(items, latest, useSyria = false) {
         filename,
         margin: [0, 0, 0, 0],
         image: { type: "png", quality: 0.98 },
-        html2canvas: { scale: 2, useCORS: true, backgroundColor: "#0c0a07", allowTaint: true },
+        html2canvas: { scale: 2, useCORS: true, backgroundColor, allowTaint: true },
         jsPDF: { unit: "mm", format: "a4", orientation: "portrait" },
         pagebreak: { mode: ["css"] }
       })
@@ -2695,8 +2730,14 @@ async function exportBulletinPdf(items, latest, useSyria = false) {
 async function exportPricePreview() {
   const preview = state.pricePreview;
   if (!preview) return;
-  await exportBulletinPdf(preview.items, preview.latest, preview.useSyria);
+  await exportBulletinPdf(preview.items, preview.latest, preview.useSyria, preview.theme);
   state.pricePreview = null;
+  render();
+}
+
+function setPricePreviewTheme(theme) {
+  if (!state.pricePreview) return;
+  state.pricePreview.theme = storeBulletinPdfTheme(theme);
   render();
 }
 
@@ -3964,21 +4005,21 @@ function pricing() {
             <span class="newsletter-edition-type">جملة</span><h4>نشرة الدولار</h4><p>الكرتونة أو الطرد أو الشرحة الكاملة فقط.</p>
             <button class="button primary mini-button" type="button" data-action="download-customer-price-pdf">حفظ التعديلات ومعاينة PDF الآن</button>
             <p class="newsletter-published-label">آخر نسخة منشورة للزبائن:</p>
-            <div><a href="public/downloads/price-list-usd.html">اختيار اللون</a><a href="public/downloads/price-list-usd.pdf">داكن</a><a href="public/downloads/price-list-usd-light.pdf">فاتح</a></div>
+            <div><a href="${escapeHtml(freshPublishedBulletinUrl("public/downloads/price-list-usd.html"))}">اختيار اللون</a><a href="${escapeHtml(freshPublishedBulletinUrl("public/downloads/price-list-usd.pdf"))}">داكن</a><a href="${escapeHtml(freshPublishedBulletinUrl("public/downloads/price-list-usd-light.pdf"))}">فاتح</a></div>
           </article>
           <article class="newsletter-edition-card">
             <span class="newsletter-edition-type">مفرق</span><h4>نشرة السوري</h4><p>المواد ذات المخزون الموجب وفق سعر الصرف المعتمد.</p>
             <button class="button primary mini-button" type="button" data-action="download-customer-price-syria">حفظ التعديلات ومعاينة PDF الآن</button>
             <p class="newsletter-published-label">آخر نسخة منشورة للزبائن:</p>
-            <div><a href="public/downloads/price-list-syp-14050.html">اختيار اللون</a><a href="public/downloads/price-list-syp-14050.pdf">داكن</a><a href="public/downloads/price-list-syp-14050-light.pdf">فاتح</a></div>
+            <div><a href="${escapeHtml(freshPublishedBulletinUrl("public/downloads/price-list-syp-14050.html"))}">اختيار اللون</a><a href="${escapeHtml(freshPublishedBulletinUrl("public/downloads/price-list-syp-14050.pdf"))}">داكن</a><a href="${escapeHtml(freshPublishedBulletinUrl("public/downloads/price-list-syp-14050-light.pdf"))}">فاتح</a></div>
           </article>
           <article class="newsletter-edition-card">
             <span class="newsletter-edition-type">وزاري جملة</span><h4>الوزاري بالدولار</h4><p>الأصناف الوزارية والمحزّرة المتوفرة بالجملة.</p>
-            <div><a href="public/downloads/price-list-wazari-usd.html">اختيار اللون</a><a href="public/downloads/price-list-wazari-usd.pdf">داكن</a><a href="public/downloads/price-list-wazari-usd-light.pdf">فاتح</a></div>
+            <div><a href="${escapeHtml(freshPublishedBulletinUrl("public/downloads/price-list-wazari-usd.html"))}">اختيار اللون</a><a href="${escapeHtml(freshPublishedBulletinUrl("public/downloads/price-list-wazari-usd.pdf"))}">داكن</a><a href="${escapeHtml(freshPublishedBulletinUrl("public/downloads/price-list-wazari-usd-light.pdf"))}">فاتح</a></div>
           </article>
           <article class="newsletter-edition-card">
             <span class="newsletter-edition-type">وزاري مفرق</span><h4>الوزاري بالسوري</h4><p>نسخة المفرق المستقلة للأصناف الوزارية.</p>
-            <div><a href="public/downloads/price-list-wazari-syp-14050.html">اختيار اللون</a><a href="public/downloads/price-list-wazari-syp-14050.pdf">داكن</a><a href="public/downloads/price-list-wazari-syp-14050-light.pdf">فاتح</a></div>
+            <div><a href="${escapeHtml(freshPublishedBulletinUrl("public/downloads/price-list-wazari-syp-14050.html"))}">اختيار اللون</a><a href="${escapeHtml(freshPublishedBulletinUrl("public/downloads/price-list-wazari-syp-14050.pdf"))}">داكن</a><a href="${escapeHtml(freshPublishedBulletinUrl("public/downloads/price-list-wazari-syp-14050-light.pdf"))}">فاتح</a></div>
           </article>
         </div>
       </section>
@@ -3993,10 +4034,16 @@ function pricing() {
           <label style="display:flex;align-items:center;gap:8px;font-weight:700">سعر الصرف اليوم
             <input data-published-exchange-rate type="number" min="1" step="1" value="${escapeHtml(state.syriaExchangeRate)}" style="width:120px;padding:8px;border:1px solid var(--line);border-radius:8px" aria-label="سعر صرف الليرة السورية مقابل الدولار">
           </label>
+          <div role="group" aria-label="لون معاينة وملف PDF" style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">
+            <strong style="font-size:0.9rem">لون PDF:</strong>
+            <button class="button ${state.bulletinPdfTheme === "dark" ? "primary" : "secondary"}" type="button" data-action="select-bulletin-theme" data-theme="dark" aria-pressed="${state.bulletinPdfTheme === "dark"}">داكن</button>
+            <button class="button ${state.bulletinPdfTheme === "light" ? "primary" : "secondary"}" type="button" data-action="select-bulletin-theme" data-theme="light" aria-pressed="${state.bulletinPdfTheme === "light"}">فاتح</button>
+          </div>
           <button class="button primary" type="button" data-action="download-customer-price-pdf">حفظ أي تعديل ثم معاينة وطباعة الدولار</button>
           <button class="button primary" type="button" data-action="download-customer-price-syria">حفظ أي تعديل ثم معاينة وطباعة السوري</button>
           <button class="button success" type="button" data-action="publish-bulletin" ${state.session ? "" : "disabled"}>اعتماد ونشر للزبائن</button>
         </div>
+        <p class="muted" style="margin:8px 0 0">اختيار اللون يطبّق على المعاينة وPDF الحالي. «اعتماد ونشر» يولّد للزبائن النسختين الداكنة والفاتحة بالسعر نفسه.</p>
         <p class="bulletin-status ${escapeHtml(state.bulletinStatus?.type || "muted")}" data-bulletin-status ${state.bulletinStatus ? "" : "hidden"}>${escapeHtml(state.bulletinStatus?.msg || "")}</p>
       </section>
 
@@ -9536,6 +9583,7 @@ function render() {
 
   if (state.pricePreview?.open) {
     const { items, latest, useSyria } = state.pricePreview;
+    const previewTheme = normalizedBulletinPdfTheme(state.pricePreview.theme);
     const pageCount = customerPriceTemplatePageCount(items, useSyria);
     app.innerHTML = `
       <div class="modal-overlay" onclick="if(event.target === this){ state.pricePreview = null; render(); }">
@@ -9545,19 +9593,25 @@ function render() {
               <h2 style="margin:0">👁 معاينة النشرة قبل التصدير</h2>
               <p class="muted" style="margin:4px 0 0;font-size:0.8rem">${escapeHtml(items.length)} صنف — ${escapeHtml(pageCount)} صفحة${useSyria ? " — مفرّق بالليرة" : " — جملة بالدولار"}</p>
             </div>
-            <div style="display:flex;gap:8px">
-              <button class="button success" type="button" data-action="export-price-preview">⬇ تصدير PDF</button>
+            <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+              <span style="font-weight:700;font-size:0.85rem">لون PDF:</span>
+              <button class="button ${previewTheme === "dark" ? "primary" : "secondary"}" type="button" data-action="price-preview-theme" data-theme="dark" aria-pressed="${previewTheme === "dark"}">داكن</button>
+              <button class="button ${previewTheme === "light" ? "primary" : "secondary"}" type="button" data-action="price-preview-theme" data-theme="light" aria-pressed="${previewTheme === "light"}">فاتح</button>
+              <button class="button success" type="button" data-action="export-price-preview">⬇ تصدير PDF ${previewTheme === "light" ? "الفاتح" : "الداكن"}</button>
               <button class="button secondary" type="button" data-action="close-price-preview">إغلاق</button>
             </div>
           </div>
           <div class="price-preview-scroll" style="overflow:auto;background:#9a9a9a;padding:16px;border-radius:8px;flex:1;display:flex;justify-content:center">
-            ${customerPricePdfMarkup(items, latest, useSyria)}
+            ${customerPricePdfMarkup(items, latest, useSyria, previewTheme)}
           </div>
         </div>
       </div>
     `;
     app.querySelector("[data-action='export-price-preview']")?.addEventListener("click", exportPricePreview);
     app.querySelector("[data-action='close-price-preview']")?.addEventListener("click", closePricePreview);
+    app.querySelectorAll("[data-action='price-preview-theme']").forEach((button) => {
+      button.addEventListener("click", () => setPricePreviewTheme(button.dataset.theme));
+    });
     return;
   }
 
@@ -10228,6 +10282,12 @@ function render() {
   });
   app.querySelectorAll("[data-action='download-customer-price-syria']").forEach((button) => {
     button.addEventListener("click", () => openFreshPricePreview(true));
+  });
+  app.querySelectorAll("[data-action='select-bulletin-theme']").forEach((button) => {
+    button.addEventListener("click", () => {
+      storeBulletinPdfTheme(button.dataset.theme);
+      render();
+    });
   });
   app.querySelector("[data-action='publish-bulletin']")?.addEventListener("click", publishBulletin);
   const publishedExchangeRateInput = app.querySelector("[data-published-exchange-rate]");
