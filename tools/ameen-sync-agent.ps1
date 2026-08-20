@@ -607,6 +607,15 @@ function Sync-Once {
   } catch {
     Write-AgentLog ("Account balance sync failed: {0}" -f $_.Exception.Message)
   }
+
+  # Supplier balances shown in Decision Today come from ac000 in Ameen's USD
+  # base currency. Refresh them continuously through this permanent task.
+  try {
+    & "$PSScriptRoot\push-supplier-obligations.ps1" -Apply -MinimumIntervalMinutes 5
+    if ($LASTEXITCODE -ne 0) { Write-AgentLog "Supplier obligation sync returned a failure code." }
+  } catch {
+    Write-AgentLog ("Supplier obligation sync failed: {0}" -f $_.Exception.Message)
+  }
 }
 
 do {

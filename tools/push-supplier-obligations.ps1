@@ -1,7 +1,9 @@
 param(
     [switch]$Apply,
+    [int]$MinimumIntervalMinutes = 0,
     [string]$EnvFile = "$PSScriptRoot\.env",
-    [string]$LogFile = "$PSScriptRoot\logs\supplier-obligations-push.log"
+    [string]$LogFile = "$PSScriptRoot\logs\supplier-obligations-push.log",
+    [string]$MarkerPath = "$PSScriptRoot\logs\supplier-obligations-last-success.txt"
 )
 
 $ErrorActionPreference = "Stop"
@@ -42,27 +44,38 @@ if ($Apply -and (-not $apiKey -or -not $syncEmail -or -not $syncPassword)) {
 }
 
 $PURCHASE_TYPE_GUID = "91377a56-ebfc-48c0-b79e-72063e1d7e3a"
-$SOURCE = "ameen_cu000_credit_minus_debit"
+$SOURCE = "ameen_ac000_credit_minus_debit"
+$LEGACY_SOURCE = "ameen_cu000_credit_minus_debit"
+
+if ($Apply -and $MinimumIntervalMinutes -gt 0 -and (Test-Path -LiteralPath $MarkerPath)) {
+    $lastSuccess = (Get-Item -LiteralPath $MarkerPath).LastWriteTimeUtc
+    if ($lastSuccess -gt (Get-Date).ToUniversalTime().AddMinutes(-$MinimumIntervalMinutes)) {
+        Write-Log "Skipped: supplier balances are still fresh."
+        exit 0
+    }
+}
 
 $sql = @"
 SELECT
     CONVERT(nvarchar(36), c.GUID) AS supplier_key,
     c.CustomerName AS supplier_name,
-    CAST(c.Debit AS float) AS debit_total,
-    CAST(c.Credit AS float) AS credit_total,
-    CAST(c.Credit - c.Debit AS float) AS net_supplier_balance,
+    CAST(a.Debit AS float) AS debit_total,
+    CAST(a.Credit AS float) AS credit_total,
+    CAST(a.Credit - a.Debit AS float) AS net_supplier_balance,
     MAX(CAST(u.Date AS date)) AS last_purchase_date
 FROM cu000 c
+JOIN ac000 a
+  ON a.GUID = c.AccountGUID
 JOIN bu000 u
   ON u.CustGUID = c.GUID
  AND u.TypeGUID = '$PURCHASE_TYPE_GUID'
 WHERE ISNULL(c.bHide, 0) = 0
   AND NULLIF(LTRIM(RTRIM(c.CustomerName)), N'') IS NOT NULL
-GROUP BY c.GUID, c.CustomerName, c.Debit, c.Credit
+GROUP BY c.GUID, c.CustomerName, a.Debit, a.Credit
 ORDER BY net_supplier_balance DESC, c.CustomerName;
 "@
 
-Write-Log "Reading supplier balances from Ameen cu000..."
+Write-Log "Reading supplier balances from Ameen ac000 base-currency accounts..."
 
 Add-Type -AssemblyName "System.Data"
 $conn = New-Object System.Data.SqlClient.SqlConnection($connStr)
@@ -110,11 +123,13 @@ $headers = @{
     "Content-Profile" = "public"
 }
 
-$encodedSource = [Uri]::EscapeDataString($SOURCE)
-Invoke-RestMethod -Method Delete `
-    -Uri "$supabaseUrl/rest/v1/supplier_obligations?source=eq.$encodedSource" `
-    -Headers ($headers + @{ Prefer = "return=minimal" }) `
-    -TimeoutSec 60 | Out-Null
+foreach ($sourceToReplace in @($SOURCE, $LEGACY_SOURCE)) {
+    $encodedSource = [Uri]::EscapeDataString($sourceToReplace)
+    Invoke-RestMethod -Method Delete `
+        -Uri "$supabaseUrl/rest/v1/supplier_obligations?source=eq.$encodedSource" `
+        -Headers ($headers + @{ Prefer = "return=minimal" }) `
+        -TimeoutSec 60 | Out-Null
+}
 
 $generatedAt = (Get-Date).ToUniversalTime().ToString("o")
 $payload = @($rows | ForEach-Object {
@@ -122,11 +137,11 @@ $payload = @($rows | ForEach-Object {
         supplier_key = $_.supplier_key
         supplier_name = $_.supplier_name
         amount_due = [Math]::Round($_.amount_due, 3)
-        currency = "AMEEN_BASE"
+        currency = "USD"
         due_date = $null
         strategic_weight = 1.0
         supply_risk = "normal"
-        notes = "Ameen cu000 balance: Credit - Debit; last purchase $($_.last_purchase_date); synced $generatedAt"
+        notes = "Ameen ac000 base-currency balance: Credit - Debit; last purchase $($_.last_purchase_date); synced $generatedAt"
         source = $SOURCE
         updated_at = $generatedAt
     }
@@ -146,4 +161,7 @@ for ($i = 0; $i -lt $payload.Count; $i += $batchSize) {
     Write-Log "Uploaded rows $($i + 1)-$($end + 1)."
 }
 
+$markerDir = Split-Path -Parent $MarkerPath
+if (-not (Test-Path -LiteralPath $markerDir)) { New-Item -ItemType Directory -Force -Path $markerDir | Out-Null }
+(Get-Date).ToUniversalTime().ToString("o") | Set-Content -LiteralPath $MarkerPath -Encoding UTF8
 Write-Log "Supplier obligations upload completed successfully: $($payload.Count) suppliers."
