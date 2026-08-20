@@ -163,7 +163,15 @@ for (const contract of [
     failed = true;
   }
 }
-for (const contract of ['createHash("sha256")', "versionedPdfFile", "?v=${pdfVersion}"]) {
+for (const contract of [
+  'createHash("sha256")',
+  "pdfRendererSignature",
+  'readFileSync(resolve(root, "src/price-list-template.js"), "utf8")',
+  'readFileSync(resolve(root, "scripts/generate-pdfs.mjs"), "utf8")',
+  "isoDate",
+  "versionedPdfFile",
+  "?v=${pdfVersion}"
+]) {
   if (!priceGenerator.includes(contract)) {
     console.error(`Published PDF cache-busting contract is missing: ${contract}`);
     failed = true;

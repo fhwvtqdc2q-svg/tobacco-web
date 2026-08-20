@@ -10,6 +10,10 @@ import "../src/price-list-template.js";
 
 const __dir = dirname(fileURLToPath(import.meta.url));
 const root  = resolve(__dir, "..");
+const pdfRendererSignature = createHash("sha256")
+  .update(readFileSync(resolve(root, "src/price-list-template.js"), "utf8"))
+  .update(readFileSync(resolve(root, "scripts/generate-pdfs.mjs"), "utf8"))
+  .digest("hex");
 
 const args = process.argv.slice(2);
 const get  = (f) => { const i = args.indexOf(f); return i !== -1 ? args[i+1] : null; };
@@ -582,7 +586,17 @@ const buildHtml = ({ pageItems, titleSuffix, badgeClass, badgeLabel, unitLabel, 
     }))
   }));
   const pdfVersion = createHash("sha256")
-    .update(JSON.stringify({ groups, rate: SYP_RATE, pdfFile }))
+    .update(JSON.stringify({
+      groups,
+      rate: SYP_RATE,
+      pdfFile,
+      isoDate,
+      titleSuffix,
+      badgeClass,
+      badgeLabel,
+      unitLabel,
+      pdfRendererSignature
+    }))
     .digest("hex")
     .slice(0, 12);
   const versionedPdfFile = `${pdfFile}?v=${pdfVersion}`;
