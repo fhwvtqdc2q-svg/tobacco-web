@@ -2,6 +2,15 @@
 
 يقرأه Claude وCodex قبل كل مهمة. أحدث سجل يكون في الأعلى. لا تحذف السجلات السابقة.
 
+## 2026-08-20 - Codex - إصلاح توليد PDF الفاتح ومنع رجوعه
+
+- Status: completed
+- Branch: `codex/fix-light-bulletin-pdf`
+- PRs: #93, #95
+- Merge commits: `9cf037ff294bd9e7808c3c891dcea360af162911`, `48ee81abeab02b9a517a5e10fa2281f9f8da01f5`
+- Files: scripts/generate-pdfs.mjs,scripts/generate-price-lists.mjs,scripts/check.mjs,public/downloads/*
+- Result: أصلح PR #93 الثيم الفاتح داخل قالب PDF نفسه، وأضاف PR #95 إصدار روابط يعتمد القالب والمولّد والتاريخ لمنع عرض ملفات قديمة من الكاش. نجحت فحوص المشروع وتطابق الأسعار، والنشر الحي، والفحص البصري لجميع صفحات PDF الداكنة والفاتحة.
+- Handoff UTC: 2026-08-20T17:54:52Z
 ## 2026-08-20 - Codex - إصلاح سعر الصرف وخيارات ألوان النشرة
 
 - Status: completed
