@@ -1,14 +1,14 @@
 {
     "schemaVersion":  1,
-    "status":  "idle",
-    "owner":  null,
-    "task":  null,
-    "branch":  null,
+    "status":  "active",
+    "owner":  "Codex",
+    "task":  "إصلاح تصدير PDF للنشرة ليستخدم الأسعار المعدلة فوراً",
+    "branch":  "task branch pending for: إصلاح تصدير PDF للنشرة ليستخدم الأسعار المعدلة فوراً",
     "files":  [
-
+                  "src/app.js,scripts/check.mjs,index.html,public/service-worker.js"
               ],
-    "startedAt":  null,
-    "updatedAt":  "2026-08-20T07:35:05Z",
+    "startedAt":  "2026-08-20T09:46:36Z",
+    "updatedAt":  "2026-08-20T09:46:36Z",
     "pr":  66,
-    "note":  "No active task. Read AI_HANDOFF.md before starting work."
+    "note":  "Work in progress. Do not edit the reserved files."
 }
