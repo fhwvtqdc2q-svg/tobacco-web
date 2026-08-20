@@ -236,6 +236,7 @@ const state = {
   dailyMovementError: null,
   dmFetchedFor: null,
   loading: true,
+  startupDegraded: false,
   notice: null,
   passwordResetMode: new URLSearchParams(window.location.search).get("recovery") === "code",
   passwordResetEmail: "",
@@ -435,33 +436,51 @@ function notifPermissionBanner() {
   `;
 }
 
+const STARTUP_TIMEOUT_MS = 12000;
+
 async function boot() {
   applyTheme();
   initKeyboardShortcuts();
-  if (dataStore.isPasswordRecovery?.()) state.route = "login";
-  await loadPublishedExchangeRate();
-  await refreshSession();
-  if (dataStore.isPasswordRecovery?.()) {
-    state.route = "login";
+  state.loading = true;
+  state.startupDegraded = false;
+  const startupTimeout = window.setTimeout(() => {
+    if (!state.loading) return;
+    if (!state.session) state.route = "overview";
+    state.loading = false;
+    state.startupDegraded = true;
+    render();
+  }, STARTUP_TIMEOUT_MS);
+
+  try {
+    if (dataStore.isPasswordRecovery?.()) state.route = "login";
+    await loadPublishedExchangeRate();
+    await refreshSession();
+    if (dataStore.isPasswordRecovery?.()) {
+      state.route = "login";
+      return;
+    }
+    await loadRequests();
+    await loadInventoryReports();
+    await loadCustomerBalanceReports();
+    await loadCustomerCreditLimits();
+    await loadApprovedPriceItems();
+    await loadCustomerProfiles();
+    await loadPurchaseInvoices();
+    await loadReconSessions();
+    await loadWarehouseDashboard();
+    state.seenRequestIds = new Set(state.requests.map((r) => r.id));
+    state.notifPermission = notifSupported() ? Notification.permission : "denied";
+    state.startupDegraded = false;
+    const overdue = overdueCustomers();
+    if (overdue.length > 0) fireOverdueNotif(overdue.length);
+  } catch (error) {
+    state.startupDegraded = true;
+    setNotice("error", `تعذر تحميل بعض البيانات: ${safeErrorMessage(error)}`);
+  } finally {
+    window.clearTimeout(startupTimeout);
     state.loading = false;
     render();
-    return;
   }
-  await loadRequests();
-  await loadInventoryReports();
-  await loadCustomerBalanceReports();
-  await loadCustomerCreditLimits();
-  await loadApprovedPriceItems();
-  await loadCustomerProfiles();
-  await loadPurchaseInvoices();
-  await loadReconSessions();
-  await loadWarehouseDashboard();
-  state.seenRequestIds = new Set(state.requests.map((r) => r.id));
-  state.notifPermission = notifSupported() ? Notification.permission : "denied";
-  state.loading = false;
-  render();
-  const overdue = overdueCustomers();
-  if (overdue.length > 0) fireOverdueNotif(overdue.length);
 }
 
 async function loadPublishedExchangeRate() {
@@ -3049,6 +3068,14 @@ function shell(content) {
 }
 
 function connectionNotice() {
+  if (state.startupDegraded) {
+    return `
+      <section class="notice-panel warning" data-startup-degraded>
+        <span><strong>تعذر الاتصال بقاعدة البيانات.</strong> فُتحت الواجهة بدون بعض البيانات ولم يتم تنفيذ أي حفظ. أعد المحاولة بعد عودة الاتصال.</span>
+        <button class="button primary" type="button" data-action="retry-startup">إعادة المحاولة</button>
+      </section>
+    `;
+  }
   return "";
 }
 
@@ -9538,6 +9565,9 @@ function render() {
     state.darkMode = !state.darkMode;
     applyTheme();
     render();
+  });
+  app.querySelector("[data-action='retry-startup']")?.addEventListener("click", () => {
+    window.location.reload();
   });
   app.querySelector("[data-action='install']")?.addEventListener("click", installApp);
   app.querySelector("[data-action='logout']")?.addEventListener("click", logout);

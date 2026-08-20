@@ -395,6 +395,28 @@ for (const contract of [
   }
 }
 
+for (const contract of [
+  "const STARTUP_TIMEOUT_MS = 12000",
+  "startupDegraded: false",
+  "data-startup-degraded",
+  "data-action=\"retry-startup\"",
+  "window.location.reload()",
+  "window.clearTimeout(startupTimeout)"
+]) {
+  if (!app.includes(contract)) {
+    console.error(`Resilient startup contract is missing: ${contract}`);
+    failed = true;
+  }
+}
+
+{
+  const bootFunction = app.match(/async function boot\(\) \{[\s\S]*?\n\}/)?.[0];
+  if (!bootFunction || !bootFunction.includes("window.setTimeout") || !bootFunction.includes("finally")) {
+    console.error("Startup must always leave the loading screen and provide a timeout fallback.");
+    failed = true;
+  }
+}
+
 {
   const unit2PriceFunction = app.match(/function itemUnit2Price\(item\) \{[\s\S]*?\n\}/)?.[0];
   if (!unit2PriceFunction) {
