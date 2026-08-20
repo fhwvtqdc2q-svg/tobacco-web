@@ -2,6 +2,13 @@
 
 يقرأه Claude وCodex قبل كل مهمة. أحدث سجل يكون في الأعلى. لا تحذف السجلات السابقة.
 
+## 2026-08-20 - Codex - إظهار شعار OZK في إشعارات iPhone
+
+- Status: completed
+- Branch: task branch pending for: إظهار شعار OZK في إشعارات iPhone
+- Files: "public/icons/ozk-ios-notification-icon.png","index.html","public/manifest.webmanifest","public/service-worker.js","supabase/functions/web-push/index.ts"
+- Result: PR #89 merged and deployed; Supabase web-push v4 active; full OZK TOBACCO image confirmed on Home Screen and lock-screen notification; stale subscription disabled; final test #58 delivered once with no error.
+- Handoff UTC: 2026-08-20T07:35:05Z
 ## 2026-08-19 - Codex - إصلاح وتفعيل اشتراك Web Push للأجهزة
 
 - Status: completed

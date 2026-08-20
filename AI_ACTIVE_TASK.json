@@ -1,14 +1,14 @@
 {
     "schemaVersion":  1,
-    "status":  "active",
-    "owner":  "Codex",
-    "task":  "إظهار شعار OZK في إشعارات iPhone",
-    "branch":  "task branch pending for: إظهار شعار OZK في إشعارات iPhone",
+    "status":  "idle",
+    "owner":  null,
+    "task":  null,
+    "branch":  null,
     "files":  [
-                  "\"public/icons/ozk-ios-notification-icon.png\",\"index.html\",\"public/manifest.webmanifest\",\"public/service-worker.js\",\"supabase/functions/web-push/index.ts\""
+
               ],
-    "startedAt":  "2026-08-19T02:47:18Z",
-    "updatedAt":  "2026-08-19T02:47:18Z",
+    "startedAt":  null,
+    "updatedAt":  "2026-08-20T07:35:05Z",
     "pr":  66,
-    "note":  "Work in progress. Do not edit the reserved files."
+    "note":  "No active task. Read AI_HANDOFF.md before starting work."
 }
