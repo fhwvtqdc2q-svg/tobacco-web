@@ -2,6 +2,13 @@
 
 يقرأه Claude وCodex قبل كل مهمة. أحدث سجل يكون في الأعلى. لا تحذف السجلات السابقة.
 
+## 2026-08-20 - Codex - إصلاح اعتماد سعر الصرف الجديد في معاينة ونشر PDF السوري
+
+- Status: completed
+- Branch: task branch pending for: إصلاح اعتماد سعر الصرف الجديد في معاينة ونشر PDF السوري
+- Files: src/app.js,index.html,public/service-worker.js,scripts/check.mjs
+- Result: تم التقاط سعر الصرف المرئي قبل حفظ الأسعار، توحيد المعاينة وPDF والنشر على القيمة الجديدة، تصحيح مستودع GitHub، نجاح npm check واختبار Chrome والنشر الحي tobacco-156.
+- Handoff UTC: 2026-08-20T11:05:41Z
 ## 2026-08-20 - Codex - إصلاح تصدير PDF للنشرة ليستخدم الأسعار المعدلة فوراً
 
 - Status: completed
