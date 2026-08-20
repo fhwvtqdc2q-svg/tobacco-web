@@ -1,14 +1,14 @@
 {
-    "schemaVersion":  1,
-    "status":  "idle",
-    "owner":  null,
-    "task":  null,
-    "branch":  null,
-    "files":  [
-
-              ],
-    "startedAt":  null,
-    "updatedAt":  "2026-08-20T10:10:23Z",
-    "pr":  66,
-    "note":  "No active task. Read AI_HANDOFF.md before starting work."
+  "schemaVersion": 1,
+  "status": "active",
+  "owner": "Codex",
+  "task": "إصلاح اعتماد سعر الصرف الجديد في معاينة ونشر PDF السوري",
+  "branch": "task branch pending for: إصلاح اعتماد سعر الصرف الجديد في معاينة ونشر PDF السوري",
+  "files": [
+    "src/app.js,index.html,public/service-worker.js,scripts/check.mjs"
+  ],
+  "startedAt": "2026-08-20T10:57:36Z",
+  "updatedAt": "2026-08-20T10:57:36Z",
+  "pr": 66,
+  "note": "Work in progress. Do not edit the reserved files."
 }
