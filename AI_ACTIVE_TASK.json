@@ -1,14 +1,12 @@
 {
-    "schemaVersion":  1,
-    "status":  "active",
-    "owner":  "Codex",
-    "task":  "توحيد معاينة PDF مع تصميم النشرة الجديدة",
-    "branch":  "task branch pending for: توحيد معاينة PDF مع تصميم النشرة الجديدة",
-    "files":  [
-                  "\u0027src/price-list-template.js\u0027,\u0027src/app.js\u0027,\u0027scripts/generate-price-lists.mjs\u0027,\u0027scripts/check.mjs\u0027,\u0027index.html\u0027,\u0027public/service-worker.js\u0027"
-              ],
-    "startedAt":  "2026-08-20T12:18:17Z",
-    "updatedAt":  "2026-08-20T12:18:17Z",
-    "pr":  66,
-    "note":  "Work in progress. Do not edit the reserved files."
+  "schemaVersion": 1,
+  "status": "idle",
+  "owner": null,
+  "task": null,
+  "branch": null,
+  "files": [],
+  "startedAt": null,
+  "updatedAt": "2026-08-20T12:41:58Z",
+  "pr": null,
+  "note": "No active task. Read AI_HANDOFF.md before starting work."
 }

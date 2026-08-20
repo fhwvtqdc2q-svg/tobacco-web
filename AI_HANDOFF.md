@@ -2,6 +2,15 @@
 
 يقرأه Claude وCodex قبل كل مهمة. أحدث سجل يكون في الأعلى. لا تحذف السجلات السابقة.
 
+## 2026-08-20 - Codex - توحيد معاينة PDF مع تصميم النشرة الجديدة
+
+- Status: completed
+- Branch: `codex/fix-newsletter-preview-template`
+- PR: #91
+- Merge commit: `9245b988d2eb0172624df51afb04548f65a8b1dc`
+- Files: 'src/price-list-template.js','src/app.js','scripts/generate-price-lists.mjs','scripts/check.mjs','index.html','public/service-worker.js'
+- Result: تم دمج PR #91 ونشر القالب المشترك الجديد. npm run check ناجح، فحص PDF بصري ناجح، PRICE_VERIFY mismatches=0 missing=0، والتحقق الحي ناجح.
+- Handoff UTC: 2026-08-20T12:41:58Z
 ## 2026-08-20 - Codex - منع تعليق الموقع عند انقطاع Supabase وإضافة إعادة محاولة آمنة
 
 - Status: completed
