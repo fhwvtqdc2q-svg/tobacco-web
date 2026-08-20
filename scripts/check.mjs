@@ -359,7 +359,8 @@ for (const contract of [
 for (const contract of [
   "async function savePendingPricingEdits",
   "async function openFreshPricePreview",
-  "data-dirty='true'",
+  "pricingFormNeedsSave",
+  "await loadApprovedPriceItems()",
   'form.dataset.dirty = "true"',
   "openFreshPricePreview(false)",
   "openFreshPricePreview(true)",
@@ -368,6 +369,31 @@ for (const contract of [
   if (!app.includes(contract)) {
     console.error(`Instant bulletin print/export contract is missing: ${contract}`);
     failed = true;
+  }
+}
+
+{
+  const unit2PriceFunction = app.match(/function itemUnit2Price\(item\) \{[\s\S]*?\n\}/)?.[0];
+  if (!unit2PriceFunction) {
+    console.error("Could not isolate itemUnit2Price for the fresh-price regression check.");
+    failed = true;
+  } else {
+    const sandbox = {
+      approvedResult: 0,
+      fallbackResult: 0,
+      zeroApprovedResult: -1,
+      roundPrice: (value) => Math.round(Number(value) * 100) / 100,
+      itemUnit2Factor: () => 10
+    };
+    vm.createContext(sandbox);
+    vm.runInContext(`${unit2PriceFunction}
+      approvedResult = itemUnit2Price({ unit2Price: 100, approvedPrice: { unit2Price: 125 } });
+      fallbackResult = itemUnit2Price({ unit2Price: 100, approvedPrice: null });
+      zeroApprovedResult = itemUnit2Price({ unit2Price: 100, approvedPrice: { unit2Price: 0, salePrice: 0 } });`, sandbox);
+    if (sandbox.approvedResult !== 125 || sandbox.fallbackResult !== 100 || sandbox.zeroApprovedResult !== 0) {
+      console.error("Bulletin PDF must prefer the newly approved price and only fall back to the stock snapshot price.");
+      failed = true;
+    }
   }
 }
 for (const contract of ["scheduleBulletinPublish", "normalizedTargets", "aliasKeys", "storedTokenOnly: true"]) {
