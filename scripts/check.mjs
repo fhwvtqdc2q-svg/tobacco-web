@@ -72,11 +72,15 @@ for (const file of required) {
     console.error("Ameen Live customers must remain reference-only and must not replace the trusted receivables source.");
     failed = true;
   }
-  for (const contract of ["بحاجة مراجعة شراء", "friendlyAmeenError", "Promise.all([window.ozkAmeenLive.health()", "آخر قراءة حية", "الأمين مباشر: متصل"]) {
+  for (const contract of ["بحاجة مراجعة شراء", "friendlyAmeenError", "readAmeenLiveResources", "Promise.allSettled", "آخر قراءة حية", "الأمين مباشر: متصل"]) {
     if (!commandSource.includes(contract)) {
       console.error(`Command Center Ameen Live contract is missing: ${contract}`);
       failed = true;
     }
+  }
+  if (commandSource.includes("Promise.all([window.ozkAmeenLive.health()")) {
+    console.error("Command Center Ameen Live resources must not share a fail-fast Promise.all.");
+    failed = true;
   }
   for (const contract of [
     'const RESOURCES=new Set(["health","stock","customers"])',
