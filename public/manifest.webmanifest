@@ -9,7 +9,7 @@
   "theme_color": "#080705",
   "icons": [
     {
-      "src": "icons/ozk-ios-notification-icon.png",
+      "src": "icons/ozk-ios-full-notification-icon.png",
       "sizes": "512x512",
       "type": "image/png",
       "purpose": "any maskable"
