@@ -64,14 +64,22 @@ console.log("جارٍ تشغيل المتصفح...");
 const browser = await chromium.launch();
 const page = await browser.newPage();
 
+const applyPdfTheme = async (selectedTheme) => {
+  await page.evaluate((theme) => {
+    const sheet = document.querySelector(".ozk-price-list");
+    if (!sheet) throw new Error("تعذر العثور على قالب النشرة داخل صفحة PDF.");
+    sheet.dataset.theme = theme;
+    document.body.dataset.theme = theme;
+    const background = theme === "light" ? "#fffdf8" : "#0c0a07";
+    document.documentElement.style.background = background;
+    document.body.style.background = background;
+  }, selectedTheme);
+};
+
 for (const { html, pdf, lightPdf, label } of files) {
   process.stdout.write(`توليد ${label}... `);
   await page.goto(`file://${html}`, { waitUntil: "networkidle" });
-  await page.evaluate(() => {
-    document.body.dataset.theme = "dark";
-    document.documentElement.style.background = "#0c0a07";
-    document.body.style.background = "#0c0a07";
-  });
+  await applyPdfTheme("dark");
   const darkBackground = await page.addStyleTag({ content: `
     @media print {
       html, body { background: #0c0a07 !important; }
@@ -86,11 +94,7 @@ for (const { html, pdf, lightPdf, label } of files) {
     margin: { top: "0", bottom: "0", left: "0", right: "0" },
   });
   await darkBackground.evaluate((element) => element.remove());
-  await page.evaluate(() => {
-    document.body.dataset.theme = "light";
-    document.documentElement.style.background = "#fffdf8";
-    document.body.style.background = "#fffdf8";
-  });
+  await applyPdfTheme("light");
   const lightBackground = await page.addStyleTag({ content: `
     @media print {
       html, body { background: #fffdf8 !important; }

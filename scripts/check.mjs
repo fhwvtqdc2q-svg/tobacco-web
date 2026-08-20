@@ -122,6 +122,7 @@ if (!html.includes("frame-src 'self' blob:")) {
 
 const app = readFileSync("src/app.js", "utf8");
 const priceGenerator = readFileSync("scripts/generate-price-lists.mjs", "utf8");
+const pdfGenerator = readFileSync("scripts/generate-pdfs.mjs", "utf8");
 const priceListTemplateSource = readFileSync("src/price-list-template.js", "utf8");
 const usdBulletin = readFileSync("public/downloads/price-list-usd.html", "utf8");
 const sypBulletin = readFileSync("public/downloads/price-list-syp-14050.html", "utf8");
@@ -165,6 +166,18 @@ for (const contract of [
 for (const contract of ['createHash("sha256")', "versionedPdfFile", "?v=${pdfVersion}"]) {
   if (!priceGenerator.includes(contract)) {
     console.error(`Published PDF cache-busting contract is missing: ${contract}`);
+    failed = true;
+  }
+}
+for (const contract of [
+  "const applyPdfTheme",
+  'document.querySelector(".ozk-price-list")',
+  "sheet.dataset.theme = theme",
+  'await applyPdfTheme("dark")',
+  'await applyPdfTheme("light")'
+]) {
+  if (!pdfGenerator.includes(contract)) {
+    console.error(`Generated PDF theme contract is missing: ${contract}`);
     failed = true;
   }
 }
