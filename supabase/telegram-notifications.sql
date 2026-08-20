@@ -375,11 +375,69 @@ for each row execute function public.tg_notify_daily_sales();
 create or replace function public.tg_notify_daily_movement()
 returns trigger language plpgsql security definer set search_path = public
 as $$
+declare
+  previous_payments jsonb := '[]'::jsonb;
+  payment_count integer := 0;
+  payment_total numeric := 0;
+  payment_lines text := '';
 begin
   perform public.notify_telegram(
     'daily_movement',
     '📈 وصل تقرير الحركة اليومية — ' || coalesce(to_char(new.report_date, 'YYYY-MM-DD'), 'بدون تاريخ'),
     'movement:' || coalesce(new.report_date::text, to_char(now(), 'YYYY-MM-DD')), 720);
+
+  -- daily_movement_reports is a rolling snapshot uploaded every few minutes.
+  -- Notify only for payments that were not present in the previous snapshot;
+  -- payment_records contains manual website entries and is not fed by Ameen.
+  select coalesce(r.payload->'payments', '[]'::jsonb)
+    into previous_payments
+  from public.daily_movement_reports r
+  where r.report_date = new.report_date
+    and r.id <> new.id
+    and r.created_at < new.created_at
+  order by r.created_at desc
+  limit 1;
+
+  previous_payments := coalesce(previous_payments, '[]'::jsonb);
+
+  with new_payments as (
+    select p
+    from jsonb_array_elements(coalesce(new.payload->'payments', '[]'::jsonb)) p
+    where not exists (
+      select 1
+      from jsonb_array_elements(previous_payments) old_p
+      where old_p = p
+    )
+  )
+  select
+    count(*)::integer,
+    coalesce(sum(coalesce(nullif(p->>'amount', '')::numeric, nullif(p->>'paid', '')::numeric, 0)), 0),
+    coalesce(string_agg(
+      '• ' || coalesce(nullif(trim(p->>'customer'), ''), 'زبون غير محدد')
+      || ' — ' || to_char(coalesce(nullif(p->>'amount', '')::numeric, nullif(p->>'paid', '')::numeric, 0), 'FM999,999,990.00') || ' $'
+      || case when nullif(trim(p->>'notes'), '') is not null then chr(10) || '  ' || left(trim(p->>'notes'), 120) else '' end,
+      chr(10)
+      order by coalesce(nullif(p->>'amount', '')::numeric, nullif(p->>'paid', '')::numeric, 0) desc
+    ), '')
+  into payment_count, payment_total, payment_lines
+  from new_payments;
+
+  if payment_count > 0 then
+    perform public.notify_telegram(
+      'ameen_payment',
+      left(
+        '💵 دفعات جديدة من الأمين — ' || coalesce(to_char(new.report_date, 'YYYY-MM-DD'), 'بدون تاريخ')
+        || chr(10) || 'العدد: ' || payment_count
+        || ' — الإجمالي: ' || to_char(payment_total, 'FM999,999,990.00') || ' $'
+        || chr(10) || chr(10) || payment_lines,
+        3900
+      ),
+      'ameen-payments:' || coalesce(new.report_date::text, to_char(now(), 'YYYY-MM-DD'))
+        || ':' || md5(coalesce((new.payload->'payments')::text, '[]')),
+      1440
+    );
+  end if;
+
   return null;
 end;
 $$;
