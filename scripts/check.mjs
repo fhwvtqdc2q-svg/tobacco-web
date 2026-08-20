@@ -342,12 +342,30 @@ for (const contract of [
   "data-published-exchange-rate",
   "inputs: { rate: String(rate) }",
   "loadPublishedExchangeRate",
+  "function storeSyriaExchangeRate",
+  "function capturePublishedExchangeRate",
   "writeJson(\"syria-exchange-rate\", rate)",
-  "scheduleBulletinPublish({ label:"
+  "scheduleBulletinPublish({ label:",
+  'const REPO = "ozkkhallouf-ux/tobacco-web"'
 ]) {
   if (!app.includes(contract)) {
     console.error(`Daily exchange-rate contract is missing: ${contract}`);
     failed = true;
+  }
+}
+
+{
+  const freshPreviewFunction = app.match(/async function openFreshPricePreview\(useSyria = false\) \{[\s\S]*?\n\}/)?.[0];
+  if (!freshPreviewFunction) {
+    console.error("Could not isolate openFreshPricePreview for the exchange-rate regression check.");
+    failed = true;
+  } else {
+    const captureIndex = freshPreviewFunction.indexOf("capturePublishedExchangeRate()");
+    const saveIndex = freshPreviewFunction.indexOf("await savePendingPricingEdits()");
+    if (captureIndex === -1 || saveIndex === -1 || captureIndex > saveIndex) {
+      console.error("The visible Syrian exchange rate must be captured before pricing saves can re-render the page.");
+      failed = true;
+    }
   }
 }
 for (const contract of [

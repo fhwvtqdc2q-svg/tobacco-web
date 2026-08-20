@@ -2371,6 +2371,21 @@ function refreshBulletinStatusNotice() {
   element.textContent = state.bulletinStatus.msg || "";
 }
 
+function storeSyriaExchangeRate(value) {
+  const rate = Number(value);
+  if (!Number.isFinite(rate) || rate <= 0) return null;
+  state.syriaExchangeRate = rate;
+  writeJson("syria-exchange-rate", rate);
+  return rate;
+}
+
+// نلتقط قيمة الحقل المرئية قبل أي حفظ قد يعيد رسم صفحة التسعير.
+// بهذا تبقى المعاينة وPDF والنشر على نفس سعر الصرف الذي كتبه المستخدم الآن.
+function capturePublishedExchangeRate() {
+  const rateInput = app.querySelector("[data-published-exchange-rate]");
+  return storeSyriaExchangeRate(rateInput?.value ?? state.syriaExchangeRate);
+}
+
 function scheduleBulletinPublish(options = {}) {
   clearTimeout(bulletinPublishTimer);
   const label = options.label || "السعر";
@@ -2388,17 +2403,14 @@ function scheduleBulletinPublish(options = {}) {
 
 async function publishBulletin(options = {}) {
   clearTimeout(bulletinPublishTimer);
-  const REPO = "fhwvtqdc2q-svg/tobacco-web";
+  const REPO = "ozkkhallouf-ux/tobacco-web";
   const WORKFLOW = "generate-price-lists.yml";
-  const rateInput = document.querySelector("[data-published-exchange-rate]");
-  const rate = Number(rateInput?.value || state.syriaExchangeRate || 0);
-  if (!Number.isFinite(rate) || rate <= 0) {
+  const rate = capturePublishedExchangeRate();
+  if (rate === null) {
     setNotice("error", "أدخل سعر صرف صحيح قبل نشر النشرة.");
     render();
     return;
   }
-  state.syriaExchangeRate = rate;
-  writeJson("syria-exchange-rate", rate);
 
   let token = localStorage.getItem("gh_publish_token");
   if (!token) {
@@ -2552,7 +2564,21 @@ async function savePendingPricingEdits() {
 }
 
 async function openFreshPricePreview(useSyria = false) {
-  if (!(await savePendingPricingEdits())) return;
+  // يجب التقاط السعر قبل savePendingPricingEdits لأن حفظ صنف واحد قد يستدعي
+  // render ويستبدل الحقل المرئي بنسخة state القديمة.
+  if (useSyria && app.querySelector("[data-published-exchange-rate]")) {
+    const rate = capturePublishedExchangeRate();
+    if (rate === null) {
+      setNotice("error", "أدخل سعر صرف صحيحاً أكبر من صفر قبل معاينة النشرة السورية.");
+      render();
+      return;
+    }
+    state.syriaRateConfirmed = true;
+  }
+  if (!(await savePendingPricingEdits())) {
+    if (useSyria) state.syriaRateConfirmed = false;
+    return;
+  }
   openPricePreview(useSyria);
 }
 
@@ -9432,8 +9458,14 @@ function render() {
     if (form) {
       form.addEventListener("submit", async (e) => {
         e.preventDefault();
-        state.syriaExchangeRate = Number(document.getElementById("exchange-input").value) || 1;
-        writeJson("syria-exchange-rate", state.syriaExchangeRate);
+        const input = document.getElementById("exchange-input");
+        const rate = storeSyriaExchangeRate(input.value);
+        if (rate === null) {
+          input.setCustomValidity("أدخل سعر صرف صحيحاً أكبر من صفر.");
+          input.reportValidity();
+          return;
+        }
+        input.setCustomValidity("");
         state.syriaRateConfirmed = true;
         state.showExchangeModal = false;
         openPricePreview(true);
@@ -10137,21 +10169,15 @@ function render() {
   app.querySelector("[data-action='publish-bulletin']")?.addEventListener("click", publishBulletin);
   const publishedExchangeRateInput = app.querySelector("[data-published-exchange-rate]");
   publishedExchangeRateInput?.addEventListener("input", (event) => {
-    const rate = Number(event.currentTarget.value || 0);
-    if (rate > 0) {
-      state.syriaExchangeRate = rate;
-      writeJson("syria-exchange-rate", rate);
-    }
+    storeSyriaExchangeRate(event.currentTarget.value);
   });
   publishedExchangeRateInput?.addEventListener("change", (event) => {
-    const rate = Number(event.currentTarget.value || 0);
-    if (!Number.isFinite(rate) || rate <= 0) {
+    const rate = storeSyriaExchangeRate(event.currentTarget.value);
+    if (rate === null) {
       state.bulletinStatus = { type: "error", msg: "أدخل سعر صرف صحيحاً أكبر من صفر." };
       refreshBulletinStatusNotice();
       return;
     }
-    state.syriaExchangeRate = rate;
-    writeJson("syria-exchange-rate", rate);
     scheduleBulletinPublish({ label: `سعر الصرف ${rate.toLocaleString()}`, cloudFallback: false });
     // لا نعيد رسم الصفحة هنا: إعادة الرسم أثناء blur كانت تستبدل زر المعاينة
     // أو النشر قبل وصول click إليه، فتضيع النقرة الأولى للمستخدم.
