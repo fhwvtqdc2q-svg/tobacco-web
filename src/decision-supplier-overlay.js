@@ -64,7 +64,7 @@
         note.className = "decision-note supplier-obligation-source-note";
         section.appendChild(note);
       }
-      note.textContent = "مصدر الرصيد: cu000 في أمين، والحساب الحالي هو Credit - Debit للموردين الذين لديهم فواتير شراء. القيم الموسومة «عملة أمين» لا تُعرض كدولار قبل تثبيت عملة الحساب من أمين.";
+      note.textContent = "مصدر الرصيد: الحساب المحاسبي الفعلي ac000 في أمين بعملة الأساس (دولار)، والحساب هو Credit - Debit للموردين الذين لديهم فواتير شراء. تتجدد البيانات تلقائياً كل 5 دقائق.";
     } catch (error) {
       console.error("[OZK Supplier Obligations]", error);
     }
@@ -80,4 +80,5 @@
   }
 
   setTimeout(paintSupplierObligations, 0);
+  setInterval(paintSupplierObligations, 60 * 1000);
 })();
