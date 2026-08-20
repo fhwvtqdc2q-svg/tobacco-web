@@ -2242,7 +2242,43 @@ function pricePdfPages(groups) {
     pages.push({ columns: [right, left], special: true });
   }
 
-  return pages.filter((page) => page.columns.some((column) => column.length));
+  const visiblePages = pages.filter((page) => page.columns.some((column) => column.length));
+  const lastGeneralPage = [...visiblePages].reverse().find((page) => !page.special);
+  if (lastGeneralPage) balanceLastPricePdfPage(lastGeneralPage);
+  return visiblePages;
+}
+
+// الصفحة العامة الأخيرة قد تحتوي أقل من عمود كامل، فيترك المولد القديم نصف A4 أبيض.
+// نقسم صفوفها بين العمودين مع تكرار عنوان المجموعة عند استمرارها في العمود الثاني.
+function balanceLastPricePdfPage(page) {
+  const rows = [...page.columns[0], ...page.columns[1]];
+  const itemCount = rows.filter((row) => row.type === "item").length;
+  if (itemCount < 8) return;
+
+  const totalUnits = rows.reduce((sum, row) => sum + (row.type === "group" ? 1.4 : pricePdfItemUnits(row.item)), 0);
+  const targetUnits = totalUnits / 2;
+  let usedUnits = 0;
+  let splitIndex = rows.length;
+  let activeGroup = "";
+  let splitGroup = "";
+  for (let index = 0; index < rows.length; index++) {
+    const row = rows[index];
+    if (row.type === "group") activeGroup = row.name;
+    const units = row.type === "group" ? 1.4 : pricePdfItemUnits(row.item);
+    if (usedUnits > 0 && usedUnits + units > targetUnits) {
+      splitIndex = index;
+      splitGroup = activeGroup;
+      break;
+    }
+    usedUnits += units;
+  }
+  while (splitIndex < rows.length && rows[splitIndex]?.type === "group") splitIndex++;
+  if (splitIndex <= 1 || splitIndex >= rows.length) return;
+
+  const right = rows.slice(0, splitIndex);
+  const left = rows.slice(splitIndex);
+  if (left[0]?.type === "item" && splitGroup) left.unshift({ type: "group", name: splitGroup });
+  page.columns = [right, left];
 }
 
 function pricePdfPage(page, index, totalPages, pdfTitle = "قائمة أسعار OZK TOBACCO") {
@@ -4108,6 +4144,12 @@ async function createPortablePdfBlob(bodyHtml, filename, options = {}) {
       }
     }).from(source);
 
+    // نطبّق القص بعد أن يضيف html2pdf حشوات فواصل الصفحات داخل نسخته المستنسخة؛
+    // القياس قبل هذه المرحلة لا يرى انتقال التذييل وحده إلى صفحة رابعة.
+    await worker.toContainer();
+    const renderContainer = worker.prop && worker.prop.container;
+    const renderSource = renderContainer?.querySelector(".ozk-rpt") || renderContainer?.firstElementChild || renderContainer;
+    if (renderSource) trimTrailingPortablePdfDecorations(renderSource, options.margin || [8, 8, 8, 8]);
     await worker.toCanvas();
     const canvas = (worker.prop && worker.prop.canvas) || worker.canvas;
     if (!canvas || canvasInkRatio(canvas) <= 0.001) {
@@ -4123,6 +4165,40 @@ async function createPortablePdfBlob(bodyHtml, filename, options = {}) {
   } finally {
     container.remove();
   }
+}
+
+// إذا بدأ التذييل الزخرفي وحده في صفحة جديدة نخفيه من نسخة الهاتف؛ إبقاؤه كان يصنع
+// صفحة A4 بيضاء تقريباً لا تحمل أي فاتورة أو حركة أو قيمة مفيدة.
+function trimTrailingPortablePdfDecorations(source, margin) {
+  const values = Array.isArray(margin) ? margin.map(Number) : [Number(margin) || 0];
+  const top = values[0] || 0;
+  const right = values.length > 1 ? values[1] || 0 : top;
+  const bottom = values.length > 2 ? values[2] || 0 : top;
+  const left = values.length > 3 ? values[3] || 0 : right;
+  const sourceRect = source.getBoundingClientRect();
+  const innerWidthMm = 210 - left - right;
+  const innerHeightMm = 297 - top - bottom;
+  if (!(sourceRect.width > 0 && innerWidthMm > 0 && innerHeightMm > 0)) return;
+  const pageHeight = sourceRect.width * innerHeightMm / innerWidthMm;
+  const contentNodes = [...source.querySelectorAll("tr,.rhead,.balbox,.cards,.stamp-wrap")];
+
+  [...source.querySelectorAll(".rfoot")].reverse().forEach((footer) => {
+    const footerRect = footer.getBoundingClientRect();
+    const footerTop = footerRect.top - sourceRect.top;
+    const pageStart = Math.floor((footerTop + 1) / pageHeight) * pageHeight;
+    const startsNearPageTop = footerTop - pageStart < pageHeight * 0.14;
+    const hasUsefulContentOnPage = contentNodes.some((node) => {
+      const rect = node.getBoundingClientRect();
+      const nodeTop = rect.top - sourceRect.top;
+      const nodeBottom = rect.bottom - sourceRect.top;
+      return nodeBottom > pageStart + 2 && nodeTop < footerTop - 2;
+    });
+    if (startsNearPageTop && !hasUsefulContentOnPage) {
+      footer.style.display = "none";
+      source.style.height = `${Math.max(1, Math.floor(pageStart - 1))}px`;
+      source.style.overflow = "hidden";
+    }
+  });
 }
 
 // الطباعة تتم داخل الصفحة نفسها عبر iframe مخفي، لا عبر window.open.

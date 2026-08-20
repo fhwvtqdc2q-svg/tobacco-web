@@ -498,6 +498,8 @@ const appJs = readFileSync("src/app.js", "utf8");
 for (const contract of [
   "function presentPortablePdf(blob, filename, title)",
   "async function createPortablePdfBlob(bodyHtml, filename, options = {})",
+  "trimTrailingPortablePdfDecorations",
+  "balanceLastPricePdfPage",
   'data-pdf-share',
   'navigator.share({ files: [file]',
   'blob.type !== "application/pdf"',
