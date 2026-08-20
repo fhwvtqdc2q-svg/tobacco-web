@@ -2454,14 +2454,47 @@ function openPricePreview(useSyria = false) {
   render();
 }
 
-// الطباعة وPDF يجب أن يعكسا ما كتبه المستخدم الآن، حتى لو انتقل مباشرةً
-// من حقل السعر إلى زر المعاينة قبل الضغط على «حفظ السعر».
+function pricingRowTimestamp(row) {
+  const value = row?.updatedAt || row?.approvedAt || row?.updated_at || row?.approved_at || row?.createdAt || row?.created_at || "";
+  const timestamp = Date.parse(value);
+  return Number.isFinite(timestamp) ? timestamp : 0;
+}
+
+function newestApprovedPriceForKeys(keys) {
+  const wanted = new Set((keys || []).filter(Boolean));
+  return (state.approvedPriceItems || []).reduce((newest, row) => {
+    if (!wanted.has(row.itemKey)) return newest;
+    return !newest || pricingRowTimestamp(row) > pricingRowTimestamp(newest) ? row : newest;
+  }, null);
+}
+
+function pricingFormNeedsSave(form) {
+  if (form.dataset.dirty === "true") return true;
+  let sourceKeys = [];
+  try {
+    sourceKeys = JSON.parse(form.dataset.sourceKeys || "[]").filter(Boolean);
+  } catch {
+    sourceKeys = [];
+  }
+  const saved = newestApprovedPriceForKeys([form.dataset.itemKey || "", ...sourceKeys]);
+  const wholesaleText = formValue(form, "wholesalePrice");
+  const retailText = formValue(form, "retailPrice");
+  const wholesale = toPositivePrice(wholesaleText);
+  const retail = toPositivePrice(retailText);
+  return (wholesaleText !== "" && !samePrice(wholesale, Number(saved?.unit2Price || 0))) ||
+    (retailText !== "" && !samePrice(retail, Number(saved?.pricePayload?.retail?.price || 0)));
+}
+
+// الطباعة وPDF يجب أن يعكسا ما كتبه المستخدم الآن، حتى لو لم يطلق المتصفح
+// حدث input أو انتقل المستخدم مباشرةً من الحقل إلى زر المعاينة.
 async function savePendingPricingEdits() {
-  const pendingForms = [...app.querySelectorAll("[data-form='pricing-item'][data-dirty='true']")];
+  const pendingForms = [...app.querySelectorAll("[data-form='pricing-item']")].filter(pricingFormNeedsSave);
   for (const form of pendingForms) {
     const saved = await savePricingItem(form);
     if (!saved) return false;
   }
+  // نبني المعاينة من تأكيد القاعدة بعد الحفظ، لا من نسخة state سابقة.
+  await loadApprovedPriceItems();
   return true;
 }
 
@@ -3204,17 +3237,31 @@ function itemUnit2Factor(item) {
 }
 
 function itemUnit2Price(item) {
-  const savedUnit2Price = Number(item?.unit2Price || item?.approvedPrice?.unit2Price || 0);
+  // السعر المعتمد هو مصدر النشرة. تقرير المخزون قد يحمل لقطة سعر أقدم، لذلك
+  // لا يجوز أن يتغلب item.unit2Price على آخر سعر حُفظ في approved_price_items.
+  const approvedPrice = item?.approvedPrice || null;
+  const approvedUnit2Price = Number(approvedPrice?.unit2Price);
+  const savedUnit2Price = approvedPrice && Number.isFinite(approvedUnit2Price)
+    ? approvedUnit2Price
+    : Number(item?.unit2Price || 0);
   if (savedUnit2Price > 0) return roundPrice(savedUnit2Price);
-  const unit1Price = Number(item?.salePrice || item?.approvedPrice?.salePrice || 0);
+  const unit1Price = approvedPrice
+    ? Number(approvedPrice.salePrice || approvedPrice.unit1Price || 0)
+    : Number(item?.salePrice || item?.unit1Price || 0);
   return unit1Price > 0 ? roundPrice(unit1Price * itemUnit2Factor(item)) : 0;
 }
 
 function itemUnit1PriceFromSecondUnit(item) {
-  const unit2Price = Number(item?.unit2Price || item?.approvedPrice?.unit2Price || 0);
+  const approvedPrice = item?.approvedPrice || null;
+  const approvedUnit2Price = Number(approvedPrice?.unit2Price);
+  const unit2Price = approvedPrice && Number.isFinite(approvedUnit2Price)
+    ? approvedUnit2Price
+    : Number(item?.unit2Price || 0);
   const unit2Factor = itemUnit2Factor(item);
   if (unit2Price > 0 && unit2Factor > 0) return roundPrice(unit2Price / unit2Factor);
-  return roundPrice(Number(item?.salePrice || item?.approvedPrice?.salePrice || item?.unit1Price || item?.approvedPrice?.unit1Price || 0));
+  return roundPrice(approvedPrice
+    ? Number(approvedPrice.salePrice || approvedPrice.unit1Price || 0)
+    : Number(item?.salePrice || item?.unit1Price || 0));
 }
 
 function isNegativeItem(item) {
