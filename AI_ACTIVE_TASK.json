@@ -1,12 +1,14 @@
 {
   "schemaVersion": 1,
-  "status": "idle",
-  "owner": null,
-  "task": null,
-  "branch": null,
-  "files": [],
-  "startedAt": null,
-  "updatedAt": "2026-08-20T11:05:41Z",
+  "status": "active",
+  "owner": "Codex",
+  "task": "منع تعليق الموقع عند انقطاع Supabase وإضافة إعادة محاولة آمنة",
+  "branch": "task branch pending for: منع تعليق الموقع عند انقطاع Supabase وإضافة إعادة محاولة آمنة",
+  "files": [
+    "src/app.js,index.html,public/service-worker.js,scripts/check.mjs"
+  ],
+  "startedAt": "2026-08-20T11:28:37Z",
+  "updatedAt": "2026-08-20T11:28:37Z",
   "pr": 66,
-  "note": "No active task. Read AI_HANDOFF.md before starting work."
+  "note": "Work in progress. Do not edit the reserved files."
 }
