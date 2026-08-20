@@ -2,6 +2,15 @@
 
 يقرأه Claude وCodex قبل كل مهمة. أحدث سجل يكون في الأعلى. لا تحذف السجلات السابقة.
 
+## 2026-08-20 - Codex - إصلاح سعر الصرف وخيارات ألوان النشرة
+
+- Status: completed
+- Branch: `codex/fix-bulletin-rate-theme`
+- PR: #92
+- Merge commit: `3303de22ed11aff9b73d8e179123708aba8f1abf`
+- Files: src/app.js,scripts/generate-price-lists.mjs,scripts/check.mjs,index.html,public/service-worker.js
+- Result: تم دمج PR #92 ونشر الاختيار الداكن والفاتح وحماية السعر المحلي من الرجوع وإضافة بصمة محتوى لملفات PDF. npm run check ناجح، فحص PDF بصري ناجح، PRICE_VERIFY mismatches=0 missing=0، والتحقق الحي ناجح.
+- Handoff UTC: 2026-08-20T13:23:00Z
 ## 2026-08-20 - Codex - توحيد معاينة PDF مع تصميم النشرة الجديدة
 
 - Status: completed
