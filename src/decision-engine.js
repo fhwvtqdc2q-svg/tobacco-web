@@ -22,7 +22,7 @@
     return Array.isArray(reports[0]?.items) ? reports[0].items : [];
   }
 
-  const customerKey = (row) => String(row?.customerKey || row?.customer_key || row?.key || row?.guid || row?.name || "");
+  const customerKey = (row) => String(row?.customerKey || row?.customer_key || row?.key || row?.customerGuid || row?.customer_guid || row?.customerAccountGuid || row?.customer_account_guid || row?.guid || row?.name || "");
   const customerName = (row) => String(row?.name || row?.customerName || row?.customer_name || "زبون");
   const customerBalance = (row) => num(row?.balance ?? row?.debit ?? row?.amount ?? row?.remaining ?? 0);
 
@@ -30,31 +30,41 @@
     const key = customerKey(row);
     const name = customerName(row).trim().toLowerCase();
     const limits = Array.isArray(state?.customerCreditLimits) ? state.customerCreditLimits : [];
-    const match = limits.find((x) => String(x.customerKey || "") === key)
-      || limits.find((x) => String(x.customerName || "").trim().toLowerCase() === name);
-    return num(match?.creditLimit || 0);
+    const match = limits.find((x) => String(x.customerKey || x.customer_key || "") === key)
+      || limits.find((x) => String(x.customerName || x.customer_name || "").trim().toLowerCase() === name);
+    const approvedLimit = num(match?.creditLimit ?? match?.credit_limit ?? 0);
+    if (approvedLimit > 0) {
+      return { amount: approvedLimit, source: "approved", updatedAt: match?.updatedAt || match?.updated_at || null };
+    }
+    const ameenLimit = num(row?.creditLimit ?? row?.credit_limit ?? 0);
+    if (ameenLimit > 0) return { amount: ameenLimit, source: "ameen", updatedAt: null };
+    return { amount: 0, source: "missing", updatedAt: null };
   }
 
   function customerRiskRows() {
+    const order = { red: 0, orange: 1, unknown: 2, yellow: 3, green: 4 };
     return balanceItems().map((row) => {
       const balance = Math.max(0, customerBalance(row));
-      const limit = creditLimitFor(row);
-      const ratio = limit > 0 ? balance / limit : 0;
-      let score = balance > 0 ? Math.min(45, Math.round(Math.log10(balance + 1) * 10)) : 0;
-      if (limit > 0) score += Math.min(55, Math.round(ratio * 55));
-      if (ratio >= 1.25) score = Math.max(score, 95);
-      else if (ratio >= 1) score = Math.max(score, 85);
-      else if (ratio >= 0.9) score = Math.max(score, 70);
-      const level = score >= 85 ? "red" : score >= 65 ? "orange" : score >= 40 ? "yellow" : "green";
-      return { name: customerName(row), balance, limit, score, level };
-    }).filter((row) => row.balance > 0).sort((a, b) => b.score - a.score || b.balance - a.balance);
+      const credit = creditLimitFor(row);
+      const limit = credit.amount;
+      const ratio = limit > 0 ? balance / limit : null;
+      const overBy = ratio !== null ? Math.max(0, balance - limit) : null;
+      const available = ratio !== null ? Math.max(0, limit - balance) : null;
+      let level = "unknown";
+      if (ratio !== null && ratio >= 1) level = "red";
+      else if (ratio !== null && ratio >= 0.9) level = "orange";
+      else if (ratio !== null && ratio >= 0.75) level = "yellow";
+      else if (ratio !== null) level = "green";
+      return { name: customerName(row), balance, limit, ratio, overBy, available, level, limitSource: credit.source };
+    }).filter((row) => row.balance > 0).sort((a, b) => order[a.level] - order[b.level] || (b.ratio ?? -1) - (a.ratio ?? -1) || b.balance - a.balance);
   }
 
-  function collectionTarget(risks) {
-    const totalReceivables = risks.reduce((sum, row) => sum + row.balance, 0);
-    const riskyReceivables = risks.filter((row) => row.level === "red" || row.level === "orange").reduce((sum, row) => sum + row.balance, 0);
-    const minimum = Math.min(totalReceivables, Math.max(5000, Math.round(totalReceivables * 0.035), Math.round(riskyReceivables * 0.08)));
-    return { minimum, comfortable: Math.min(totalReceivables, Math.max(minimum, Math.round(minimum * 1.25))) };
+  function collectionFacts(risks) {
+    return {
+      totalReceivables: risks.reduce((sum, row) => sum + row.balance, 0),
+      overLimitTotal: risks.reduce((sum, row) => sum + (row.overBy || 0), 0),
+      missingLimitCount: risks.filter((row) => row.level === "unknown").length
+    };
   }
 
   function itemSnapshotRows() {
@@ -130,7 +140,7 @@
   }
 
   function riskBadge(level) {
-    const map = { red: ["خطر مرتفع", "danger"], orange: ["يحتاج تحصيل", "warning"], yellow: ["مراقبة", "pending"], green: ["طبيعي", "success"] };
+    const map = { red: ["متجاوز للحد", "danger"], orange: ["قريب من الحد", "warning"], unknown: ["حد غير محدد", "pending"], yellow: ["مراقبة", "pending"], green: ["ضمن الحد", "success"] };
     const [label, cls] = map[level] || map.green;
     return `<span class="status-chip decision-${cls}">${label}</span>`;
   }
@@ -153,28 +163,38 @@
     if (!state?.session) return shell(`<section class="panel"><h2>قرار اليوم</h2><p class="muted">سجّل الدخول أولاً لعرض قرارات السيولة والتحصيل والموردين.</p></section>`);
     if (!window.ozkCanAccessRoute?.(ROUTE)) return shell(`<section class="panel"><h2>غير متاح</h2><p class="muted">قرار اليوم متاح لحساب المالك فقط.</p></section>`);
     const risks = customerRiskRows();
-    const target = collectionTarget(risks);
+    const facts = collectionFacts(risks);
     const suppliers = supplierSignals();
     const purchase = purchaseSignals();
     const redCount = risks.filter((row) => row.level === "red").length;
     const urgentBuy = purchase.filter((row) => row.score >= 85).length;
 
-    const collectionRows = risks.slice(0, 10).map((row) => `<tr><td><strong>${escape(row.name)}</strong></td><td dir="ltr">${money(row.balance)}</td><td dir="ltr">${row.limit > 0 ? money(row.limit) : "—"}</td><td>${riskBadge(row.level)}</td><td>${row.level === "red" ? "تحصيل قبل أي بيع آجل جديد" : row.level === "orange" ? "اتصال وتحديد دفعة اليوم" : "متابعة عادية"}</td></tr>`).join("");
+    const collectionRows = risks.slice(0, 10).map((row) => {
+      const source = row.limitSource === "approved" ? "معتمد داخليًا" : row.limitSource === "ameen" ? "معتمد في أمين" : "";
+      const action = row.level === "unknown"
+        ? "تحديد حد معتمد قبل أي بيع آجل"
+        : row.level === "red"
+          ? `تحصيل ${money(row.overBy)} على الأقل قبل زيادة الآجل`
+          : row.level === "orange"
+            ? "متابعة التحصيل قبل بلوغ الحد"
+            : `متاح ضمن الحد: ${money(row.available)}`;
+      return `<tr><td><strong>${escape(row.name)}</strong></td><td dir="ltr">${money(row.balance)}</td><td dir="ltr">${row.limit > 0 ? `${money(row.limit)}<small class="muted" style="display:block">${escape(source)}</small>` : "غير محدد"}</td><td>${riskBadge(row.level)}</td><td>${action}</td></tr>`;
+    }).join("");
     const supplierRows = suppliers.map((row, index) => `<tr><td>${index + 1}</td><td><strong>${escape(row.name)}</strong></td><td dir="ltr">${row.complete ? money(row.total) : "غير متاح"}</td><td>${escape(row.knownCount)}/${escape(row.invoiceCount)}</td><td>${row.complete ? (index < 2 ? '<span class="status-chip decision-danger">أولوية عالية</span>' : '<span class="status-chip decision-pending">مراجعة</span>') : '<span class="status-chip decision-warning">بيانات ناقصة</span>'}</td></tr>`).join("");
     const purchaseRows = purchase.map((row) => `<tr><td><strong>${escape(row.name)}</strong></td><td dir="ltr">${escape(row.stock)}</td><td>${row.sold30d === null ? "—" : escape(row.sold30d)}</td><td><strong>${escape(row.score)}</strong>/100</td><td>${row.basis === "sales_velocity" ? (row.score >= 85 ? '<span class="status-chip decision-danger">عاجل</span>' : row.score >= 65 ? '<span class="status-chip decision-warning">قريب</span>' : '<span class="status-chip decision-success">مستقر</span>') : '<span class="status-chip decision-pending">تقدير احتياطي</span>'}</td></tr>`).join("");
 
     return shell(`
       <section class="panel wide decision-page">
         <div class="panel-title-row"><div><h2 style="margin:0">📌 قرار اليوم</h2><p class="muted" style="margin:4px 0 0">ملخص تنفيذي مبني على آخر بيانات متاحة.</p></div><span class="decision-live ${liveClass()}"><i class="decision-live-dot"></i>${escape(liveLabel())}</span></div>
-        <p class="decision-note"><strong>تنبيه:</strong> أرقام التحصيل والسيولة هنا نموذج أولي للمساعدة على المتابعة، وليست قرار سيولة نهائي بعد. لا تعتمدها وحدها للدفع أو الشراء قبل اكتمال ربط السيولة الفعلية والتزامات الموردين.</p>
+        <p class="decision-note"><strong>أساس الحساب:</strong> الرصيد المستحق = مجموع القيود المدينة (الفواتير والسحوبات) ناقص القيود الدائنة (القبض والدفعات) من حساب الزبون في أمين. الحد الائتماني سقف معتمد مستقل، ولا يتم تخمينه من حجم الرصيد أو تاريخ المبيعات.</p>
         <div class="decision-kpis">
-          <article class="decision-kpi"><small>الحد الأدنى التحليلي للتحصيل</small><strong dir="ltr">${money(target.minimum)}</strong><span>تقدير أولي لتخفيف ضغط الذمم</span></article>
-          <article class="decision-kpi"><small>الهدف التحليلي المريح</small><strong dir="ltr">${money(target.comfortable)}</strong><span>تقدير أولي وليس اعتماد دفع نهائي</span></article>
-          <article class="decision-kpi"><small>زبائن خطر مرتفع</small><strong>${redCount}</strong><span>يفضّل عدم زيادة الآجل</span></article>
+          <article class="decision-kpi"><small>إجمالي الرصيد المستحق</small><strong dir="ltr">${money(facts.totalReceivables)}</strong><span>فواتير وسحوبات ناقص القبض والدفعات</span></article>
+          <article class="decision-kpi"><small>التجاوز المؤكد للحدود</small><strong dir="ltr">${money(facts.overLimitTotal)}</strong><span>فقط للزبائن ذوي حد معتمد</span></article>
+          <article class="decision-kpi"><small>حدود ائتمانية غير محددة</small><strong>${facts.missingLimitCount}</strong><span>لا تُصنّف خطرًا بالتخمين</span></article>
           <article class="decision-kpi"><small>أصناف شراء عاجل</small><strong>${urgentBuy}</strong><span>عند توفر سرعة المبيع تكون هي أساس التقييم</span></article>
         </div>
       </section>
-      <section class="panel wide decision-section"><div class="panel-title-row"><div><h2 style="margin:0">💵 التحصيل والخطر الائتماني</h2></div><button class="button secondary" type="button" data-route="balances">فتح أرصدة الزبائن</button></div><div class="inv-table-wrap"><table class="inv-table"><thead><tr><th>الزبون</th><th>الرصيد</th><th>حد الائتمان</th><th>الحالة</th><th>الإجراء</th></tr></thead><tbody>${collectionRows || '<tr><td colspan="5" class="muted">لا توجد أرصدة مدينة متاحة حالياً.</td></tr>'}</tbody></table></div></section>
+      <section class="panel wide decision-section"><div class="panel-title-row"><div><h2 style="margin:0">💵 التحصيل والخطر الائتماني</h2></div><button class="button secondary" type="button" data-route="balances">فتح أرصدة الزبائن</button></div><div class="inv-table-wrap"><table class="inv-table"><thead><tr><th>الزبون</th><th>الرصيد</th><th>الحد المعتمد</th><th>الحالة</th><th>الإجراء</th></tr></thead><tbody>${collectionRows || '<tr><td colspan="5" class="muted">لا توجد أرصدة مدينة متاحة حالياً.</td></tr>'}</tbody></table></div></section>
       <section class="panel wide decision-section"><div class="panel-title-row"><div><h2 style="margin:0">🚚 أولوية الموردين</h2></div><button class="button secondary" type="button" data-route="purchases">فتح المشتريات</button></div><div class="inv-table-wrap"><table class="inv-table"><thead><tr><th>#</th><th>المورد</th><th>الالتزام المؤكد</th><th>بيانات الفواتير</th><th>الأولوية</th></tr></thead><tbody>${supplierRows || '<tr><td colspan="5" class="muted">لا تتوفر التزامات موردين كافية للحساب حالياً.</td></tr>'}</tbody></table></div></section>
       <section class="panel wide decision-section"><div class="panel-title-row"><div><h2 style="margin:0">📦 أولوية الأصناف</h2></div><button class="button secondary" type="button" data-route="warehouses">فتح المستودعات</button></div><div class="inv-table-wrap"><table class="inv-table"><thead><tr><th>الصنف</th><th>المخزون</th><th>مبيع 30 يوم</th><th>الأولوية</th><th>الحالة</th></tr></thead><tbody>${purchaseRows || '<tr><td colspan="5" class="muted">لا توجد أصناف معتمدة متاحة حالياً.</td></tr>'}</tbody></table></div><p class="decision-note">إذا لم تتوفر سرعة المبيع يظهر الصنف كـ «تقدير احتياطي» ولا يُعامل كتوصية شراء نهائية. التحديث يعمل تلقائياً كل دقيقة أثناء فتح الصفحة.</p></section>
     `);
@@ -225,7 +245,10 @@
 
   function syncRefreshTimer() {
     if (refreshTimer) { clearInterval(refreshTimer); refreshTimer = null; }
-    if (state?.route === ROUTE && state?.session && window.ozkCanAccessRoute?.(ROUTE)) refreshTimer = setInterval(refreshDecisionData, REFRESH_MS);
+    if (state?.route === ROUTE && state?.session && window.ozkCanAccessRoute?.(ROUTE)) {
+      refreshTimer = setInterval(refreshDecisionData, REFRESH_MS);
+      if (!lastRefreshAt && !refreshBusy) queueMicrotask(refreshDecisionData);
+    }
   }
 
   try {
