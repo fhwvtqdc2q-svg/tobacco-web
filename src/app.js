@@ -1057,7 +1057,7 @@ function customerProfile(key) {
   return state.customerProfiles.find((p) => p.customerKey === key) || null;
 }
 
-function printOverdueReport() {
+async function printOverdueReport() {
   const overdue = overdueCustomers();
   if (!overdue.length) {
     setNotice("error", "لا يوجد زبائن متأخرون حالياً.");
@@ -1092,12 +1092,29 @@ function printOverdueReport() {
       </table>
       <p style="margin-top:16px;font-size:0.82rem;color:#888">المجموع: ${overdue.length} زبون / أكثر من 7 أيام: ${overdue.filter((x) => x.daysSince !== null && x.daysSince >= 7).length}</p>
     </div>`;
+  const filename = `ozk-overdue-${new Date().toISOString().slice(0, 10)}.pdf`;
+  if (isHandheldDevice()) {
+    try {
+      const blob = await createPortablePdfBlob(html, filename, {
+        margin: [10, 15, 10, 15],
+        width: 760,
+        image: { type: "jpeg", quality: 0.95 }
+      });
+      presentPortablePdf(blob, filename, "تقرير الزبائن المتأخرين");
+      setNotice("success", "تم تجهيز التقرير كملف PDF. اضغط «مشاركة / حفظ في الملفات».");
+    } catch (error) {
+      setNotice("error", "تعذّر إنشاء ملف PDF: " + safeErrorMessage(error));
+    }
+    render();
+    return;
+  }
+
   const container = document.createElement("div");
   container.innerHTML = html;
   document.body.appendChild(container);
   window.html2pdf().set({
     margin: [10, 15, 10, 15],
-    filename: `ozk-overdue-${new Date().toISOString().slice(0, 10)}.pdf`,
+    filename,
     image: { type: "jpeg", quality: 0.95 },
     html2canvas: { scale: 2, useCORS: true },
     jsPDF: { unit: "mm", format: "a4", orientation: "portrait" }
@@ -2511,17 +2528,40 @@ function closePricePreview() {
 // يولّد ويحفظ ملف PDF من عناصر جاهزة
 async function exportBulletinPdf(items, latest, useSyria = false) {
   if (!items || !items.length || !window.html2pdf) return;
+  const filename = `ozk-${useSyria ? "mufrak-syp" : "jumla-usd"}-${todayIsoDate()}.pdf`;
+  const markup = customerPricePdfMarkup(items, latest, useSyria);
+
+  // iOS داخل الـPWA لا ينفّذ تنزيل html2pdf().save() بشكل موثوق. نولّد Blob
+  // حقيقياً ثم نعرض زر مشاركة مستقل؛ النقر على الزر يمنح Safari إيماءة مستخدم
+  // جديدة فيسمح بالحفظ في Files أو الإرسال عبر واتساب.
+  if (isHandheldDevice()) {
+    try {
+      const blob = await createPortablePdfBlob(markup, filename, {
+        margin: [4, 4, 4, 4],
+        width: 760,
+        image: { type: "jpeg", quality: 0.94 },
+        allowTaint: true,
+        pagebreak: { mode: ["css"] }
+      });
+      presentPortablePdf(blob, filename, useSyria ? "نشرة المفرّق (ليرة)" : "نشرة الجملة (دولار)");
+      setNotice("success", `تم تجهيز ${useSyria ? "نشرة المفرّق (ليرة)" : "نشرة الجملة (دولار)"} كملف PDF: ${items.length} صنف.`);
+    } catch (error) {
+      setNotice("error", safeErrorMessage(error) || "تعذر إنشاء ملف PDF.");
+    }
+    return;
+  }
+
   const container = document.createElement("div");
   container.style.width = "760px";
   container.style.backgroundColor = "#fff";
-  container.innerHTML = customerPricePdfMarkup(items, latest, useSyria);
+  container.innerHTML = markup;
   document.body.appendChild(container);
 
   try {
     await window
       .html2pdf()
       .set({
-        filename: `ozk-${useSyria ? "mufrak-syp" : "jumla-usd"}-${todayIsoDate()}.pdf`,
+        filename,
         margin: [4, 4, 4, 4],
         image: { type: "png", quality: 0.98 },
         html2canvas: { scale: 2, useCORS: true, backgroundColor: "#ffffff", allowTaint: true },
@@ -3962,6 +4002,129 @@ const REPORT_STYLE = `<style>
 .ozk-rpt .seal .s-addr{font-size:11px;font-weight:700;border-top:1px solid #16357a;margin-top:4px;padding-top:3px}
 </style>`;
 
+// واجهة موحّدة لملفات PDF على الهاتف. إبقاء الملف داخل نافذة التطبيق بعد
+// التوليد مهم: navigator.share يحتاج نقرة مستخدم جديدة بعد انتهاء html2canvas،
+// وإلا يرفض iOS المشاركة لأن عملية الرسم غير المتزامنة أنهت صلاحية النقرة الأولى.
+function presentPortablePdf(blob, filename, title) {
+  const previous = document.querySelector("[data-portable-pdf]");
+  if (previous && typeof previous.closePortablePdf === "function") previous.closePortablePdf();
+  else if (previous) previous.remove();
+
+  const url = URL.createObjectURL(blob);
+  const file = typeof File === "function"
+    ? new File([blob], filename, { type: "application/pdf" })
+    : null;
+  let canShareFile = false;
+  try {
+    canShareFile = Boolean(
+      file && navigator.share && navigator.canShare && navigator.canShare({ files: [file] })
+    );
+  } catch {
+    // بعض المتصفحات تعرّف canShare لكنها ترمي عند تمرير files؛ يبقى الفتح والتنزيل متاحين.
+  }
+  const dialog = document.createElement("div");
+  dialog.setAttribute("data-portable-pdf", "");
+  dialog.setAttribute("role", "dialog");
+  dialog.setAttribute("aria-modal", "true");
+  dialog.setAttribute("aria-label", title || "ملف PDF جاهز");
+  dialog.dir = "rtl";
+  dialog.style.cssText = "position:fixed;inset:0;z-index:100000;background:rgba(0,0,0,.82);display:grid;place-items:center;padding:12px";
+  dialog.innerHTML = `
+    <section style="width:min(760px,100%);height:min(92vh,900px);background:#fff;color:#241f18;border-radius:14px;display:flex;flex-direction:column;overflow:hidden;box-shadow:0 18px 60px rgba(0,0,0,.45)">
+      <header style="display:flex;align-items:center;justify-content:space-between;gap:10px;padding:12px 14px;border-bottom:1px solid #ded6c8">
+        <div><strong style="display:block">${escapeHtml(title || "ملف PDF جاهز")}</strong><small style="color:#6b6154">اختر مشاركة لحفظه في «الملفات» أو إرساله للزبون</small></div>
+        <button type="button" data-pdf-close aria-label="إغلاق" style="border:0;background:#eee7dc;border-radius:999px;width:38px;height:38px;font-size:22px">×</button>
+      </header>
+      <iframe src="${escapeHtml(url)}" title="معاينة ${escapeHtml(title || "PDF")}" style="flex:1;width:100%;border:0;background:#eee"></iframe>
+      <footer style="display:flex;flex-wrap:wrap;gap:8px;padding:12px 14px;border-top:1px solid #ded6c8">
+        <button type="button" data-pdf-share class="button primary" ${canShareFile ? "" : "hidden"}>مشاركة / حفظ في الملفات</button>
+        <a class="button secondary" href="${escapeHtml(url)}" download="${escapeHtml(filename)}">تنزيل PDF</a>
+        <a class="button secondary" href="${escapeHtml(url)}" target="_blank" rel="noopener">فتح PDF</a>
+      </footer>
+    </section>`;
+
+  let closed = false;
+  dialog.closePortablePdf = () => {
+    if (closed) return;
+    closed = true;
+    dialog.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  };
+  dialog.querySelector("[data-pdf-close]")?.addEventListener("click", dialog.closePortablePdf);
+  dialog.querySelector("[data-pdf-share]")?.addEventListener("click", async () => {
+    try {
+      // الاستدعاء يبدأ داخل معالج النقرة نفسه كي تبقى user activation فعالة على iOS.
+      await navigator.share({ files: [file], title: title || filename });
+    } catch (error) {
+      if (error && error.name === "AbortError") return;
+      setNotice("error", "تعذّرت المشاركة. استخدم «تنزيل PDF» أو «فتح PDF».");
+      render();
+    }
+  });
+  document.body.appendChild(dialog);
+}
+
+// يبني Blob PDF فعلياً من القالب الظاهر. نمرّر عنصر المحتوى لا الحاوية
+// الموضوعة خارج الشاشة كي لا يلتقط html2canvas لوحة بارتفاع صفر على الهاتف.
+async function createPortablePdfBlob(bodyHtml, filename, options = {}) {
+  if (!window.html2pdf) throw new Error("مكتبة PDF لم تتحمّل. حدّث الصفحة وجرّب مجدداً.");
+
+  const container = document.createElement("div");
+  container.style.cssText = `position:fixed;left:-10000px;top:0;width:${Number(options.width) || 794}px;background:#fff;z-index:-1`;
+  container.innerHTML = bodyHtml;
+  document.body.appendChild(container);
+  const source = [...container.children].find((element) => element.tagName !== "STYLE") || container;
+
+  // html2canvas قد يحذف المسافة العادية الملاصقة لكلمة عربية (مثل «رقم 1»
+  // فتصير «رقم1»). نثبّت مسافات عقد النص العربية فقط قبل الرسم؛ لا نغيّر HTML
+  // الأصلي ولا CSS ولا النصوص الإنكليزية الخالصة.
+  const textWalker = document.createTreeWalker(source, NodeFilter.SHOW_TEXT);
+  let textNode = textWalker.nextNode();
+  while (textNode) {
+    if (/[\u0600-\u06ff]/.test(textNode.nodeValue || "")) {
+      textNode.nodeValue = String(textNode.nodeValue || "").replace(/ /g, "\u00a0");
+    }
+    textNode = textWalker.nextNode();
+  }
+
+  try {
+    if (document.fonts && document.fonts.ready) await document.fonts.ready;
+    const worker = window.html2pdf().set({
+      margin: options.margin || [8, 8, 8, 8],
+      filename,
+      image: options.image || { type: "jpeg", quality: 0.96 },
+      html2canvas: {
+        scale: Number(options.scale) || 1.25,
+        useCORS: true,
+        backgroundColor: "#ffffff",
+        allowTaint: Boolean(options.allowTaint),
+        scrollX: 0,
+        scrollY: 0
+      },
+      jsPDF: { unit: "mm", format: "a4", orientation: "portrait" },
+      pagebreak: options.pagebreak || {
+        mode: ["css", "legacy"],
+        avoid: ["tr", ".rhead", ".balbox", ".cards", ".rfoot", ".stamp-wrap"]
+      }
+    }).from(source);
+
+    await worker.toCanvas();
+    const canvas = (worker.prop && worker.prop.canvas) || worker.canvas;
+    if (!canvas || canvasInkRatio(canvas) <= 0.001) {
+      throw new Error("خرجت صفحة PDF فارغة. أغلق التطبيق وافتحه ثم جرّب مجدداً.");
+    }
+    await worker.toPdf();
+    const pdf = worker.prop && worker.prop.pdf;
+    const blob = pdf ? pdf.output("blob") : await worker.outputPdf("blob");
+    if (!blob || blob.type !== "application/pdf" || blob.size < 4 * 1024) {
+      throw new Error(`خرج ملف PDF غير صالح (${Math.round((blob?.size || 0) / 1024)} ك.ب).`);
+    }
+    return blob;
+  } finally {
+    container.remove();
+  }
+}
+
 // الطباعة تتم داخل الصفحة نفسها عبر iframe مخفي، لا عبر window.open.
 // السبب: التطبيق مثبَّت كـPWA (display: standalone في manifest.webmanifest)،
 // وفي هذا الوضع تفتح window.open على iOS نافذةً بلا شريط متصفح — بلا زر رجوع
@@ -4023,6 +4186,17 @@ function printHtmlDocument(html, options = {}) {
 // ترسم التقرير مثل الشاشة تماماً (عربي وألوان مظبوطة) ومستحيل تطلع فاضية.
 async function exportReportPdf(bodyHtml, filename) {
   const title = String(filename || "تقرير").replace(/\.pdf$/i, "");
+  if (isHandheldDevice()) {
+    try {
+      const blob = await createPortablePdfBlob(bodyHtml, filename, { width: 794 });
+      presentPortablePdf(blob, filename, title);
+      return true;
+    } catch (error) {
+      setNotice("error", "تعذّر إنشاء ملف PDF: " + safeErrorMessage(error));
+      render();
+      return false;
+    }
+  }
   const doc =
     '<!doctype html><html lang="ar" dir="rtl"><head><meta charset="utf-8">' +
     '<base href="' + window.location.href + '">' +
@@ -4042,6 +4216,7 @@ async function exportReportPdf(bodyHtml, filename) {
   });
   setNotice("success", "اختر «حفظ بصيغة PDF» من نافذة الطباعة.");
   render();
+  return true;
 }
 
 // يجلب حركات الزبون الكاملة (من تقرير ameen_customer_movements) بمطابقة الاسم
@@ -4242,8 +4417,8 @@ async function exportCustomerStatementPdf() {
     return;
   }
   const safe = String(item.name || "customer").replace(/[^\p{L}\p{N}]+/gu, "_").slice(0, 40);
-  await exportReportPdf(customerStatementPdfMarkup(item), `كشف-حساب-${safe}-${todayIsoDate()}.pdf`);
-  setNotice("success", "تم تجهيز كشف الحساب PDF.");
+  const exported = await exportReportPdf(customerStatementPdfMarkup(item), `كشف-حساب-${safe}-${todayIsoDate()}.pdf`);
+  if (exported) setNotice("success", isHandheldDevice() ? "تم تجهيز كشف الحساب كملف PDF." : "تم تجهيز كشف الحساب PDF.");
   render();
 }
 
@@ -4346,8 +4521,8 @@ async function exportVoucherPdf(v) {
   const isRet = v.type === "return";
   const safe = String(v.name || (isInv ? "فاتورة" : (isRet ? "مرتجع" : (isPay ? "صرف" : "قبض")))).replace(/[^\p{L}\p{N}]+/gu, "_").slice(0, 40);
   const prefix = isInv ? "فاتورة" : (isRet ? "فاتورة-مرتجع" : (isPay ? "سند-صرف" : "سند-قبض"));
-  await exportReportPdf(voucherPdfMarkup(v), `${prefix}-${safe}-${todayIsoDate()}.pdf`);
-  setNotice("success", isInv ? "تم تجهيز الفاتورة PDF." : (isRet ? "تم تجهيز فاتورة المرتجع PDF." : (isPay ? "تم تجهيز سند الصرف PDF." : "تم تجهيز سند القبض PDF.")));
+  const exported = await exportReportPdf(voucherPdfMarkup(v), `${prefix}-${safe}-${todayIsoDate()}.pdf`);
+  if (exported) setNotice("success", isInv ? "تم تجهيز الفاتورة PDF." : (isRet ? "تم تجهيز فاتورة المرتجع PDF." : (isPay ? "تم تجهيز سند الصرف PDF." : "تم تجهيز سند القبض PDF.")));
   render();
 }
 
@@ -4400,8 +4575,8 @@ async function exportReceivablesPdf() {
     render();
     return;
   }
-  await exportReportPdf(receivablesPdfMarkup(), `تقرير-الذمم-${todayIsoDate()}.pdf`);
-  setNotice("success", "تم تجهيز تقرير الذمم PDF.");
+  const exported = await exportReportPdf(receivablesPdfMarkup(), `تقرير-الذمم-${todayIsoDate()}.pdf`);
+  if (exported) setNotice("success", "تم تجهيز تقرير الذمم PDF.");
   render();
 }
 
@@ -4627,8 +4802,8 @@ async function exportInventoryReportPdf() {
     render();
     return;
   }
-  await exportReportPdf(inventoryReportPdfMarkup(), `تقرير-المخزون-${todayIsoDate()}.pdf`);
-  setNotice("success", "تم تجهيز تقرير المخزون PDF.");
+  const exported = await exportReportPdf(inventoryReportPdfMarkup(), `تقرير-المخزون-${todayIsoDate()}.pdf`);
+  if (exported) setNotice("success", "تم تجهيز تقرير المخزون PDF.");
   render();
 }
 
@@ -4720,8 +4895,8 @@ async function exportStagnantMaterialsPdf() {
     render();
     return;
   }
-  await exportReportPdf(stagnantMaterialsPdfMarkup(), `المواد-الراكدة-${todayIsoDate()}.pdf`);
-  setNotice("success", "تم تجهيز تقرير المواد الراكدة PDF.");
+  const exported = await exportReportPdf(stagnantMaterialsPdfMarkup(), `المواد-الراكدة-${todayIsoDate()}.pdf`);
+  if (exported) setNotice("success", "تم تجهيز تقرير المواد الراكدة PDF.");
   render();
 }
 
@@ -6881,6 +7056,13 @@ async function saveSalesInvoicePdf() {
       return;
     }
 
+    if (isHandheldDevice()) {
+      presentPortablePdf(blob, fileName, `فاتورة مبيعات ${invNo}`);
+      setNotice("success", `تم تجهيز الفاتورة ${invNo} كملف PDF.`);
+      render();
+      return;
+    }
+
     const file = new File([blob], fileName, { type: "application/pdf" });
     // ورقة المشاركة أولاً: على iOS هي الطريق الوحيد العملي للحفظ في «الملفات»
     // أو الإرسال على واتساب. إن رفضها النظام (تنتهي صلاحية إيماءة المستخدم بعد
@@ -8148,8 +8330,8 @@ async function saveReconSessionPdf(session) {
   const warehouseName = session.warehouse_name || session.warehouseName || "مستودع";
   const sessionDate = session.session_date || session.sessionDate || todayIsoDate();
   const safe = String(warehouseName).replace(/[^\p{L}\p{N}]+/gu, "_").slice(0, 40);
-  await exportReportPdf(reconSessionPdfMarkup(session), `جرد-${safe}-${sessionDate}.pdf`);
-  setNotice("success", "تم تجهيز تقرير الجرد PDF.");
+  const exported = await exportReportPdf(reconSessionPdfMarkup(session), `جرد-${safe}-${sessionDate}.pdf`);
+  if (exported) setNotice("success", "تم تجهيز تقرير الجرد PDF.");
   render();
 }
 
