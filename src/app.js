@@ -2368,12 +2368,37 @@ function bulletinDisplayGroups(items, useSyria = false) {
 
 function customerPricePdfMarkup(items, latest, useSyria = false) {
   const groups = bulletinDisplayGroups(items, useSyria);
-  const pdfTitle = useSyria ? `نشرة المفرّق (بالليرة السورية) — صرف ${state.syriaExchangeRate}` : "نشرة الجملة (بالدولار)";
-  return `
-    <div class="price-pdf-book" dir="rtl" style="background:#fff;color:#000">
-      ${pricePdfBook(groups, pdfTitle)}
-    </div>
-  `;
+  const template = window.OZKPriceListTemplate;
+  if (!template) throw new Error("تعذر تحميل تصميم النشرة الجديدة. حدّث الصفحة وجرّب مجدداً.");
+  const templateGroups = groups.map((group) => ({
+    name: group.name,
+    items: group.items.map((item) => ({
+      name: item.name || "",
+      unit: item.unit2Name || item.unit1Name || "وحدة",
+      price: useSyria
+        ? `${Math.round(Number(item.unit2Price || 0)).toLocaleString("ar-SY")} ل.س`
+        : `${Number(item.unit2Price || item.unit1Price || 0).toFixed(2)} $`
+    }))
+  }));
+  const syriaFlag = '<span class="new-syria-flag" role="img" aria-label="علم سوريا الجديد"><span class="green"></span><span class="white">★★★</span><span class="black"></span></span>';
+  return template.render({
+    groups: templateGroups,
+    logoSrc: `${window.location.origin}/public/icons/ozk-logo.png`,
+    issueDate: new Date().toLocaleDateString("en-GB", { day: "2-digit", month: "long", year: "numeric" }),
+    badgeClass: useSyria ? "badge-syp" : "badge-usd",
+    badgeLabelHtml: useSyria
+      ? `${syriaFlag} ليرة — مفرق — صرف ${Number(state.syriaExchangeRate || 0).toLocaleString()}`
+      : "💵 دولار أمريكي — جملة",
+    unitLabel: useSyria ? "سعر المفرق للوحدة" : "سعر الكرتونة (جملة)",
+    theme: "dark"
+  });
+}
+
+function customerPriceTemplatePageCount(items, useSyria = false) {
+  const template = window.OZKPriceListTemplate;
+  if (!template) return 0;
+  const groups = bulletinDisplayGroups(items, useSyria).map((group) => ({ name: group.name, items: group.items }));
+  return template.pageCount(groups);
 }
 
 let bulletinPublishTimer = null;
@@ -2521,6 +2546,11 @@ function prepareBulletinItems(useSyria = false) {
     render();
     return null;
   }
+  if (!window.OZKPriceListTemplate) {
+    setNotice("error", "تصميم النشرة الجديدة لم يتحمّل. حدّث الصفحة وجرّب مرة أخرى.");
+    render();
+    return null;
+  }
   return { items, latest };
 }
 
@@ -2618,8 +2648,10 @@ async function exportBulletinPdf(items, latest, useSyria = false) {
   if (isHandheldDevice()) {
     try {
       const blob = await createPortablePdfBlob(markup, filename, {
-        margin: [4, 4, 4, 4],
-        width: 760,
+        margin: [0, 0, 0, 0],
+        width: 794,
+        scale: 2,
+        backgroundColor: "#0c0a07",
         image: { type: "jpeg", quality: 0.94 },
         allowTaint: true,
         pagebreak: { mode: ["css"] }
@@ -2633,8 +2665,8 @@ async function exportBulletinPdf(items, latest, useSyria = false) {
   }
 
   const container = document.createElement("div");
-  container.style.width = "760px";
-  container.style.backgroundColor = "#fff";
+  container.style.width = "794px";
+  container.style.backgroundColor = "#0c0a07";
   container.innerHTML = markup;
   document.body.appendChild(container);
 
@@ -2643,9 +2675,9 @@ async function exportBulletinPdf(items, latest, useSyria = false) {
       .html2pdf()
       .set({
         filename,
-        margin: [4, 4, 4, 4],
+        margin: [0, 0, 0, 0],
         image: { type: "png", quality: 0.98 },
-        html2canvas: { scale: 2, useCORS: true, backgroundColor: "#ffffff", allowTaint: true },
+        html2canvas: { scale: 2, useCORS: true, backgroundColor: "#0c0a07", allowTaint: true },
         jsPDF: { unit: "mm", format: "a4", orientation: "portrait" },
         pagebreak: { mode: ["css"] }
       })
@@ -4159,7 +4191,8 @@ async function createPortablePdfBlob(bodyHtml, filename, options = {}) {
   if (!window.html2pdf) throw new Error("مكتبة PDF لم تتحمّل. حدّث الصفحة وجرّب مجدداً.");
 
   const container = document.createElement("div");
-  container.style.cssText = `position:fixed;left:-10000px;top:0;width:${Number(options.width) || 794}px;background:#fff;z-index:-1`;
+  const backgroundColor = options.backgroundColor || "#ffffff";
+  container.style.cssText = `position:fixed;left:-10000px;top:0;width:${Number(options.width) || 794}px;background:${backgroundColor};z-index:-1`;
   container.innerHTML = bodyHtml;
   document.body.appendChild(container);
   const source = [...container.children].find((element) => element.tagName !== "STYLE") || container;
@@ -4185,7 +4218,7 @@ async function createPortablePdfBlob(bodyHtml, filename, options = {}) {
       html2canvas: {
         scale: Number(options.scale) || 1.25,
         useCORS: true,
-        backgroundColor: "#ffffff",
+        backgroundColor,
         allowTaint: Boolean(options.allowTaint),
         scrollX: 0,
         scrollY: 0
@@ -9503,7 +9536,7 @@ function render() {
 
   if (state.pricePreview?.open) {
     const { items, latest, useSyria } = state.pricePreview;
-    const pageCount = pricePdfPages(bulletinDisplayGroups(items, useSyria)).length;
+    const pageCount = customerPriceTemplatePageCount(items, useSyria);
     app.innerHTML = `
       <div class="modal-overlay" onclick="if(event.target === this){ state.pricePreview = null; render(); }">
         <div class="modal" style="max-width:920px;width:96vw;max-height:94vh;display:flex;flex-direction:column;gap:12px">

@@ -4,6 +4,7 @@ import vm from "node:vm";
 const required = [
   "index.html",
   "src/app.js",
+  "src/price-list-template.js",
   "src/config.js",
   "src/supabase-client.js",
   "src/number-normalizer.js",
@@ -121,6 +122,7 @@ if (!html.includes("frame-src 'self' blob:")) {
 
 const app = readFileSync("src/app.js", "utf8");
 const priceGenerator = readFileSync("scripts/generate-price-lists.mjs", "utf8");
+const priceListTemplateSource = readFileSync("src/price-list-template.js", "utf8");
 const usdBulletin = readFileSync("public/downloads/price-list-usd.html", "utf8");
 const sypBulletin = readFileSync("public/downloads/price-list-syp-14050.html", "utf8");
 const ameenSyncAgent = readFileSync("tools/ameen-sync-agent.ps1", "utf8");
@@ -391,6 +393,50 @@ for (const contract of [
 ]) {
   if (!app.includes(contract)) {
     console.error(`Instant bulletin print/export contract is missing: ${contract}`);
+    failed = true;
+  }
+}
+
+// المعاينة والمولّد العام يجب أن يستخدما القالب الجديد نفسه؛ وجود قالبين منفصلين
+// أعاد التصميم القديم إلى زر «حفظ التعديلات ومعاينة PDF الآن».
+for (const contract of [
+  "2026-08-20-new-bulletin",
+  "price-list-header-title",
+  "price-list-columns",
+  "price-list-group-header"
+]) {
+  if (!priceListTemplateSource.includes(contract)) {
+    console.error(`Shared price-list template contract is missing: ${contract}`);
+    failed = true;
+  }
+}
+if (!html.includes('src/price-list-template.js?v=') || html.indexOf("src/price-list-template.js") > html.indexOf("src/app.js")) {
+  console.error("The shared price-list template must load before app.js.");
+  failed = true;
+}
+if (!app.includes("template.render({") || !app.includes("customerPriceTemplatePageCount")) {
+  console.error("The in-app PDF preview must render and count pages through the shared new bulletin template.");
+  failed = true;
+}
+if (!priceGenerator.includes('import "../src/price-list-template.js"') || !priceGenerator.includes("priceListTemplate.render({")) {
+  console.error("The public bulletin generator must render through the same shared template as the in-app preview.");
+  failed = true;
+}
+{
+  const templateContext = vm.createContext({ console });
+  templateContext.globalThis = templateContext;
+  vm.runInContext(priceListTemplateSource, templateContext);
+  const templateApi = templateContext.OZKPriceListTemplate;
+  const sample = templateApi?.render?.({
+    groups: [{ name: "ماستر", items: [{ name: "صنف تجريبي", unit: "كرتونة", price: "10.00 $" }] }],
+    logoSrc: "logo.png",
+    issueDate: "20 August 2026",
+    badgeClass: "badge-usd",
+    badgeLabelHtml: "دولار",
+    unitLabel: "سعر الكرتونة (جملة)"
+  }) || "";
+  if (!sample.includes('class="ozk-price-list"') || !sample.includes("صنف تجريبي") || sample.includes("price-pdf-book")) {
+    console.error("The shared template did not render the new bulletin markup correctly.");
     failed = true;
   }
 }

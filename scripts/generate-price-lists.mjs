@@ -5,6 +5,7 @@
 import { readFileSync, writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, resolve } from "node:path";
+import "../src/price-list-template.js";
 
 const __dir = dirname(fileURLToPath(import.meta.url));
 const root  = resolve(__dir, "..");
@@ -567,80 +568,63 @@ const renderGroup = ([name, its], priceFormatter, unitFormatter = (item) => item
 </div>`;
 
 // ── بناء HTML ─────────────────────────────────────────────────────────────────
-const buildHtml = ({ pageItems, titleSuffix, badgeClass, badgeLabel, unitLabel, pdfFile, priceFormatter, unitFormatter = (item) => item.unit }) => `<!DOCTYPE html>
+const priceListTemplate = globalThis.OZKPriceListTemplate;
+if (!priceListTemplate) throw new Error("تعذر تحميل قالب النشرة المشترك.");
+
+const buildHtml = ({ pageItems, titleSuffix, badgeClass, badgeLabel, unitLabel, pdfFile, priceFormatter, unitFormatter = (item) => item.unit }) => {
+  const groups = buildGroups(pageItems).map(([name, items]) => ({
+    name,
+    items: items.map((item) => ({
+      name: item.name,
+      unit: unitFormatter(item),
+      price: priceFormatter(item)
+    }))
+  }));
+  const bulletinMarkup = priceListTemplate.render({
+    groups,
+    logoSrc,
+    issueDate,
+    badgeClass,
+    badgeLabelHtml: badgeLabel,
+    unitLabel,
+    tools: { pdfFile },
+    theme: "dark"
+  });
+  return `<!DOCTYPE html>
 <html dir="rtl" lang="ar">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>نشرة الأسعار ${titleSuffix} — ${isoDate}</title>
-<style>${CSS}</style>
+<style>html,body{margin:0;background:#0c0a07}body[data-theme="light"]{background:#fffdf8}</style>
 </head>
 <body>
-
-<div class="document-tools no-print">
-  <button type="button" onclick="window.print()">طباعة مباشرة</button>
-  <a data-pdf-open href="${pdfFile}">فتح PDF</a>
-  <a data-pdf-download href="${pdfFile}" download>تنزيل PDF</a>
-  <button class="theme-switch" type="button" onclick="toggleTheme()">فاتح / داكن</button>
-</div>
-
-<div class="header">
-  <img src="${logoSrc}" alt="OZK TOBACCO" class="header-logo">
-  <div class="header-center">
-    <div class="header-title">نشرة الأسعار</div>
-    <div class="header-date">${issueDate}</div>
-    <span class="currency-badge ${badgeClass}">${badgeLabel}</span>
-  </div>
-  <div class="header-right" aria-hidden="true"></div>
-</div>
-
-<div class="subheader">
-  <span>السعر المعروض: <strong>${unitLabel}</strong></span>
-  <div class="phones">
-    <span>0985000771</span>
-    <span>0984000662</span>
-    <span>مركز: 0994092038</span>
-    <span class="location">دوما – ساحة الغنم</span>
-  </div>
-</div>
-
-<div class="columns">
-  ${(() => {
-    const { right, left } = buildColumnLayout(pageItems);
-    const renderStack = (stack) => stack.map(g => renderGroup(g, priceFormatter, unitFormatter)).join("\n");
-    return `<div class="column-stack">${renderStack(right)}</div>\n<div class="column-stack">${renderStack(left)}</div>`;
-  })()}
-</div>
-
-${(() => {
-    const { specialRight, specialLeft } = buildColumnLayout(pageItems);
-    if (specialRight.length === 0 && specialLeft.length === 0) return "";
-    const renderStack = (stack) => stack.map(g => renderGroup(g, priceFormatter, unitFormatter)).join("\n");
-    return `<div class="columns secondary-page">\n<div class="column-stack">${renderStack(specialRight)}</div>\n<div class="column-stack">${renderStack(specialLeft)}</div>\n</div>`;
-  })()}
-
+${bulletinMarkup}
 <script>
+  const sheet = document.querySelector('.ozk-price-list');
   const savedTheme = localStorage.getItem('ozk-price-theme');
-  document.body.dataset.theme = savedTheme || 'dark';
+  sheet.dataset.theme = savedTheme || 'dark';
+  document.body.dataset.theme = sheet.dataset.theme;
   function selectedPdfFile() {
-    return document.body.dataset.theme === 'light' ? '${pdfFile.replace(".pdf", "-light.pdf")}' : '${pdfFile}';
+    return sheet.dataset.theme === 'light' ? '${pdfFile.replace(".pdf", "-light.pdf")}' : '${pdfFile}';
   }
   function syncPdfLinks() {
-    const pdfFile = selectedPdfFile();
-    document.querySelector('[data-pdf-open]').href = pdfFile;
-    document.querySelector('[data-pdf-download]').href = pdfFile;
+    const selected = selectedPdfFile();
+    document.querySelector('[data-pdf-open]').href = selected;
+    document.querySelector('[data-pdf-download]').href = selected;
   }
   function toggleTheme() {
-    const next = document.body.dataset.theme === 'light' ? 'dark' : 'light';
+    const next = sheet.dataset.theme === 'light' ? 'dark' : 'light';
+    sheet.dataset.theme = next;
     document.body.dataset.theme = next;
     localStorage.setItem('ozk-price-theme', next);
     syncPdfLinks();
   }
   syncPdfLinks();
 </script>
-
 </body>
-</html>`;
+</html>`.replace(/[ \t]+$/gm, "");
+};
 
 const newSyriaFlag = '<span class="new-syria-flag" role="img" aria-label="علم سوريا الجديد"><span class="green"></span><span class="white">★★★</span><span class="black"></span></span>';
 
