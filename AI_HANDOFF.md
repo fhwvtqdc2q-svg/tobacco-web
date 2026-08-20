@@ -2,6 +2,13 @@
 
 يقرأه Claude وCodex قبل كل مهمة. أحدث سجل يكون في الأعلى. لا تحذف السجلات السابقة.
 
+## 2026-08-20 - Codex - إصلاح تصدير PDF للنشرة ليستخدم الأسعار المعدلة فوراً
+
+- Status: completed
+- Branch: task branch pending for: إصلاح تصدير PDF للنشرة ليستخدم الأسعار المعدلة فوراً
+- Files: src/app.js,scripts/check.mjs,index.html,public/service-worker.js
+- Result: دُمج 0593f4d؛ نجحت فحوص المشروع والمتصفح، ونُشر tobacco-154 مع cache v541 وتحقق الموقع الحي.
+- Handoff UTC: 2026-08-20T10:10:23Z
 ## 2026-08-20 - Codex - إظهار شعار OZK في إشعارات iPhone
 
 - Status: completed
