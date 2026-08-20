@@ -114,6 +114,11 @@ if (!html.includes("number-normalizer.js")) {
   failed = true;
 }
 
+if (!html.includes("frame-src 'self' blob:")) {
+  console.error("index.html CSP must allow only same-origin/blob PDF previews inside the mobile file dialog.");
+  failed = true;
+}
+
 const app = readFileSync("src/app.js", "utf8");
 const priceGenerator = readFileSync("scripts/generate-price-lists.mjs", "utf8");
 const usdBulletin = readFileSync("public/downloads/price-list-usd.html", "utf8");
@@ -487,6 +492,37 @@ if (cacheVersion < 272) {
 // عقد تقرير المخزون: ترتيب النشرة، تصنيف حسب حركة المبيع، مجموعات ظاهرة،
 // وتصميم فاتح ثابت في الشاشة والطباعة.
 const appJs = readFileSync("src/app.js", "utf8");
+
+// تصدير الهاتف يجب أن ينشئ Blob PDF فعلياً لكل مسارات المستندات، ثم ينتظر
+// نقرة مشاركة جديدة حتى يقبل iOS الحفظ في Files بعد انتهاء الرسم غير المتزامن.
+for (const contract of [
+  "function presentPortablePdf(blob, filename, title)",
+  "async function createPortablePdfBlob(bodyHtml, filename, options = {})",
+  "trimTrailingPortablePdfDecorations",
+  "balanceLastPricePdfPage",
+  'data-pdf-share',
+  'navigator.share({ files: [file]',
+  'blob.type !== "application/pdf"',
+  'canvasInkRatio(canvas) <= 0.001',
+  'document.createTreeWalker(source, NodeFilter.SHOW_TEXT)',
+  '.replace(/ /g, "\\u00a0")'
+]) {
+  if (!appJs.includes(contract)) {
+    console.error(`Mobile PDF file contract is missing: ${contract}`);
+    failed = true;
+  }
+}
+for (const [name, pattern] of [
+  ["shared reports", /async function exportReportPdf[\s\S]{0,900}isHandheldDevice\(\)[\s\S]{0,900}createPortablePdfBlob/],
+  ["price bulletins", /async function exportBulletinPdf[\s\S]{0,1200}isHandheldDevice\(\)[\s\S]{0,900}createPortablePdfBlob/],
+  ["overdue report", /async function printOverdueReport[\s\S]{0,2600}isHandheldDevice\(\)[\s\S]{0,900}createPortablePdfBlob/],
+  ["current sales invoice", /async function saveSalesInvoicePdf[\s\S]{0,9000}isHandheldDevice\(\)[\s\S]{0,500}presentPortablePdf/]
+]) {
+  if (!pattern.test(appJs)) {
+    console.error(`Mobile PDF file path is missing for ${name}.`);
+    failed = true;
+  }
+}
 
 // نموذج الفاتورة يجب أن يبقي التركيز أثناء كتابة اسم الزبون، وأن يستخدم
 // أرقاماً إنجليزية في حقول الكمية والسعر مهما كانت لغة عرض ويندوز.
